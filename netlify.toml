@@ -10,12 +10,12 @@
   # without Supabase, Stripe, Shippo or Resend. With NEXT_PUBLIC_PREVIEW_MODE on,
   # every /api call returns "not functional yet" and private areas are closed
   # (see middleware.ts and lib/preview.ts).
-  # Before going live: delete this block and set the real values in
-  # Netlify > Site configuration > Environment variables.
+  # Supabase is NOT set here: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+  # and SUPABASE_SERVICE_ROLE_KEY come from Netlify > Site configuration >
+  # Environment variables (values in this file would override those). In
+  # preview mode Supabase is read-only (lib/preview.ts).
+  # Before going live: delete this block and set the real values in Netlify.
   NEXT_PUBLIC_PREVIEW_MODE = "true"
-  NEXT_PUBLIC_SUPABASE_URL = "https://preview.invalid"
-  NEXT_PUBLIC_SUPABASE_ANON_KEY = "preview-placeholder"
-  SUPABASE_SERVICE_ROLE_KEY = "preview-placeholder"
   STRIPE_SECRET_KEY = "sk_test_preview_placeholder"
   STRIPE_WEBHOOK_SECRET = "whsec_preview_placeholder"
   RESEND_API_KEY = "re_preview_placeholder"
