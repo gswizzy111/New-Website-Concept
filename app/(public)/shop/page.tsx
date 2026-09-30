@@ -3,7 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
 import { isSoldOut } from "@/lib/site-config";
-import { getTestimonials } from "@/lib/testimonials";
 
 export const dynamic = "force-dynamic";
 
@@ -139,14 +138,11 @@ function ProductSection({ title, products }: { title: string; products: Product[
 export default async function ShopPage() {
   const admin = createAdminClient();
 
-  const [{ data }, testimonials] = await Promise.all([
-    admin
-      .from("products")
-      .select("id, name, slug, description, price_cents, images, category, inventory_count")
-      .eq("active", true)
-      .order("display_order", { ascending: true }),
-    getTestimonials(),
-  ]);
+  const { data } = await admin
+    .from("products")
+    .select("id, name, slug, description, price_cents, images, category, inventory_count")
+    .eq("active", true)
+    .order("display_order", { ascending: true });
 
   const products: Product[] = (data ?? []) as Product[];
 
@@ -173,27 +169,6 @@ export default async function ShopPage() {
           <ProductSection title="Kits" products={kits} />
           <ProductSection title="Tools" products={tools} />
           <ProductSection title="Supplies" products={supplies} />
-        </div>
-      )}
-
-      {/* Testimonials */}
-      {testimonials.length > 0 && (
-        <div className="mt-20">
-          <div className="mb-8">
-            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
-          </div>
-          <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
-            {testimonials.map((t) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={t.id}
-                src={t.url}
-                alt={t.alt ?? "Customer review"}
-                loading="lazy"
-                className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
-              />
-            ))}
-          </div>
         </div>
       )}
     </div>
