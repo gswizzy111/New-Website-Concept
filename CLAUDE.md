@@ -1,8 +1,21 @@
-# New Website Concept
+# The Card Doc (redesign)
 
-A polished marketing website. No app code yet; the stack will be Next.js
-(App Router) + Tailwind v4 + shadcn/ui + Motion, deployed on Vercel, unless the
-user decides otherwise.
+@AGENTS.md
+
+Redesigned copy of The Card Doc site (source: `gswizzy111/card-restoration`,
+imported unchanged at commit 5019f00). Next.js 16 App Router, Tailwind v4,
+shadcn/ui, Supabase, Stripe, Shippo, Resend. Product facts live in
+`PRODUCT.md`; the visual system lives in `DESIGN.md` and `app/globals.css`.
+
+Rules for this repo:
+
+- **Appearance only.** Do not change logic, data, routes, prices, policies or
+  flows. **Never change the owner's wording**, including punctuation.
+- **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`, set in `netlify.toml`)
+  runs the site with no backend: `/api/*` returns "not functional yet",
+  private areas show `/not-available`, and Supabase queries fail instantly.
+  See `lib/preview.ts` and `middleware.ts`. Remove the placeholder block in
+  `netlify.toml` before any real launch.
 
 ## Design skills: who owns what
 
@@ -51,7 +64,7 @@ Other tie-breakers:
 - **Stack:** Tailwind v4 + shadcn/ui (customized, never default styling) +
   Motion (`motion/react`). Add GSAP only for real scroll pinning or scrubbing,
   and never mix it with Motion in the same component.
-- **Icons:** one library per project (Phosphor by default).
+- **Icons:** one library per project: `lucide-react` (already used here), stroke 1.75.
 - **Polish in bounded passes:** build, check once at both widths, fix
   everything in one batch, check at most once more, stop.
 
@@ -59,6 +72,6 @@ Other tie-breakers:
 
 - Impeccable's automatic hooks are not committed. Enable per machine with
   `/impeccable hooks on` (writes the gitignored `.claude/settings.local.json`).
-- `playwright-cli` needs the `@playwright/cli` package; add it as a dev
-  dependency when the app is scaffolded. In cloud sessions Chromium is
+- `playwright-cli` needs the `@playwright/cli` package (not installed yet).
+  In cloud sessions Chromium is
   preinstalled at `/opt/pw-browsers`; do not run `playwright install`.

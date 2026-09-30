@@ -115,9 +115,8 @@ export default async function HomePage() {
                   fetchPriority="high"
                 />
               </div>
-              <figcaption className="bg-rx px-4 py-2 flex items-center justify-between">
+              <figcaption className="bg-rx px-4 py-2">
                 <span className="rx-label text-primary-foreground">The Card Doc</span>
-                <Microscope className="h-3.5 w-3.5 text-primary-foreground/80" strokeWidth={1.75} aria-hidden />
               </figcaption>
             </div>
           </figure>

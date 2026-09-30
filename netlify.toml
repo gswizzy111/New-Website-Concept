@@ -5,5 +5,23 @@
 [build.environment]
   NODE_VERSION = "20"
 
+  # ── Preview deploy (no real backend) ────────────────────────────────────────
+  # These are placeholders, not secrets. They let the site build and render
+  # without Supabase, Stripe, Shippo or Resend. With NEXT_PUBLIC_PREVIEW_MODE on,
+  # every /api call returns "not functional yet" and private areas are closed
+  # (see middleware.ts and lib/preview.ts).
+  # Before going live: delete this block and set the real values in
+  # Netlify > Site configuration > Environment variables.
+  NEXT_PUBLIC_PREVIEW_MODE = "true"
+  NEXT_PUBLIC_SUPABASE_URL = "https://preview.invalid"
+  NEXT_PUBLIC_SUPABASE_ANON_KEY = "preview-placeholder"
+  SUPABASE_SERVICE_ROLE_KEY = "preview-placeholder"
+  STRIPE_SECRET_KEY = "sk_test_preview_placeholder"
+  STRIPE_WEBHOOK_SECRET = "whsec_preview_placeholder"
+  RESEND_API_KEY = "re_preview_placeholder"
+  SHIPPO_API_TOKEN = "shippo_test_preview_placeholder"
+  ANTHROPIC_API_KEY = "preview-placeholder"
+  CRON_SECRET = "preview-placeholder"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

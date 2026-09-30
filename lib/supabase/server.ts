@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { PREVIEW_MODE, previewFetch } from "@/lib/preview";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -7,6 +8,7 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      ...(PREVIEW_MODE ? { global: { fetch: previewFetch } } : {}),
       cookies: {
         getAll() {
           return cookieStore.getAll();

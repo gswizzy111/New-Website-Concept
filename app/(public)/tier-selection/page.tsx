@@ -262,17 +262,17 @@ export default async function TierSelectionPage() {
         </p>
 
         {/* All tiers on one 3-column track so card edges align */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
           {[...topTiers, ...midTiers].map((tier, i) => (
-            <div key={tier.id} className="rx-reveal flex" style={{ ["--i" as string]: i }}>
-              <div className="flex-1 flex flex-col [&>*]:flex-1">
+            <div key={tier.id} className="rx-reveal" style={{ ["--i" as string]: i }}>
+              <div>
                 <TierCard tier={tier} {...sharedProps} />
               </div>
             </div>
           ))}
           {eliteTier && (
-            <div className="rx-reveal flex" style={{ ["--i" as string]: topTiers.length + midTiers.length }}>
-              <div className="flex-1 flex flex-col [&>*]:flex-1">
+            <div className="rx-reveal" style={{ ["--i" as string]: topTiers.length + midTiers.length }}>
+              <div>
                 <DiamondCard
                   slotsLeft={eliteSlotsLeft}
                   isSoldOut={eliteIsSoldOut}

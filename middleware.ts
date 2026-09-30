@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { PREVIEW_MODE, PREVIEW_MESSAGE } from "@/lib/preview";
 
 // ─── COMING SOON MODE ───────────────────────────────────────────────────────
 // Set to false and push to bring the full site back.
@@ -8,6 +9,18 @@ const COMING_SOON = false;
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Preview mode: no backend is connected, so every API call answers with a
+  // clear "not functional yet" error, and private areas are closed.
+  if (PREVIEW_MODE) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: PREVIEW_MESSAGE }, { status: 503 });
+    }
+    const PRIVATE = ["/admin", "/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
+    if (PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      return NextResponse.rewrite(new URL("/not-available", request.url));
+    }
+  }
 
   // Admin auth (always runs)
   if (pathname.startsWith("/admin")) {
@@ -65,6 +78,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     "/admin/:path*",
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.svg|.*\\.webp).*)",
   ],
