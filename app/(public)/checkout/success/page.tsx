@@ -71,7 +71,7 @@ export default async function CheckoutSuccessPage({
       <div className="max-w-sm w-full text-center flex flex-col items-center gap-6">
         <CheckCircle className="h-16 w-16 text-primary" />
         <div>
-          <h1 className="font-heading font-black text-4xl text-foreground mb-2">Order Confirmed!</h1>
+          <h1 className="font-heading font-extrabold text-4xl text-foreground mb-2">Order Confirmed!</h1>
           {order?.order_number ? (
             <p className="text-muted-foreground text-sm">
               Order <span className="font-bold text-foreground">#{order.order_number}</span>

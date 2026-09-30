@@ -1,3 +1,4 @@
+import { Star } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -25,8 +26,12 @@ function getRating(name: string) {
 function StarRating({ stars, count }: { stars: number; count: number }) {
   return (
     <div className="flex items-center gap-1.5 mt-1">
-      <span className="text-yellow-400 text-sm tracking-tight">★★★★★</span>
-      <span className="text-xs text-muted-foreground">{stars} ({count})</span>
+      <span className="flex gap-0.5" aria-label="5 star rating">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Star key={i} className="h-3 w-3 fill-amber-500 text-amber-500" strokeWidth={1.5} />
+        ))}
+      </span>
+      <span className="font-mono text-[11px] text-muted-foreground">{stars} ({count})</span>
     </div>
   );
 }
@@ -49,7 +54,7 @@ function ProductCard({ product }: { product: Product }) {
   return (
     <div className="bg-card flex flex-col group relative">
       {isKit && (
-        <span className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full shadow">
+        <span className="absolute top-3 left-3 z-10 bg-rx text-primary-foreground font-mono text-[10px] uppercase tracking-[0.08em] px-2 py-0.5 rounded-full">
           Most Popular
         </span>
       )}
@@ -60,18 +65,14 @@ function ProductCard({ product }: { product: Product }) {
             <img
               src={product.images[0]}
               alt={product.name}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500 ease-out"
             />
           ) : (
             <div className="w-full h-full bg-secondary" />
           )}
           {isSoldOut() && (
-            <div className="absolute inset-0 flex items-center justify-center"
-              style={{ background: "rgba(0,0,0,0.45)" }}>
-              <span
-                className="text-white font-black uppercase tracking-widest text-xs px-3 py-1 border-2 border-white rotate-[-20deg]"
-                style={{ letterSpacing: "0.2em" }}
-              >
+            <div className="absolute inset-0 flex items-center justify-center bg-paper/70">
+              <span className="bg-ink text-paper font-mono uppercase tracking-[0.12em] text-[11px] px-3 py-1 rounded-sm">
                 Sold Out
               </span>
             </div>
@@ -80,11 +81,11 @@ function ProductCard({ product }: { product: Product }) {
       </a>
       <div className="p-4 flex flex-col flex-1 gap-3">
         <a href={`/shop/${product.slug}`} className="block flex-1">
-          <p className="font-heading font-bold text-foreground text-sm leading-tight">{product.name}</p>
+          <p className="font-heading font-bold text-ink text-[15px] leading-tight group-hover:text-rx transition-colors">{product.name}</p>
           {rating && <StarRating stars={rating.stars} count={rating.count} />}
         </a>
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-primary text-sm">{formatCurrency(product.price_cents)}</span>
+          <span className="font-semibold text-ink text-sm tabular-nums">{formatCurrency(product.price_cents)}</span>
           {isSoldOut() || product.inventory_count === 0 ? (
             <span className="text-xs text-muted-foreground font-semibold">Sold Out</span>
           ) : (
@@ -126,10 +127,9 @@ function ProductSection({ title, products }: { title: string; products: Product[
   return (
     <div>
       <div className="mb-6">
-        <h2 className="font-heading text-2xl md:text-3xl text-foreground">{title}</h2>
-        <div className="mt-2 h-px bg-border" />
+        <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink">{title}</h2>
       </div>
-      <div className={`grid ${getSectionGridClass(products.length)} bg-border`} style={{ gap: "1px" }}>
+      <div className={`grid ${getSectionGridClass(products.length)} bg-rule border border-rule rounded-lg overflow-hidden`} style={{ gap: "1px" }}>
         {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
     </div>
@@ -155,15 +155,15 @@ export default async function ShopPage() {
   const supplies = products.filter((p) => p.category === "Supplies" || p.category === "Cleaning" || p.category === "Storage");
 
   return (
-    <div className="max-w-7xl mx-auto px-6 md:px-10 py-14 pb-28 md:pb-14">
+    <div className="max-w-7xl mx-auto px-4 md:px-10 py-12 md:py-16 pb-28 md:pb-16">
       {/* Header */}
-      <div className="mb-12 text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary mb-3">The Card Doc</p>
-        <h1 className="font-heading text-4xl md:text-5xl text-foreground">Shop</h1>
+      <div className="mb-10 md:mb-12">
+        <p className="rx-label text-rx mb-3">The Card Doc</p>
+        <h1 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.035em] text-ink [font-variation-settings:'wdth'_80]">Shop</h1>
       </div>
 
       {products.length === 0 && (
-        <div className="border border-border py-24 text-center">
+        <div className="border border-rule rounded-lg bg-paper py-24 text-center">
           <p className="font-heading text-xl text-muted-foreground">Products coming soon.</p>
         </div>
       )}
@@ -179,17 +179,18 @@ export default async function ShopPage() {
       {/* Testimonials */}
       {testimonials.length > 0 && (
         <div className="mt-20">
-          <div className="mb-8 text-center">
-            <p className="text-2xl md:text-3xl font-bold uppercase tracking-[0.3em] text-primary mb-3">What Our Customers Say</p>
+          <div className="mb-8">
+            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+          <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
             {testimonials.map((t) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 key={t.id}
                 src={t.url}
                 alt={t.alt ?? "Customer review"}
-                className="w-full h-auto object-cover"
+                loading="lazy"
+                className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
               />
             ))}
           </div>

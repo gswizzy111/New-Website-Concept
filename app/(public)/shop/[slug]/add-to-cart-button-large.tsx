@@ -55,10 +55,10 @@ export function AddToCartButtonLarge({ product, requiresSize }: Props) {
               <button
                 key={s}
                 onClick={() => setSize(s)}
-                className={`flex-1 h-10 border-2 text-sm font-semibold rounded-lg transition-all duration-150 active:scale-[0.97] ${
+                className={`flex-1 h-10 border text-sm font-semibold rounded-md transition-all duration-150 active:scale-[0.97] ${
                   size === s
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border text-foreground hover:border-primary/60"
+                    ? "border-ink bg-ink text-paper"
+                    : "border-rule text-ink hover:border-ink/50"
                 }`}
               >
                 {s}
@@ -74,7 +74,7 @@ export function AddToCartButtonLarge({ product, requiresSize }: Props) {
       <button
         onClick={handleBuyNow}
         disabled={requiresSize && !size}
-        className="w-full flex items-center justify-center gap-2 h-13 font-bold text-sm tracking-widest uppercase bg-primary text-primary-foreground shadow-md hover:shadow-lg hover:opacity-95 active:scale-[0.98] transition-all duration-150 rounded-xl disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+        className="w-full flex items-center justify-center gap-2 h-13 font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 active:scale-[0.98] transition-all duration-150 rounded-md disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Zap className="h-4 w-4 fill-current" />
         Buy It Now
@@ -82,10 +82,10 @@ export function AddToCartButtonLarge({ product, requiresSize }: Props) {
       <button
         onClick={handleAdd}
         disabled={requiresSize && !size}
-        className={`w-full flex items-center justify-center gap-2 h-13 font-semibold text-sm tracking-wide border-2 transition-all duration-150 rounded-xl active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`w-full flex items-center justify-center gap-2 h-13 font-semibold text-[15px] border transition-all duration-150 rounded-md active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed ${
           added
-            ? "bg-secondary text-foreground border-border"
-            : "bg-transparent text-foreground border-foreground/70 hover:border-foreground hover:bg-secondary"
+            ? "bg-rx-soft text-rx border-rx/30"
+            : "bg-white text-ink border-ink/70 hover:border-ink hover:bg-secondary"
         }`}
       >
         <ShoppingCart className="h-4 w-4" />

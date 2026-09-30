@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
@@ -233,7 +234,7 @@ function CheckoutInner() {
   return (
     <div className="max-w-4xl mx-auto px-6 md:px-8 py-12">
       <div className="flex items-center gap-3 mb-8">
-        <h1 className="font-heading font-black text-3xl text-foreground">Checkout</h1>
+        <h1 className="font-heading font-extrabold text-3xl text-foreground">Checkout</h1>
         {isInternational && (
           <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">International</span>
         )}
@@ -245,7 +246,7 @@ function CheckoutInner() {
 
           {/* Contact */}
           <div className="bg-white border border-border rounded-xl p-6">
-            <h2 className="font-heading font-black text-lg text-foreground mb-4">Contact</h2>
+            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Contact</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label>Full Name *</Label>
@@ -264,7 +265,7 @@ function CheckoutInner() {
 
           {/* Shipping Address */}
           <div className="bg-white border border-border rounded-xl p-6">
-            <h2 className="font-heading font-black text-lg text-foreground mb-4">Shipping Address</h2>
+            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Shipping Address</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isInternational && (
                 <div className="sm:col-span-2 flex flex-col gap-1.5">
@@ -351,7 +352,7 @@ function CheckoutInner() {
                         <span>Handling fee</span>
                         <span>$10.00</span>
                       </div>
-                      <div className="flex justify-between font-black text-blue-900 border-t border-blue-200 pt-1 mt-1">
+                      <div className="flex justify-between font-extrabold text-blue-900 border-t border-blue-200 pt-1 mt-1">
                         <span>Shipping total</span>
                         <span>${(intlShippingTotal / 100).toFixed(2)}</span>
                       </div>
@@ -364,7 +365,7 @@ function CheckoutInner() {
 
           {/* Creator Code */}
           <div className="bg-white border border-border rounded-xl p-6">
-            <h2 className="font-heading font-black text-lg text-foreground mb-1">Creator Code</h2>
+            <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Creator Code</h2>
             <p className="text-xs text-muted-foreground mb-3">Have a creator code? Enter it here.</p>
             <div className="flex gap-2">
               <Input
@@ -380,14 +381,14 @@ function CheckoutInner() {
               </button>
             </div>
             {codeStatus === "checking" && <p className="text-xs text-muted-foreground mt-2">Checking...</p>}
-            {codeStatus === "valid" && discountPercent > 0 && <p className="text-xs text-green-600 font-semibold mt-2">✓ {discountPercent}% discount applied</p>}
-            {codeStatus === "valid" && discountPercent === 0 && <p className="text-xs text-green-600 font-semibold mt-2">✓ Code applied</p>}
+            {codeStatus === "valid" && discountPercent > 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{discountPercent}% discount applied</p>}
+            {codeStatus === "valid" && discountPercent === 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />Code applied</p>}
             {codeStatus === "invalid" && <p className="text-xs text-red-600 mt-2">Invalid code. Please try again.</p>}
           </div>
 
           {/* Gift Card */}
           <div className="bg-white border border-border rounded-xl p-6">
-            <h2 className="font-heading font-black text-lg text-foreground mb-1">Gift Card</h2>
+            <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Gift Card</h2>
             <p className="text-xs text-muted-foreground mb-3">Have a gift card code? Enter it here.</p>
             <div className="flex gap-2">
               <Input
@@ -401,7 +402,7 @@ function CheckoutInner() {
                 Apply
               </button>
             </div>
-            {gcStatus === "valid" && gcApplied > 0 && <p className="text-xs text-green-600 font-semibold mt-2">✓ {formatCurrency(gcApplied)} off applied</p>}
+            {gcStatus === "valid" && gcApplied > 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{formatCurrency(gcApplied)} off applied</p>}
             {gcStatus === "invalid" && <p className="text-xs text-red-600 mt-2">Invalid or already used gift card.</p>}
           </div>
         </div>
@@ -409,7 +410,7 @@ function CheckoutInner() {
         {/* Order summary */}
         <div className="lg:col-span-2">
           <div className="bg-white border border-border rounded-xl p-6 sticky top-24">
-            <h2 className="font-heading font-black text-lg text-foreground mb-4">Order Summary</h2>
+            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Order Summary</h2>
             <div className="flex flex-col gap-3 mb-4">
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between text-sm">

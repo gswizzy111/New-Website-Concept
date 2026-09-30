@@ -11,7 +11,7 @@ import type { RestorationTierId } from "@/lib/restoration-tiers";
 function EmailMismatch() {
   return (
     <div className="max-w-md mx-auto px-6 py-24 text-center">
-      <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Order Tracking</p>
+      <p className="rx-label text-rx mb-3">Order Tracking</p>
       <h1 className="font-heading font-black text-2xl text-foreground mb-3">We couldn&apos;t find that order</h1>
       <p className="text-muted-foreground text-sm mb-8">
         The order number and email address didn&apos;t match. Double-check both and try again.
@@ -103,7 +103,7 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
   return (
     <div className="max-w-2xl mx-auto px-6 py-12">
       <div className="mb-8">
-        <p className="text-xs font-bold uppercase tracking-widest text-primary mb-2">Order Tracking</p>
+        <p className="rx-label text-rx mb-2">Order Tracking</p>
         <h1 className="font-heading font-black text-3xl text-foreground">Order K{order.order_number}</h1>
         <p className="text-muted-foreground text-sm mt-1">Placed {new Date(order.created_at).toLocaleDateString()}</p>
       </div>
@@ -134,7 +134,7 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
 
       {order.tracking_number && (
         <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-cyan-700 mb-1">Shipment Tracking</p>
+          <p className="rx-label text-rx mb-1">Shipment Tracking</p>
           <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
           <a
             href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
@@ -252,7 +252,7 @@ export default async function OrderDetailPage({
     <div className="max-w-2xl mx-auto px-6 py-12">
       {/* Header */}
       <div className="mb-8">
-        <p className="text-xs font-bold uppercase tracking-widest text-primary mb-2">Order Tracking</p>
+        <p className="rx-label text-rx mb-2">Order Tracking</p>
         <h1 className="font-heading font-black text-3xl text-foreground">
           Order {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
         </h1>
@@ -298,7 +298,7 @@ export default async function OrderDetailPage({
       {/* Live inbound tracking (while we're waiting for the cards) */}
       {inboundTrack && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-700 mb-3">Inbound Shipment Tracking</p>
+          <p className="rx-label text-rx mb-3">Inbound Shipment Tracking</p>
           <div className="flex items-center gap-2 mb-2">
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
               TRACKING_BADGE[inboundTrack.trackingStatus?.status ?? "UNKNOWN"]?.cls ?? "bg-gray-100 text-gray-700"
@@ -323,7 +323,7 @@ export default async function OrderDetailPage({
       {/* Return tracking number */}
       {order.tracking_number && (
         <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-cyan-700 mb-1">Return Tracking</p>
+          <p className="rx-label text-rx mb-1">Return Tracking</p>
           <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
           <a
             href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
@@ -359,7 +359,7 @@ export default async function OrderDetailPage({
 
           {order.completion_notes && (
             <div className="mb-4 p-4 bg-secondary/40 rounded-lg">
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Notes from The Card Doc</p>
+              <p className="rx-label text-rx mb-2">Notes from The Card Doc</p>
               <p className="text-sm text-foreground whitespace-pre-wrap">{order.completion_notes}</p>
             </div>
           )}

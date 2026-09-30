@@ -28,10 +28,10 @@ export default function CartPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
         {/* Items */}
-        <div className="lg:col-span-2 flex flex-col gap-px bg-border">
+        <div className="lg:col-span-2 flex flex-col gap-px bg-rule border border-rule rounded-lg overflow-hidden self-start">
           {items.map((item) => (
             <div key={item.id} className="bg-card p-5 flex items-center gap-5">
-              <div className="w-16 h-16 bg-secondary shrink-0 overflow-hidden">
+              <div className="w-16 h-16 bg-secondary shrink-0 overflow-hidden rounded-md">
                 {item.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -44,19 +44,19 @@ export default function CartPage() {
                 {item.size && (
                   <p className="text-xs text-muted-foreground mt-0.5">Size: {item.size}</p>
                 )}
-                <p className="text-primary font-semibold text-sm mt-0.5">{formatCurrency(item.price_cents)}</p>
+                <p className="font-mono text-xs text-muted-foreground mt-1">{formatCurrency(item.price_cents)}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => updateQty(item.id, item.quantity - 1)}
-                  className="w-7 h-7 border border-border flex items-center justify-center hover:border-foreground transition-colors"
+                  className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
                 >
                   <Minus className="h-3 w-3" />
                 </button>
                 <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
                 <button
                   onClick={() => updateQty(item.id, item.quantity + 1)}
-                  className="w-7 h-7 border border-border flex items-center justify-center hover:border-foreground transition-colors"
+                  className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
                 >
                   <Plus className="h-3 w-3" />
                 </button>
@@ -78,7 +78,7 @@ export default function CartPage() {
 
         {/* Summary */}
         <div className="lg:col-span-1">
-          <div className="bg-card border border-border p-6 sticky top-24">
+          <div className="bg-paper border border-ink/70 rounded-lg p-6 sticky top-24">
             <h2 className="font-heading font-bold text-lg text-foreground mb-5">Order Summary</h2>
             <div className="flex flex-col gap-2 text-sm mb-5">
               <div className="flex justify-between text-muted-foreground">
@@ -95,7 +95,7 @@ export default function CartPage() {
               </div>
               <div className="flex justify-between font-bold text-foreground pt-3 border-t border-border text-base">
                 <span>Total</span>
-                <span className="text-primary">{formatCurrency(totalCents + taxCents)}</span>
+                <span className="tabular-nums">{formatCurrency(totalCents + taxCents)}</span>
               </div>
             </div>
             <Button render={<Link href="/cart/upsell" />} className="w-full font-semibold">

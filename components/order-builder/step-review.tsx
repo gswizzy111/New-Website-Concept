@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Trophy } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -208,13 +209,13 @@ export function StepReview({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h2 className="font-serif text-2xl font-medium text-foreground mb-1">Review your order.</h2>
+        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">Review your order.</h2>
       </div>
 
       {/* Loyalty discount banner */}
       {loyaltyDiscountPercent > 0 && (
-        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 rounded-xl p-4 flex items-center gap-3">
-          <span className="text-2xl shrink-0">🏆</span>
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 flex items-center gap-3">
+          <Trophy className="h-6 w-6 shrink-0 text-amber-700" strokeWidth={1.75} />
           <div>
             <p className="font-bold text-amber-900 text-sm">
               {loyaltyDiscountPercent}% loyalty discount applied!
@@ -241,8 +242,8 @@ export function StepReview({
           </button>
         </div>
         {selectedTier && (
-          <div className="border border-[#1a8fe0] bg-blue-50 rounded-lg p-4">
-            <p className="font-medium text-[#1a8fe0] text-sm mb-1">
+          <div className="border border-rx bg-blue-50 rounded-lg p-4">
+            <p className="font-medium text-rx text-sm mb-1">
               {getTierById(selectedTier).name} Tier
             </p>
             <div className="text-xs text-muted-foreground space-y-1">
@@ -387,7 +388,7 @@ export function StepReview({
       </div>}
 
       {/* Instagram Feature Add-on */}
-      <div className={`border-2 rounded-xl p-5 transition-colors ${instagramFeature ? "border-[#1a8fe0] bg-blue-50" : "border-border"}`}>
+      <div className={`border-2 rounded-xl p-5 transition-colors ${instagramFeature ? "border-rx bg-blue-50" : "border-border"}`}>
         <label className="flex items-start gap-4 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -398,11 +399,11 @@ export function StepReview({
           <div>
             <p className="font-medium text-foreground">
               Feature my card in an Instagram video{" "}
-              <span className="text-[#1a8fe0] font-semibold">+$100</span>
+              <span className="text-rx font-semibold">+$100</span>
             </p>
             <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
               We&apos;ll film your card being restored and post it to{" "}
-              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-[#1a8fe0] hover:underline">@the_card_doc</a>.
+              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-rx hover:underline">@the_card_doc</a>.
               Perfect for rare or high-value cards.
             </p>
           </div>
@@ -528,10 +529,10 @@ export function StepReview({
           </button>
         </div>
         {codeStatus === "valid" && discountPercent > 0 && (
-          <p className="text-sm text-green-600 font-medium">✓ {discountPercent}% discount applied — {codeName}</p>
+          <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />{discountPercent}% discount applied — {codeName}</p>
         )}
         {codeStatus === "valid" && discountPercent === 0 && (
-          <p className="text-sm text-green-600 font-medium">✓ Code applied — {codeName}</p>
+          <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />Code applied — {codeName}</p>
         )}
         {codeStatus === "invalid" && <p className="text-sm text-red-500">Invalid code.</p>}
       </div>
@@ -562,7 +563,7 @@ export function StepReview({
           </button>
         </div>
         {gcStatus === "valid" && gcApplied > 0 && (
-          <p className="text-sm text-green-600 font-medium">✓ Gift card applied — {formatCurrency(gcApplied)} off</p>
+          <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />Gift card applied — {formatCurrency(gcApplied)} off</p>
         )}
         {gcStatus === "invalid" && <p className="text-sm text-red-500">Invalid or already used gift card.</p>}
       </div>

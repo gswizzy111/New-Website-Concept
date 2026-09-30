@@ -29,7 +29,7 @@ export default async function CustomerComplaintPage({ params }: { params: Promis
 
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-100 bg-gray-50">
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1">Support Case</p>
+            <p className="rx-label text-rx mb-1">Support Case</p>
             <h1 className="font-black text-xl text-gray-900">{c.title}</h1>
             {c.customer_name && (
               <p className="text-sm text-gray-500 mt-0.5">Hi {c.customer_name.split(" ")[0]},</p>

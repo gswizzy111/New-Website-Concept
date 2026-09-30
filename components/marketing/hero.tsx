@@ -21,7 +21,7 @@ export function Hero() {
         </div>
 
         {/* Headline */}
-        <h1 className="font-heading font-black text-4xl text-foreground leading-[1.05] tracking-tight mb-6">
+        <h1 className="font-heading font-extrabold text-4xl text-foreground leading-[1.05] tracking-tight mb-6">
           Your Cards.<br />
           <span className="text-primary">Restored.</span>
         </h1>
@@ -75,7 +75,7 @@ export function Hero() {
               </span>
             </div>
 
-            <h1 className="font-heading font-black text-6xl text-foreground leading-[1.0] tracking-tight mb-6">
+            <h1 className="font-heading font-extrabold text-6xl text-foreground leading-[1.0] tracking-tight mb-6">
               Your Cards.<br />
               <span className="text-primary">Restored.</span>
             </h1>
@@ -116,12 +116,12 @@ export function Hero() {
           {/* Right: before/after image */}
           <div className="flex items-center justify-end -mt-10">
             <div className="relative w-[115%] xl:w-[120%] -mr-8">
-              <div className="absolute inset-8 bg-primary/15 rounded-3xl blur-3xl" />
+              <div className="absolute inset-8 bg-primary/15 rounded-lg blur-3xl" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/before-after-hero.png"
                 alt="Before and after card restoration — Charmander"
-                className="relative w-full h-auto drop-shadow-2xl"
+                className="relative w-full h-auto drop-shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)]"
               />
             </div>
           </div>

@@ -26,10 +26,10 @@ export function AddToCartButton({ product }: Props) {
   return (
     <button
       onClick={handleAdd}
-      className={`text-xs font-semibold px-3 py-1.5 transition-colors ${
+      className={`h-8 rounded-md text-xs font-semibold px-3.5 transition-colors ${
         added
-          ? "bg-secondary text-foreground"
-          : "bg-primary text-primary-foreground hover:opacity-90"
+          ? "bg-rx-soft text-rx"
+          : "bg-ink text-paper hover:bg-rx"
       }`}
     >
       {added ? "Added!" : "Add"}

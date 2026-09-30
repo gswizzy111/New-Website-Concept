@@ -70,7 +70,7 @@ export default function ManageSubscriptionPage() {
       <div className="bg-white rounded-xl border border-border p-8 max-w-md w-full">
         <Link href="/" className="text-sm text-muted-foreground hover:text-primary block mb-6">← Back to home</Link>
 
-        <h1 className="font-heading font-black text-2xl text-foreground mb-1">Manage Your Subscription</h1>
+        <h1 className="font-heading font-extrabold text-2xl text-foreground mb-1">Manage Your Subscription</h1>
         <p className="text-sm text-muted-foreground mb-6">Enter the email you used to subscribe.</p>
 
         <form onSubmit={handleLookup} className="flex gap-2 mb-6">

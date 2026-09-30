@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle, Gem } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ function InAppBrowserBanner() {
   if (!show) return null;
   return (
     <div className="bg-red-50 border-2 border-red-400 rounded-xl p-4 mb-6 text-sm shadow-md">
-      <p className="font-black text-red-900 text-base mb-2">⚠️ You must open this in Safari or Chrome</p>
+      <p className="font-extrabold text-red-900 text-base mb-2 flex items-center gap-2"><AlertTriangle className="h-4 w-4 shrink-0" strokeWidth={2.25} />You must open this in Safari or Chrome</p>
       <p className="text-red-800 mb-3 leading-relaxed">
         Instagram&apos;s built-in browser <strong>blocks photo uploads and payments</strong>. You won&apos;t be able to complete your order here.
       </p>
@@ -280,9 +281,9 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
           {step === 4 && checkoutError && (
             <div ref={errorRef} className="mt-8 bg-red-50 border-2 border-red-400 rounded-xl p-5 shadow-lg">
               <div className="flex gap-3">
-                <div className="text-red-500 text-2xl shrink-0">⚠️</div>
+                <AlertTriangle className="h-6 w-6 shrink-0 text-red-600" strokeWidth={2} />
                 <div className="flex-1 min-w-0">
-                  <p className="font-black text-red-900 text-lg mb-1">Checkout failed</p>
+                  <p className="font-extrabold text-red-900 text-lg mb-1">Checkout failed</p>
                   <p className="text-red-800 text-sm mb-4 leading-relaxed">{checkoutError.message}</p>
 
                   <div className="bg-white border border-red-200 rounded-lg px-3 py-3 mb-4">
@@ -316,7 +317,7 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
           {/* Diamond minimum value warning */}
           {step === 1 && isDiamondOrder && !diamondValueOk && (
             <div className="mt-6 rounded-xl border-2 border-amber-300 bg-amber-50 px-5 py-4 flex items-start gap-3">
-              <span className="text-2xl shrink-0">💎</span>
+              <Gem className="h-6 w-6 shrink-0 text-amber-700" strokeWidth={1.75} />
               <div>
                 <p className="font-bold text-amber-900 text-sm">Diamond tier requires $5,000+ in total card value</p>
                 <p className="text-amber-800 text-sm mt-0.5">

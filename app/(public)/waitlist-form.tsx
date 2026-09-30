@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState } from "react";
 
 export function WaitlistForm() {
@@ -34,7 +35,7 @@ export function WaitlistForm() {
   if (status === "success") {
     return (
       <p style={{ color: "#86efac", fontSize: "1rem", marginTop: "2rem", letterSpacing: "0.05em" }}>
-        ✓ You&apos;re on the list — we&apos;ll email you when we&apos;re back.
+        <Check className="inline h-4 w-4 mr-1 -mt-0.5" strokeWidth={2.5} />You&apos;re on the list — we&apos;ll email you when we&apos;re back.
       </p>
     );
   }

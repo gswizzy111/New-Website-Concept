@@ -52,7 +52,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
 
   return (
     <div className="bg-white border-2 border-border rounded-xl p-6 flex flex-col gap-4">
-      <h3 className="font-heading font-black text-lg text-foreground">Order Summary</h3>
+      <h3 className="font-heading font-extrabold text-lg text-foreground">Order Summary</h3>
 
       <div className="flex flex-col gap-1 text-sm border-b border-border pb-3">
         {isMixed ? (

@@ -28,7 +28,7 @@ export function TrackForm({ initialOrder = "" }: { initialOrder?: string }) {
   return (
     <section className="flex-1 flex items-center justify-center py-24 px-6">
       <div className="w-full max-w-md">
-        <h1 className="font-serif font-medium tracking-tight text-4xl md:text-5xl text-foreground mb-3">
+        <h1 className="font-heading font-extrabold tracking-[-0.03em] text-4xl md:text-5xl text-foreground mb-3">
           Track your order.
         </h1>
         <p className="text-muted-foreground mb-10">

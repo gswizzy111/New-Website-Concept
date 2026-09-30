@@ -120,7 +120,7 @@ export function StepShipping({
     return (
       <div className="flex flex-col gap-6">
         <div>
-          <h2 className="font-serif text-2xl font-medium text-foreground mb-1">
+          <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">
             Shipping for international orders
           </h2>
           <p className="text-muted-foreground text-sm mt-1">
@@ -182,7 +182,7 @@ export function StepShipping({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-serif text-2xl font-medium text-foreground mb-1">
+        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">
           How will you send your cards to us?
         </h2>
       </div>
@@ -241,16 +241,16 @@ export function StepShipping({
                         }}
                         className={`w-full text-left rounded-lg border-2 px-4 py-3 flex items-center justify-between transition-all ${
                           chosen
-                            ? "border-[#1a8fe0] bg-blue-50 shadow-sm"
-                            : "border-border hover:border-[#1a8fe0]/50"
+                            ? "border-rx bg-blue-50 shadow-sm"
+                            : "border-border hover:border-rx/50"
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${chosen ? "border-[#1a8fe0] bg-[#1a8fe0]" : "border-muted-foreground"}`}>
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${chosen ? "border-rx bg-rx" : "border-muted-foreground"}`}>
                             {chosen && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                           </div>
                           <div>
-                            <p className={`text-sm font-semibold ${chosen ? "text-[#1a8fe0]" : "text-foreground"}`}>
+                            <p className={`text-sm font-semibold ${chosen ? "text-rx" : "text-foreground"}`}>
                               {rate.carrier} — {rate.service_level}
                             </p>
                             {rate.days && (
@@ -258,7 +258,7 @@ export function StepShipping({
                             )}
                           </div>
                         </div>
-                        <span className={`font-bold ${chosen ? "text-[#1a8fe0]" : "text-foreground"}`}>{formatCurrency(rate.amount_cents * 2)}</span>
+                        <span className={`font-bold ${chosen ? "text-rx" : "text-foreground"}`}>{formatCurrency(rate.amount_cents * 2)}</span>
                       </button>
                     );
                   })}

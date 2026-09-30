@@ -24,8 +24,8 @@ export function HowItWorksSteps() {
     <section id="how-it-works" className="py-20 md:py-28 bg-white">
       <div className="max-w-6xl mx-auto px-6 md:px-8">
         <div className="mb-12">
-          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">The Process</p>
-          <h2 className="font-heading font-black text-4xl md:text-5xl text-foreground">
+          <p className="rx-label text-rx mb-3">The Process</p>
+          <h2 className="font-heading font-extrabold text-4xl md:text-5xl text-foreground">
             Simple. Fast. Careful.
           </h2>
         </div>
@@ -37,9 +37,9 @@ export function HowItWorksSteps() {
                 <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary text-white">
                   <step.icon className="h-5 w-5" />
                 </div>
-                <span className="font-heading font-black text-4xl text-primary/40">{String(i + 1).padStart(2, "0")}</span>
+                <span className="font-heading font-extrabold text-4xl text-primary/40">{String(i + 1).padStart(2, "0")}</span>
               </div>
-              <h3 className="font-heading font-black text-xl text-foreground">{step.title}</h3>
+              <h3 className="font-heading font-extrabold text-xl text-foreground">{step.title}</h3>
               <p className="text-muted-foreground leading-relaxed text-sm">{step.description}</p>
             </div>
           ))}

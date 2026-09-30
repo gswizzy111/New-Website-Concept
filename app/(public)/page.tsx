@@ -92,7 +92,7 @@ export default async function HomePage() {
         <div className="max-w-7xl mx-auto px-4 md:px-10 pt-10 pb-12 md:pt-16 md:pb-20 grid gap-10 lg:gap-14 lg:grid-cols-[1.05fr_1fr] items-center">
           <div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/card-doctor.jpg" alt="The Card Doc" className="w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
+            <img src="/card-doctor.jpg" alt="The Card Doc" className="hidden sm:block w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
             <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">
               The Card Doc
             </h1>

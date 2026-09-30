@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 const STEPS = [
   { n: 1, label: "Cards" },
   { n: 2, label: "Your Info" },
@@ -20,7 +21,7 @@ export function ProgressIndicator({ currentStep }: { currentStep: number }) {
                   : "bg-muted text-muted-foreground"
               }`}
             >
-              {step.n < currentStep ? "✓" : step.n}
+              {step.n < currentStep ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : step.n}
             </div>
             <span
               className={`text-xs hidden sm:block ${

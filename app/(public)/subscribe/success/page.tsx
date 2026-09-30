@@ -1,11 +1,12 @@
+import { PartyPopper } from "lucide-react";
 import Link from "next/link";
 
 export default function SubscribeSuccessPage() {
   return (
     <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4">
       <div className="bg-white rounded-xl border border-border p-10 max-w-md w-full text-center">
-        <div className="text-5xl mb-4">🎉</div>
-        <h1 className="font-heading font-black text-3xl text-foreground mb-3">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-lg bg-rx-soft text-rx"><PartyPopper className="h-7 w-7" strokeWidth={1.75} /></div>
+        <h1 className="font-heading font-extrabold text-3xl text-foreground mb-3">
           You&rsquo;re subscribed!
         </h1>
         <p className="text-muted-foreground text-base mb-8">

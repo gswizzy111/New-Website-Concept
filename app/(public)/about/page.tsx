@@ -1,3 +1,4 @@
+import { Check, X } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 
@@ -58,13 +59,13 @@ export default function AboutPage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-[#1a8fe0] py-20 md:py-28">
-        <div className="max-w-5xl mx-auto px-6 md:px-10 text-center">
-          <p className="text-sm uppercase tracking-[0.2em] text-white/70 mb-4">About Us</p>
-          <h1 className="font-heading text-4xl md:text-6xl font-bold text-white mb-6 leading-tight">
+      <section className="bg-paper border-b border-rule pt-14 pb-16 md:pt-20 md:pb-24">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <p className="rx-label text-rx mb-4">About Us</p>
+          <h1 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.035em] leading-[0.98] text-ink mb-6 max-w-4xl [font-variation-settings:'wdth'_80]">
             We treat every card like it&apos;s worth a fortune.
           </h1>
-          <p className="text-white/80 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+          <p className="text-muted-foreground text-lg md:text-xl max-w-2xl leading-relaxed">
             The Card Doc is a professional card restoration service built for collectors who care about how their cards look. We don&apos;t cut corners.
           </p>
         </div>
@@ -72,7 +73,7 @@ export default function AboutPage() {
 
 
       {/* Can / Cannot fix */}
-      <section className="py-16 md:py-24 bg-secondary/30">
+      <section className="py-16 md:py-24">
         <div className="max-w-4xl mx-auto px-6 md:px-10">
           <h2 className="font-heading text-3xl font-bold text-foreground mb-3 text-center">What we can (and can&apos;t) fix</h2>
           <p className="text-muted-foreground text-center mb-12 max-w-xl mx-auto">
@@ -80,30 +81,30 @@ export default function AboutPage() {
           </p>
           <div className="grid md:grid-cols-2 gap-6">
             {/* Can fix */}
-            <div className="bg-white rounded-2xl border border-green-200 p-6">
+            <div className="bg-white rounded-lg border border-green-200 p-6">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">✓</div>
+                <div className="w-8 h-8 rounded-md bg-rx-soft flex items-center justify-center text-rx"><Check className="h-4 w-4" strokeWidth={2.5} /></div>
                 <h3 className="font-heading text-lg font-bold text-foreground">We CAN help with</h3>
               </div>
               <ul className="flex flex-col gap-3">
                 {canFix.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
-                    <span className="text-green-500 mt-0.5 shrink-0">✓</span>
+                    <Check className="h-4 w-4 mt-0.5 shrink-0 text-rx" strokeWidth={2.25} />
                     {item}
                   </li>
                 ))}
               </ul>
             </div>
             {/* Cannot fix */}
-            <div className="bg-white rounded-2xl border border-red-200 p-6">
+            <div className="bg-white rounded-lg border border-red-200 p-6">
               <div className="flex items-center gap-3 mb-5">
-                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-lg">✕</div>
+                <div className="w-8 h-8 rounded-md bg-red-50 flex items-center justify-center text-red-600"><X className="h-4 w-4" strokeWidth={2.5} /></div>
                 <h3 className="font-heading text-lg font-bold text-foreground">We CANNOT fix</h3>
               </div>
               <ul className="flex flex-col gap-3">
                 {cannotFix.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-sm text-muted-foreground">
-                    <span className="text-red-400 mt-0.5 shrink-0">✕</span>
+                    <X className="h-4 w-4 mt-0.5 shrink-0 text-red-500" strokeWidth={2.25} />
                     {item}
                   </li>
                 ))}
@@ -123,7 +124,7 @@ export default function AboutPage() {
         <div className="max-w-3xl mx-auto px-6 md:px-10">
           <h2 className="font-heading text-3xl font-bold text-foreground mb-3 text-center">Frequently asked questions</h2>
           <p className="text-muted-foreground text-center mb-12">Everything you need to know before placing your first order.</p>
-          <div className="flex flex-col gap-0 divide-y divide-border border border-border rounded-2xl overflow-hidden">
+          <div className="flex flex-col gap-0 divide-y divide-border border border-border rounded-lg overflow-hidden">
             {faqItems.map((item) => (
               <details key={item.q} className="group bg-white">
                 <summary className="flex items-center justify-between px-6 py-5 cursor-pointer font-medium text-foreground text-sm select-none list-none">
@@ -139,16 +140,16 @@ export default function AboutPage() {
           <div className="mt-8 text-center">
             <p className="text-sm text-muted-foreground">
               Still have questions?{" "}
-              <a href="mailto:thecarddoc1@gmail.com" className="text-[#1a8fe0] font-medium hover:underline">Email us</a>{" "}
+              <a href="mailto:thecarddoc1@gmail.com" className="text-rx font-medium hover:underline">Email us</a>{" "}
               or DM us on{" "}
-              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-[#1a8fe0] font-medium hover:underline">Instagram</a>.
+              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-rx font-medium hover:underline">Instagram</a>.
             </p>
           </div>
         </div>
       </section>
 
       {/* Terms & Conditions summary */}
-      <section className="py-16 md:py-24 bg-secondary/30">
+      <section className="py-16 md:py-24">
         <div className="max-w-3xl mx-auto px-6 md:px-10">
           <h2 className="font-heading text-3xl font-bold text-foreground mb-3 text-center">Terms & Conditions</h2>
           <p className="text-muted-foreground text-center mb-10">The key points — plain English. Read the full version before submitting.</p>
@@ -188,7 +189,7 @@ export default function AboutPage() {
           <div className="mt-8 text-center">
             <Link
               href="/terms"
-              className="inline-flex items-center gap-2 text-sm font-medium text-[#1a8fe0] hover:underline"
+              className="inline-flex items-center gap-2 text-sm font-medium text-rx hover:underline"
             >
               Read the full Terms & Conditions →
             </Link>
@@ -197,14 +198,14 @@ export default function AboutPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-16 md:py-20 bg-[#1a8fe0]">
+      <section className="py-16 md:py-20 bg-rx">
         <div className="max-w-3xl mx-auto px-6 md:px-10 text-center">
           <h2 className="font-heading text-3xl md:text-4xl font-bold text-white mb-4">Ready to restore your cards?</h2>
           <p className="text-white/80 mb-8">Book a restoration or grab a kit and get started today.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/restoration"
-              className="px-8 py-3 bg-white text-[#1a8fe0] font-bold rounded-lg hover:bg-white/90 transition-colors"
+              className="px-8 py-3 bg-white text-rx font-bold rounded-lg hover:bg-white/90 transition-colors"
             >
               Book Restoration
             </Link>

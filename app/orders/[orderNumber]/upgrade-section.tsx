@@ -49,7 +49,7 @@ export function UpgradeSection({ orderNumber, customerEmail, currentTier, curren
 
   return (
     <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl border border-blue-200 p-6 mb-5">
-      <p className="text-xs font-bold uppercase tracking-widest text-[#1a8fe0] mb-1">Want Faster Service?</p>
+      <p className="rx-label text-rx mb-1">Want Faster Service?</p>
       <h2 className="font-heading font-black text-lg text-foreground mb-1">Upgrade Your Restoration</h2>
       <p className="text-sm text-muted-foreground mb-5">
         You can upgrade to a higher service level until your cards arrive. You only pay the difference.

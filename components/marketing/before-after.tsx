@@ -19,8 +19,8 @@ export function BeforeAfter() {
     <section id="before-after" className="py-20 md:py-32 bg-background">
       <div className="max-w-6xl mx-auto px-6 md:px-8">
         <div className="mb-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Real Results</p>
-          <h2 className="font-heading font-black text-4xl md:text-5xl text-foreground">
+          <p className="rx-label text-rx mb-3">Real Results</p>
+          <h2 className="font-heading font-extrabold text-4xl md:text-5xl text-foreground">
             Before &amp; After
           </h2>
         </div>

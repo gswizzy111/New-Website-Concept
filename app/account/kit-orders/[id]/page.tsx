@@ -91,7 +91,7 @@ export default async function KitOrderPage({
         {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-primary mb-1">Kit Order</p>
+            <p className="rx-label text-rx mb-1">Kit Order</p>
             <h1 className="font-heading font-black text-3xl text-foreground">
               {order.order_number ? `K${order.order_number}` : "Order"}
             </h1>
@@ -134,7 +134,7 @@ export default async function KitOrderPage({
         {/* Tracking */}
         {order.tracking_number && trackUrl && (
           <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-cyan-700 mb-1">Shipment Tracking</p>
+            <p className="rx-label text-rx mb-1">Shipment Tracking</p>
             {(order as any).carrier && (
               <span className="text-xs font-bold px-2 py-0.5 rounded bg-cyan-200 text-cyan-800 mb-2 inline-block">{(order as any).carrier}</span>
             )}

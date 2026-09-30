@@ -1,10 +1,11 @@
+import { PartyPopper } from "lucide-react";
 import Link from "next/link";
 
 export default function GiftCardSuccessPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white flex items-center justify-center px-6">
+    <div className="min-h-screen bg-paper flex items-center justify-center px-6">
       <div className="max-w-md w-full text-center">
-        <div className="text-6xl mb-6">🎉</div>
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-lg bg-rx-soft text-rx"><PartyPopper className="h-8 w-8" strokeWidth={1.75} /></div>
         <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Gift Card Purchased!</h1>
         <p className="text-muted-foreground mb-8">
           The gift card code has been emailed. It can be applied at checkout on any restoration order.

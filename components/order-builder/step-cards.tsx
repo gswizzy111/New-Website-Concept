@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,14 +12,14 @@ import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers
 
 const ALL_TIERS = getAllTiers();
 
-// Colors matching tier-selection page
+// One selection style for every tier (clinic theme)
 const TIER_STYLES: Record<string, { selected: string; normal: string }> = {
-  regular:       { selected: "border-amber-500 bg-amber-50 text-amber-900 ring-2 ring-amber-400",   normal: "border-border text-muted-foreground hover:border-amber-400 hover:bg-amber-50/40" },
-  expedited:     { selected: "border-slate-500 bg-slate-100 text-slate-900 ring-2 ring-slate-400",  normal: "border-border text-muted-foreground hover:border-slate-400 hover:bg-slate-50/40" },
-  premium:       { selected: "border-yellow-500 bg-yellow-50 text-yellow-900 ring-2 ring-yellow-400",normal: "border-border text-muted-foreground hover:border-yellow-400 hover:bg-yellow-50/40" },
-  ultra_premium: { selected: "border-blue-500 bg-blue-50 text-blue-900 ring-2 ring-blue-400",       normal: "border-border text-muted-foreground hover:border-blue-400 hover:bg-blue-50/40" },
-  elite:         { selected: "border-purple-500 bg-purple-50 text-purple-900 ring-2 ring-purple-400",normal: "border-border text-muted-foreground hover:border-purple-400 hover:bg-purple-50/40" },
-  fast_pass:     { selected: "border-orange-500 bg-orange-50 text-orange-900 ring-2 ring-orange-400",normal: "border-border text-muted-foreground hover:border-orange-400 hover:bg-orange-50/40" },
+  regular: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
+  expedited: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
+  premium: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
+  ultra_premium: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
+  elite: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
+  fast_pass: { selected: "border-rx bg-rx-soft text-ink ring-1 ring-rx", normal: "border-rule text-muted-foreground hover:border-ink/40 hover:bg-paper" },
 };
 
 function parseCents(str: string): number {
@@ -82,7 +82,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-serif text-2xl font-medium text-foreground mb-1">
+        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">
           Tell us about your cards.
         </h2>
         <p className="text-muted-foreground">
@@ -161,7 +161,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   />
                   {activeTier && activeTier.max_card_value_cents !== null && estimatedValueCents > activeTier.max_card_value_cents && (
                     <p className="text-xs text-red-600 font-semibold">
-                      ⚠ This value exceeds the {activeTier.name} tier&apos;s max of ${(activeTier.max_card_value_cents / 100).toLocaleString()}. Please select a higher tier below.
+                      <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.25} />This value exceeds the {activeTier.name} tier&apos;s max of ${(activeTier.max_card_value_cents / 100).toLocaleString()}. Please select a higher tier below.
                     </p>
                   )}
                 </div>
@@ -202,7 +202,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                         }`}
                       >
                         <span className="block font-semibold">
-                          {selected && <span className="mr-1">✓</span>}{t.name}
+                          {selected && <Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />}{t.name}
                           {!available && t.max_card_value_cents && (
                             <span className="ml-1 text-xs font-normal">(max ${(t.max_card_value_cents / 100).toLocaleString()})</span>
                           )}
@@ -253,7 +253,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                     Photos <span className="text-red-500 font-bold">*</span>
                   </Label>
                   {card.photo_urls.length > 0 && (
-                    <span className="text-xs text-green-600 font-semibold">✓ {card.photo_urls.length} photo{card.photo_urls.length !== 1 ? "s" : ""} added</span>
+                    <span className="text-xs text-rx font-semibold"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{card.photo_urls.length} photo{card.photo_urls.length !== 1 ? "s" : ""} added</span>
                   )}
                 </div>
                 <PhotoUploader
@@ -266,34 +266,34 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               </div>
 
               {/* Slab cracking */}
-              <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <div className="flex items-start gap-3 bg-white border border-rule rounded-md px-4 py-3 hover:border-ink/40 transition-colors">
                 <input
                   type="checkbox"
                   id={`slab-${card.id}`}
                   checked={card.needs_slab_crack ?? false}
                   onChange={(e) => updateCard(card.id, { needs_slab_crack: e.target.checked })}
-                  className="w-4 h-4 mt-0.5 accent-amber-600 flex-shrink-0"
+                  className="w-4 h-4 mt-0.5 accent-[var(--rx)] flex-shrink-0"
                 />
                 <label htmlFor={`slab-${card.id}`} className="text-sm cursor-pointer">
-                  <span className="font-semibold text-amber-900">Need your slab cracked? +$7</span>
-                  <span className="block text-amber-700 text-xs mt-0.5">
+                  <span className="font-semibold text-ink">Need your slab cracked? +$7</span>
+                  <span className="block text-muted-foreground text-xs mt-0.5">
                     Check this if your card is currently in a PSA, BGS, or other graded slab and needs to be removed before restoration.
                   </span>
                 </label>
               </div>
 
               {/* Pregrade */}
-              <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+              <div className="flex items-start gap-3 bg-white border border-rule rounded-md px-4 py-3 hover:border-ink/40 transition-colors">
                 <input
                   type="checkbox"
                   id={`pregrade-${card.id}`}
                   checked={card.needs_pregrade ?? false}
                   onChange={(e) => updateCard(card.id, { needs_pregrade: e.target.checked })}
-                  className="w-4 h-4 mt-0.5 accent-green-600 flex-shrink-0"
+                  className="w-4 h-4 mt-0.5 accent-[var(--rx)] flex-shrink-0"
                 />
                 <label htmlFor={`pregrade-${card.id}`} className="text-sm cursor-pointer">
-                  <span className="font-semibold text-green-900">Add Pregrade? +$25</span>
-                  <span className="block text-green-700 text-xs mt-0.5">
+                  <span className="font-semibold text-ink">Add Pregrade? +$25</span>
+                  <span className="block text-muted-foreground text-xs mt-0.5">
                     We'll pregrade your card before submitting so you know what grade to expect — helping you decide whether to send it off.
                   </span>
                 </label>

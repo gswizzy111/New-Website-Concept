@@ -133,7 +133,7 @@ export default async function AccountOrderPage({
         {/* Order header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-primary mb-1">Restoration Order</p>
+            <p className="rx-label text-rx mb-1">Restoration Order</p>
             <h1 className="font-heading font-black text-3xl text-foreground">{orderLabel}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Placed {new Date(order.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
@@ -175,7 +175,7 @@ export default async function AccountOrderPage({
             {/* Inbound tracking */}
             {order.inbound_tracking_number && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-blue-700 mb-2">Inbound Tracking</p>
+                <p className="rx-label text-rx mb-2">Inbound Tracking</p>
                 {inboundStatus && (
                   <p className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block mb-2 ${
                     inboundStatus === "TRANSIT" ? "bg-blue-200 text-blue-800" :
@@ -212,7 +212,7 @@ export default async function AccountOrderPage({
             {/* Return tracking */}
             {order.tracking_number && (
               <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-cyan-700 mb-1">Return Tracking</p>
+                <p className="rx-label text-rx mb-1">Return Tracking</p>
                 <p className="font-mono font-black text-base text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
                 <a
                   href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
@@ -253,7 +253,7 @@ export default async function AccountOrderPage({
                 <h2 className="font-heading font-black text-lg text-foreground mb-4">Restoration Results</h2>
                 {order.completion_notes && (
                   <div className="mb-4 p-4 bg-secondary/40 rounded-lg">
-                    <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Notes from The Card Doc</p>
+                    <p className="rx-label text-rx mb-2">Notes from The Card Doc</p>
                     <p className="text-sm text-foreground whitespace-pre-wrap">{order.completion_notes}</p>
                   </div>
                 )}

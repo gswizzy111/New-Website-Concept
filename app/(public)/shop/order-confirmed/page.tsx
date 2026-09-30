@@ -8,7 +8,7 @@ export default function ShopOrderConfirmedPage() {
       <div className="max-w-sm w-full text-center flex flex-col items-center gap-6">
         <CheckCircle className="h-16 w-16 text-primary" />
         <div>
-          <h1 className="font-heading font-black text-4xl text-foreground mb-2">Order Confirmed!</h1>
+          <h1 className="font-heading font-extrabold text-4xl text-foreground mb-2">Order Confirmed!</h1>
           <p className="text-muted-foreground text-sm">Thanks for your order. We&apos;ll ship it out shortly and send you a tracking number.</p>
         </div>
         <div className="flex flex-col gap-3 w-full">

@@ -22,7 +22,7 @@ export default async function OrderPage({ searchParams }: PageProps) {
   if (isSoldOut()) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <p className="text-xs font-bold uppercase tracking-widest text-primary mb-4">Restoration Services</p>
+        <p className="rx-label text-rx mb-4">Restoration Services</p>
         <h1 className="font-heading text-3xl md:text-4xl text-foreground mb-4">Currently Unavailable</h1>
         <p className="text-muted-foreground">We&apos;re at capacity right now. Check back soon — we&apos;ll be accepting new restoration orders again shortly.</p>
       </div>

@@ -36,7 +36,7 @@ export function StepCustomer({ customer, onChange }: StepCustomerProps) {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-serif text-2xl font-medium text-foreground mb-1">
+        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">
           Where should we ship them back?
         </h2>
         <p className="text-muted-foreground">We&apos;ll also use this to confirm your order.</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Camera, Check, Hammer, Mailbox, Package, X } from "lucide-react";
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
@@ -312,7 +313,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     <div className="max-w-xl mx-auto px-6 py-12 md:py-16">
       <div className="mb-8">
         <Link href="/prep" className="text-xs text-primary font-semibold hover:underline">← Back to Prep Pricing</Link>
-        <h1 className="font-heading text-3xl font-black text-foreground mt-3 mb-1">Prep Order</h1>
+        <h1 className="font-heading text-3xl font-extrabold text-foreground mt-3 mb-1">Prep Order</h1>
         <p className="text-sm text-muted-foreground">
           Cards under $1,500: {fmt(standardPriceCents)}/card &nbsp;·&nbsp; Cards $1,500+: 2% of declared value
         </p>
@@ -324,7 +325,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           {["Crease work", "Edge & corner work", "Dent removal", "Any restorative work"].map((item) => (
             <div key={item} className="flex items-center gap-1.5 text-xs text-red-700">
-              <span className="font-black text-red-500 leading-none">✕</span>
+              <X className="h-3 w-3 shrink-0 text-red-600" strokeWidth={2.5} />
               <span>{item}</span>
             </div>
           ))}
@@ -338,7 +339,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
         {/* Customer */}
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
-          <h2 className="font-heading font-black text-base text-foreground">Your Info</h2>
+          <h2 className="font-heading font-extrabold text-base text-foreground">Your Info</h2>
           <div>
             <label className={labelCls}>Full Name *</label>
             <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
@@ -359,7 +360,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-heading font-black text-base text-foreground">Cards</h2>
+              <h2 className="font-heading font-extrabold text-base text-foreground">Cards</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Enter value for cards $1,500+</p>
             </div>
             <button type="button" onClick={addCard} className="text-sm font-semibold text-primary hover:text-primary/80">
@@ -408,14 +409,14 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           {filledCards.length > 0 && (
             <div className="flex items-center justify-between pt-3 border-t border-border mt-1">
               <span className="text-sm text-muted-foreground">{filledCards.length} card{filledCards.length !== 1 ? "s" : ""}</span>
-              <span className="text-lg font-black text-foreground">{fmt(prepSubtotal)}</span>
+              <span className="text-lg font-extrabold text-foreground">{fmt(prepSubtotal)}</span>
             </div>
           )}
         </div>
 
         {/* Add-ons */}
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
-          <h2 className="font-heading font-black text-base text-foreground">Add-Ons</h2>
+          <h2 className="font-heading font-extrabold text-base text-foreground">Add-Ons</h2>
 
           <button
             type="button"
@@ -423,7 +424,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-colors ${addPreGrade ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
           >
             <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${addPreGrade ? "border-primary bg-primary" : "border-border"}`}>
-              {addPreGrade && <span className="text-white text-xs font-black">✓</span>}
+              {addPreGrade && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
             </div>
             <div className="flex-1">
               <div className="flex items-baseline gap-2">
@@ -433,13 +434,13 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <p className="text-xs text-muted-foreground mt-0.5">We estimate each card&apos;s grade before you submit — so you know what to expect.</p>
             </div>
             {addPreGrade && filledCards.length > 0 && (
-              <span className="text-sm font-black text-primary shrink-0">{fmt(preGradeSubtotal)}</span>
+              <span className="text-sm font-extrabold text-primary shrink-0">{fmt(preGradeSubtotal)}</span>
             )}
           </button>
 
           <div className="border border-border rounded-xl p-4">
             <div className="flex items-start gap-3 mb-3">
-              <span className="text-lg">🪨</span>
+              <Hammer className="h-5 w-5 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
               <div className="flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-sm font-bold text-foreground">Slab Crack</span>
@@ -465,15 +466,15 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
         {/* Shipping */}
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
-          <h2 className="font-heading font-black text-base text-foreground">Shipping Your Cards To Us</h2>
+          <h2 className="font-heading font-extrabold text-base text-foreground">Shipping Your Cards To Us</h2>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setShippingMethod("buy_label")}
               className={`h-12 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "buy_label" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-              <span className="text-base">📦</span>Prepaid Label
+              <Package className="h-4 w-4" strokeWidth={1.75} />Prepaid Label
             </button>
             <button type="button" onClick={() => setShippingMethod("self_ship")}
               className={`h-12 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "self_ship" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-              <span className="text-base">📬</span>Ship Myself
+              <Mailbox className="h-4 w-4" strokeWidth={1.75} />Ship Myself
             </button>
           </div>
 
@@ -587,7 +588,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                               <p className="text-xs text-muted-foreground">{etaLabel(rate)}</p>
                             </div>
                           </div>
-                          <span className="text-sm font-black text-foreground">{fmt(rate.amount_cents * 2)}</span>
+                          <span className="text-sm font-extrabold text-foreground">{fmt(rate.amount_cents * 2)}</span>
                         </button>
                       ))}
                     </div>
@@ -605,7 +606,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   }}
                   className="w-full flex items-center gap-3 text-left">
                   <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${addInsurance ? "border-primary bg-primary" : "border-border"}`}>
-                    {addInsurance && <span className="text-white text-xs font-black">✓</span>}
+                    {addInsurance && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
                   </div>
                   <div>
                     <div className="text-sm font-bold text-foreground">Insure my shipment</div>
@@ -634,11 +635,11 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Feature suggestion */}
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 flex flex-col gap-3">
+        <div className="bg-rx-soft border border-blue-200 rounded-lg p-5 flex flex-col gap-3">
           <div className="flex items-start gap-3">
-            <span className="text-2xl shrink-0">📸</span>
+            <Camera className="h-5 w-5 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
             <div>
-              <p className="text-sm font-black text-slate-800 leading-tight">Want to be featured?</p>
+              <p className="text-sm font-extrabold text-slate-800 leading-tight">Want to be featured?</p>
               <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
                 Drop your Instagram or Facebook handle and we may share your before &amp; after results with the community.
               </p>
@@ -657,7 +658,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
         {/* Notes */}
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-2">
-          <label className="font-heading font-black text-base text-foreground">
+          <label className="font-heading font-extrabold text-base text-foreground">
             Notes <span className="text-muted-foreground font-normal text-sm">(optional)</span>
           </label>
           <textarea
@@ -668,7 +669,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
         {/* Order Summary */}
         <div className="bg-slate-50 rounded-xl border border-border p-5">
-          <h2 className="font-heading font-black text-sm text-foreground mb-3">Order Summary</h2>
+          <h2 className="font-heading font-extrabold text-sm text-foreground mb-3">Order Summary</h2>
           <div className="flex flex-col gap-1.5 text-sm">
             {filledCards.length > 0 && (
               <div className="flex justify-between">
@@ -709,10 +710,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               </div>
             )}
             <div className="flex justify-between pt-2 border-t border-border mt-1">
-              <span className="font-black text-foreground">
+              <span className="font-extrabold text-foreground">
                 {shippingMethod === "buy_label" && !selectedRate ? "Subtotal" : "Total"}
               </span>
-              <span className="font-black text-foreground text-lg">{totalEstimate > 0 ? fmt(totalEstimate) : "—"}</span>
+              <span className="font-extrabold text-foreground text-lg">{totalEstimate > 0 ? fmt(totalEstimate) : "—"}</span>
             </div>
             <p className="text-xs text-muted-foreground">
               {shippingMethod === "buy_label" && !selectedRate

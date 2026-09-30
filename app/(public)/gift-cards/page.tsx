@@ -1,5 +1,6 @@
 "use client";
 
+import { Gift } from "lucide-react";
 import { useState } from "react";
 
 const PRESET_AMOUNTS = [25, 50, 75, 100, 150, 200];
@@ -63,21 +64,21 @@ export default function GiftCardsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
+    <div className="min-h-screen bg-paper">
       <div className="max-w-2xl mx-auto px-6 py-16">
         <div className="text-center mb-10">
-          <div className="text-5xl mb-4">🎁</div>
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-lg bg-rx-soft text-rx"><Gift className="h-7 w-7" strokeWidth={1.75} /></div>
           <h1 className="font-heading text-4xl font-bold text-foreground mb-3">Gift Cards</h1>
           <p className="text-lg text-muted-foreground">
             Give the gift of card restoration. The recipient gets a code they can apply at checkout.
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-border p-8 flex flex-col gap-6">
+        <div className="bg-white rounded-lg border border-border p-8 flex flex-col gap-6">
 
           {/* Amount selection */}
           <div>
-            <p className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-3">Select Amount</p>
+            <p className="rx-label text-rx mb-3">Select Amount</p>
             <div className="grid grid-cols-3 gap-3 mb-3">
               {PRESET_AMOUNTS.map((amt) => (
                 <button
@@ -125,7 +126,7 @@ export default function GiftCardsPage() {
 
           {/* Purchaser info */}
           <div className="border-t border-border pt-6">
-            <p className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-3">Your Info</p>
+            <p className="rx-label text-rx mb-3">Your Info</p>
             <div className="flex flex-col gap-3">
               <input
                 type="text"

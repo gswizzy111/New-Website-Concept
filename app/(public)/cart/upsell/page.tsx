@@ -75,8 +75,8 @@ function UpsellInner() {
 
         {/* Header */}
         <div className="mb-8 text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Pre-Checkout</p>
-          <h1 className="font-heading font-black text-3xl md:text-4xl text-foreground">Want to add anything else?</h1>
+          <p className="rx-label text-rx mb-2">Pre-Checkout</p>
+          <h1 className="font-heading font-extrabold text-3xl md:text-4xl text-foreground">Want to add anything else?</h1>
           <p className="text-muted-foreground text-sm mt-2">These pair great with your order.</p>
         </div>
 
@@ -107,7 +107,7 @@ function UpsellInner() {
 
                   {/* Info + size */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-heading font-black text-foreground">{product.name}</p>
+                    <p className="font-heading font-extrabold text-foreground">{product.name}</p>
                     {product.description && (
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{product.description}</p>
                     )}
@@ -165,7 +165,7 @@ function UpsellInner() {
           {/* Right — order summary + continue */}
           <div className="lg:w-72 flex-shrink-0 sticky top-24">
             <div className="bg-white rounded-xl border border-border p-6">
-              <h2 className="font-heading font-black text-lg text-foreground mb-4">Your Cart</h2>
+              <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Your Cart</h2>
               <div className="flex flex-col gap-2 mb-4">
                 {items.map((item) => (
                   <div key={item.id} className="flex justify-between text-sm">

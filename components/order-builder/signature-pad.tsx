@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useRef, useEffect, useState } from "react";
 
 interface SignaturePadProps {
@@ -135,7 +136,7 @@ export function SignaturePad({ onSign, onClear }: SignaturePadProps) {
 
       <div className="flex items-center justify-between min-h-[20px]">
         {hasSigned ? (
-          <p className="text-xs text-primary font-medium">✓ Signature captured</p>
+          <p className="text-xs text-primary font-medium"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />Signature captured</p>
         ) : (
           <p className="text-xs text-muted-foreground">Use your mouse or finger to sign</p>
         )}

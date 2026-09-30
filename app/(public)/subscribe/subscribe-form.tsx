@@ -1,5 +1,6 @@
 "use client";
 
+import { Check } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { US_STATES } from "@/lib/constants";
@@ -57,20 +58,20 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
 
         {/* Hero */}
         <div className="text-center mb-12">
-          <h1 className="font-heading font-black text-5xl text-foreground mb-4">Monthly Kit Club</h1>
+          <h1 className="font-heading font-extrabold text-5xl text-foreground mb-4">Monthly Kit Club</h1>
           <p className="text-xl text-muted-foreground mb-8">
             Get a fresh restoration kit delivered every month — {priceLabel}/mo
           </p>
           <ul className="inline-flex flex-col gap-3 text-left text-base text-foreground">
-            <li className="flex items-center gap-2"><span className="text-primary font-bold">✓</span>1 Restoration Kit every month</li>
-            <li className="flex items-center gap-2"><span className="text-primary font-bold">✓</span>Automatic billing — cancel anytime</li>
-            <li className="flex items-center gap-2"><span className="text-primary font-bold">✓</span>Free US shipping included</li>
+            <li className="flex items-center gap-2"><Check className="h-4 w-4 shrink-0 text-rx" strokeWidth={2.5} />1 Restoration Kit every month</li>
+            <li className="flex items-center gap-2"><Check className="h-4 w-4 shrink-0 text-rx" strokeWidth={2.5} />Automatic billing — cancel anytime</li>
+            <li className="flex items-center gap-2"><Check className="h-4 w-4 shrink-0 text-rx" strokeWidth={2.5} />Free US shipping included</li>
           </ul>
         </div>
 
         {/* Form card */}
         <div className="bg-white rounded-xl border border-border p-8">
-          <h2 className="font-heading font-black text-2xl text-foreground mb-6">Your shipping details</h2>
+          <h2 className="font-heading font-extrabold text-2xl text-foreground mb-6">Your shipping details</h2>
 
           {error && (
             <div className="mb-6 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>

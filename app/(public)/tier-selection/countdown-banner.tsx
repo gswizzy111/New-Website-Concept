@@ -1,5 +1,6 @@
 "use client";
 
+import { CheckCircle2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 function getNext3PMET(): Date {
@@ -52,7 +53,7 @@ export function CountdownBanner() {
       <div className="bg-rx text-primary-foreground">
         <div className="max-w-5xl mx-auto px-6 py-4 text-center">
           <p className="text-sm font-bold">
-            ✅ We&apos;re open! Slots are now available — choose your tier below.
+            <CheckCircle2 className="inline h-4 w-4 mr-1.5 -mt-0.5" strokeWidth={2.25} />We&apos;re open! Slots are now available — choose your tier below.
           </p>
         </div>
       </div>

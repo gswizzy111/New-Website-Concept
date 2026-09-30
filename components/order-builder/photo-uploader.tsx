@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
-import { X } from "lucide-react";
+import { AlertTriangle, ImageOff, X } from "lucide-react";
 import { toast } from "sonner";
 
 interface PhotoUploaderProps {
@@ -150,7 +150,7 @@ export function PhotoUploader({ photoUrls, onChange, max = 4 }: PhotoUploaderPro
   if (isInAppBrowser) {
     return (
       <div className="bg-red-50 border-2 border-red-400 rounded-lg p-3 text-sm">
-        <p className="font-black text-red-900 mb-1">📵 Photo upload blocked</p>
+        <p className="font-extrabold text-red-900 mb-1 flex items-center gap-2"><ImageOff className="h-4 w-4 shrink-0" strokeWidth={2} />Photo upload blocked</p>
         <p className="text-red-800 leading-relaxed">
           Instagram&apos;s browser doesn&apos;t allow photo uploads.{" "}
           <strong>Tap ··· → &quot;Open in browser&quot;</strong> to use Safari or Chrome, then come back to this page.
@@ -230,7 +230,7 @@ export function PhotoUploader({ photoUrls, onChange, max = 4 }: PhotoUploaderPro
       {/* Inline error banner */}
       {uploadError && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-          <span className="text-red-500 shrink-0 mt-px text-sm">⚠</span>
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-600" strokeWidth={2.25} />
           <p className="text-xs text-red-700 font-medium flex-1">{uploadError}</p>
           <button
             type="button"

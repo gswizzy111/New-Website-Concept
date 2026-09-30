@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -16,8 +17,8 @@ export function ServicesGrid() {
     <section className="py-20 md:py-28 bg-secondary">
       <div className="max-w-6xl mx-auto px-6 md:px-8">
         <div className="mb-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">What We Do</p>
-          <h2 className="font-heading font-black text-4xl md:text-5xl text-foreground">
+          <p className="rx-label text-rx mb-3">What We Do</p>
+          <h2 className="font-heading font-extrabold text-4xl md:text-5xl text-foreground">
             Our Service
           </h2>
         </div>
@@ -28,14 +29,14 @@ export function ServicesGrid() {
         <div className="max-w-lg">
           <div className="flex flex-col rounded-xl border-2 border-border bg-white overflow-hidden hover:border-primary/40 transition-colors">
             <div className="p-6 flex flex-col gap-4 flex-1">
-              <h3 className="font-heading font-black text-2xl text-foreground">Full Restoration & PSA Prep</h3>
+              <h3 className="font-heading font-extrabold text-2xl text-foreground">Full Restoration & PSA Prep</h3>
               <p className="text-muted-foreground leading-relaxed text-sm">
                 Complete card restoration and professional PSA grading preparation in one service.
               </p>
               <ul className="flex flex-col gap-2">
                 {SERVICE_BULLETS.map((b) => (
                   <li key={b} className="flex items-start gap-2 text-sm text-foreground">
-                    <span className="text-primary font-bold flex-shrink-0 mt-0.5">✓</span>
+                    <Check className="h-4 w-4 flex-shrink-0 mt-0.5 text-rx" strokeWidth={2.5} />
                     {b}
                   </li>
                 ))}

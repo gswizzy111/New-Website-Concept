@@ -5,7 +5,7 @@ export default function CheckoutCancelPage() {
   return (
     <section className="flex-1 flex items-center justify-center py-24 px-6">
       <div className="max-w-md w-full text-center flex flex-col items-center gap-6">
-        <h1 className="font-serif text-4xl font-medium text-foreground">
+        <h1 className="font-heading text-4xl font-extrabold tracking-[-0.03em] text-foreground">
           Checkout cancelled.
         </h1>
         <p className="text-muted-foreground">
