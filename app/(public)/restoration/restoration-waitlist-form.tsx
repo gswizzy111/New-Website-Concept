@@ -47,7 +47,7 @@ export function RestorationWaitlistForm({ onSuccess }: { onSuccess?: () => void 
       <input name="name" required placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} />
       <input name="email" type="email" required placeholder="Email address *" value={form.email} onChange={handleChange} className={inp} />
       <input name="phone" type="tel" placeholder="Phone number (optional)" value={form.phone} onChange={handleChange} className={inp} />
-      {error && <p className="text-red-500 text-xs">{error}</p>}
+      {error && <p className="text-red-700 text-xs">{error}</p>}
       <button
         type="submit"
         disabled={status === "loading"}

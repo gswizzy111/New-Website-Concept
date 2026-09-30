@@ -213,7 +213,7 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 md:px-8 py-12">
+    <div className="max-w-6xl mx-auto px-4 md:px-10 py-10 md:py-12">
       <InAppBrowserBanner />
       <div className="mb-10">
         <ProgressIndicator currentStep={step} />

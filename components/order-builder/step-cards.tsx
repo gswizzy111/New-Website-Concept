@@ -250,7 +250,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label>
-                    Photos <span className="text-red-500 font-bold">*</span>
+                    Photos <span className="text-red-700 font-bold">*</span>
                   </Label>
                   {card.photo_urls.length > 0 && (
                     <span className="text-xs text-rx font-semibold"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{card.photo_urls.length} photo{card.photo_urls.length !== 1 ? "s" : ""} added</span>
@@ -261,7 +261,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   onChange={(urls) => updateCard(card.id, { photo_urls: urls })}
                 />
                 {card.photo_urls.length === 0 && (
-                  <p className="text-xs text-red-500 font-medium">Upload at least one photo to continue.</p>
+                  <p className="text-xs text-red-700 font-medium">Upload at least one photo to continue.</p>
                 )}
               </div>
 

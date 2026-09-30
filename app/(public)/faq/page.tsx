@@ -152,7 +152,7 @@ export default function FAQPage() {
               <ul className="flex flex-col gap-2.5">
                 {cannotFix.map((item) => (
                   <li key={item} className="flex items-start gap-2.5 text-sm text-muted-foreground">
-                    <X className="h-4 w-4 mt-0.5 shrink-0 text-red-500" strokeWidth={2.25} />
+                    <X className="h-4 w-4 mt-0.5 shrink-0 text-red-700" strokeWidth={2.25} />
                     {item}
                   </li>
                 ))}

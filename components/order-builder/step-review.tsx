@@ -534,7 +534,7 @@ export function StepReview({
         {codeStatus === "valid" && discountPercent === 0 && (
           <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />Code applied — {codeName}</p>
         )}
-        {codeStatus === "invalid" && <p className="text-sm text-red-500">Invalid code.</p>}
+        {codeStatus === "invalid" && <p className="text-sm text-red-700">Invalid code.</p>}
       </div>
 
       {/* Gift card */}
@@ -565,7 +565,7 @@ export function StepReview({
         {gcStatus === "valid" && gcApplied > 0 && (
           <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />Gift card applied — {formatCurrency(gcApplied)} off</p>
         )}
-        {gcStatus === "invalid" && <p className="text-sm text-red-500">Invalid or already used gift card.</p>}
+        {gcStatus === "invalid" && <p className="text-sm text-red-700">Invalid or already used gift card.</p>}
       </div>
 
       {/* Signature */}
@@ -590,7 +590,7 @@ export function StepReview({
           onClear={() => onSignatureChange("")}
         />
         {!signatureDataUrl && (
-          <p className="text-xs text-red-500">A signature is required to place your order.</p>
+          <p className="text-xs text-red-700">A signature is required to place your order.</p>
         )}
       </div>
     </div>

@@ -13,20 +13,20 @@ export function ProgressIndicator({ currentStep }: { currentStep: number }) {
         <div key={step.n} className="flex items-center flex-1 last:flex-none">
           <div className="flex flex-col items-center gap-1">
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+              className={`w-8 h-8 rounded-md flex items-center justify-center font-mono text-xs transition-colors duration-200 ${
                 step.n < currentStep
                   ? "bg-primary text-primary-foreground"
                   : step.n === currentStep
-                  ? "bg-accent text-accent-foreground"
-                  : "bg-muted text-muted-foreground"
+                  ? "bg-ink text-paper"
+                  : "bg-white text-muted-foreground ring-1 ring-rule"
               }`}
             >
               {step.n < currentStep ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : step.n}
             </div>
             <span
-              className={`text-xs hidden sm:block ${
+              className={`rx-label !normal-case !tracking-normal !text-xs hidden sm:block ${
                 step.n === currentStep
-                  ? "text-foreground font-medium"
+                  ? "!text-ink font-semibold"
                   : "text-muted-foreground"
               }`}
             >
