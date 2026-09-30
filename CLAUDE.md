@@ -12,8 +12,11 @@ Rules for this repo:
 - **Appearance only.** Do not change logic, data, routes, prices, policies or
   flows. **Never change the owner's wording**, including punctuation.
 - **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`, set in `netlify.toml`)
-  runs the site with no backend: `/api/*` returns "not functional yet",
-  private areas show `/not-available`, and Supabase queries fail instantly.
+  runs the site without checkout or accounts: `/api/*` returns "not
+  functional yet" and private areas show `/not-available`. Supabase is
+  read-only: reads show real data, every write is refused in
+  `lib/preview.ts`. The preview Netlify site (nimble-chebakia-ecb45c)
+  gets the Supabase URL and keys from its Netlify environment variables.
   See `lib/preview.ts` and `middleware.ts`. Remove the placeholder block in
   `netlify.toml` before any real launch.
 
