@@ -51,7 +51,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
     : "Est. turnaround: 15–20 days from receipt";
 
   return (
-    <div className="bg-white border-2 border-border rounded-xl p-6 flex flex-col gap-4">
+    <div className="bg-white border border-border rounded-lg p-6 flex flex-col gap-4">
       <h3 className="font-heading font-extrabold text-lg text-foreground">Order Summary</h3>
 
       <div className="flex flex-col gap-1 text-sm border-b border-border pb-3">

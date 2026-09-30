@@ -23,10 +23,10 @@ const ICON_MAP = {
 
 // Tier identity lives in a small metal swatch, not in recoloring the card.
 const SWATCH: Record<string, string> = {
-  regular:       "bg-[linear-gradient(135deg,#b87333,#e0a878_55%,#8a5220)]",
-  expedited:     "bg-[linear-gradient(135deg,#9aa3a8,#e4e8ea_55%,#7c858a)]",
-  premium:       "bg-[linear-gradient(135deg,#c9a227,#f3dc86_55%,#a07d12)]",
-  ultra_premium: "bg-[linear-gradient(135deg,#8e9aa6,#f1f4f6_55%,#6f7b86)]",
+  regular:       "bg-[#a86b3c]",
+  expedited:     "bg-[#a7b0b5]",
+  premium:       "bg-[#c9a227]",
+  ultra_premium: "bg-[#8e9aa6]",
   fast_pass:     "bg-rx",
 };
 
@@ -91,7 +91,7 @@ function TierCard({
   ) : (
     <Link
       href={`/restoration?tier=${tier.id}`}
-      className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-ink text-paper hover:bg-rx transition-colors duration-150"
+      className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
     >
       Select {tier.name}
     </Link>
@@ -134,7 +134,7 @@ function TierCard({
   return (
     <div className={`relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-5">
-        <span className={`h-3 w-8 rounded-sm ${swatch}`} aria-hidden />
+        <span className={`h-3 w-8 rounded-sm ring-1 ring-rule ${swatch}`} aria-hidden />
         {bannerLabel && (
           <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
             {bannerLabel}
@@ -157,8 +157,8 @@ function TierCard({
             <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
           </div>
 
-          {!wide && <div className="mb-5">{action}</div>}
-          {!wide && <div className="mt-auto">{facts}</div>}
+          {!wide && <div className="mb-5">{facts}</div>}
+          {!wide && <div className="mt-auto">{action}</div>}
         </div>
 
         {wide && (
@@ -261,24 +261,25 @@ export default async function TierSelectionPage() {
             : "We're temporarily closed. Browse our pricing below and join the waitlist to be notified when we reopen."}
         </p>
 
-        {/* Top row: Bronze · Silver · Gold */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-          {topTiers.map((tier) => (
-            <TierCard key={tier.id} tier={tier} {...sharedProps} />
-          ))}
-        </div>
-
-        {/* Middle row: Platinum · Diamond */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          {midTiers.map((tier) => (
-            <TierCard key={tier.id} tier={tier} {...sharedProps} />
+        {/* All tiers on one 3-column track so card edges align */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[...topTiers, ...midTiers].map((tier, i) => (
+            <div key={tier.id} className="rx-reveal flex" style={{ ["--i" as string]: i }}>
+              <div className="flex-1 flex flex-col [&>*]:flex-1">
+                <TierCard tier={tier} {...sharedProps} />
+              </div>
+            </div>
           ))}
           {eliteTier && (
-            <DiamondCard
-              slotsLeft={eliteSlotsLeft}
-              isSoldOut={eliteIsSoldOut}
-              restorationsOpen={restorationsOpen}
-            />
+            <div className="rx-reveal flex" style={{ ["--i" as string]: topTiers.length + midTiers.length }}>
+              <div className="flex-1 flex flex-col [&>*]:flex-1">
+                <DiamondCard
+                  slotsLeft={eliteSlotsLeft}
+                  isSoldOut={eliteIsSoldOut}
+                  restorationsOpen={restorationsOpen}
+                />
+              </div>
+            </div>
           )}
         </div>
 

@@ -67,7 +67,7 @@ export default function ManageSubscriptionPage() {
 
   return (
     <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4 py-16">
-      <div className="bg-white rounded-xl border border-border p-8 max-w-md w-full">
+      <div className="bg-white rounded-lg border border-border p-8 max-w-md w-full">
         <Link href="/" className="text-sm text-muted-foreground hover:text-primary block mb-6">← Back to home</Link>
 
         <h1 className="font-heading font-extrabold text-2xl text-foreground mb-1">Manage Your Subscription</h1>
@@ -96,7 +96,7 @@ export default function ManageSubscriptionPage() {
         )}
 
         {result?.found && (
-          <div className="border border-border rounded-xl p-5 space-y-4">
+          <div className="border border-border rounded-lg p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-bold text-foreground">Monthly Kit Club</p>

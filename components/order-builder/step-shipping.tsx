@@ -199,7 +199,7 @@ export function StepShipping({
           }`}
         >
           <div className="flex items-start gap-3">
-            <div className={`mt-1 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+            <div className={`mt-1 w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${
               shippingMethod === "buy_label" ? "border-accent" : "border-muted-foreground"
             }`}>
               {shippingMethod === "buy_label" && <div className="w-2 h-2 rounded-full bg-accent" />}
@@ -239,14 +239,14 @@ export function StepShipping({
                           e.stopPropagation();
                           onRateChange({ ...rate, amount_cents: rate.amount_cents * 2 });
                         }}
-                        className={`w-full text-left rounded-lg border-2 px-4 py-3 flex items-center justify-between transition-all ${
+                        className={`w-full text-left rounded-lg border px-4 py-3 flex items-center justify-between transition-all ${
                           chosen
                             ? "border-rx bg-blue-50 shadow-sm"
                             : "border-border hover:border-rx/50"
                         }`}
                       >
                         <div className="flex items-center gap-3">
-                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${chosen ? "border-rx bg-rx" : "border-muted-foreground"}`}>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${chosen ? "border-rx bg-rx" : "border-muted-foreground"}`}>
                             {chosen && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                           </div>
                           <div>
@@ -279,7 +279,7 @@ export function StepShipping({
           }`}
         >
           <div className="flex items-start gap-3">
-            <div className={`mt-1 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+            <div className={`mt-1 w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center transition-colors ${
               shippingMethod === "self_ship" ? "border-accent" : "border-muted-foreground"
             }`}>
               {shippingMethod === "self_ship" && <div className="w-2 h-2 rounded-full bg-accent" />}

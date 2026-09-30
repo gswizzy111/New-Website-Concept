@@ -85,7 +85,7 @@ export default async function CheckoutSuccessPage({
         </p>
 
         {order?.inbound_method === "buy_label" && (
-          <div className="w-full bg-blue-50 border border-blue-200 rounded-xl p-4 text-left">
+          <div className="w-full bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
             <p className="font-bold text-blue-900 text-sm mb-1">Your prepaid shipping label</p>
             {order.shipping_label_url ? (
               <>
@@ -121,7 +121,7 @@ export default async function CheckoutSuccessPage({
           <Button
             variant="outline"
             render={<Link href="/" />}
-            className="font-bold w-full border-2"
+            className="font-bold w-full border"
           >
             Back to Home
           </Button>

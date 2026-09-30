@@ -310,7 +310,7 @@ export function StepReview({
 
       {/* Signature confirmation add-on */}
       {shippingMethod === "buy_label" && (
-        <div className={`border-2 rounded-xl p-4 transition-colors ${addSignatureConfirmation ? "border-blue-400 bg-blue-50" : "border-border"}`}>
+        <div className={`border rounded-lg p-4 transition-colors ${addSignatureConfirmation ? "border-blue-400 bg-blue-50" : "border-border"}`}>
           <label className="flex items-start gap-3 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -388,7 +388,7 @@ export function StepReview({
       </div>}
 
       {/* Instagram Feature Add-on */}
-      <div className={`border-2 rounded-xl p-5 transition-colors ${instagramFeature ? "border-rx bg-blue-50" : "border-border"}`}>
+      <div className={`border rounded-lg p-5 transition-colors ${instagramFeature ? "border-rx bg-blue-50" : "border-border"}`}>
         <label className="flex items-start gap-4 cursor-pointer select-none">
           <input
             type="checkbox"

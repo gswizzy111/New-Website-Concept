@@ -320,7 +320,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
       </div>
 
       {/* Not-included disclaimer */}
-      <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 mb-2">
+      <div className="bg-red-50 border border-red-200 rounded-lg px-5 py-4 mb-2">
         <p className="text-xs font-bold text-red-800 uppercase tracking-wide mb-2">Prep does not include:</p>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           {["Crease work", "Edge & corner work", "Dent removal", "Any restorative work"].map((item) => (
@@ -338,7 +338,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
       <form onSubmit={handleSubmit} className="flex flex-col gap-6 mt-6">
 
         {/* Customer */}
-        <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
+        <div className="bg-white rounded-lg border border-border p-6 flex flex-col gap-4">
           <h2 className="font-heading font-extrabold text-base text-foreground">Your Info</h2>
           <div>
             <label className={labelCls}>Full Name *</label>
@@ -357,7 +357,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Cards */}
-        <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-3">
+        <div className="bg-white rounded-lg border border-border p-6 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-heading font-extrabold text-base text-foreground">Cards</h2>
@@ -415,15 +415,15 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Add-ons */}
-        <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
+        <div className="bg-white rounded-lg border border-border p-6 flex flex-col gap-4">
           <h2 className="font-heading font-extrabold text-base text-foreground">Add-Ons</h2>
 
           <button
             type="button"
             onClick={() => setAddPreGrade((v) => !v)}
-            className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-colors ${addPreGrade ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+            className={`w-full flex items-center gap-3 p-4 rounded-lg border text-left transition-colors ${addPreGrade ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
           >
-            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${addPreGrade ? "border-primary bg-primary" : "border-border"}`}>
+            <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${addPreGrade ? "border-primary bg-primary" : "border-border"}`}>
               {addPreGrade && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
             </div>
             <div className="flex-1">
@@ -438,7 +438,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             )}
           </button>
 
-          <div className="border border-border rounded-xl p-4">
+          <div className="border border-border rounded-lg p-4">
             <div className="flex items-start gap-3 mb-3">
               <Hammer className="h-5 w-5 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
               <div className="flex-1">
@@ -465,15 +465,15 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Shipping */}
-        <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
+        <div className="bg-white rounded-lg border border-border p-6 flex flex-col gap-4">
           <h2 className="font-heading font-extrabold text-base text-foreground">Shipping Your Cards To Us</h2>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setShippingMethod("buy_label")}
-              className={`h-12 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "buy_label" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+              className={`h-12 rounded-lg border flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "buy_label" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
               <Package className="h-4 w-4" strokeWidth={1.75} />Prepaid Label
             </button>
             <button type="button" onClick={() => setShippingMethod("self_ship")}
-              className={`h-12 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "self_ship" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+              className={`h-12 rounded-lg border flex flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-colors ${shippingMethod === "self_ship" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
               <Mailbox className="h-4 w-4" strokeWidth={1.75} />Ship Myself
             </button>
           </div>
@@ -546,25 +546,25 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               {addressComplete && (
                 <div className="flex flex-col gap-3">
                   {isInternational ? (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 leading-relaxed">
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
                       <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
                     </div>
                   ) : (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-800 leading-relaxed">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
                       <strong>Shipping price covers both ways.</strong> You&apos;re paying for your label to send cards to us <em>and</em> the return shipment back to you — two labels, billed up front.
                     </div>
                   )}
 
                   {(rates.length === 0 || addressChangedSinceFetch) && !ratesLoading && (
                     <button type="button" onClick={fetchRates}
-                      className="h-10 w-full border-2 border-primary text-primary text-sm font-bold rounded-xl hover:bg-primary/5 transition-colors">
+                      className="h-10 w-full border border-primary text-primary text-sm font-bold rounded-lg hover:bg-primary/5 transition-colors">
                       {addressChangedSinceFetch ? "Refresh Shipping Rates" : "Check Shipping Rates"}
                     </button>
                   )}
 
                   {ratesLoading && (
                     <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border border-primary border-t-transparent rounded-full animate-spin" />
                       Fetching rates…
                     </div>
                   )}
@@ -578,9 +578,9 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                       <p className="text-xs font-semibold text-muted-foreground">Select a shipping option:</p>
                       {rates.map((rate) => (
                         <button key={rate.id} type="button" onClick={() => setSelectedRate(rate)}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-colors ${selectedRate?.id === rate.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+                          className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left transition-colors ${selectedRate?.id === rate.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
                           <div className="flex items-center gap-3">
-                            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedRate?.id === rate.id ? "border-primary" : "border-border"}`}>
+                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedRate?.id === rate.id ? "border-primary" : "border-border"}`}>
                               {selectedRate?.id === rate.id && <div className="w-2 h-2 rounded-full bg-primary" />}
                             </div>
                             <div>
@@ -596,7 +596,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 </div>
               )}
 
-              <div className="border border-border rounded-xl p-4">
+              <div className="border border-border rounded-lg p-4">
                 <button type="button"
                   onClick={() => {
                     setAddInsurance((v) => !v);
@@ -605,7 +605,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     }
                   }}
                   className="w-full flex items-center gap-3 text-left">
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${addInsurance ? "border-primary bg-primary" : "border-border"}`}>
+                  <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${addInsurance ? "border-primary bg-primary" : "border-border"}`}>
                     {addInsurance && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
                   </div>
                   <div>
@@ -657,7 +657,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Notes */}
-        <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-2">
+        <div className="bg-white rounded-lg border border-border p-6 flex flex-col gap-2">
           <label className="font-heading font-extrabold text-base text-foreground">
             Notes <span className="text-muted-foreground font-normal text-sm">(optional)</span>
           </label>
@@ -668,7 +668,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         </div>
 
         {/* Order Summary */}
-        <div className="bg-slate-50 rounded-xl border border-border p-5">
+        <div className="bg-slate-50 rounded-lg border border-border p-5">
           <h2 className="font-heading font-extrabold text-sm text-foreground mb-3">Order Summary</h2>
           <div className="flex flex-col gap-1.5 text-sm">
             {filledCards.length > 0 && (
@@ -730,7 +730,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         )}
 
         <button type="submit" disabled={submitting}
-          className="h-12 bg-primary text-primary-foreground rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors disabled:opacity-50">
+          className="h-12 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors disabled:opacity-50">
           {submitting ? "Redirecting to checkout…" : "Proceed to Checkout →"}
         </button>
       </form>

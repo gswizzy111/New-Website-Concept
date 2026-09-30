@@ -33,7 +33,7 @@ export function RestorationWaitlistForm({ onSuccess }: { onSuccess?: () => void 
 
   if (status === "success") {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-xl px-6 py-5 text-center max-w-md mx-auto">
+      <div className="bg-green-50 border border-green-200 rounded-lg px-6 py-5 text-center max-w-md mx-auto">
         <p className="text-green-700 font-bold text-lg mb-1">You&apos;re on the list!</p>
         <p className="text-green-600 text-sm">We&apos;ll reach out as soon as we&apos;re accepting restorations again.</p>
       </div>

@@ -62,7 +62,7 @@ function UpsellInner() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -91,7 +91,7 @@ function UpsellInner() {
               return (
                 <div
                   key={product.id}
-                  className={`bg-white rounded-xl border p-5 flex gap-4 items-start transition-colors ${
+                  className={`bg-white rounded-lg border p-5 flex gap-4 items-start transition-colors ${
                     inCart ? "border-green-300 bg-green-50/40" : "border-border"
                   }`}
                 >
@@ -121,7 +121,7 @@ function UpsellInner() {
                             <button
                               key={s}
                               onClick={() => setSizes((prev) => ({ ...prev, [product.id]: s }))}
-                              className={`px-3 py-1 text-xs font-semibold border-2 rounded-md transition-all duration-150 ${
+                              className={`px-3 py-1 text-xs font-semibold border rounded-md transition-all duration-150 ${
                                 selectedSize === s
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "border-border text-foreground hover:border-primary/60"
@@ -164,7 +164,7 @@ function UpsellInner() {
 
           {/* Right — order summary + continue */}
           <div className="lg:w-72 flex-shrink-0 sticky top-24">
-            <div className="bg-white rounded-xl border border-border p-6">
+            <div className="bg-white rounded-lg border border-border p-6">
               <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Your Cart</h2>
               <div className="flex flex-col gap-2 mb-4">
                 {items.map((item) => (

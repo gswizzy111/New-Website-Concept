@@ -70,7 +70,7 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
         </div>
 
         {/* Form card */}
-        <div className="bg-white rounded-xl border border-border p-8">
+        <div className="bg-white rounded-lg border border-border p-8">
           <h2 className="font-heading font-extrabold text-2xl text-foreground mb-6">Your shipping details</h2>
 
           {error && (

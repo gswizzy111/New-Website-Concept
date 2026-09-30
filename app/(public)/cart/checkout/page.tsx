@@ -245,7 +245,7 @@ function CheckoutInner() {
         <div className="lg:col-span-3 flex flex-col gap-6">
 
           {/* Contact */}
-          <div className="bg-white border border-border rounded-xl p-6">
+          <div className="bg-white border border-border rounded-lg p-6">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Contact</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2 flex flex-col gap-1.5">
@@ -264,7 +264,7 @@ function CheckoutInner() {
           </div>
 
           {/* Shipping Address */}
-          <div className="bg-white border border-border rounded-xl p-6">
+          <div className="bg-white border border-border rounded-lg p-6">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Shipping Address</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isInternational && (
@@ -364,7 +364,7 @@ function CheckoutInner() {
           </div>
 
           {/* Creator Code */}
-          <div className="bg-white border border-border rounded-xl p-6">
+          <div className="bg-white border border-border rounded-lg p-6">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Creator Code</h2>
             <p className="text-xs text-muted-foreground mb-3">Have a creator code? Enter it here.</p>
             <div className="flex gap-2">
@@ -387,7 +387,7 @@ function CheckoutInner() {
           </div>
 
           {/* Gift Card */}
-          <div className="bg-white border border-border rounded-xl p-6">
+          <div className="bg-white border border-border rounded-lg p-6">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Gift Card</h2>
             <p className="text-xs text-muted-foreground mb-3">Have a gift card code? Enter it here.</p>
             <div className="flex gap-2">
@@ -409,7 +409,7 @@ function CheckoutInner() {
 
         {/* Order summary */}
         <div className="lg:col-span-2">
-          <div className="bg-white border border-border rounded-xl p-6 sticky top-24">
+          <div className="bg-white border border-border rounded-lg p-6 sticky top-24">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Order Summary</h2>
             <div className="flex flex-col gap-3 mb-4">
               {items.map((item) => (

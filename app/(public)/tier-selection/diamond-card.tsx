@@ -37,7 +37,7 @@ export function DiamondCard({
   return (
     <div className={`relative rounded-lg border border-ink/70 bg-card overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-5">
-        <span className="h-3 w-8 rounded-sm bg-[linear-gradient(135deg,#dfe9ee,#ffffff_45%,#b9c9d2_70%,#eef4f7)] ring-1 ring-rule" aria-hidden />
+        <span className="h-3 w-8 rounded-sm bg-[#cfdde4] ring-1 ring-rule" aria-hidden />
         <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
           {bannerLabel}
         </span>
@@ -93,26 +93,8 @@ export function DiamondCard({
           )}
         </div>
 
-        {/* CTA */}
-        {isSoldOut ? (
-          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed mb-5">
-            Sold Out
-          </div>
-        ) : !restorationsOpen ? (
-          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed mb-5">
-            Currently Closed
-          </div>
-        ) : (
-          <Link
-            href="/restoration?tier=elite"
-            className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-ink text-paper hover:bg-rx transition-colors duration-150 mb-5"
-          >
-            Select Diamond
-          </Link>
-        )}
-
         {/* Features */}
-        <dl className="mt-auto divide-y divide-rule border-t border-rule">
+        <dl className="divide-y divide-rule border-t border-rule">
           <div className="flex justify-between gap-4 py-2.5 text-sm">
             <dt className="rx-label self-center">Turnaround</dt>
             <dd className="font-medium text-ink text-right">5–10 business days <span className="text-xs text-muted-foreground">(est.)</span></dd>
@@ -130,6 +112,26 @@ export function DiamondCard({
             </dd>
           </div>
         </dl>
+
+        <div className="mt-auto pt-5">
+        {isSoldOut ? (
+          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+            Sold Out
+          </div>
+        ) : !restorationsOpen ? (
+          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+            Currently Closed
+          </div>
+        ) : (
+          <Link
+            href="/restoration?tier=elite"
+            className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
+          >
+            Select Diamond
+          </Link>
+        )}
+
+        </div>
       </div>
     </div>
   );

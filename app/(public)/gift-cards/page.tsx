@@ -85,7 +85,7 @@ export default function GiftCardsPage() {
                   key={amt}
                   type="button"
                   onClick={() => { setAmountDollars(amt); setUseCustom(false); }}
-                  className={`py-3 rounded-xl border-2 font-bold text-lg transition-colors ${
+                  className={`py-3 rounded-lg border font-bold text-lg transition-colors ${
                     !useCustom && amountDollars === amt
                       ? "border-primary bg-primary text-white"
                       : "border-border text-foreground hover:border-primary"
@@ -98,7 +98,7 @@ export default function GiftCardsPage() {
             <button
               type="button"
               onClick={() => { setUseCustom(true); setAmountDollars(null); }}
-              className={`w-full py-3 rounded-xl border-2 font-semibold text-sm transition-colors ${
+              className={`w-full py-3 rounded-lg border font-semibold text-sm transition-colors ${
                 useCustom
                   ? "border-primary bg-primary/5 text-primary"
                   : "border-border text-muted-foreground hover:border-primary"
@@ -189,7 +189,7 @@ export default function GiftCardsPage() {
             type="button"
             onClick={handleCheckout}
             disabled={!isValid || loading}
-            className="w-full py-4 bg-primary text-white font-bold text-lg rounded-xl hover:bg-primary/90 transition-colors disabled:opacity-40"
+            className="w-full py-4 bg-primary text-white font-bold text-lg rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-40"
           >
             {loading
               ? "Redirecting..."

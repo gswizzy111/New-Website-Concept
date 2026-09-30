@@ -89,58 +89,63 @@ export default async function HomePage() {
 
       {/* ── Hero ── */}
       <section className="bg-paper border-b border-rule">
-        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-10 pb-12 md:pt-16 md:pb-20 grid gap-10 lg:gap-14 lg:grid-cols-[1.05fr_1fr] items-center">
-          <div>
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-8 pb-12 md:pt-16 md:pb-20 grid gap-6 md:gap-8 lg:gap-x-14 lg:gap-y-8 lg:grid-cols-[1.05fr_1fr] lg:grid-rows-[auto_1fr] items-start">
+          <div className="lg:col-start-1 lg:row-start-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="The Card Doc" className="hidden sm:block w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
-            <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">
+            <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-4 md:mb-5 [font-variation-settings:'wdth'_80]">
               The Card Doc
             </h1>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed mb-8">
+            <p className="text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed">
               Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
             </p>
-
-            {/* Services, laid out like the lines of a prescription label */}
-            <ul className="border-y border-ink/80 divide-y divide-rule">
-              {services.map(({ href, code, name, line, price, action, Icon }, i) => (
-                <li key={href} className="rx-reveal" style={{ ["--i" as string]: i }}>
-                  <Link
-                    href={href}
-                    className="group grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 py-4 sm:py-5"
-                  >
-                    <span className="flex h-10 w-10 items-center justify-center rounded-md bg-rx-soft text-rx">
-                      <Icon className="h-5 w-5" strokeWidth={1.75} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="flex items-baseline gap-3">
-                        <span className="font-heading text-xl font-bold text-ink">{name}</span>
-                        <span className="rx-label">{code}</span>
-                      </span>
-                      <span className="block text-sm text-muted-foreground leading-snug mt-0.5">{line}</span>
-                      <span className="block font-mono text-xs text-muted-foreground mt-1.5">{price}</span>
-                    </span>
-                    <span className="col-start-2 sm:col-start-auto inline-flex h-9 items-center justify-center rounded-md bg-ink px-4 text-sm font-semibold text-paper transition-colors group-hover:bg-rx whitespace-nowrap justify-self-start sm:justify-self-end">
-                      {action}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
           </div>
 
-          <figure className="relative">
-            <div className="rounded-lg border border-rule bg-white p-3 md:p-4 shadow-[0_24px_48px_-28px_oklch(0.3_0.04_165/0.35)]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/before-after-mickey-mantle.png"
-                alt="A Mickey Mantle card before and after restoration"
-                width={1446}
-                height={1087}
-                className="w-full h-auto rounded-md"
-                fetchPriority="high"
-              />
+          {/* Before / after specimen, labelled like a sample */}
+          <figure className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
+            <div className="rounded-lg border border-ink/70 bg-white overflow-hidden">
+              <div className="p-2 md:p-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/before-after-mickey-mantle.png"
+                  alt="A Mickey Mantle card before and after restoration"
+                  width={1446}
+                  height={1087}
+                  className="w-full h-auto rounded-md"
+                  fetchPriority="high"
+                />
+              </div>
+              <figcaption className="bg-rx px-4 py-2 flex items-center justify-between">
+                <span className="rx-label text-primary-foreground">The Card Doc</span>
+                <Microscope className="h-3.5 w-3.5 text-primary-foreground/80" strokeWidth={1.75} aria-hidden />
+              </figcaption>
             </div>
           </figure>
+
+          {/* Services, laid out like the lines of a prescription label */}
+          <ul className="lg:col-start-1 lg:row-start-2 border-t-[6px] border-rx border-b border-b-ink/80 divide-y divide-rule">
+            {services.map(({ href, code, name, line, price, action, Icon }, i) => (
+              <li key={href} className="rx-reveal" style={{ ["--i" as string]: i }}>
+                <Link
+                  href={href}
+                  className="group grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 py-4 sm:py-5"
+                >
+                  <Icon className="h-5 w-5 text-rx self-start mt-1" strokeWidth={1.75} />
+                  <span className="min-w-0">
+                    <span className="flex items-baseline gap-3">
+                      <span className="font-heading text-xl font-bold text-ink">{name}</span>
+                      <span className="rx-label">{code}</span>
+                    </span>
+                    <span className="block text-sm text-muted-foreground leading-snug mt-0.5">{line}</span>
+                    <span className="block font-mono text-xs text-muted-foreground mt-1.5">{price}</span>
+                  </span>
+                  <span className="col-start-2 sm:col-start-auto inline-flex h-9 items-center justify-center rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end">
+                    {action}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 

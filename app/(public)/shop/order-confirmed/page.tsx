@@ -13,7 +13,7 @@ export default function ShopOrderConfirmedPage() {
         </div>
         <div className="flex flex-col gap-3 w-full">
           <Button render={<Link href="/shop" />} className="font-bold w-full">Continue Shopping</Button>
-          <Button variant="outline" render={<Link href="/" />} className="font-bold w-full border-2">Back to Home</Button>
+          <Button variant="outline" render={<Link href="/" />} className="font-bold w-full border">Back to Home</Button>
         </div>
       </div>
     </section>

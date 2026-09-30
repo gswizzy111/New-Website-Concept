@@ -13,13 +13,13 @@ export default function GiftCardSuccessPage() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link
             href="/gift-cards"
-            className="px-6 py-3 bg-primary text-white font-semibold rounded-xl hover:bg-primary/90 transition-colors"
+            className="px-6 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition-colors"
           >
             Buy Another
           </Link>
           <Link
             href="/"
-            className="px-6 py-3 bg-secondary text-foreground font-semibold rounded-xl hover:bg-border transition-colors"
+            className="px-6 py-3 bg-secondary text-foreground font-semibold rounded-lg hover:bg-border transition-colors"
           >
             Back to Home
           </Link>

@@ -149,7 +149,7 @@ export function PhotoUploader({ photoUrls, onChange, max = 4 }: PhotoUploaderPro
 
   if (isInAppBrowser) {
     return (
-      <div className="bg-red-50 border-2 border-red-400 rounded-lg p-3 text-sm">
+      <div className="bg-red-50 border border-red-400 rounded-lg p-3 text-sm">
         <p className="font-extrabold text-red-900 mb-1 flex items-center gap-2"><ImageOff className="h-4 w-4 shrink-0" strokeWidth={2} />Photo upload blocked</p>
         <p className="text-red-800 leading-relaxed">
           Instagram&apos;s browser doesn&apos;t allow photo uploads.{" "}
@@ -194,14 +194,14 @@ export function PhotoUploader({ photoUrls, onChange, max = 4 }: PhotoUploaderPro
           onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-7 transition-colors select-none
+          className={`relative flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-7 transition-colors select-none
             ${uploading ? "cursor-not-allowed opacity-70" : "cursor-pointer"}
             ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-secondary/20"}
           `}
         >
           {uploading ? (
             <div className="flex flex-col items-center gap-2">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border border-primary border-t-transparent rounded-full animate-spin" />
               <p className="text-sm font-medium text-muted-foreground">Uploading photo…</p>
             </div>
           ) : (

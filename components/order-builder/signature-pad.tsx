@@ -100,10 +100,10 @@ export function SignaturePad({ onSign, onClear }: SignaturePadProps) {
   return (
     <div className="flex flex-col gap-2">
       <div
-        className={`relative rounded-xl overflow-hidden transition-colors ${
+        className={`relative rounded-lg overflow-hidden transition-colors ${
           hasSigned
-            ? "border-2 border-primary bg-white"
-            : "border-2 border-dashed border-border bg-gray-50"
+            ? "border border-primary bg-white"
+            : "border border-dashed border-border bg-gray-50"
         }`}
         style={{ height: 130 }}
       >
