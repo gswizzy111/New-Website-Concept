@@ -66,9 +66,7 @@ export default function HowItWorksPage() {
         {/* What We Can Reduce */}
         <section>
           <div className="flex items-start gap-4 mb-6">
-            <div className="w-10 h-10 rounded-md bg-rx-soft text-rx flex items-center justify-center flex-shrink-0">
-              <Check className="w-5 h-5" strokeWidth={2.25} />
-            </div>
+            <Check className="w-6 h-6 mt-1 flex-shrink-0 text-rx" strokeWidth={2.25} />
             <div>
               <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink mb-1.5">What We Can Restore</h2>
               <p className="text-muted-foreground">
@@ -82,9 +80,7 @@ export default function HowItWorksPage() {
         {/* What We Cannot Fix */}
         <section>
           <div className="flex items-start gap-4 mb-6">
-            <div className="w-10 h-10 rounded-md bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
-              <X className="w-5 h-5" strokeWidth={2.25} />
-            </div>
+            <X className="w-6 h-6 mt-1 flex-shrink-0 text-red-600" strokeWidth={2.25} />
             <div>
               <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink mb-1.5">Limitations</h2>
               <p className="text-muted-foreground">

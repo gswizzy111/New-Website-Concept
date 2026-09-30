@@ -68,9 +68,7 @@ export default async function PrepPage() {
                   <h2 className="font-heading text-2xl font-extrabold text-ink">Prep Pricing</h2>
                   <p className="font-mono text-xs text-muted-foreground mt-1">Per card — price based on declared value</p>
                 </div>
-                <span className="flex h-11 w-11 items-center justify-center rounded-md bg-rx-soft text-rx">
-                  <Microscope className="h-5 w-5" strokeWidth={1.75} />
-                </span>
+                <Microscope className="h-6 w-6 text-rx" strokeWidth={1.75} />
               </div>
               <div className="divide-y divide-rule">
                 <div className="flex items-center justify-between gap-4 px-6 py-5">
