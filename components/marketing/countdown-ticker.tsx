@@ -1,0 +1,38 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
+const OPEN_TIME = new Date("2026-06-14T00:00:00.000Z"); // store is open
+
+function getTimeLeft(): string | null {
+  const diff = OPEN_TIME.getTime() - Date.now();
+  if (diff <= 0) return null;
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+export function CountdownTicker() {
+  const [timeLeft, setTimeLeft] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTimeLeft(getTimeLeft());
+    const id = setInterval(() => setTimeLeft(getTimeLeft()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (timeLeft === null) return null;
+
+  const segment = `Kits restock and limited slots for restoration open in ${timeLeft}   ✦`;
+  const content = Array(6).fill(segment).join("   ");
+
+  return (
+    <div className="w-full bg-black text-white overflow-hidden py-2.5 select-none">
+      <div className="ticker-track flex whitespace-nowrap">
+        <span className="text-sm font-semibold tracking-wide">{content}&nbsp;&nbsp;&nbsp;</span>
+        <span className="text-sm font-semibold tracking-wide" aria-hidden>{content}&nbsp;&nbsp;&nbsp;</span>
+      </div>
+    </div>
+  );
+}
