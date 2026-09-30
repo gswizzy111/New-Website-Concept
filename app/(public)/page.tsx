@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Microscope, Plus, Sparkles, Wrench } from "lucide-react";
 import { getTestimonials } from "@/lib/testimonials";
 
 export const dynamic = "force-dynamic";
@@ -53,122 +54,145 @@ export default async function HomePage() {
     testimonials = [];
   }
 
+  const services = [
+    {
+      href: "/tier-selection",
+      code: "Service",
+      name: "Restoration",
+      line: <>Surfaces, corners &amp; edges — cleaned and restored to their best.</>,
+      price: <>From <span className="text-ink font-semibold">$75</span> / card</>,
+      action: "View Tiers →",
+      Icon: Sparkles,
+    },
+    {
+      href: "/prep",
+      code: "Service",
+      name: "Prep",
+      line: <>Grade-ready submission prep for PSA, BGS &amp; CGC.</>,
+      price: <>From <span className="text-ink font-semibold">$25</span> / card</>,
+      action: "View Pricing →",
+      Icon: Microscope,
+    },
+    {
+      href: "/shop",
+      code: "Shop",
+      name: "DIY Kits",
+      line: <>The same pro-grade tools The Card Doc uses — delivered to you.</>,
+      price: <><span className="text-ink font-semibold">Free shipping</span> on all kits</>,
+      action: "Shop Now →",
+      Icon: Wrench,
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-background">
 
       {/* ── Hero ── */}
-      <section className="bg-gradient-to-br from-[#1a8fe0] to-[#0d6ab3] text-white">
-        <div className="max-w-5xl mx-auto px-6 md:px-10 py-20 md:py-28 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/card-doctor.jpg" alt="The Card Doc" className="w-20 h-20 rounded-full object-cover mx-auto mb-6 border-4 border-white/30 shadow-lg" />
-          <h1 className="font-heading text-5xl md:text-6xl font-black text-white mb-4 leading-tight">
-            The Card Doc
-          </h1>
-          <p className="text-xl text-blue-100 mb-10 max-w-xl mx-auto leading-relaxed">
-            Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
-          </p>
+      <section className="bg-paper border-b border-rule">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-10 pb-12 md:pt-16 md:pb-20 grid gap-10 lg:gap-14 lg:grid-cols-[1.05fr_1fr] items-center">
+          <div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/card-doctor.jpg" alt="The Card Doc" className="w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
+            <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">
+              The Card Doc
+            </h1>
+            <p className="text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed mb-8">
+              Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
+            </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
-            <Link
-              href="/tier-selection"
-              className="group bg-white rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-200 flex flex-col overflow-hidden"
-            >
-              <div className="h-1.5 bg-gradient-to-r from-blue-500 to-blue-400 w-full" />
-              <div className="p-6 flex flex-col flex-1">
-                <div className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center text-xl mb-4 shrink-0">✨</div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500 mb-1">Service</p>
-                <h2 className="font-heading text-xl font-black text-slate-900 mb-2 leading-tight">Restoration</h2>
-                <p className="text-sm text-slate-500 leading-relaxed flex-1">Surfaces, corners &amp; edges — cleaned and restored to their best.</p>
-                <p className="text-xs font-semibold text-slate-400 mt-3 mb-4">From <span className="text-slate-700 font-black">$75</span> / card</p>
-                <div className="w-full bg-slate-900 group-hover:bg-blue-600 text-white text-sm font-bold py-2.5 rounded-xl text-center transition-colors duration-200">
-                  View Tiers →
-                </div>
-              </div>
-            </Link>
-
-            <Link
-              href="/prep"
-              className="group bg-white rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-200 flex flex-col overflow-hidden"
-            >
-              <div className="h-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 w-full" />
-              <div className="p-6 flex flex-col flex-1">
-                <div className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center text-xl mb-4 shrink-0">🔬</div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 mb-1">Service</p>
-                <h2 className="font-heading text-xl font-black text-slate-900 mb-2 leading-tight">Prep</h2>
-                <p className="text-sm text-slate-500 leading-relaxed flex-1">Grade-ready submission prep for PSA, BGS &amp; CGC.</p>
-                <p className="text-xs font-semibold text-slate-400 mt-3 mb-4">From <span className="text-slate-700 font-black">$25</span> / card</p>
-                <div className="w-full bg-slate-900 group-hover:bg-emerald-600 text-white text-sm font-bold py-2.5 rounded-xl text-center transition-colors duration-200">
-                  View Pricing →
-                </div>
-              </div>
-            </Link>
-
-            <Link
-              href="/shop"
-              className="group bg-white rounded-2xl shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-200 flex flex-col overflow-hidden"
-            >
-              <div className="h-1.5 bg-gradient-to-r from-amber-500 to-orange-400 w-full" />
-              <div className="p-6 flex flex-col flex-1">
-                <div className="w-11 h-11 rounded-xl bg-amber-50 flex items-center justify-center text-xl mb-4 shrink-0">🛠️</div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-1">Shop</p>
-                <h2 className="font-heading text-xl font-black text-slate-900 mb-2 leading-tight">DIY Kits</h2>
-                <p className="text-sm text-slate-500 leading-relaxed flex-1">The same pro-grade tools The Card Doc uses — delivered to you.</p>
-                <p className="text-xs font-semibold text-slate-400 mt-3 mb-4"><span className="text-slate-700 font-black">Free shipping</span> on all kits</p>
-                <div className="w-full bg-slate-900 group-hover:bg-amber-500 text-white text-sm font-bold py-2.5 rounded-xl text-center transition-colors duration-200">
-                  Shop Now →
-                </div>
-              </div>
-            </Link>
+            {/* Services, laid out like the lines of a prescription label */}
+            <ul className="border-y border-ink/80 divide-y divide-rule">
+              {services.map(({ href, code, name, line, price, action, Icon }, i) => (
+                <li key={href} className="rx-reveal" style={{ ["--i" as string]: i }}>
+                  <Link
+                    href={href}
+                    className="group grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 py-4 sm:py-5"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-md bg-rx-soft text-rx">
+                      <Icon className="h-5 w-5" strokeWidth={1.75} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex items-baseline gap-3">
+                        <span className="font-heading text-xl font-bold text-ink">{name}</span>
+                        <span className="rx-label">{code}</span>
+                      </span>
+                      <span className="block text-sm text-muted-foreground leading-snug mt-0.5">{line}</span>
+                      <span className="block font-mono text-xs text-muted-foreground mt-1.5">{price}</span>
+                    </span>
+                    <span className="col-start-2 sm:col-start-auto inline-flex h-9 items-center justify-center rounded-md bg-ink px-4 text-sm font-semibold text-paper transition-colors group-hover:bg-rx whitespace-nowrap justify-self-start sm:justify-self-end">
+                      {action}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </div>
+
+          <figure className="relative">
+            <div className="rounded-lg border border-rule bg-white p-3 md:p-4 shadow-[0_24px_48px_-28px_oklch(0.3_0.04_165/0.35)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/before-after-mickey-mantle.png"
+                alt="A Mickey Mantle card before and after restoration"
+                width={1446}
+                height={1087}
+                className="w-full h-auto rounded-md"
+                fetchPriority="high"
+              />
+            </div>
+          </figure>
         </div>
       </section>
 
-      {/* ── Proven Results (single large section) ── */}
-      <section className="bg-slate-900 text-white py-16 md:py-20">
-        <div className="max-w-5xl mx-auto px-6 md:px-10 text-center">
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-400 mb-4">Why Collectors Trust Us</p>
-          <h2 className="font-heading text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
-            Proven Results,<br className="hidden md:block" /> Every Time
-          </h2>
-          <p className="text-lg text-white/70 max-w-2xl mx-auto mb-12 leading-relaxed">
-            Hundreds of cards restored and prepped — documented with before &amp; after photos for every submission. We don&apos;t just claim results, we show them.
-          </p>
-          <div className="grid grid-cols-3 gap-4 md:gap-8 max-w-xl mx-auto mb-10">
+      {/* ── Proven Results ── */}
+      <section className="border-b border-rule py-16 md:py-24">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-10 md:grid-cols-[1.2fr_1fr] md:items-end">
+          <div>
+            <p className="rx-label text-rx mb-4">Why Collectors Trust Us</p>
+            <h2 className="font-heading text-4xl md:text-5xl font-extrabold tracking-tight text-ink mb-5 leading-[1.02]">
+              Proven Results,<br className="hidden md:block" /> Every Time
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-xl leading-relaxed mb-8">
+              Hundreds of cards restored and prepped — documented with before &amp; after photos for every submission. We don&apos;t just claim results, we show them.
+            </p>
+            <Link
+              href="/tier-selection"
+              className="inline-flex h-11 items-center rounded-md bg-rx px-6 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
+            >
+              See Our Services →
+            </Link>
+          </div>
+          <dl className="border-t border-ink/80 divide-y divide-rule">
             {[
               { stat: "500+", label: "Cards Restored" },
               { stat: "4.9★", label: "Avg. Rating" },
               { stat: "100%", label: "Documented" },
             ].map((s) => (
-              <div key={s.stat} className="text-center">
-                <div className="text-3xl md:text-4xl font-black text-white mb-1">{s.stat}</div>
-                <div className="text-xs text-white/50 font-medium uppercase tracking-wide">{s.label}</div>
+              <div key={s.stat} className="flex items-baseline justify-between py-4">
+                <dt className="rx-label">{s.label}</dt>
+                <dd className="font-heading text-3xl md:text-4xl font-bold text-ink tabular-nums">{s.stat}</dd>
               </div>
             ))}
-          </div>
-          <Link
-            href="/tier-selection"
-            className="inline-block bg-white text-slate-900 font-black px-8 py-3.5 rounded-full text-sm hover:bg-blue-50 transition-colors"
-          >
-            See Our Services →
-          </Link>
+          </dl>
         </div>
       </section>
 
       {/* ── Reviews ── */}
       {testimonials.length > 0 && (
-        <section className="bg-slate-50 border-y border-border py-16 md:py-20">
-          <div className="max-w-5xl mx-auto px-6 md:px-10">
-            <h2 className="font-heading text-3xl md:text-4xl font-black text-center text-foreground mb-10">
+        <section className="bg-paper border-b border-rule py-16 md:py-24">
+          <div className="max-w-6xl mx-auto px-4 md:px-10">
+            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-10">
               What our customers say
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+            <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={t.id}
                   src={t.url}
                   alt={t.alt ?? "Customer review"}
-                  className="w-full h-auto object-cover rounded-xl"
+                  loading="lazy"
+                  className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
                 />
               ))}
             </div>
@@ -177,72 +201,75 @@ export default async function HomePage() {
       )}
 
       {/* ── FAQ ── */}
-      <section className="max-w-3xl mx-auto px-6 md:px-10 py-16 md:py-20">
-        <h2 className="font-heading text-3xl md:text-4xl font-black text-center text-foreground mb-10">
-          Frequently asked questions
-        </h2>
-        <div className="flex flex-col gap-3">
+      <section className="max-w-6xl mx-auto px-4 md:px-10 py-16 md:py-24 grid gap-8 md:grid-cols-[1fr_1.6fr]">
+        <div>
+          <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-4 md:sticky md:top-28">
+            Frequently asked questions
+          </h2>
+          <Link href="/faq" className="text-sm font-semibold text-rx hover:underline">
+            See all FAQs →
+          </Link>
+        </div>
+        <div className="border-t border-ink/80 divide-y divide-rule border-b border-b-rule">
           {FAQ.map((item) => (
-            <details key={item.q} className="border border-border rounded-xl group overflow-hidden">
-              <summary className="flex items-center justify-between px-5 py-4 cursor-pointer list-none select-none font-semibold text-sm text-foreground">
+            <details key={item.q} className="group">
+              <summary className="flex items-center justify-between gap-6 py-5 cursor-pointer list-none select-none font-semibold text-[15px] text-ink hover:text-rx transition-colors [&::-webkit-details-marker]:hidden">
                 <span>{item.q}</span>
-                <span className="text-primary text-lg font-bold ml-4 shrink-0 group-open:rotate-45 transition-transform duration-150">+</span>
+                <Plus className="h-4 w-4 shrink-0 text-rx transition-transform duration-200 group-open:rotate-45" strokeWidth={2} />
               </summary>
-              <div className="px-5 pb-5 text-sm text-muted-foreground leading-relaxed border-t border-border pt-4">
+              <div className="pb-5 pr-10 text-[15px] text-muted-foreground leading-relaxed max-w-[65ch]">
                 {item.a}
               </div>
             </details>
           ))}
         </div>
-        <div className="mt-8 text-center">
-          <Link href="/faq" className="text-sm text-primary font-semibold hover:underline">
-            See all FAQs →
-          </Link>
-        </div>
       </section>
 
       {/* ── Terms of Service ── */}
-      <section className="border-t border-border bg-white py-16 md:py-20">
-        <div className="max-w-4xl mx-auto px-6 md:px-10">
-          <div className="mb-10 text-center">
-            <h2 className="font-heading text-3xl md:text-4xl font-black text-foreground mb-3">
+      <section className="border-t border-rule bg-paper py-16 md:py-24">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <div className="mb-10 max-w-2xl">
+            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-3">
               Terms of Service
             </h2>
-            <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+            <p className="text-[15px] text-muted-foreground">
               By placing an order you agree to these terms. Key points are summarized below.{" "}
-              <Link href="/terms" className="text-primary font-semibold hover:underline">Read the full terms →</Link>
+              <Link href="/terms" className="text-rx font-semibold hover:underline">Read the full terms →</Link>
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {TOS_HIGHLIGHTS.map((item) => (
-              <div key={item.title} className="border border-border rounded-xl p-5">
-                <h3 className="font-heading font-black text-sm text-foreground mb-2">{item.title}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
+            {TOS_HIGHLIGHTS.map((item, i) => (
+              <div
+                key={item.title}
+                className={`py-6 border-b border-rule md:pr-10 ${i % 2 === 1 ? "md:pl-10 md:border-l" : ""}`}
+              >
+                <h3 className="font-heading font-bold text-lg text-ink mb-2">{item.title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{item.body}</p>
               </div>
             ))}
           </div>
-          <div className="mt-8 bg-amber-50 border border-amber-200 rounded-xl p-5 text-sm text-amber-900 leading-relaxed">
+          <div className="mt-8 bg-amber-50 border border-amber-200 rounded-md p-5 text-sm text-amber-950 leading-relaxed">
             <strong>Important:</strong> All sales are final. Turnaround times are estimates only and are not guaranteed.
             The Card Doc LLC is not responsible for loss or damage during transit. Restoration results vary by card condition.
             By submitting an order, you acknowledge and agree to the full{" "}
-            <Link href="/terms" className="font-semibold underline hover:text-amber-700">Terms and Conditions</Link>.
+            <Link href="/terms" className="font-semibold underline hover:text-amber-800">Terms and Conditions</Link>.
           </div>
         </div>
       </section>
 
       {/* ── Quick links ── */}
-      <section className="bg-slate-50 border-t border-border py-10">
-        <div className="max-w-5xl mx-auto px-6 md:px-10">
-          <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 text-sm">
-            <Link href="/tier-selection" className="text-foreground hover:text-primary font-medium transition-colors">Restoration Pricing</Link>
-            <Link href="/prep" className="text-foreground hover:text-primary font-medium transition-colors">PSA Prep Pricing</Link>
-            <Link href="/shop" className="text-foreground hover:text-primary font-medium transition-colors">Shop Kits</Link>
-            <Link href="/track" className="text-foreground hover:text-primary font-medium transition-colors">Track My Order</Link>
-            <Link href="/how-it-works" className="text-foreground hover:text-primary font-medium transition-colors">How It Works</Link>
-            <Link href="/faq" className="text-foreground hover:text-primary font-medium transition-colors">FAQ</Link>
-            <Link href="/terms" className="text-foreground hover:text-primary font-medium transition-colors">Terms of Service</Link>
-            <Link href="/gift-cards" className="text-foreground hover:text-primary font-medium transition-colors">Gift Cards</Link>
-            <Link href="/account" className="text-foreground hover:text-primary font-medium transition-colors">My Account</Link>
+      <section className="border-t border-rule py-8">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <div className="flex flex-wrap gap-x-7 gap-y-3 text-sm">
+            <Link href="/tier-selection" className="text-muted-foreground hover:text-ink font-medium transition-colors">Restoration Pricing</Link>
+            <Link href="/prep" className="text-muted-foreground hover:text-ink font-medium transition-colors">PSA Prep Pricing</Link>
+            <Link href="/shop" className="text-muted-foreground hover:text-ink font-medium transition-colors">Shop Kits</Link>
+            <Link href="/track" className="text-muted-foreground hover:text-ink font-medium transition-colors">Track My Order</Link>
+            <Link href="/how-it-works" className="text-muted-foreground hover:text-ink font-medium transition-colors">How It Works</Link>
+            <Link href="/faq" className="text-muted-foreground hover:text-ink font-medium transition-colors">FAQ</Link>
+            <Link href="/terms" className="text-muted-foreground hover:text-ink font-medium transition-colors">Terms of Service</Link>
+            <Link href="/gift-cards" className="text-muted-foreground hover:text-ink font-medium transition-colors">Gift Cards</Link>
+            <Link href="/account" className="text-muted-foreground hover:text-ink font-medium transition-colors">My Account</Link>
           </div>
         </div>
       </section>

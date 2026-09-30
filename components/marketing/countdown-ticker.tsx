@@ -28,10 +28,10 @@ export function CountdownTicker() {
   const content = Array(6).fill(segment).join("   ");
 
   return (
-    <div className="w-full bg-black text-white overflow-hidden py-2.5 select-none">
+    <div className="w-full bg-ink text-paper overflow-hidden py-2 select-none">
       <div className="ticker-track flex whitespace-nowrap">
-        <span className="text-sm font-semibold tracking-wide">{content}&nbsp;&nbsp;&nbsp;</span>
-        <span className="text-sm font-semibold tracking-wide" aria-hidden>{content}&nbsp;&nbsp;&nbsp;</span>
+        <span className="font-mono text-xs tracking-wide">{content}&nbsp;&nbsp;&nbsp;</span>
+        <span className="font-mono text-xs tracking-wide" aria-hidden>{content}&nbsp;&nbsp;&nbsp;</span>
       </div>
     </div>
   );

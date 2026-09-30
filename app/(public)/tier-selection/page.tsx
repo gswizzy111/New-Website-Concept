@@ -3,7 +3,7 @@ import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restor
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
 import { TIER_MAX_SLOTS } from "@/lib/site-config";
-import { CheckCircle, Zap, Star, Crown, Rocket } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocket } from "lucide-react";
 import { WaitlistModal } from "./waitlist-modal";
 import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
@@ -21,60 +21,13 @@ const ICON_MAP = {
   fast_pass:     Rocket,
 } as const;
 
-type TierStyle = {
-  card:      string;
-  icon:      string;
-  price:     string;
-  btn:       string;
-  closedBtn: string;
-  check:     string;
-  badgeCls?: string;
-};
-
-const STYLES: Record<string, TierStyle> = {
-  regular: {
-    card:      "border border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 hover:shadow-lg",
-    icon:      "text-amber-600",
-    price:     "text-amber-700",
-    btn:       "bg-amber-600 text-white hover:bg-amber-700",
-    closedBtn: "bg-amber-100 text-amber-700",
-    check:     "text-amber-500",
-  },
-  expedited: {
-    card:      "border border-slate-300 bg-gradient-to-br from-slate-50 to-gray-100 hover:shadow-lg",
-    icon:      "text-slate-500",
-    price:     "text-slate-600",
-    btn:       "bg-slate-600 text-white hover:bg-slate-700",
-    closedBtn: "bg-slate-100 text-slate-600",
-    check:     "text-slate-400",
-  },
-  premium: {
-    card:      "border-2 border-yellow-400 bg-gradient-to-br from-yellow-50 to-amber-100 hover:shadow-xl",
-    icon:      "text-yellow-600",
-    price:     "text-yellow-700",
-    btn:       "bg-yellow-500 text-white hover:bg-yellow-600",
-    closedBtn: "bg-yellow-100 text-yellow-700",
-    check:     "text-yellow-500",
-    badgeCls:  "bg-yellow-500 text-white",
-  },
-  ultra_premium: {
-    card:      "border border-blue-300 bg-gradient-to-br from-blue-50 to-indigo-50 hover:shadow-lg",
-    icon:      "text-blue-500",
-    price:     "text-blue-600",
-    btn:       "bg-blue-600 text-white hover:bg-blue-700",
-    closedBtn: "bg-blue-100 text-blue-600",
-    check:     "text-blue-400",
-    badgeCls:  "bg-blue-500 text-white",
-  },
-  fast_pass: {
-    card:      "border-2 border-orange-400 bg-gradient-to-br from-orange-50 to-red-50 hover:shadow-xl",
-    icon:      "text-orange-600",
-    price:     "text-orange-700",
-    btn:       "bg-gradient-to-r from-orange-500 to-red-500 text-white hover:opacity-90",
-    closedBtn: "bg-orange-100 text-orange-700",
-    check:     "text-orange-500",
-    badgeCls:  "bg-gradient-to-r from-orange-500 to-red-500 text-white",
-  },
+// Tier identity lives in a small metal swatch, not in recoloring the card.
+const SWATCH: Record<string, string> = {
+  regular:       "bg-[linear-gradient(135deg,#b87333,#e0a878_55%,#8a5220)]",
+  expedited:     "bg-[linear-gradient(135deg,#9aa3a8,#e4e8ea_55%,#7c858a)]",
+  premium:       "bg-[linear-gradient(135deg,#c9a227,#f3dc86_55%,#a07d12)]",
+  ultra_premium: "bg-[linear-gradient(135deg,#8e9aa6,#f1f4f6_55%,#6f7b86)]",
+  fast_pass:     "bg-rx",
 };
 
 function formatTurnaround(tier: RestorationTier): string {
@@ -87,13 +40,15 @@ function TierCard({
   settingsMap,
   slotCounts,
   restorationsOpen,
+  wide = false,
 }: {
   tier: RestorationTier;
   settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; display_slots_remaining?: number | null }>;
   slotCounts: Record<string, number>;
   restorationsOpen: boolean;
+  wide?: boolean;
 }) {
-  const style = STYLES[tier.id] ?? STYLES.regular;
+  const swatch = SWATCH[tier.id] ?? SWATCH.regular;
   const Icon = ICON_MAP[tier.id as keyof typeof ICON_MAP] ?? CheckCircle;
 
   const s = settingsMap[tier.id];
@@ -110,93 +65,108 @@ function TierCard({
     : (tier.badge ?? null);
 
   const bannerCls: string = isSoldOut
-    ? "bg-gray-400 text-white"
+    ? "bg-secondary text-muted-foreground"
     : slotsLeft !== null
-    ? slotsLeft <= 3 ? "bg-red-500 text-white" : "bg-orange-500 text-white"
-    : style.badgeCls ?? "bg-gray-600 text-white";
+    ? slotsLeft <= 3 ? "bg-red-50 text-red-700 ring-1 ring-red-200" : "bg-rx-soft text-rx"
+    : "bg-rx-soft text-rx";
+
+  const price = tier.pricing_type === "percentage"
+    ? `${((tier.pricing_rate ?? 0) * 100).toFixed(0)}%`
+    : `$${(tier.price_cents / 100).toFixed(2)}`;
+
+  const priceNote = tier.pricing_type === "percentage"
+    ? `of declared card value · cards $${((tier.min_card_value_cents ?? 0) / 100).toFixed(0)}+`
+    : tier.id === "fast_pass"
+    ? "per card · cards under $5,000"
+    : "per card";
+
+  const action = isSoldOut ? (
+    <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+      Sold Out
+    </div>
+  ) : !restorationsOpen ? (
+    <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+      Currently Closed
+    </div>
+  ) : (
+    <Link
+      href={`/restoration?tier=${tier.id}`}
+      className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-ink text-paper hover:bg-rx transition-colors duration-150"
+    >
+      Select {tier.name}
+    </Link>
+  );
+
+  const facts = (
+    <dl className="divide-y divide-rule border-t border-rule">
+      <div className="flex justify-between gap-4 py-2.5 text-sm">
+        <dt className="rx-label self-center">Turnaround</dt>
+        <dd className="font-medium text-ink text-right">
+          {formatTurnaround(tier)}{" "}
+          <span className="text-xs text-muted-foreground">(est.)</span>
+        </dd>
+      </div>
+      <div className="flex justify-between gap-4 py-2.5 text-sm items-center">
+        <dt className="rx-label">Card value</dt>
+        <dd className="font-medium text-ink flex items-center gap-1">
+          {tier.id === "fast_pass"
+            ? "Under $5,000"
+            : tier.max_card_value_cents === null
+            ? "Unlimited"
+            : `Up to $${(tier.max_card_value_cents / 100).toLocaleString()}`}
+          <span className="relative group">
+            <span className="text-xs text-muted-foreground cursor-help">*</span>
+            <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 w-max max-w-[180px] rounded-md bg-ink px-2.5 py-1.5 text-xs text-paper opacity-0 group-hover:opacity-100 transition-opacity z-20 leading-snug">
+              Current value, raw or graded
+            </span>
+          </span>
+        </dd>
+      </div>
+      {tier.id === "fast_pass" && (
+        <div className="flex items-center gap-2 py-2.5 text-sm">
+          <Check className="h-4 w-4 text-rx" strokeWidth={2.25} />
+          <span className="text-muted-foreground">Skips the restoration queue</span>
+        </div>
+      )}
+    </dl>
+  );
 
   return (
-    <div className={`relative rounded-xl overflow-hidden transition-all duration-200 flex flex-col ${style.card} ${(isSoldOut || !restorationsOpen) ? "opacity-60" : ""}`}>
-      {bannerLabel ? (
-        <div className={`text-xs font-bold text-center py-1.5 tracking-wide ${bannerCls}`}>
-          {bannerLabel}
-        </div>
-      ) : (
-        <div className="py-1.5" />
-      )}
-
-      <div className="p-6 flex flex-col flex-1">
-        <div className="flex items-start gap-3 mb-5">
-          <Icon className={`w-7 h-7 flex-shrink-0 mt-0.5 ${style.icon}`} />
-          <div>
-            <h3 className="font-heading text-2xl font-bold text-foreground leading-tight">{tier.name}</h3>
-            <p className="text-sm text-muted-foreground mt-0.5">{tier.description}</p>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <div className={`text-4xl font-bold ${style.price}`}>
-            {tier.pricing_type === "percentage"
-              ? `${((tier.pricing_rate ?? 0) * 100).toFixed(0)}%`
-              : `$${(tier.price_cents / 100).toFixed(2)}`}
-          </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {tier.pricing_type === "percentage"
-              ? `of declared card value · cards $${((tier.min_card_value_cents ?? 0) / 100).toFixed(0)}+`
-              : tier.id === "fast_pass"
-              ? "per card · cards under $5,000"
-              : "per card"}
-          </p>
-        </div>
-
-        {isSoldOut ? (
-          <div className="w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm bg-gray-200 text-gray-500 cursor-not-allowed mb-6">
-            Sold Out
-          </div>
-        ) : !restorationsOpen ? (
-          <div className={`w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm cursor-not-allowed mb-6 ${style.closedBtn}`}>
-            Currently Closed
-          </div>
-        ) : (
-          <Link
-            href={`/restoration?tier=${tier.id}`}
-            className={`w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm block transition-all duration-150 mb-6 ${style.btn}`}
-          >
-            Select {tier.name}
-          </Link>
+    <div className={`relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+      <div className="flex items-center justify-between gap-3 px-6 pt-5">
+        <span className={`h-3 w-8 rounded-sm ${swatch}`} aria-hidden />
+        {bannerLabel && (
+          <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
+            {bannerLabel}
+          </span>
         )}
+      </div>
 
-        <div className="border-t border-black/10 pt-4 space-y-2.5 flex-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Turnaround</span>
-            <span className="font-medium text-foreground">
-              {formatTurnaround(tier)}{" "}
-              <span className="text-xs text-muted-foreground">(est.)</span>
-            </span>
-          </div>
-          <div className="flex justify-between text-sm items-center">
-            <span className="text-muted-foreground">Card value</span>
-            <span className="font-medium text-foreground flex items-center gap-1">
-              {tier.id === "fast_pass"
-                ? "Under $5,000"
-                : tier.max_card_value_cents === null
-                ? "Unlimited"
-                : `Up to $${(tier.max_card_value_cents / 100).toLocaleString()}`}
-              <span className="relative group">
-                <span className="text-xs text-muted-foreground cursor-help">*</span>
-                <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 w-max max-w-[180px] rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-20 leading-snug">
-                  Current value, raw or graded
-                </span>
-              </span>
-            </span>
-          </div>
-          {tier.id === "fast_pass" && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className={style.check}>✓</span>
-              <span className="text-muted-foreground">Skips the restoration queue</span>
+      <div className={`p-6 pt-4 flex-1 ${wide ? "grid gap-6 md:grid-cols-[1.2fr_1fr] md:items-end" : "flex flex-col"}`}>
+        <div className={wide ? "" : "flex flex-col flex-1"}>
+          <div className="flex items-start gap-3 mb-5">
+            <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
+            <div>
+              <h3 className="font-heading text-2xl font-bold text-ink leading-tight">{tier.name}</h3>
+              <p className="text-sm text-muted-foreground mt-0.5">{tier.description}</p>
             </div>
-          )}
+          </div>
+
+          <div className="mb-6">
+            <div className="font-heading text-4xl font-bold tracking-tight text-ink tabular-nums">{price}</div>
+            <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
+          </div>
+
+          {!wide && <div className="mb-5">{action}</div>}
+          {!wide && <div className="mt-auto">{facts}</div>}
         </div>
+
+        {wide && (
+          <div className="flex flex-col gap-5">
+            {facts}
+            {action}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -265,7 +235,7 @@ export default async function TierSelectionPage() {
   const eliteIsSoldOut = settingsMap["elite"]?.is_open === false || (eliteSlotsLeft !== null && eliteSlotsLeft === 0);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+    <div className="min-h-screen bg-paper">
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
       {/* Countdown — shown when shop is closed */}
       {!restorationsOpen && <CountdownBanner />}
@@ -273,19 +243,19 @@ export default async function TierSelectionPage() {
       {/* Closed text banner */}
       {!restorationsOpen && (
         <div className="bg-amber-50 border-b border-amber-200">
-          <div className="max-w-5xl mx-auto px-6 py-4 text-center">
-            <p className="text-sm font-semibold text-amber-800">
-              ⏸ We&apos;re not accepting new restoration orders right now — but you can still browse our pricing below.
+          <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 text-center">
+            <p className="text-sm font-semibold text-amber-900">
+              We&apos;re not accepting new restoration orders right now — but you can still browse our pricing below.
             </p>
           </div>
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-6 md:px-10 py-14 md:py-20">
-        <h1 className="font-heading text-4xl md:text-5xl text-foreground mb-3 text-center">
+      <div className="max-w-6xl mx-auto px-4 md:px-10 py-12 md:py-16">
+        <h1 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.03em] text-ink mb-3 [font-variation-settings:'wdth'_82]">
           Choose Your Restoration Level
         </h1>
-        <p className="text-lg text-muted-foreground text-center max-w-2xl mx-auto mb-12">
+        <p className="text-lg text-muted-foreground max-w-2xl mb-10 md:mb-12">
           {restorationsOpen
             ? "Select the tier that best fits your cards' needs."
             : "We're temporarily closed. Browse our pricing below and join the waitlist to be notified when we reopen."}
@@ -315,23 +285,22 @@ export default async function TierSelectionPage() {
         {/* Fast Pass — bottom */}
         {fastPass && (
           <div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs font-bold uppercase tracking-widest text-orange-500">⚡ Express Option</span>
-              <div className="h-px flex-1 bg-border" />
+            <div className="flex items-center gap-3 mt-10 mb-3">
+              <span className="rx-label text-rx flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" strokeWidth={2} />Express Option</span>
+              <div className="h-px flex-1 bg-rule" />
             </div>
-            <TierCard tier={fastPass} {...sharedProps} />
+            <TierCard tier={fastPass} {...sharedProps} wide />
           </div>
         )}
 
         {/* Turnaround disclaimer */}
-        <details className="mt-8 border border-amber-200 bg-amber-50 rounded-lg group">
-          <summary className="flex items-center justify-between px-5 py-4 cursor-pointer list-none select-none">
+        <details className="mt-8 border border-amber-200 bg-amber-50 rounded-md group">
+          <summary className="flex items-center justify-between px-5 py-4 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden">
             <div className="flex items-center gap-2.5">
-              <span className="text-amber-600 text-base">⚠️</span>
-              <span className="text-sm font-semibold text-amber-800">About our turnaround time estimates</span>
+              <AlertTriangle className="h-4 w-4 text-amber-700" strokeWidth={2} />
+              <span className="text-sm font-semibold text-amber-900">About our turnaround time estimates</span>
             </div>
-            <span className="text-amber-600 text-sm font-bold group-open:rotate-180 transition-transform duration-150 inline-block">▾</span>
+            <ChevronDown className="h-4 w-4 text-amber-700 group-open:rotate-180 transition-transform duration-150" />
           </summary>
           <div className="px-5 pb-5 text-sm text-amber-900 space-y-2 leading-relaxed border-t border-amber-200 pt-4">
             <p>
@@ -351,10 +320,10 @@ export default async function TierSelectionPage() {
         {!restorationsOpen && <WaitlistModal />}
 
         {/* Footer info */}
-        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+        <div className="mt-8 border-y border-rule py-6">
           <p className="text-muted-foreground">
             Not sure which tier fits?{" "}
-            <Link href="/how-it-works" className="text-[#1a8fe0] hover:underline font-semibold">
+            <Link href="/how-it-works" className="text-rx hover:underline font-semibold">
               Learn what we can restore
             </Link>
             .
@@ -364,17 +333,18 @@ export default async function TierSelectionPage() {
         {/* Customer Reviews */}
         {testimonials.length > 0 && (
           <div className="mt-20">
-            <div className="mb-8 text-center">
-              <p className="text-2xl md:text-3xl font-bold uppercase tracking-[0.3em] text-primary mb-3">What Our Customers Say</p>
+            <div className="mb-8">
+              <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
+            <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={t.id}
                   src={t.url}
                   alt={t.alt ?? "Customer review"}
-                  className="w-full h-auto object-cover rounded-lg"
+                  loading="lazy"
+                  className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
                 />
               ))}
             </div>

@@ -49,7 +49,7 @@ export function CountdownBanner() {
 
   if (isOpen) {
     return (
-      <div className="bg-green-600 text-white">
+      <div className="bg-rx text-primary-foreground">
         <div className="max-w-5xl mx-auto px-6 py-4 text-center">
           <p className="text-sm font-bold">
             ✅ We&apos;re open! Slots are now available — choose your tier below.
@@ -62,9 +62,9 @@ export function CountdownBanner() {
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+    <div className="bg-ink text-paper">
       <div className="max-w-5xl mx-auto px-6 py-5 text-center">
-        <p className="text-sm font-bold uppercase tracking-widest mb-3 opacity-90">
+        <p className="font-mono text-xs uppercase tracking-[0.12em] mb-3 text-paper/80">
           Shop Re-Opening Today at 3:00 PM ET
         </p>
         <div className="flex items-center justify-center gap-3">
@@ -74,15 +74,15 @@ export function CountdownBanner() {
             { value: pad(seconds), label: "Sec" },
           ].map(({ value, label }, i) => (
             <div key={label} className="flex items-center gap-3">
-              {i > 0 && <span className="text-2xl font-black opacity-70">:</span>}
+              {i > 0 && <span className="text-2xl font-bold text-paper/50">:</span>}
               <div className="flex flex-col items-center">
-                <span className="text-4xl font-black tabular-nums leading-none">{value}</span>
-                <span className="text-xs font-semibold uppercase tracking-widest opacity-75 mt-1">{label}</span>
+                <span className="font-heading text-4xl font-bold tabular-nums leading-none">{value}</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-paper/70 mt-1">{label}</span>
               </div>
             </div>
           ))}
         </div>
-        <p className="text-xs mt-3 opacity-80">
+        <p className="text-xs mt-3 text-paper/75">
           20 Bronze slots · 30 slots for all other tiers — first come, first served
         </p>
       </div>

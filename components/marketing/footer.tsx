@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { Separator } from "@/components/ui/separator";
 
 export function Footer() {
   return (
-    <footer className="bg-foreground text-white mt-auto">
-      <div className="max-w-6xl mx-auto px-6 md:px-8 py-14">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+    <footer className="bg-paper border-t border-rule mt-auto">
+      <div className="max-w-6xl mx-auto px-4 md:px-8 pt-14 pb-10">
+        <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr] gap-10">
           {/* Brand */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2.5">
@@ -13,50 +12,48 @@ export function Footer() {
               <img
                 src="/card-doctor.jpg"
                 alt="The Card Doc"
-                className="w-9 h-9 rounded-full object-cover"
+                className="w-9 h-9 rounded-md object-cover ring-1 ring-rule"
               />
-              <span className="font-heading font-black text-xl">The Card Doc</span>
+              <span className="font-heading font-extrabold text-xl text-ink">The Card Doc</span>
             </div>
-            <p className="text-sm text-white/60 leading-relaxed">
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-sm">
               Expert PSA prep and card restoration. Every card treated like it&apos;s worth a fortune.
             </p>
-            <p className="text-xs text-white/40 mt-auto pt-4">
+            <p className="font-mono text-xs text-muted-foreground mt-auto pt-4">
               &copy; {new Date().getFullYear()} The Card Doc. All rights reserved.
             </p>
           </div>
 
           {/* Contact */}
           <div className="flex flex-col gap-3">
-            <p className="text-xs font-bold uppercase tracking-widest text-white/40">Contact</p>
+            <p className="rx-label">Contact</p>
             <a
               href="https://www.instagram.com/the_card_doc"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm text-white/60 hover:text-white transition-colors"
+              className="text-sm font-medium text-ink hover:text-rx transition-colors"
             >
               DM us on @the_card_doc
             </a>
             <a
               href="mailto:thecarddoc1@gmail.com"
-              className="text-sm text-white/60 hover:text-white transition-colors"
+              className="text-sm font-medium text-ink hover:text-rx transition-colors"
             >
               Email us at thecarddoc1@gmail.com
             </a>
-            <p className="text-sm text-white/60">We reply within 1 business day.</p>
+            <p className="text-sm text-muted-foreground">We reply within 1 business day.</p>
           </div>
         </div>
 
-        <Separator className="my-8 bg-white/10" />
-
-        <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <p className="text-xs text-white/40">
+        <div className="mt-10 pt-6 border-t border-rule flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+          <p className="text-xs text-muted-foreground">
             All cards are insured during transit. Results may vary by card condition.
           </p>
-          <div className="flex items-center gap-4">
-            <Link href="/terms" className="text-xs text-white/60 hover:text-white transition-colors">
+          <div className="flex items-center gap-5">
+            <Link href="/terms" className="text-xs font-medium text-muted-foreground hover:text-ink transition-colors">
               Terms & Conditions
             </Link>
-            <Link href="/privacy" className="text-xs text-white/60 hover:text-white transition-colors">
+            <Link href="/privacy" className="text-xs font-medium text-muted-foreground hover:text-ink transition-colors">
               Privacy Policy
             </Link>
           </div>

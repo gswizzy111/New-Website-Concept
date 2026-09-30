@@ -29,32 +29,35 @@ export function DiamondCard({
     : "White Glove";
 
   const bannerCls = isSoldOut
-    ? "bg-gray-400 text-white"
+    ? "bg-secondary text-muted-foreground"
     : slotsLeft !== null
-    ? slotsLeft <= 3 ? "bg-red-500 text-white" : "bg-orange-500 text-white"
-    : "bg-gradient-to-r from-cyan-500 to-blue-600 text-white";
+    ? slotsLeft <= 3 ? "bg-red-50 text-red-700 ring-1 ring-red-200" : "bg-rx-soft text-rx"
+    : "bg-rx-soft text-rx";
 
   return (
-    <div className={`relative rounded-xl overflow-hidden transition-all duration-200 flex flex-col border-2 border-cyan-400 bg-gradient-to-br from-cyan-50 to-blue-100 hover:shadow-xl ${(isSoldOut || !restorationsOpen) ? "opacity-60" : ""}`}>
-      <div className={`text-xs font-bold text-center py-1.5 tracking-wide ${bannerCls}`}>
-        {bannerLabel}
+    <div className={`relative rounded-lg border border-ink/70 bg-card overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+      <div className="flex items-center justify-between gap-3 px-6 pt-5">
+        <span className="h-3 w-8 rounded-sm bg-[linear-gradient(135deg,#dfe9ee,#ffffff_45%,#b9c9d2_70%,#eef4f7)] ring-1 ring-rule" aria-hidden />
+        <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
+          {bannerLabel}
+        </span>
       </div>
 
-      <div className="p-6 flex flex-col flex-1">
+      <div className="p-6 pt-4 flex flex-col flex-1">
         <div className="flex items-start gap-3 mb-5">
-          <Gem className="w-7 h-7 flex-shrink-0 mt-0.5 text-cyan-600" />
+          <Gem className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
           <div>
-            <h3 className="font-heading text-2xl font-bold text-foreground leading-tight">Diamond</h3>
+            <h3 className="font-heading text-2xl font-bold text-ink leading-tight">Diamond</h3>
             <p className="text-sm text-muted-foreground mt-0.5">White-glove service for high-value cards</p>
           </div>
         </div>
 
         {/* Dynamic price display */}
         <div className="mb-4">
-          <div className="text-4xl font-bold text-cyan-700">
+          <div className="font-heading text-4xl font-bold tracking-tight text-ink tabular-nums">
             {priceDollars ? `$${priceDollars}` : "7%"}
           </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="font-mono text-xs text-muted-foreground mt-1">
             {priceDollars
               ? `of your $${numericValue.toLocaleString()} card value`
               : "of declared card value · cards $5,000+"}
@@ -63,69 +66,70 @@ export function DiamondCard({
 
         {/* Value input */}
         <div className="mb-5">
-          <label className="block text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wide">
+          <label htmlFor="diamond-card-value" className="block rx-label mb-1.5">
             Estimated card value (USD)
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">$</span>
             <input
+              id="diamond-card-value"
               type="number"
               inputMode="decimal"
               placeholder="e.g. 6000"
               value={rawValue}
               onChange={(e) => setRawValue(e.target.value)}
-              className="w-full pl-7 pr-3 py-2 rounded-lg border border-cyan-200 bg-white text-sm focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-300"
+              className="w-full h-11 pl-7 pr-3 rounded-md border border-input bg-white text-base md:text-sm tabular-nums placeholder:text-muted-foreground focus:outline-none focus:border-rx focus:ring-2 focus:ring-rx/20"
             />
           </div>
           {tooLow && (
-            <p className="text-xs text-amber-600 font-semibold mt-1.5">
+            <p className="text-xs text-amber-800 font-semibold mt-1.5">
               Diamond requires cards valued at $5,000+. Consider Fast Pass for cards under $5,000.
             </p>
           )}
           {priceDollars && (
-            <p className="text-xs text-cyan-700 font-semibold mt-1.5">
-              Your price: <span className="text-lg font-black">${priceDollars}</span> per card
+            <p className="text-xs text-rx font-semibold mt-1.5">
+              Your price: <span className="text-lg font-bold tabular-nums">${priceDollars}</span> per card
             </p>
           )}
         </div>
 
         {/* CTA */}
         {isSoldOut ? (
-          <div className="w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm bg-gray-200 text-gray-500 cursor-not-allowed mb-6">
+          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed mb-5">
             Sold Out
           </div>
         ) : !restorationsOpen ? (
-          <div className="w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm cursor-not-allowed mb-6 bg-cyan-100 text-cyan-700">
+          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed mb-5">
             Currently Closed
           </div>
         ) : (
           <Link
             href="/restoration?tier=elite"
-            className="w-full py-2.5 px-4 rounded-full font-semibold text-center text-sm block transition-all duration-150 mb-6 bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:opacity-90"
+            className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-ink text-paper hover:bg-rx transition-colors duration-150 mb-5"
           >
             Select Diamond
           </Link>
         )}
 
         {/* Features */}
-        <div className="border-t border-black/10 pt-4 space-y-2.5 flex-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Turnaround</span>
-            <span className="font-medium text-foreground">5–10 business days <span className="text-xs text-muted-foreground">(est.)</span></span>
+        <dl className="mt-auto divide-y divide-rule border-t border-rule">
+          <div className="flex justify-between gap-4 py-2.5 text-sm">
+            <dt className="rx-label self-center">Turnaround</dt>
+            <dd className="font-medium text-ink text-right">5–10 business days <span className="text-xs text-muted-foreground">(est.)</span></dd>
           </div>
-          <div className="flex justify-between text-sm items-center">
-            <span className="text-muted-foreground">Card value</span>
-            <span className="font-medium text-foreground flex items-center gap-1">
+          <div className="flex justify-between gap-4 py-2.5 text-sm items-center">
+            <dt className="rx-label">Card value</dt>
+            <dd className="font-medium text-ink flex items-center gap-1">
               $5,000+
               <span className="relative group">
                 <span className="text-xs text-muted-foreground cursor-help">*</span>
-                <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 w-max max-w-[180px] rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity z-20 leading-snug">
+                <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 w-max max-w-[180px] rounded-md bg-ink px-2.5 py-1.5 text-xs text-paper opacity-0 group-hover:opacity-100 transition-opacity z-20 leading-snug">
                   Current value, raw or graded
                 </span>
               </span>
-            </span>
+            </dd>
           </div>
-        </div>
+        </dl>
       </div>
     </div>
   );

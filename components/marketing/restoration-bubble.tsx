@@ -13,11 +13,10 @@ export function RestorationBubble() {
     <div className="fixed bottom-5 left-0 right-0 flex justify-center z-50 px-4 md:hidden">
       <Link
         href="/restoration"
-        className="flex items-center gap-2.5 bg-[#1a8fe0] text-white font-black text-base px-7 py-4 rounded-full shadow-2xl active:scale-95 transition-transform"
-        style={{ boxShadow: "0 8px 32px rgba(26,143,224,0.45)" }}
+        className="flex items-center gap-2.5 bg-rx text-primary-foreground font-heading font-bold text-base pl-2.5 pr-6 py-2.5 rounded-lg shadow-[0_10px_24px_-8px_oklch(0.3_0.06_165/0.45)] active:scale-[0.98] transition-transform"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/card-doctor.jpg" alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+        <img src="/card-doctor.jpg" alt="" className="w-8 h-8 rounded-md object-cover flex-shrink-0 ring-1 ring-white/30" />
         Book a Restoration
       </Link>
     </div>

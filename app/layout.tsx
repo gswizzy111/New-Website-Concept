@@ -1,21 +1,21 @@
 import type { Metadata } from "next";
-import { Inter, Playfair_Display } from "next/font/google";
+import { Archivo, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
 import { PIXEL_ID } from "@/lib/pixel";
 
-const inter = Inter({
+const archivo = Archivo({
   variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
+  axes: ["wdth"],
 });
 
-const playfair = Playfair_Display({
-  variable: "--font-heading",
+const geistMono = Geist_Mono({
+  variable: "--font-mono",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "700", "900"],
 });
 
 export const metadata: Metadata = {
@@ -43,7 +43,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${playfair.variable} h-full antialiased`}>
+    <html lang="en" className={`${archivo.variable} ${geistMono.variable} h-full antialiased`}>
       <head>
         <meta name="facebook-domain-verification" content="ihjnpqbitwq29e5kx3x0dujilxh1n9" />
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-LSQXS277DY" />
