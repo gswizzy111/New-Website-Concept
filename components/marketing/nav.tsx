@@ -77,7 +77,7 @@ export function Nav() {
             <Link
               key={l.href}
               href={l.href}
-              className="text-sm font-medium text-muted-foreground hover:text-ink transition-colors duration-150"
+              className="draw-underline pb-0.5 text-sm font-medium text-muted-foreground hover:text-ink transition-colors duration-150"
             >
               {l.label}
             </Link>

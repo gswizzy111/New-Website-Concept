@@ -52,7 +52,7 @@ export default function HowItWorksPage() {
   return (
     <div className="min-h-screen bg-paper">
       {/* Hero Section */}
-      <div className="max-w-5xl mx-auto px-4 md:px-10 pt-12 pb-10 md:pt-16 md:pb-14">
+      <div className="hero-in max-w-5xl mx-auto px-4 md:px-10 pt-12 pb-10 md:pt-16 md:pb-14">
         <h1 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.03em] text-ink mb-4 max-w-3xl [font-variation-settings:'wdth'_82]">
           How Card Restoration Works
         </h1>
@@ -64,7 +64,7 @@ export default function HowItWorksPage() {
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-4 md:px-10 pb-20 flex flex-col gap-14 md:gap-16">
         {/* What We Can Reduce */}
-        <section>
+        <section data-reveal>
           <div className="flex items-start gap-4 mb-6">
             <Check className="w-6 h-6 mt-1 flex-shrink-0 text-rx" strokeWidth={2.25} />
             <div>
@@ -78,7 +78,7 @@ export default function HowItWorksPage() {
         </section>
 
         {/* What We Cannot Fix */}
-        <section>
+        <section data-reveal>
           <div className="flex items-start gap-4 mb-6">
             <X className="w-6 h-6 mt-1 flex-shrink-0 text-red-600" strokeWidth={2.25} />
             <div>
@@ -92,7 +92,7 @@ export default function HowItWorksPage() {
         </section>
 
         {/* CTA Section */}
-        <section className="bg-white border border-rule rounded-lg p-8 md:p-10 md:flex md:items-center md:justify-between md:gap-10">
+        <section data-reveal className="bg-white border border-rule rounded-lg p-8 md:p-10 md:flex md:items-center md:justify-between md:gap-10">
           <div className="mb-6 md:mb-0">
             <h3 className="font-heading text-2xl font-extrabold tracking-tight text-ink mb-2">Ready to restore your collection?</h3>
             <p className="text-muted-foreground max-w-xl">

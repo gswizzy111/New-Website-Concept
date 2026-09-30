@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Microscope, Plus, Sparkles, Wrench } from "lucide-react";
+import { CountUp } from "@/components/motion/count-up";
 import { getTestimonials } from "@/lib/testimonials";
 
 export const dynamic = "force-dynamic";
@@ -90,7 +91,7 @@ export default async function HomePage() {
       {/* ── Hero ── */}
       <section className="bg-paper border-b border-rule">
         <div className="max-w-7xl mx-auto px-4 md:px-10 pt-8 pb-12 md:pt-16 md:pb-20 grid gap-6 md:gap-8 lg:gap-x-14 lg:gap-y-8 lg:grid-cols-[1.05fr_1fr] lg:grid-rows-[auto_1fr] items-start">
-          <div className="lg:col-start-1 lg:row-start-1">
+          <div className="lg:col-start-1 lg:row-start-1 hero-in">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="The Card Doc" className="hidden sm:block w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
             <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-4 md:mb-5 [font-variation-settings:'wdth'_80]">
@@ -102,7 +103,7 @@ export default async function HomePage() {
           </div>
 
           {/* Before / after specimen, labelled like a sample */}
-          <figure className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center">
+          <figure className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center specimen-in">
             <div className="rounded-lg border border-ink/70 bg-white overflow-hidden">
               <div className="p-2 md:p-4">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -127,7 +128,7 @@ export default async function HomePage() {
               <li key={href} className="rx-reveal" style={{ ["--i" as string]: i }}>
                 <Link
                   href={href}
-                  className="group grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 py-4 sm:py-5"
+                  className="group nudge-arrow grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 gap-y-2 py-4 sm:py-5 -mx-3 px-3 rounded-md transition-colors duration-200 hover:bg-rx-soft/50"
                 >
                   <Icon className="h-5 w-5 text-rx self-start mt-1" strokeWidth={1.75} />
                   <span className="min-w-0">
@@ -139,7 +140,7 @@ export default async function HomePage() {
                     <span className="block font-mono text-xs text-muted-foreground mt-1.5">{price}</span>
                   </span>
                   <span className="col-start-2 sm:col-start-auto inline-flex h-9 items-center justify-center rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end">
-                    {action}
+                    {action.replace(" →", "")}{" "}<span className="arrow" aria-hidden>→</span>
                   </span>
                 </Link>
               </li>
@@ -150,7 +151,7 @@ export default async function HomePage() {
 
       {/* ── Proven Results ── */}
       <section className="border-b border-rule py-16 md:py-24">
-        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-10 md:grid-cols-[1.2fr_1fr] md:items-end">
+        <div data-reveal className="max-w-6xl mx-auto px-4 md:px-10 grid gap-10 md:grid-cols-[1.2fr_1fr] md:items-end">
           <div>
             <p className="rx-label text-rx mb-4">Why Collectors Trust Us</p>
             <h2 className="font-heading text-4xl md:text-5xl font-extrabold tracking-tight text-ink mb-5 leading-[1.02]">
@@ -161,9 +162,9 @@ export default async function HomePage() {
             </p>
             <Link
               href="/tier-selection"
-              className="inline-flex h-11 items-center rounded-md bg-rx px-6 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
+              className="nudge-arrow inline-flex h-11 items-center rounded-md bg-rx px-6 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
             >
-              See Our Services →
+              See Our Services <span className="arrow ml-1" aria-hidden>→</span>
             </Link>
           </div>
           <dl className="border-t border-ink/80 divide-y divide-rule">
@@ -174,7 +175,7 @@ export default async function HomePage() {
             ].map((s) => (
               <div key={s.stat} className="flex items-baseline justify-between py-4">
                 <dt className="rx-label">{s.label}</dt>
-                <dd className="font-heading text-3xl md:text-4xl font-bold text-ink tabular-nums">{s.stat}</dd>
+                <dd className="font-heading text-3xl md:text-4xl font-bold text-ink tabular-nums"><CountUp value={s.stat} /></dd>
               </div>
             ))}
           </dl>
@@ -185,10 +186,10 @@ export default async function HomePage() {
       {testimonials.length > 0 && (
         <section className="bg-paper border-b border-rule py-16 md:py-24">
           <div className="max-w-6xl mx-auto px-4 md:px-10">
-            <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-10">
+            <h2 data-reveal className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-10">
               What our customers say
             </h2>
-            <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
+            <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -205,7 +206,7 @@ export default async function HomePage() {
       )}
 
       {/* ── FAQ ── */}
-      <section className="max-w-6xl mx-auto px-4 md:px-10 py-16 md:py-24 grid gap-8 md:grid-cols-[1fr_1.6fr]">
+      <section data-reveal className="max-w-6xl mx-auto px-4 md:px-10 py-16 md:py-24 grid gap-8 md:grid-cols-[1fr_1.6fr]">
         <div>
           <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-4 md:sticky md:top-28">
             Frequently asked questions
@@ -241,7 +242,7 @@ export default async function HomePage() {
               <Link href="/terms" className="text-rx font-semibold hover:underline">Read the full terms →</Link>
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
+          <div data-reveal="stagger" className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
             {TOS_HIGHLIGHTS.map((item, i) => (
               <div
                 key={item.title}

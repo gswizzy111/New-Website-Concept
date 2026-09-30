@@ -59,7 +59,7 @@ export default async function PrepPage() {
           </div>
         )}
 
-        <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start">
+        <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start hero-in" style={{ ["--d" as string]: 120 }}>
           <div className="flex flex-col gap-8">
             {/* Pricing */}
             <div className="bg-white border border-ink/70 rounded-lg overflow-hidden">
@@ -147,7 +147,7 @@ export default async function PrepPage() {
             {/* How it works */}
             <div className="bg-white border border-rule rounded-lg p-6">
               <h2 className="font-heading font-extrabold text-xl text-ink mb-5">How Prep Works</h2>
-              <ol className="flex flex-col">
+              <ol data-reveal="stagger" className="flex flex-col">
                 {[
                   { n: "1", title: "Place your order", body: "Add your cards, choose your add-ons, and choose how to ship them to us." },
                   { n: "2", title: "Ship your cards", body: "Use our prepaid label or ship yourself. We recommend USPS Priority Mail with tracking." },

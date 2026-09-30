@@ -289,11 +289,16 @@ Amber notice boxes (amber-50 fill, amber-200/300 stroke, control radius, amber-9
 One family: lucide-react. Pictorial icons are 16 to 20px at stroke 1.75 in Clinical Green or Grey Ink; small status marks (check, cross, plus) use 2 to 2.25. Icons sit bare beside text. No emoji as icons (glyphs like the star in "4.9★" are part of the owner's copy, not iconography).
 
 ### Motion
-- **Rx reveal:** label rows and tier panels fade up 6px once, 520ms `cubic-bezier(0.16, 1, 0.3, 1)`, staggered 70ms per index (`--i`).
-- **Press:** buttons and role="button" links translate 1px down on active.
-- **State transitions:** color 150ms; shadow 200ms; disclosure icons 150 to 200ms.
+Apple-style, marketing pages only. Cart, checkout, order builder and account screens get no new motion. Curves: `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`, `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)`. Transform and opacity only.
+- **Hero entrance (`.hero-in`, `.specimen-in`):** headline block rises 8px over 800ms; the specimen rises 16px from scale 0.97 over 1000ms, 120ms later. Runs once on load.
+- **Rx reveal (`.rx-reveal`):** service rows and tier cards fade up 8px, 600ms, 180ms base delay + 70ms per index (`--i`).
+- **Scroll reveal (`data-reveal`, `data-reveal="stagger"`):** `components/motion/reveal-observer.tsx` arms only elements below the fold at load; they rise 24px (opacity 700ms, transform 900ms) once when 12% into view. Stagger children step 60ms (capped at 12). Content is visible without JavaScript.
+- **Count-up (`<CountUp value="500+" />`):** stats count from 0 over 1400ms with a quartic ease-out the first time they scroll in, always ending on the owner's exact text. Server render and reduced motion show the final text.
+- **Hover (mouse only, `(hover: hover) and (pointer: fine)`):** `.lift` cards rise 3px with a green-tinted shadow (220ms); `.nudge-arrow .arrow` slides 3px (200ms); `.draw-underline` links draw a 1px underline left to right (250ms). Service rows also tint to Green Wash.
+- **FAQ disclosure:** `<details>` open and close animate height over 280ms where `interpolate-size` is supported; elsewhere they snap.
+- **Press:** buttons translate 1px down on active.
 - **Ticker:** the countdown ticker scrolls linearly over 35s.
-- **Reduced motion:** reveal and ticker animations are removed entirely; content is static and fully visible.
+- **Reduced motion:** entrance, ticker, lift and arrow motion are removed; scroll reveals become a 400ms opacity fade with no movement; count-up is skipped.
 
 ## Do's and Don'ts
 

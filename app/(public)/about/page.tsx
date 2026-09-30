@@ -60,7 +60,7 @@ export default function AboutPage() {
     <>
       {/* Hero */}
       <section className="bg-paper border-b border-rule pt-14 pb-16 md:pt-20 md:pb-24">
-        <div className="max-w-6xl mx-auto px-4 md:px-10">
+        <div className="hero-in max-w-6xl mx-auto px-4 md:px-10">
           <p className="rx-label text-rx mb-4">About Us</p>
           <h1 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.035em] leading-[0.98] text-ink mb-6 max-w-4xl [font-variation-settings:'wdth'_80]">
             We treat every card like it&apos;s worth a fortune.
@@ -79,7 +79,7 @@ export default function AboutPage() {
           <p className="text-muted-foreground mb-10 max-w-xl">
             Restoration has real limits. Here&apos;s an honest breakdown of what our process can address.
           </p>
-          <div className="grid md:grid-cols-2 gap-x-12 gap-y-10">
+          <div data-reveal="stagger" className="grid md:grid-cols-2 gap-x-12 gap-y-10">
             {/* Can fix */}
             <div>
               <div className="flex items-center gap-2.5 mb-3">
@@ -121,7 +121,7 @@ export default function AboutPage() {
 
       {/* FAQ */}
       <section className="py-16 md:py-24 bg-paper border-y border-rule">
-        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-8 md:grid-cols-[1fr_1.6fr]">
+        <div data-reveal className="max-w-6xl mx-auto px-4 md:px-10 grid gap-8 md:grid-cols-[1fr_1.6fr]">
           <div>
             <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-3">Frequently asked questions</h2>
             <p className="text-muted-foreground mb-5">Everything you need to know before placing your first order.</p>
@@ -153,7 +153,7 @@ export default function AboutPage() {
         <div className="max-w-6xl mx-auto px-4 md:px-10">
           <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-3">Terms & Conditions</h2>
           <p className="text-muted-foreground mb-10">The key points — plain English. Read the full version before submitting.</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
+          <div data-reveal="stagger" className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
             {[
               {
                 title: "You assume shipping risk",

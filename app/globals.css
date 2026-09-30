@@ -166,20 +166,116 @@
   animation: ticker 35s linear infinite;
 }
 
+/* ── Motion ────────────────────────────────────────────────────────────────
+   Marketing moments only (never cart/checkout/order builder).
+   Curves from the animate skill; transform + opacity only. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
 /* Rx-label rows fade up once, in sequence (index set via --i). */
 @keyframes rx-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .rx-reveal {
-  animation: rx-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--i, 0) * 70ms);
+  animation: rx-in 600ms var(--ease-out) both;
+  animation-delay: calc(180ms + var(--i, 0) * 70ms);
+}
+
+/* Hero entrance: headline, subline, then specimen settle in on first paint. */
+.hero-in {
+  animation: rx-in 800ms var(--ease-out) both;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+@keyframes specimen-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.specimen-in {
+  animation: specimen-in 1000ms var(--ease-out) 120ms both;
+}
+
+/* Scroll reveals (armed by <RevealObserver/> only for content below the fold,
+   so everything is visible without JS). */
+[data-reveal][data-armed]:not([data-reveal="stagger"]),
+[data-reveal="stagger"][data-armed] > * {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 700ms var(--ease-out),
+    transform 900ms var(--ease-out);
+}
+[data-reveal="stagger"][data-armed] > * {
+  transition-delay: calc(var(--i, 0) * 60ms);
+}
+[data-reveal][data-armed][data-revealed]:not([data-reveal="stagger"]),
+[data-reveal="stagger"][data-armed][data-revealed] > * {
+  opacity: 1;
+  transform: none;
+}
+
+/* Hover details, mouse only (touch fires false hovers). */
+@media (hover: hover) and (pointer: fine) {
+  .lift {
+    transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  }
+  .lift:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 36px -22px oklch(0.3 0.04 165 / 0.45);
+  }
+  .nudge-arrow .arrow {
+    display: inline-block;
+    transition: transform 200ms var(--ease-out);
+  }
+  .nudge-arrow:hover .arrow {
+    transform: translateX(3px);
+  }
+  .draw-underline {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-size: 0% 1px;
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    transition: background-size 250ms var(--ease-out);
+  }
+  .draw-underline:hover {
+    background-size: 100% 1px;
+  }
+}
+
+/* FAQ disclosure: smooth height where the browser supports it. */
+@supports (interpolate-size: allow-keywords) {
+  :root { interpolate-size: allow-keywords; }
+  details::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition: block-size 280ms var(--ease-out), content-visibility 280ms allow-discrete;
+  }
+  details[open]::details-content {
+    block-size: auto;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ticker-track,
-  .rx-reveal {
+  .rx-reveal,
+  .hero-in,
+  .specimen-in {
     animation: none;
+  }
+  [data-reveal][data-armed]:not([data-reveal="stagger"]),
+  [data-reveal="stagger"][data-armed] > * {
+    transform: none;
+    transition: opacity 400ms ease;
+    transition-delay: 0ms;
+  }
+  .lift:hover,
+  .nudge-arrow:hover .arrow {
+    transform: none;
+  }
+  details::details-content {
+    transition: none;
   }
 }
 

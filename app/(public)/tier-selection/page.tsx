@@ -132,7 +132,7 @@ function TierCard({
   );
 
   return (
-    <div className={`relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-[0_16px_32px_-20px_oklch(0.3_0.04_165/0.35)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`lift relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-5">
         <span className={`h-3 w-8 rounded-sm ring-1 ring-rule ${swatch}`} aria-hidden />
         {bannerLabel && (
@@ -337,7 +337,7 @@ export default async function TierSelectionPage() {
             <div className="mb-8">
               <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
             </div>
-            <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
+            <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img

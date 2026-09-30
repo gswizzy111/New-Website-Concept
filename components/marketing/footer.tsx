@@ -31,13 +31,13 @@ export function Footer() {
               href="https://www.instagram.com/the_card_doc"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-ink hover:text-rx transition-colors"
+              className="draw-underline self-start text-sm font-medium text-ink hover:text-rx transition-colors"
             >
               DM us on @the_card_doc
             </a>
             <a
               href="mailto:thecarddoc1@gmail.com"
-              className="text-sm font-medium text-ink hover:text-rx transition-colors"
+              className="draw-underline self-start text-sm font-medium text-ink hover:text-rx transition-colors"
             >
               Email us at thecarddoc1@gmail.com
             </a>

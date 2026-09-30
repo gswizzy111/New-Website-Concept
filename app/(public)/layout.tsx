@@ -4,6 +4,7 @@ import { CountdownTicker } from "@/components/marketing/countdown-ticker";
 import { RestorationBubble } from "@/components/marketing/restoration-bubble";
 import { CartProvider } from "@/lib/cart-context";
 import { PreviewBanner } from "@/components/marketing/preview-banner";
+import { RevealObserver } from "@/components/motion/reveal-observer";
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <main className="flex-1 pb-24 md:pb-0">{children}</main>
       <Footer />
       <RestorationBubble />
+      <RevealObserver />
     </CartProvider>
   );
 }

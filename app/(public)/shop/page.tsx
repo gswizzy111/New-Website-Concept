@@ -129,7 +129,7 @@ function ProductSection({ title, products }: { title: string; products: Product[
       <div className="mb-6">
         <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink">{title}</h2>
       </div>
-      <div className={`grid ${getSectionGridClass(products.length)} bg-rule border border-rule rounded-lg overflow-hidden`} style={{ gap: "1px" }}>
+      <div data-reveal="stagger" className={`grid ${getSectionGridClass(products.length)} bg-rule border border-rule rounded-lg overflow-hidden`} style={{ gap: "1px" }}>
         {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
     </div>
@@ -182,7 +182,7 @@ export default async function ShopPage() {
           <div className="mb-8">
             <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
           </div>
-          <div className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
+          <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
             {testimonials.map((t) => (
               // eslint-disable-next-line @next/next/no-img-element
               <img
