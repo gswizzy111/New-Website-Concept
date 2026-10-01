@@ -7,6 +7,7 @@ import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocke
 import { WaitlistModal } from "./waitlist-modal";
 import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
+import { SnapDeck } from "@/components/motion/snap-deck";
 import { getTestimonials } from "@/lib/testimonials";
 import { PixelViewContent } from "@/components/pixel-view-content";
 import { PageHero } from "@/components/marketing/page-hero";
@@ -263,7 +264,10 @@ export default async function TierSelectionPage() {
         />
 
         {/* All tiers on one 3-column track so card edges align */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6 items-start">
+        <SnapDeck
+          labels={[...topTiers, ...midTiers, ...(eliteTier ? [eliteTier] : [])].map((t) => t.name)}
+          gridClassName="md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-5 lg:gap-6 md:items-start"
+        >
           {[...topTiers, ...midTiers].map((tier, i) => (
             <div key={tier.id} className="rx-reveal" style={{ ["--i" as string]: i }}>
               <div>
@@ -282,7 +286,7 @@ export default async function TierSelectionPage() {
               </div>
             </div>
           )}
-        </div>
+        </SnapDeck>
 
         {/* Fast Pass — bottom */}
         {fastPass && (

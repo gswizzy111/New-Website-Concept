@@ -302,15 +302,23 @@ Marketing pages only; cart, checkout, order builder and account screens get no n
 - **Masked headline (`<SplitReveal/>`):** words rise out of their own clip, 900ms, 70 to 110ms apart; `lines` fixes the break. Screen readers get the plain text.
 - **Specimen landing (`.specimen-land`):** the hero card tips down from a 24 degree 3D tilt over 1400ms; opacity resolves in 450ms so the image paints early. The back card fans in 300ms later (`.fan-in`).
 - **Holo specimen (`<HoloSpecimen/>`):** mouse tilt up to 10 degrees on critically damped springs (0.45s), foil and glare follow the pointer; on every device the foil rides the scroll position and brightens with scroll speed, and the card drifts up and tips back as it leaves. Foil stays light so the photo remains legible.
-- **Scroll fan (`<ScrollFan/>`):** the back card rotates 7 degrees further and slides out over the first 700px of scroll.
+- **Scroll fan (`<ScrollFan/>`):** the back card rotates 7 degrees further and slides out over the first 700px of scroll, outward on its own side (right from 640px up, left on phones).
 - **Expanding stage (`<ExpandingStage/>`):** clip-path inset 48px (12px phone) and radius 28px resolve to full bleed as the stage top travels up the viewport.
 - **Scan reveal (`<ScanReveal/>`):** a bright-green beam sweeps left to right across the before/after photo, leaving full colour behind a dimmed greyscale copy; scroll-linked with a 0.35s spring.
 - **Parallax wall (`<ParallaxWall/>`):** customer messages in 2/3/4 columns drifting at different speeds (40 to 140px of travel), edge-faded.
 - **Count-up, scroll reveals, FAQ height, step walkthrough:** as before (step numeral now 9rem).
-- **Nav:** a hover highlight glides between tabs and the active underline glides between routes (Motion `layoutId`, spring bounce 0.15, 0.45s); the mobile drawer opens on height with staggered rows; the menu icon cross-fades with a 45 degree turn.
+- **Nav:** a hover highlight glides between tabs and the active underline glides between routes (Motion `layoutId`, spring bounce 0.15, 0.45s); the phone menu is a full-screen ink sheet portaled to `<body>`, revealed by a clip-path circle growing from the menu button (600ms), with the three services set huge and rising out of their clips 70ms apart; the menu icon cross-fades with a 45 degree turn.
 - **Hover details (mouse only):** `.lift`, `.nudge-arrow`, `.draw-underline`, `.btn-sheen`, metal swatch highlight slide (900ms), `.lit-border`, link-index arrow nudge.
 - **Footer wordmark:** rises 65 percent out of its clip over 1400ms once in view (the observed parent never moves, so it always triggers).
 - **Reduced motion:** every entrance, scroll-linked transform, foil, fan, scan, parallax, sheen and holo-ring spin is removed; reveals become a 400ms fade; the stage renders full bleed. Client components read the preference through `usePrefersReducedMotion()` (`components/motion/use-reduced-motion.ts`), which is hydration-safe: Motion's own hook reads the media query during hydration and makes server and client trees disagree.
+
+### Phone layer
+Phones are the primary surface (social-media first visits).
+- **Platform baseline:** `viewport-fit=cover`, `interactive-widget=resizes-content`, `theme-color` matching the paper header; no tap highlight; no text inflation; 16px inputs on coarse pointers (no focus zoom, zoom never disabled); `touch-action: manipulation` and `user-select: none` on controls only; `.press` scales to 0.97 on `:active`.
+- **Booking dock (`RestorationBubble`):** a frosted ink bar pinned to the bottom with safe-area padding (logo, "Book a Restoration", "From $75 / card", green arrow). It slides in once the hero is passed, hides over the footer, and is absent on the booking pages and from `md` up.
+- **Trust strip:** four facts the owner already states (cards restored, rating, insured transit, reply time) as bare icons with mono figures, 2x2 on phones, one row on desktop.
+- **Snap deck (`<SnapDeck/>`):** on phones, grids of options (tiers) become a horizontal scroll-snap track at 86% card width, with tier-name chips above and dots below, both tracking the visible card. From `md` up it is the normal grid.
+- **Route loading:** a thin green progress bar plus skeleton blocks with a soft sheen (static under reduced motion).
 
 ## Do's and Don'ts
 

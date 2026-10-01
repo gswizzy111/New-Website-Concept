@@ -15,7 +15,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         <Nav />
         <CountdownTicker />
       </div>
-      <main className="flex-1 pb-24 md:pb-0">{children}</main>
+      <main className="flex-1">{children}</main>
       <Footer />
       <RestorationBubble />
       <RevealObserver />

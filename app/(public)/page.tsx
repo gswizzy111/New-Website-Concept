@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpRight, Ban, Clock, Microscope, Plus, ShieldAlert, Sparkles, Truck, Wrench } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, ShieldCheck, Sparkles, Star, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
 import { HoloSpecimen } from "@/components/motion/holo-specimen";
@@ -121,7 +121,7 @@ export default async function HomePage() {
 
       {/* ── Hero: the light table ── */}
       <section className="light-table relative overflow-x-clip border-b border-rule">
-        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-8 pb-14 md:pt-12 md:pb-20 lg:pt-14 lg:pb-20 grid gap-10 lg:gap-x-12 lg:gap-y-10 lg:grid-cols-12 items-start">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-6 pb-12 md:pt-12 md:pb-20 lg:pt-14 lg:pb-20 grid gap-10 lg:gap-x-12 lg:gap-y-10 lg:grid-cols-12 items-start">
           <div className="lg:col-span-7 lg:row-start-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="The Card Doc" className="hero-in hidden sm:block lg:hidden w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-8" />
@@ -147,8 +147,8 @@ export default async function HomePage() {
           </div>
 
           {/* Specimens on the light table: the Charmander case sits behind and fans out on scroll */}
-          <figure className="relative mx-auto w-full max-w-[34rem] lg:max-w-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 lg:self-center mt-16 sm:mt-20 lg:mt-0">
-            <div className="absolute -top-[17%] sm:-top-[24%] lg:-top-[30%] -right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] rotate-[8deg] z-0">
+          <figure className="relative mx-auto w-full max-w-[34rem] lg:max-w-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 lg:self-center mt-24 sm:mt-20 lg:mt-0">
+            <div className="absolute -top-[30%] sm:-top-[24%] lg:-top-[30%] left-[4%] sm:left-auto sm:-right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] -rotate-[10deg] sm:rotate-[8deg] z-0">
               <div className="fan-in">
                 <ScrollFan>
                   <div className="rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_24px_50px_-24px_oklch(0.25_0.05_165/0.5)]">
@@ -212,6 +212,29 @@ export default async function HomePage() {
             ))}
           </ul>
         </div>
+      </section>
+
+      {/* ── Trust strip: the owner's own facts, at a glance ── */}
+      <section aria-label="Why collectors trust The Card Doc" className="border-b border-rule bg-white">
+        <ul data-reveal="stagger" className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 divide-rule [&>li]:border-rule">
+          {[
+            { Icon: BadgeCheck, strong: "500+", text: "Cards Restored" },
+            { Icon: Star, strong: "4.9★", text: "Avg. Rating" },
+            { Icon: ShieldCheck, strong: null, text: "All cards are insured during transit." },
+            { Icon: MessageCircle, strong: null, text: "We reply within 1 business day." },
+          ].map(({ Icon, strong, text }, i) => (
+            <li
+              key={text}
+              className={`flex items-center gap-3 px-4 md:px-10 py-5 md:py-6 ${i % 2 === 1 ? "border-l" : ""} ${i < 2 ? "border-b lg:border-b-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}
+            >
+              <Icon className="h-5 w-5 shrink-0 text-rx" strokeWidth={1.75} />
+              <span className="text-[13px] md:text-sm leading-snug text-ink">
+                {strong && <span className="font-heading text-base md:text-lg font-extrabold tracking-[-0.01em] mr-1">{strong}</span>}
+                <span className={strong ? "text-muted-foreground" : "font-medium"}>{text}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* ── Proof: the ink stage ── */}
