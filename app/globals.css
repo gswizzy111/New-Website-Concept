@@ -638,3 +638,24 @@ button, [role="button"], summary, nav a, .btn-depth {
     transform: translateY(1px);
   }
 }
+
+/* "Trusted by" marquee: two copies of the list slide one width left, forever.
+   Pauses under the pointer; static and wrapping under reduced motion. */
+.marquee-mask {
+  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+}
+.marquee-track {
+  animation: marquee 38s linear infinite;
+}
+@media (hover: hover) and (pointer: fine) {
+  .marquee-track:hover { animation-play-state: paused; }
+}
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; width: auto; justify-content: center; flex-wrap: wrap; }
+  .marquee-track > ul { flex-wrap: wrap; justify-content: center; }
+  .marquee-dupe { display: none; }
+  .marquee-mask { mask-image: none; }
+}

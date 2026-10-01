@@ -8,6 +8,7 @@ import { ParallaxWall } from "@/components/motion/parallax-wall";
 import { ScanReveal } from "@/components/motion/scan-reveal";
 import { ScrollFan } from "@/components/motion/scroll-fan";
 import { SplitReveal } from "@/components/motion/split-reveal";
+import { TrustedBy } from "@/components/marketing/trusted-by";
 import { getTestimonials } from "@/lib/testimonials";
 import mickeyMantle from "@/public/before-after-mickey-mantle.png";
 import charmander from "@/public/specimen-charmander.png";
@@ -236,6 +237,8 @@ export default async function HomePage() {
           ))}
         </ul>
       </section>
+
+      <TrustedBy />
 
       {/* ── Proof: the ink stage ── */}
       <section className="bg-paper pt-5 md:pt-8">
