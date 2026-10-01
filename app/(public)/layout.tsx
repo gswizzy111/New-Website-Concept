@@ -5,6 +5,7 @@ import { RestorationBubble } from "@/components/marketing/restoration-bubble";
 import { CartProvider } from "@/lib/cart-context";
 import { PreviewBanner } from "@/components/marketing/preview-banner";
 import { RevealObserver } from "@/components/motion/reveal-observer";
+import { SpotlightTracker } from "@/components/motion/spotlight-tracker";
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -18,6 +19,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <Footer />
       <RestorationBubble />
       <RevealObserver />
+      <SpotlightTracker />
     </CartProvider>
   );
 }

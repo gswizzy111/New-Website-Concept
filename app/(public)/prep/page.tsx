@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BarChart3, Hammer, Microscope, PauseCircle, X } from "lucide-react";
+import { StepWalkthrough } from "@/components/motion/step-walkthrough";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PixelViewContent } from "@/components/pixel-view-content";
@@ -144,30 +145,6 @@ export default async function PrepPage() {
           </div>
 
           <div className="flex flex-col gap-8">
-            {/* How it works */}
-            <div className="bg-white border border-rule rounded-lg p-6">
-              <h2 className="font-heading font-extrabold text-xl text-ink mb-5">How Prep Works</h2>
-              <ol data-reveal="stagger" className="flex flex-col">
-                {[
-                  { n: "1", title: "Place your order", body: "Add your cards, choose your add-ons, and choose how to ship them to us." },
-                  { n: "2", title: "Ship your cards", body: "Use our prepaid label or ship yourself. We recommend USPS Priority Mail with tracking." },
-                  { n: "3", title: "We prep your cards", body: "Our team surface-cleans, inspects, and submission-readies every card — penny sleeve + semi-rigid." },
-                  { n: "4", title: "Cards returned", body: "We return your prepped cards ready for submission. Typical turnaround is 10–15 business days." },
-                ].map((step, i, all) => (
-                  <li key={step.n} className="relative flex items-start gap-4 pb-5 last:pb-0">
-                    {i < all.length - 1 && <span className="absolute left-[13px] top-8 bottom-1 w-px bg-rule" aria-hidden />}
-                    <div className="w-7 h-7 rounded-md bg-ink text-paper font-mono text-xs flex items-center justify-center shrink-0">
-                      {step.n}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-[15px] text-ink">{step.title}</p>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{step.body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
             {/* Not included */}
             <div className="border border-red-200 bg-red-50/60 rounded-lg px-6 py-5">
               <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-red-800 mb-3">Prep does not include:</p>
@@ -195,6 +172,19 @@ export default async function PrepPage() {
             </div>
           </div>
         </div>
+
+        {/* How it works: sticky scroll walkthrough */}
+        <section className="mt-16 md:mt-24 border-t border-ink/80 pt-12 md:pt-16">
+          <StepWalkthrough
+            title="How Prep Works"
+            steps={[
+              { n: "1", title: "Place your order", body: "Add your cards, choose your add-ons, and choose how to ship them to us." },
+              { n: "2", title: "Ship your cards", body: "Use our prepaid label or ship yourself. We recommend USPS Priority Mail with tracking." },
+              { n: "3", title: "We prep your cards", body: "Our team surface-cleans, inspects, and submission-readies every card — penny sleeve + semi-rigid." },
+              { n: "4", title: "Cards returned", body: "We return your prepped cards ready for submission. Typical turnaround is 10–15 business days." },
+            ]}
+          />
+        </section>
       </div>
     </div>
   );

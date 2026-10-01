@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Microscope, Plus, Sparkles, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
+import { HoloSpecimen } from "@/components/motion/holo-specimen";
+import { Marquee } from "@/components/motion/marquee";
+import { SplitReveal } from "@/components/motion/split-reveal";
 import { getTestimonials } from "@/lib/testimonials";
 
 export const dynamic = "force-dynamic";
@@ -91,19 +94,20 @@ export default async function HomePage() {
       {/* ── Hero ── */}
       <section className="bg-paper border-b border-rule">
         <div className="max-w-7xl mx-auto px-4 md:px-10 pt-8 pb-12 md:pt-16 md:pb-20 grid gap-6 md:gap-8 lg:gap-x-14 lg:gap-y-8 lg:grid-cols-[1.05fr_1fr] lg:grid-rows-[auto_1fr] items-start">
-          <div className="lg:col-start-1 lg:row-start-1 hero-in">
+          <div className="lg:col-start-1 lg:row-start-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="The Card Doc" className="hidden sm:block w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-6" />
             <h1 className="font-heading text-5xl sm:text-6xl lg:text-7xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-4 md:mb-5 [font-variation-settings:'wdth'_80]">
-              The Card Doc
+              <SplitReveal text="The Card Doc" />
             </h1>
-            <p className="text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed">
+            <p className="hero-in text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed" style={{ ["--d" as string]: 260 }}>
               Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
             </p>
           </div>
 
           {/* Before / after specimen, labelled like a sample */}
           <figure className="lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-center specimen-in">
+            <HoloSpecimen>
             <div className="rounded-lg border border-ink/70 bg-white overflow-hidden">
               <div className="p-2 md:p-4">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -120,6 +124,7 @@ export default async function HomePage() {
                 <span className="rx-label text-primary-foreground">The Card Doc</span>
               </figcaption>
             </div>
+            </HoloSpecimen>
           </figure>
 
           {/* Services, laid out like the lines of a prescription label */}
@@ -189,7 +194,9 @@ export default async function HomePage() {
             <h2 data-reveal className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink mb-10">
               What our customers say
             </h2>
-            <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
+          </div>
+          <div data-reveal>
+            <Marquee seconds={80}>
               {testimonials.map((t) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -197,10 +204,10 @@ export default async function HomePage() {
                   src={t.url}
                   alt={t.alt ?? "Customer review"}
                   loading="lazy"
-                  className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
+                  className="h-[300px] md:h-[380px] w-auto shrink-0 rounded-md ring-1 ring-rule"
                 />
               ))}
-            </div>
+            </Marquee>
           </div>
         </section>
       )}

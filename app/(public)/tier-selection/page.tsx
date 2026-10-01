@@ -132,7 +132,7 @@ function TierCard({
   );
 
   return (
-    <div className={`lift relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`lift spotlight relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-5">
         <span className={`h-3 w-8 rounded-sm ring-1 ring-rule ${swatch}`} aria-hidden />
         {bannerLabel && (

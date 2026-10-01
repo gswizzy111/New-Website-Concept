@@ -296,6 +296,11 @@ Apple-style, marketing pages only. Cart, checkout, order builder and account scr
 - **Count-up (`<CountUp value="500+" />`):** stats count from 0 over 1400ms with a quartic ease-out the first time they scroll in, always ending on the owner's exact text. Server render and reduced motion show the final text.
 - **Hover (mouse only, `(hover: hover) and (pointer: fine)`):** `.lift` cards rise 3px with a green-tinted shadow (220ms); `.nudge-arrow .arrow` slides 3px (200ms); `.draw-underline` links draw a 1px underline left to right (250ms). Service rows also tint to Green Wash.
 - **FAQ disclosure:** `<details>` open and close animate height over 280ms where `interpolate-size` is supported; elsewhere they snap.
+- **Masked headline (`<SplitReveal/>`):** each word of the home H1 rises out of its own clip, 900ms ease-out, 90ms apart. Screen readers get the plain text.
+- **Holo specimen (`<HoloSpecimen/>`, Motion):** the hero card tilts up to 9° toward a mouse pointer on critically damped springs (bounce 0, 0.4s) with a pointer-tracked holo-foil sheen (soft-light, the one sanctioned gradient: it depicts card foil). On scroll it drifts up 60px and settles to scale 0.94. Touch and reduced motion: static.
+- **Marquee (`<Marquee/>`, one per page):** home testimonials loop horizontally (80s, linear), edge-faded, paused on hover/focus; reduced motion turns it into a scrollable row.
+- **Spotlight (`.spotlight` + `<SpotlightTracker/>`):** tier cards show a 420px Green Wash glow under a mouse pointer; nothing at rest.
+- **Step walkthrough (`<StepWalkthrough/>`, Prep page):** sticky title with the current step's large numeral; a green progress rule fills with scroll (spring 0.3s) and the step in the middle of the viewport lights up.
 - **Press:** buttons translate 1px down on active.
 - **Ticker:** the countdown ticker scrolls linearly over 35s.
 - **Reduced motion:** entrance, ticker, lift and arrow motion are removed; scroll reveals become a 400ms opacity fade with no movement; count-up is skipped.

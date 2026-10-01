@@ -197,6 +197,35 @@
   animation: specimen-in 1000ms var(--ease-out) 120ms both;
 }
 
+/* Masked headline: words rise out of their clip. */
+@keyframes word-rise {
+  from { transform: translateY(105%); }
+  to   { transform: translateY(0); }
+}
+.split-word {
+  animation: word-rise 900ms var(--ease-out) both;
+  animation-delay: calc(var(--d, 0) * 1ms);
+}
+
+/* Marquee (one per page). */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(-50% - 0.5rem)); }
+}
+.marquee-track {
+  animation: marquee var(--marquee-duration, 70s) linear infinite;
+}
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+
+/* Spotlight: a soft green glow follows the pointer (vars set by <Spotlight/>). */
+.spotlight {
+  background-image: radial-gradient(420px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.93 0.05 165 / 0.9), transparent 60%);
+  background-repeat: no-repeat;
+}
+
 /* Scroll reveals (armed by <RevealObserver/> only for content below the fold,
    so everything is visible without JS). */
 [data-reveal][data-armed]:not([data-reveal="stagger"]),
@@ -261,8 +290,15 @@
   .ticker-track,
   .rx-reveal,
   .hero-in,
-  .specimen-in {
+  .specimen-in,
+  .split-word {
     animation: none;
+  }
+  .marquee-track {
+    animation: none;
+  }
+  .marquee {
+    overflow-x: auto;
   }
   [data-reveal][data-armed]:not([data-reveal="stagger"]),
   [data-reveal="stagger"][data-armed] > * {

@@ -35,7 +35,7 @@ export function DiamondCard({
     : "bg-rx-soft text-rx";
 
   return (
-    <div className={`lift relative rounded-lg border border-ink/70 bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`lift spotlight relative rounded-lg border border-ink/70 bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-5">
         <span className="h-3 w-8 rounded-sm bg-[#cfdde4] ring-1 ring-rule" aria-hidden />
         <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
