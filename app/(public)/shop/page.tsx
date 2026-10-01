@@ -1,4 +1,5 @@
 import { Star } from "lucide-react";
+import { PageHero } from "@/components/marketing/page-hero";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -153,13 +154,10 @@ export default async function ShopPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-10 py-12 md:py-16 pb-28 md:pb-16">
       {/* Header */}
-      <div className="mb-10 md:mb-12">
-        <p className="rx-label text-rx mb-3">The Card Doc</p>
-        <h1 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.035em] text-ink [font-variation-settings:'wdth'_80]">Shop</h1>
-      </div>
+      <PageHero className="mb-12 md:mb-16" eyebrow="The Card Doc" title="Shop" />
 
       {products.length === 0 && (
-        <div className="border border-rule rounded-lg bg-paper py-24 text-center">
+        <div className="border border-rule rounded-xl bg-paper py-24 text-center">
           <p className="font-heading text-xl text-muted-foreground">Products coming soon.</p>
         </div>
       )}

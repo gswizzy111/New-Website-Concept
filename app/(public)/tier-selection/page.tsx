@@ -9,6 +9,7 @@ import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
 import { getTestimonials } from "@/lib/testimonials";
 import { PixelViewContent } from "@/components/pixel-view-content";
+import { PageHero } from "@/components/marketing/page-hero";
 
 export const dynamic = "force-dynamic";
 
@@ -21,13 +22,13 @@ const ICON_MAP = {
   fast_pass:     Rocket,
 } as const;
 
-// Tier identity lives in a small metal swatch, not in recoloring the card.
+// Tier identity lives in a small polished-metal swatch, not in recoloring the card.
 const SWATCH: Record<string, string> = {
-  regular:       "bg-[#a86b3c]",
-  expedited:     "bg-[#a7b0b5]",
-  premium:       "bg-[#c9a227]",
-  ultra_premium: "bg-[#8e9aa6]",
-  fast_pass:     "bg-rx",
+  regular:       "metal-bronze",
+  expedited:     "metal-silver",
+  premium:       "metal-gold",
+  ultra_premium: "metal-platinum",
+  fast_pass:     "metal-rx",
 };
 
 function formatTurnaround(tier: RestorationTier): string {
@@ -81,17 +82,17 @@ function TierCard({
     : "per card";
 
   const action = isSoldOut ? (
-    <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+    <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
       Sold Out
     </div>
   ) : !restorationsOpen ? (
-    <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+    <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
       Currently Closed
     </div>
   ) : (
     <Link
       href={`/restoration?tier=${tier.id}`}
-      className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
+      className="btn-depth btn-sheen w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
     >
       Select {tier.name}
     </Link>
@@ -132,9 +133,9 @@ function TierCard({
   );
 
   return (
-    <div className={`lift spotlight relative rounded-lg border border-rule bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
-      <div className="flex items-center justify-between gap-3 px-6 pt-5">
-        <span className={`h-3 w-8 rounded-sm ring-1 ring-rule ${swatch}`} aria-hidden />
+    <div className={`lift spotlight lit-border relative rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.04_165/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+      <div className="flex items-center justify-between gap-3 px-6 pt-6">
+        <span className={`metal h-3.5 w-11 rounded-[3px] ${swatch}`} aria-hidden />
         {bannerLabel && (
           <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
             {bannerLabel}
@@ -147,13 +148,13 @@ function TierCard({
           <div className="flex items-start gap-3 mb-5">
             <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
             <div>
-              <h3 className="font-heading text-2xl font-bold text-ink leading-tight">{tier.name}</h3>
+              <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.025em] text-ink leading-tight [font-variation-settings:'wdth'_84]">{tier.name}</h3>
               <p className="text-sm text-muted-foreground mt-0.5">{tier.description}</p>
             </div>
           </div>
 
           <div className="mb-6">
-            <div className="font-heading text-4xl font-bold tracking-tight text-ink tabular-nums">{price}</div>
+            <div className="font-heading text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">{price}</div>
             <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
           </div>
 
@@ -235,7 +236,7 @@ export default async function TierSelectionPage() {
   const eliteIsSoldOut = settingsMap["elite"]?.is_open === false || (eliteSlotsLeft !== null && eliteSlotsLeft === 0);
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen page-glow">
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
       {/* Countdown — shown when shop is closed */}
       {!restorationsOpen && <CountdownBanner />}
@@ -251,18 +252,18 @@ export default async function TierSelectionPage() {
         </div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 md:px-10 py-12 md:py-16">
-        <h1 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.03em] text-ink mb-3 [font-variation-settings:'wdth'_82]">
-          Choose Your Restoration Level
-        </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mb-10 md:mb-12">
-          {restorationsOpen
+      <div className="max-w-6xl mx-auto px-4 md:px-10 py-12 md:py-20">
+        <PageHero
+          className="mb-12 md:mb-16"
+          title="Choose Your Restoration Level"
+          lines={["Choose Your", "Restoration Level"]}
+          lead={restorationsOpen
             ? "Select the tier that best fits your cards' needs."
             : "We're temporarily closed. Browse our pricing below and join the waitlist to be notified when we reopen."}
-        </p>
+        />
 
         {/* All tiers on one 3-column track so card edges align */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6 items-start">
           {[...topTiers, ...midTiers].map((tier, i) => (
             <div key={tier.id} className="rx-reveal" style={{ ["--i" as string]: i }}>
               <div>
@@ -286,7 +287,7 @@ export default async function TierSelectionPage() {
         {/* Fast Pass — bottom */}
         {fastPass && (
           <div>
-            <div className="flex items-center gap-3 mt-10 mb-3">
+            <div className="flex items-center gap-3 mt-14 mb-4">
               <span className="rx-label text-rx flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" strokeWidth={2} />Express Option</span>
               <div className="h-px flex-1 bg-rule" />
             </div>
@@ -333,9 +334,9 @@ export default async function TierSelectionPage() {
 
         {/* Customer Reviews */}
         {testimonials.length > 0 && (
-          <div className="mt-20">
-            <div className="mb-8">
-              <h2 className="font-heading text-3xl md:text-4xl font-extrabold tracking-tight text-ink">What Our Customers Say</h2>
+          <div className="mt-24 md:mt-32">
+            <div className="mb-10">
+              <h2 data-reveal className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink [font-variation-settings:'wdth'_80]">What Our Customers Say</h2>
             </div>
             <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
@@ -345,7 +346,7 @@ export default async function TierSelectionPage() {
                   src={t.url}
                   alt={t.alt ?? "Customer review"}
                   loading="lazy"
-                  className="w-full h-auto break-inside-avoid rounded-md ring-1 ring-rule"
+                  className="w-full h-auto break-inside-avoid rounded-xl ring-1 ring-rule shadow-[0_18px_40px_-28px_oklch(0.25_0.04_165/0.5)]"
                 />
               ))}
             </div>

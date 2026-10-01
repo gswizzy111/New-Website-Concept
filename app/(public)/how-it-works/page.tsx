@@ -1,4 +1,5 @@
 import { Check, X } from "lucide-react";
+import { PageHero } from "@/components/marketing/page-hero";
 
 const CAN_RESTORE = [
   {
@@ -38,9 +39,9 @@ function ItemGrid({ items }: { items: { title: string; description: string }[] }
       {items.map((item, i) => (
         <div
           key={item.title}
-          className={`py-6 border-b border-rule md:pr-8 ${i % 2 === 1 ? "md:pl-8 md:border-l" : ""}`}
+          className={`py-7 border-b border-rule md:pr-8 ${i % 2 === 1 ? "md:pl-8 md:border-l" : ""}`}
         >
-          <h3 className="font-heading text-lg font-bold text-ink mb-1.5">{item.title}</h3>
+          <h3 className="font-heading text-xl md:text-2xl font-extrabold tracking-[-0.02em] text-ink mb-2 [font-variation-settings:'wdth'_86]">{item.title}</h3>
           <p className="text-[15px] text-muted-foreground leading-relaxed">{item.description}</p>
         </div>
       ))}
@@ -50,15 +51,14 @@ function ItemGrid({ items }: { items: { title: string; description: string }[] }
 
 export default function HowItWorksPage() {
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen page-glow">
       {/* Hero Section */}
-      <div className="hero-in max-w-5xl mx-auto px-4 md:px-10 pt-12 pb-10 md:pt-16 md:pb-14">
-        <h1 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.03em] text-ink mb-4 max-w-3xl [font-variation-settings:'wdth'_82]">
-          How Card Restoration Works
-        </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl">
-          Understand what we can restore and what limitations we face in bringing your cards back to life.
-        </p>
+      <div className="max-w-5xl mx-auto px-4 md:px-10 pt-12 pb-12 md:pt-20 md:pb-20">
+        <PageHero
+          title="How Card Restoration Works"
+          lines={["How Card", "Restoration Works"]}
+          lead="Understand what we can restore and what limitations we face in bringing your cards back to life."
+        />
       </div>
 
       {/* Main Content */}
@@ -68,7 +68,7 @@ export default function HowItWorksPage() {
           <div className="flex items-start gap-4 mb-6">
             <Check className="w-6 h-6 mt-1 flex-shrink-0 text-rx" strokeWidth={2.25} />
             <div>
-              <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink mb-1.5">What We Can Restore</h2>
+              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-3 [font-variation-settings:'wdth'_80]">What We Can Restore</h2>
               <p className="text-muted-foreground">
                 Our restoration process can significantly reduce or eliminate the following damage:
               </p>
@@ -82,7 +82,7 @@ export default function HowItWorksPage() {
           <div className="flex items-start gap-4 mb-6">
             <X className="w-6 h-6 mt-1 flex-shrink-0 text-red-600" strokeWidth={2.25} />
             <div>
-              <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink mb-1.5">Limitations</h2>
+              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-3 [font-variation-settings:'wdth'_80]">Limitations</h2>
               <p className="text-muted-foreground">
                 Unfortunately, the following types of damage cannot be restored:
               </p>
@@ -92,23 +92,23 @@ export default function HowItWorksPage() {
         </section>
 
         {/* CTA Section */}
-        <section data-reveal className="bg-white border border-rule rounded-lg p-8 md:p-10 md:flex md:items-center md:justify-between md:gap-10">
-          <div className="mb-6 md:mb-0">
-            <h3 className="font-heading text-2xl font-extrabold tracking-tight text-ink mb-2">Ready to restore your collection?</h3>
-            <p className="text-muted-foreground max-w-xl">
+        <section data-reveal className="stage stage-light overflow-hidden rounded-2xl p-8 md:p-12 md:flex md:items-center md:justify-between md:gap-10">
+          <div className="mb-8 md:mb-0">
+            <h3 className="font-heading text-3xl md:text-4xl font-extrabold tracking-[-0.03em] leading-[1] text-stage-fg mb-3 [font-variation-settings:'wdth'_82]">Ready to restore your collection?</h3>
+            <p className="text-stage-muted max-w-xl">
               Submit your cards for restoration and see the difference professional care can make.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3 shrink-0">
             <a
               href="/restoration"
-              className="inline-flex h-11 items-center justify-center px-6 bg-rx text-primary-foreground font-semibold rounded-md hover:bg-rx/90 transition-colors"
+              className="btn-depth btn-sheen inline-flex h-12 items-center justify-center px-7 bg-rx text-primary-foreground font-semibold rounded-md hover:bg-rx/90 transition-colors"
             >
               Book Restoration
             </a>
             <a
               href="/shop"
-              className="inline-flex h-11 items-center justify-center px-6 border border-ink/70 text-ink font-semibold rounded-md hover:border-ink hover:bg-secondary transition-colors"
+              className="inline-flex h-12 items-center justify-center px-7 border border-white/25 text-stage-fg font-semibold rounded-md hover:border-white/60 hover:bg-white/5 transition-colors"
             >
               Browse Kits
             </a>

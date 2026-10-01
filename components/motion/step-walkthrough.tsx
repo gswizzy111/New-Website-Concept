@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, useReducedMotion, useScroll, useSpring } from "motion/react";
+import { motion, useScroll, useSpring } from "motion/react";
+import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
 
 type Step = { n: string; title: string; body: string };
 
@@ -14,7 +15,7 @@ export function StepWalkthrough({ title, steps }: { title: string; steps: Step[]
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [active, setActive] = useState(0);
-  const reduce = useReducedMotion();
+  const reduce = usePrefersReducedMotion();
 
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 60%", "end 60%"] });
   const progress = useSpring(scrollYProgress, { bounce: 0, duration: 0.3 });
@@ -37,10 +38,10 @@ export function StepWalkthrough({ title, steps }: { title: string; steps: Step[]
   return (
     <div ref={ref} className="grid gap-8 md:grid-cols-[0.9fr_1.1fr] md:gap-16">
       <div className="md:sticky md:top-32 md:self-start">
-        <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-6">{title}</h2>
+        <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-6 [font-variation-settings:'wdth'_80]">{title}</h2>
         <div className="hidden md:block" aria-hidden>
           <div className="flex items-baseline gap-4">
-            <span key={current.n} className="font-heading text-[7rem] leading-none font-extrabold tracking-[-0.05em] text-rx tabular-nums animate-[rx-in_500ms_var(--ease-out)_both]">
+            <span key={current.n} className="font-heading text-[9rem] leading-none font-extrabold tracking-[-0.05em] text-rx tabular-nums [font-variation-settings:'wdth'_76] animate-[rx-in_500ms_var(--ease-out)_both]">
               {current.n}
             </span>
             <span className="font-mono text-sm text-muted-foreground">/ {steps.length}</span>

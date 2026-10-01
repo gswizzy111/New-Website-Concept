@@ -1,6 +1,7 @@
 import { Check, Plus, X } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { PageHero } from "@/components/marketing/page-hero";
 
 export const metadata: Metadata = {
   title: "About Us | The Card Doc",
@@ -59,15 +60,14 @@ export default function AboutPage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-paper border-b border-rule pt-14 pb-16 md:pt-20 md:pb-24">
-        <div className="hero-in max-w-6xl mx-auto px-4 md:px-10">
-          <p className="rx-label text-rx mb-4">About Us</p>
-          <h1 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.035em] leading-[0.98] text-ink mb-6 max-w-4xl [font-variation-settings:'wdth'_80]">
-            We treat every card like it&apos;s worth a fortune.
-          </h1>
-          <p className="text-muted-foreground text-lg md:text-xl max-w-2xl leading-relaxed">
-            The Card Doc is a professional card restoration service built for collectors who care about how their cards look. We don&apos;t cut corners.
-          </p>
+      <section className="page-glow border-b border-rule pt-14 pb-16 md:pt-24 md:pb-28">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <PageHero
+            eyebrow="About Us"
+            title="We treat every card like it's worth a fortune."
+            lines={["We treat every card", "like it's worth a fortune."]}
+            lead={<>The Card Doc is a professional card restoration service built for collectors who care about how their cards look. We don&apos;t cut corners.</>}
+          />
         </div>
       </section>
 
@@ -75,14 +75,14 @@ export default function AboutPage() {
       {/* Can / Cannot fix */}
       <section className="py-16 md:py-24">
         <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-3">What we can (and can&apos;t) fix</h2>
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">What we can (and can&apos;t) fix</h2>
           <p className="text-muted-foreground mb-10 max-w-xl">
             Restoration has real limits. Here&apos;s an honest breakdown of what our process can address.
           </p>
-          <div data-reveal="stagger" className="grid md:grid-cols-2 gap-x-12 gap-y-10">
+          <div data-reveal="stagger" className="grid md:grid-cols-2 gap-5">
             {/* Can fix */}
-            <div>
-              <div className="flex items-center gap-2.5 mb-3">
+            <div className="rounded-xl bg-white ring-1 ring-rule p-6 md:p-8">
+              <div className="flex items-center gap-2.5 mb-4">
                 <Check className="h-5 w-5 text-rx" strokeWidth={2.25} />
                 <h3 className="font-heading text-xl font-bold text-ink">We CAN help with</h3>
               </div>
@@ -96,8 +96,8 @@ export default function AboutPage() {
               </ul>
             </div>
             {/* Cannot fix */}
-            <div>
-              <div className="flex items-center gap-2.5 mb-3">
+            <div className="rounded-xl bg-white ring-1 ring-rule p-6 md:p-8">
+              <div className="flex items-center gap-2.5 mb-4">
                 <X className="h-5 w-5 text-red-600" strokeWidth={2.25} />
                 <h3 className="font-heading text-xl font-bold text-ink">We CANNOT fix</h3>
               </div>
@@ -123,7 +123,7 @@ export default function AboutPage() {
       <section className="py-16 md:py-24 bg-paper border-y border-rule">
         <div data-reveal className="max-w-6xl mx-auto px-4 md:px-10 grid gap-8 md:grid-cols-[1fr_1.6fr]">
           <div>
-            <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-3">Frequently asked questions</h2>
+            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">Frequently asked questions</h2>
             <p className="text-muted-foreground mb-5">Everything you need to know before placing your first order.</p>
             <p className="text-sm text-muted-foreground">
               Still have questions?{" "}
@@ -134,14 +134,17 @@ export default function AboutPage() {
           </div>
           <div className="border-t border-ink/80 border-b border-b-rule divide-y divide-rule">
             {faqItems.map((item) => (
-              <details key={item.q} className="group">
-                <summary className="flex items-center justify-between gap-6 py-5 cursor-pointer font-semibold text-[15px] text-ink hover:text-rx transition-colors select-none list-none [&::-webkit-details-marker]:hidden">
+              <details key={item.q} className="group relative">
+                <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [font-variation-settings:'wdth'_92] [&::-webkit-details-marker]:hidden">
                   {item.q}
-                  <Plus className="h-4 w-4 shrink-0 text-rx group-open:rotate-45 transition-transform duration-200" strokeWidth={2} />
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 ring-rule transition-[background-color,box-shadow] duration-300 group-hover:ring-rx group-open:bg-rx group-open:ring-rx">
+                    <Plus className="h-4 w-4 text-rx transition-transform duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:text-primary-foreground" strokeWidth={2} />
+                  </span>
                 </summary>
-                <div className="pb-5 pr-10 text-[15px] text-muted-foreground leading-relaxed max-w-[65ch]">
+                <div className="pb-7 pr-14 text-base text-muted-foreground leading-relaxed max-w-[62ch]">
                   {item.a}
                 </div>
+                <span aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-px h-px origin-left scale-x-0 bg-rx transition-transform duration-500 ease-[var(--ease-out)] group-hover:scale-x-100 group-open:scale-x-100" />
               </details>
             ))}
           </div>
@@ -151,7 +154,7 @@ export default function AboutPage() {
       {/* Terms & Conditions summary */}
       <section className="py-16 md:py-24">
         <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-tight text-ink mb-3">Terms & Conditions</h2>
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">Terms & Conditions</h2>
           <p className="text-muted-foreground mb-10">The key points — plain English. Read the full version before submitting.</p>
           <div data-reveal="stagger" className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
             {[
@@ -198,20 +201,20 @@ export default function AboutPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-16 md:py-20 bg-rx">
-        <div className="max-w-3xl mx-auto px-6 md:px-10 text-center">
-          <h2 className="font-heading text-3xl md:text-4xl font-bold text-white mb-4">Ready to restore your cards?</h2>
-          <p className="text-white/80 mb-8">Book a restoration or grab a kit and get started today.</p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+      <section className="stage stage-light overflow-hidden py-24 md:py-36">
+        <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
+          <h2 data-reveal className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.04em] leading-[0.92] text-stage-fg mb-6 [font-variation-settings:'wdth'_78]">Ready to restore your cards?</h2>
+          <p className="text-lg text-stage-muted mb-10">Book a restoration or grab a kit and get started today.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               href="/restoration"
-              className="inline-flex h-11 items-center justify-center px-7 bg-white text-rx font-semibold rounded-md hover:bg-white/90 transition-colors"
+              className="btn-depth btn-sheen inline-flex h-12 items-center justify-center px-8 bg-rx text-primary-foreground font-semibold rounded-md hover:bg-rx/90 transition-colors"
             >
               Book Restoration
             </Link>
             <Link
               href="/shop"
-              className="inline-flex h-11 items-center justify-center px-7 border border-white/80 text-white font-semibold rounded-md hover:bg-white/10 transition-colors"
+              className="inline-flex h-12 items-center justify-center px-8 border border-white/25 text-stage-fg font-semibold rounded-md hover:border-white/60 hover:bg-white/5 transition-colors"
             >
               Browse Kits
             </Link>

@@ -32,6 +32,11 @@
   --color-rx: var(--rx);
   --color-rx-soft: var(--rx-soft);
   --color-rule: var(--rule);
+  --color-stage: var(--stage);
+  --color-stage-raise: var(--stage-raise);
+  --color-stage-fg: var(--stage-fg);
+  --color-stage-muted: var(--stage-muted);
+  --color-rx-bright: var(--rx-bright);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -128,6 +133,13 @@
   --rx-soft: oklch(0.955 0.025 165);
   --rule: oklch(0.88 0.01 165);              /* hairline */
 
+  /* Ink stage: the dark "light box" sections (proof, CTAs, footer). */
+  --stage: oklch(0.175 0.02 172);
+  --stage-raise: oklch(0.22 0.022 172);
+  --stage-fg: oklch(0.97 0.005 165);
+  --stage-muted: oklch(0.76 0.018 165);      /* 8.9:1 on stage */
+  --rx-bright: oklch(0.8 0.12 165);          /* green for marks and links on stage */
+
   --background: oklch(1 0 0);
   --foreground: var(--ink);
   --card: oklch(1 0 0);
@@ -184,17 +196,10 @@
   animation-delay: calc(180ms + var(--i, 0) * 70ms);
 }
 
-/* Hero entrance: headline, subline, then specimen settle in on first paint. */
+/* Hero entrance: headline and subline settle in on first paint. */
 .hero-in {
   animation: rx-in 800ms var(--ease-out) both;
   animation-delay: calc(var(--d, 0) * 1ms);
-}
-@keyframes specimen-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.97); }
-  to   { opacity: 1; transform: none; }
-}
-.specimen-in {
-  animation: specimen-in 1000ms var(--ease-out) 120ms both;
 }
 
 /* Masked headline: words rise out of their clip. */
@@ -207,28 +212,210 @@
   animation-delay: calc(var(--d, 0) * 1ms);
 }
 
-/* Marquee (one per page). */
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to   { transform: translateX(calc(-50% - 0.5rem)); }
-}
-.marquee-track {
-  animation: marquee var(--marquee-duration, 70s) linear infinite;
-}
-.marquee:hover .marquee-track,
-.marquee:focus-within .marquee-track {
-  animation-play-state: paused;
-}
-
 /* Spotlight: a soft green glow follows the pointer (vars set by <Spotlight/>). */
 .spotlight {
   background-image: radial-gradient(420px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.93 0.05 165 / 0.9), transparent 60%);
   background-repeat: no-repeat;
 }
 
+/* Hero specimen lands on the light table: it tips down out of a 3D tilt.
+   Opacity resolves fast so the image paints early; the move takes longer. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes specimen-land {
+  from { transform: perspective(1400px) translateY(56px) rotateX(24deg) scale(0.94); }
+  to   { transform: none; }
+}
+.specimen-land {
+  animation:
+    specimen-land 1400ms var(--ease-out) 120ms both,
+    fade-in 450ms ease-out 120ms both;
+}
+@keyframes fan-in {
+  from { transform: translate(-40px, 36px) rotate(-5deg); }
+  to   { transform: none; }
+}
+.fan-in {
+  animation:
+    fan-in 1500ms var(--ease-out) 420ms both,
+    fade-in 600ms ease-out 420ms both;
+}
+
+/* ── Materials ─────────────────────────────────────────────────────────────
+   Holo foil is the one sanctioned rainbow: it depicts card foil, so it only
+   ever sits on a card image or a card's edge. */
+@property --holo-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.holo-bands {
+  background-image: repeating-linear-gradient(
+    110deg,
+    oklch(0.86 0.13 20) 0%,
+    oklch(0.93 0.12 95) 7%,
+    oklch(0.9 0.13 165) 14%,
+    oklch(0.86 0.12 225) 21%,
+    oklch(0.84 0.13 300) 28%,
+    oklch(0.86 0.13 20) 35%
+  );
+  background-size: 260% 260%;
+}
+/* Animated foil edge (Diamond tier, featured stage panels). */
+.holo-ring {
+  position: relative;
+}
+.holo-ring::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--holo-angle),
+    oklch(0.8 0.13 20),
+    oklch(0.9 0.12 95),
+    oklch(0.8 0.13 165),
+    oklch(0.78 0.12 225),
+    oklch(0.76 0.13 300),
+    oklch(0.8 0.13 20)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: holo-spin 10s linear infinite;
+  pointer-events: none;
+}
+@keyframes holo-spin {
+  to { --holo-angle: 360deg; }
+}
+
+/* Lit border: the card edge lights up in green under a mouse pointer
+   (position from <SpotlightTracker/>). Nothing at rest. */
+.lit-border::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  background: radial-gradient(280px circle at var(--sx, 50%) var(--sy, -999px), var(--rx), transparent 70%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 300ms var(--ease-out);
+  pointer-events: none;
+}
+.lit-border:hover::after {
+  opacity: 1;
+}
+
+/* Tier metals: a polished swatch whose highlight slides across on hover. */
+.metal {
+  background-size: 220% 100%;
+  background-position: 0% 0;
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.55), inset 0 -1px 0 oklch(0 0 0 / 0.18);
+  transition: background-position 900ms var(--ease-out);
+}
+.lift:hover .metal { background-position: 100% 0; }
+.metal-bronze   { background-image: linear-gradient(110deg, #6e3f1f 0%, #a86b3c 30%, #f0c79a 48%, #b07440 62%, #6e3f1f 100%); }
+.metal-silver   { background-image: linear-gradient(110deg, #6f7880 0%, #a7b0b5 30%, #f4f7f9 48%, #a9b2b8 62%, #6f7880 100%); }
+.metal-gold     { background-image: linear-gradient(110deg, #7a5c0f 0%, #c9a227 30%, #fbe8a6 48%, #c09a2a 62%, #7a5c0f 100%); }
+.metal-platinum { background-image: linear-gradient(110deg, #5f6b77 0%, #8e9aa6 30%, #eef2f5 48%, #95a1ad 62%, #5f6b77 100%); }
+.metal-diamond  { background-image: linear-gradient(110deg, #a9c3cf 0%, #cfdde4 22%, #f6fbff 36%, #ddd3f6 50%, #fbefd0 62%, #cdeee2 76%, #a9c3cf 100%); }
+.metal-rx       { background-image: linear-gradient(110deg, oklch(0.36 0.08 165) 0%, var(--rx) 30%, oklch(0.72 0.11 165) 48%, var(--rx) 62%, oklch(0.36 0.08 165) 100%); }
+
+/* Ink stage: dark "light box" sections lit by a soft green key light. */
+.stage {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--stage);
+  color: var(--stage-fg);
+}
+.stage-light::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(50% 42% at 82% 6%, oklch(0.52 0.1 165 / 0.34), transparent 72%),
+    radial-gradient(42% 46% at 6% 96%, oklch(0.46 0.09 165 / 0.2), transparent 72%);
+}
+.stage ::selection {
+  background: oklch(0.5 0.1 165);
+  color: var(--stage-fg);
+}
+.stage :focus-visible {
+  outline-color: var(--rx-bright);
+}
+
+/* Light table: the paper hero, lit from behind the specimen. */
+.light-table {
+  background:
+    radial-gradient(48% 62% at 74% 46%, oklch(0.95 0.035 165), transparent 72%),
+    var(--paper);
+}
+
+/* Page glow: inner pages get the light-table key light at the top only. */
+.page-glow {
+  background:
+    radial-gradient(55% 560px at 88% 0%, oklch(0.94 0.04 165), transparent 72%),
+    var(--paper);
+}
+
+/* Film grain over the whole page: a static texture, never a live filter. */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* Primary actions: a lit top edge, and a light sweep on hover. */
+.btn-depth {
+  background-image: linear-gradient(to bottom, oklch(1 0 0 / 0.1), transparent 55%);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.2),
+    inset 0 -1px 0 oklch(0 0 0 / 0.14),
+    0 1px 2px oklch(0.25 0.05 165 / 0.22);
+}
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.btn-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 55%;
+  transform: translateX(-130%) skewX(-18deg);
+  background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.26), transparent);
+  pointer-events: none;
+}
+
+/* Header gains a soft shadow once the page scrolls (scroll-driven, no JS). */
+@supports (animation-timeline: scroll()) {
+  .nav-shell {
+    animation: nav-elevate linear both;
+    animation-timeline: scroll(root);
+    animation-range: 0 140px;
+  }
+  @keyframes nav-elevate {
+    to { box-shadow: 0 10px 30px -18px oklch(0.25 0.04 165 / 0.4); }
+  }
+}
+
 /* Scroll reveals (armed by <RevealObserver/> only for content below the fold,
    so everything is visible without JS). */
-[data-reveal][data-armed]:not([data-reveal="stagger"]),
+[data-reveal][data-armed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
 [data-reveal="stagger"][data-armed] > * {
   opacity: 0;
   transform: translateY(24px);
@@ -239,10 +426,30 @@
 [data-reveal="stagger"][data-armed] > * {
   transition-delay: calc(var(--i, 0) * 60ms);
 }
-[data-reveal][data-armed][data-revealed]:not([data-reveal="stagger"]),
+[data-reveal][data-armed][data-revealed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
 [data-reveal="stagger"][data-armed][data-revealed] > * {
   opacity: 1;
   transform: none;
+}
+
+/* Masked rise (footer wordmark): the child climbs out of its clip once the
+   unmoved parent is in view. */
+[data-reveal="rise"][data-armed] > * {
+  transform: translateY(65%);
+  transition: transform 1400ms var(--ease-out);
+}
+[data-reveal="rise"][data-armed][data-revealed] > * {
+  transform: none;
+}
+
+/* Footer wordmark: faint ink-on-ink, lit green where the pointer is. */
+.wordmark {
+  color: transparent;
+  background-image:
+    radial-gradient(320px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.8 0.12 165), transparent 70%),
+    linear-gradient(oklch(1 0 0 / 0.09), oklch(1 0 0 / 0.09));
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 /* Hover details, mouse only (touch fires false hovers). */
@@ -271,6 +478,10 @@
   .draw-underline:hover {
     background-size: 100% 1px;
   }
+  .btn-sheen:hover::after {
+    transform: translateX(300%) skewX(-18deg);
+    transition: transform 800ms var(--ease-out);
+  }
 }
 
 /* FAQ disclosure: smooth height where the browser supports it. */
@@ -290,18 +501,19 @@
   .ticker-track,
   .rx-reveal,
   .hero-in,
-  .specimen-in,
-  .split-word {
+  .specimen-land,
+  .fan-in,
+  .split-word,
+  .holo-ring::before,
+  .nav-shell {
     animation: none;
   }
-  .marquee-track {
-    animation: none;
+  .metal {
+    transition: none;
   }
-  .marquee {
-    overflow-x: auto;
-  }
-  [data-reveal][data-armed]:not([data-reveal="stagger"]),
-  [data-reveal="stagger"][data-armed] > * {
+  [data-reveal][data-armed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
+  [data-reveal="stagger"][data-armed] > *,
+  [data-reveal="rise"][data-armed] > * {
     transform: none;
     transition: opacity 400ms ease;
     transition-delay: 0ms;
@@ -309,6 +521,9 @@
   .lift:hover,
   .nudge-arrow:hover .arrow {
     transform: none;
+  }
+  .btn-sheen::after {
+    display: none;
   }
   details::details-content {
     transition: none;

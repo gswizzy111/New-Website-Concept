@@ -10,7 +10,7 @@ import { SpotlightTracker } from "@/components/motion/spotlight-tracker";
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
     <CartProvider>
-      <div className="sticky top-0 z-50">
+      <div className="nav-shell sticky top-0 z-50">
         <PreviewBanner />
         <Nav />
         <CountdownTicker />
@@ -20,6 +20,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <RestorationBubble />
       <RevealObserver />
       <SpotlightTracker />
+      <div aria-hidden className="grain-overlay" />
     </CartProvider>
   );
 }

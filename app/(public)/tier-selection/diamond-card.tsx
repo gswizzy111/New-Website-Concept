@@ -35,26 +35,28 @@ export function DiamondCard({
     : "bg-rx-soft text-rx";
 
   return (
-    <div className={`lift spotlight relative rounded-lg border border-ink/70 bg-card overflow-hidden flex flex-col ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
-      <div className="flex items-center justify-between gap-3 px-6 pt-5">
-        <span className="h-3 w-8 rounded-sm bg-[#cfdde4] ring-1 ring-rule" aria-hidden />
+    <div className={`lift spotlight holo-ring relative rounded-xl border border-transparent bg-card flex flex-col shadow-[0_24px_50px_-34px_oklch(0.25_0.05_165/0.55)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+      {/* Foil wash: Diamond is the one tier printed on holo stock */}
+      <div aria-hidden className="holo-bands pointer-events-none absolute inset-x-0 top-0 h-28 rounded-t-xl opacity-[0.16] [background-position:30%_40%] [mask-image:linear-gradient(to_bottom,#000,transparent)]" />
+      <div className="relative flex items-center justify-between gap-3 px-6 pt-6">
+        <span className="metal metal-diamond h-3.5 w-11 rounded-[3px]" aria-hidden />
         <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
           {bannerLabel}
         </span>
       </div>
 
-      <div className="p-6 pt-4 flex flex-col flex-1">
+      <div className="relative p-6 pt-4 flex flex-col flex-1">
         <div className="flex items-start gap-3 mb-5">
           <Gem className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
           <div>
-            <h3 className="font-heading text-2xl font-bold text-ink leading-tight">Diamond</h3>
+            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.025em] text-ink leading-tight [font-variation-settings:'wdth'_84]">Diamond</h3>
             <p className="text-sm text-muted-foreground mt-0.5">White-glove service for high-value cards</p>
           </div>
         </div>
 
         {/* Dynamic price display */}
         <div className="mb-4">
-          <div className="font-heading text-4xl font-bold tracking-tight text-ink tabular-nums">
+          <div className="font-heading text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">
             {priceDollars ? `$${priceDollars}` : "7%"}
           </div>
           <p className="font-mono text-xs text-muted-foreground mt-1">
@@ -115,17 +117,17 @@ export function DiamondCard({
 
         <div className="mt-auto pt-5">
         {isSoldOut ? (
-          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+          <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
             Sold Out
           </div>
         ) : !restorationsOpen ? (
-          <div className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-secondary text-muted-foreground cursor-not-allowed">
+          <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
             Currently Closed
           </div>
         ) : (
           <Link
             href="/restoration?tier=elite"
-            className="w-full h-11 flex items-center justify-center rounded-md font-semibold text-sm bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
+            className="btn-depth btn-sheen w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
           >
             Select Diamond
           </Link>

@@ -4,6 +4,7 @@ import { StepWalkthrough } from "@/components/motion/step-walkthrough";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PixelViewContent } from "@/components/pixel-view-content";
+import { PageHero } from "@/components/marketing/page-hero";
 
 export const dynamic = "force-dynamic";
 
@@ -39,19 +40,17 @@ export default async function PrepPage() {
   const prices = await getPrepPrices();
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen page-glow">
       <PixelViewContent contentName="PSA Prep" contentCategory="Prep" />
-      <div className="max-w-5xl mx-auto px-4 md:px-10 py-12 md:py-16">
+      <div className="max-w-5xl mx-auto px-4 md:px-10 py-12 md:py-20">
 
-        <div className="mb-10 md:mb-12 max-w-2xl">
-          <p className="rx-label text-rx mb-3">Prep Service</p>
-          <h1 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.03em] text-ink mb-4 [font-variation-settings:'wdth'_82]">
-            Get Your Cards Grade-Ready
-          </h1>
-          <p className="text-lg text-muted-foreground">
-            We surface-clean and prep your cards so they&apos;re submission-ready. Prep is grader-legal and won&apos;t affect your numeric grade.
-          </p>
-        </div>
+        <PageHero
+          className="mb-12 md:mb-16"
+          eyebrow="Prep Service"
+          title="Get Your Cards Grade-Ready"
+          lines={["Get Your Cards", "Grade-Ready"]}
+          lead={<>We surface-clean and prep your cards so they&apos;re submission-ready. Prep is grader-legal and won&apos;t affect your numeric grade.</>}
+        />
 
         {!prices.isOpen && (
           <div className="mb-8 bg-amber-50 border border-amber-300 rounded-md px-5 py-4 text-sm font-semibold text-amber-900 flex items-center gap-2.5">
@@ -63,26 +62,26 @@ export default async function PrepPage() {
         <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start hero-in" style={{ ["--d" as string]: 120 }}>
           <div className="flex flex-col gap-8">
             {/* Pricing */}
-            <div className="bg-white border border-ink/70 rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between gap-4 px-6 py-5 border-b border-ink/70">
+            <div className="lit-border relative bg-white border border-ink/70 rounded-xl shadow-[0_40px_70px_-50px_oklch(0.25_0.05_165/0.6)]">
+              <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-5 border-b border-ink/70 border-t-[6px] border-t-rx rounded-t-xl">
                 <div>
-                  <h2 className="font-heading text-2xl font-extrabold text-ink">Prep Pricing</h2>
+                  <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.025em] text-ink [font-variation-settings:'wdth'_84]">Prep Pricing</h2>
                   <p className="font-mono text-xs text-muted-foreground mt-1">Per card — price based on declared value</p>
                 </div>
                 <Microscope className="h-6 w-6 text-rx" strokeWidth={1.75} />
               </div>
               <div className="divide-y divide-rule">
-                <div className="flex items-center justify-between gap-4 px-6 py-5">
+                <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-6">
                   <div>
                     <p className="font-semibold text-ink">Cards under $1,500</p>
                     <p className="text-sm text-muted-foreground mt-0.5">Surface clean, penny sleeve + semi-rigid holder</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-3xl font-bold tracking-tight text-ink tabular-nums">{fmt(prices.standardPriceCents)}</p>
+                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">{fmt(prices.standardPriceCents)}</p>
                     <p className="font-mono text-xs text-muted-foreground">per card</p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-4 px-6 py-5">
+                <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-6">
                   <div>
                     <p className="font-semibold text-ink">Cards $1,500 and over</p>
                     <p className="text-sm text-muted-foreground mt-0.5">
@@ -90,16 +89,16 @@ export default async function PrepPage() {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-3xl font-bold tracking-tight text-ink tabular-nums">2%</p>
+                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">2%</p>
                     <p className="font-mono text-xs text-muted-foreground">of declared value</p>
                   </div>
                 </div>
               </div>
-              <div className="px-6 py-5 bg-paper border-t border-rule">
+              <div className="px-6 md:px-7 py-5 bg-paper border-t border-rule rounded-b-xl">
                 {prices.isOpen ? (
                   <Link
                     href="/prep/order"
-                    className="w-full h-12 rounded-md font-semibold text-[15px] flex items-center justify-center bg-rx text-primary-foreground hover:bg-rx/90 transition-colors"
+                    className="btn-depth btn-sheen w-full h-12 rounded-md font-semibold text-[15px] flex items-center justify-center bg-rx text-primary-foreground hover:bg-rx/90 transition-colors"
                   >
                     Order Prep →
                   </Link>
@@ -146,7 +145,7 @@ export default async function PrepPage() {
 
           <div className="flex flex-col gap-8">
             {/* Not included */}
-            <div className="border border-red-200 bg-red-50/60 rounded-lg px-6 py-5">
+            <div className="border border-red-200 bg-red-50/60 rounded-xl px-6 py-5">
               <p className="font-mono text-[11px] uppercase tracking-[0.06em] text-red-800 mb-3">Prep does not include:</p>
               <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
                 {["Crease work", "Edge & corner work", "Dent removal", "Any restorative work"].map((item) => (
@@ -174,7 +173,7 @@ export default async function PrepPage() {
         </div>
 
         {/* How it works: sticky scroll walkthrough */}
-        <section className="mt-16 md:mt-24 border-t border-ink/80 pt-12 md:pt-16">
+        <section className="mt-20 md:mt-32 border-t border-ink/80 pt-12 md:pt-20">
           <StepWalkthrough
             title="How Prep Works"
             steps={[

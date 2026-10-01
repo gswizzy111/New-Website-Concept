@@ -1,9 +1,10 @@
 ---
 name: The Card Doc
-description: Card restoration, grading prep and DIY kits, dispensed like a clean clinic's prescription label.
+description: Card restoration, grading prep and DIY kits, dispensed like a clean clinic's prescription label and presented like a specimen on a light table.
 colors:
   rx: "oklch(0.47 0.095 165)"
   rx-soft: "oklch(0.955 0.025 165)"
+  rx-bright: "oklch(0.8 0.12 165)"
   ink: "oklch(0.2 0.02 170)"
   paper: "oklch(0.99 0.003 165)"
   panel: "oklch(1 0 0)"
@@ -13,42 +14,54 @@ colors:
   muted-ink: "oklch(0.45 0.015 165)"
   selection: "oklch(0.87 0.07 165)"
   destructive: "oklch(0.52 0.19 27)"
+  stage: "oklch(0.175 0.02 172)"
+  stage-raise: "oklch(0.22 0.022 172)"
+  stage-fg: "oklch(0.97 0.005 165)"
+  stage-muted: "oklch(0.76 0.018 165)"
 typography:
   display:
     fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "clamp(3rem, 7vw, 4.5rem)"
+    fontSize: "clamp(7rem, 10vw, 9.25rem)"
+    fontWeight: 800
+    lineHeight: 0.84
+    letterSpacing: "-0.045em"
+    fontVariation: "'wdth' 74"
+  headline:
+    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "clamp(2.9rem, 6vw, 5.75rem)"
+    fontWeight: 800
+    lineHeight: 0.9
+    letterSpacing: "-0.042em"
+    fontVariation: "'wdth' 78"
+  section:
+    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "clamp(2.25rem, 5vw, 3.75rem)"
     fontWeight: 800
     lineHeight: 0.95
     letterSpacing: "-0.035em"
     fontVariation: "'wdth' 80"
-  headline:
-    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "clamp(2.25rem, 5vw, 3.75rem)"
-    fontWeight: 800
-    lineHeight: 1
-    letterSpacing: "-0.03em"
-    fontVariation: "'wdth' 82"
-  section:
-    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "clamp(1.875rem, 4vw, 2.25rem)"
-    fontWeight: 800
-    lineHeight: 1.05
-    letterSpacing: "-0.025em"
-    fontVariation: "'wdth' 88"
   title:
     fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "1.5rem"
-    fontWeight: 700
-    lineHeight: 1.25
-    letterSpacing: "-0.02em"
-    fontVariation: "'wdth' 88"
+    fontSize: "1.75rem"
+    fontWeight: 800
+    lineHeight: 1.2
+    letterSpacing: "-0.025em"
+    fontVariation: "'wdth' 84"
   figure:
     fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
-    fontSize: "2.25rem"
-    fontWeight: 700
-    lineHeight: 1.1
-    letterSpacing: "-0.025em"
+    fontSize: "3rem"
+    fontWeight: 800
+    lineHeight: 1
+    letterSpacing: "-0.04em"
+    fontVariation: "'wdth' 80"
     fontFeature: "'tnum' 1"
+  stat:
+    fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "clamp(4.5rem, 9vw, 7.5rem)"
+    fontWeight: 800
+    lineHeight: 0.9
+    letterSpacing: "-0.05em"
+    fontVariation: "'wdth' 76"
   body:
     fontFamily: "Archivo, ui-sans-serif, system-ui, sans-serif"
     fontSize: "15px"
@@ -72,9 +85,10 @@ typography:
     fontWeight: 400
     lineHeight: 1rem
 rounded:
-  swatch: "3.6px"
+  swatch: "3px"
   control: "4.8px"
-  panel: "6px"
+  panel: "8.4px"
+  stage-panel: "10.8px"
   pill: "9999px"
 spacing:
   row: "10px"
@@ -82,32 +96,38 @@ spacing:
   panel: "24px"
   gutter-phone: "16px"
   gutter-desk: "40px"
-  section-phone: "64px"
-  section-desk: "96px"
+  section-phone: "80px"
+  section-desk: "128px"
 components:
   button-primary:
     backgroundColor: "{colors.rx}"
     textColor: "{colors.paper}"
     rounded: "{rounded.control}"
-    padding: "0 24px"
-    height: "44px"
+    padding: "0 28px"
+    height: "48px"
   button-primary-compact:
     backgroundColor: "{colors.rx}"
     textColor: "{colors.paper}"
     rounded: "{rounded.control}"
     padding: "0 16px"
-    height: "36px"
+    height: "40px"
   button-secondary:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
     rounded: "{rounded.control}"
     padding: "0 24px"
     height: "44px"
+  button-secondary-on-stage:
+    backgroundColor: "transparent"
+    textColor: "{colors.stage-fg}"
+    rounded: "{rounded.control}"
+    padding: "0 32px"
+    height: "48px"
   button-unavailable:
     backgroundColor: "{colors.muted-surface}"
     textColor: "{colors.muted-ink}"
     rounded: "{rounded.control}"
-    height: "44px"
+    height: "48px"
   input:
     backgroundColor: "{colors.panel}"
     textColor: "{colors.ink}"
@@ -125,6 +145,9 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.panel}"
     padding: "{spacing.panel}"
+  ink-stage:
+    backgroundColor: "{colors.stage}"
+    textColor: "{colors.stage-fg}"
   nav-bar:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
@@ -135,194 +158,177 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Prescription Label"**
+**Creative North Star: "The Prescription Label, on the Light Table"**
 
-Every service is dispensed like an Rx: a white label, a band of clinical green across the top, a heavy ink rule under it, and hairline rows of precise facts in a monospace data face. The page reads like something a careful pharmacist printed, not like a promotion. Headings are a tight, narrowed grotesque; data and labels are mono; everything sits on near-white label paper or pure white panels.
+Every service is still dispensed like an Rx: a white label, a band of clinical green across the top, a heavy ink rule under it, and hairline rows of precise facts in a monospace data face. What changed is the room it sits in. The label now lies on a lit table next to the specimen it describes: the card photos float with real depth, catch a holo foil sheen, and the proof is shown in a dark "light box" where a scan beam develops the before/after photo as you scroll.
 
-Density is moderate and structured. Information is carried by rows and rules rather than by floating cards, so a phone visitor scanning a tier or a price sees a stack of labelled lines. Color is scarce on purpose: one green does the band, the primary action, the focus ring and the occasional link; everything else is ink, grey ink and hairline.
+The two moods alternate with purpose. **Paper** carries information (services, prices, FAQ, terms, forms). **Ink stage** carries evidence and decisions (proof and stats, customer messages, closing calls to action, the footer). The hero is paper, lit from behind the specimen.
 
-The system is flat. Depth comes from rules and strokes, with a faint lift only on hover and a real shadow only on things that genuinely float (modal, mobile booking bubble). There is one light theme.
+Density is moderate. Headlines are much larger than body (up to ~9rem in the hero), narrowed hard (wdth 74 to 80) so they read like the printed name on a label. Information still lives in rows and rules, not floating cards.
 
 **Key Characteristics:**
-- One committed clinical green, used for band, primary action, focus and links only.
-- Hairline (1px) rows under a heavier ink rule, like a pharmacy label.
-- Narrowed Archivo (width axis 80 to 88) for headings; Geist Mono for labels, prices and codes.
-- Small radius (6px panels, about 5px controls); pill shape reserved for status.
-- Flat surfaces; no gradients, no glow, no emoji as icons.
-- Single light theme, including browser chrome (caret, selection, scrollbar).
+- One committed clinical green, plus its brighter twin for use on the ink stage.
+- Paper for information, ink stage for evidence; never more than one stage block per page plus the footer.
+- Holo foil is the only rainbow and only ever sits on a card (an image of one, or a tier panel's edge).
+- Oversized narrowed Archivo display type; Geist Mono for labels, prices and codes.
+- Depth from key light, contact shadows and 3D tilt on specimens; flat, stroked panels elsewhere.
+- Motion is scroll-choreographed and motivated (reveal, develop, fan out), and fully removed under reduced motion.
 
 ## Colors
 
-A near-monochrome clinic palette of green-tinted neutrals with one deep clinical green; status hues (red, amber) keep their conventional meaning and are never used as decoration.
+A near-monochrome clinic palette of green-tinted neutrals with one deep clinical green, now in two grounds: label paper and a deep green-black ink stage. Status hues (red, amber) keep their conventional meaning and are never decoration.
 
 ### Primary
-- **Clinical Green** (rx): the label band (6px top border), the filled primary action, focus outline, caret, active nav underline, text links, icons in service rows and add-on rows, cart count badge. It is the only chromatic brand color.
-- **Green Wash** (rx-soft): background of the default status pill and the hover/accent surface. Never a large fill.
+- **Clinical Green** (rx): the label band (6px top border), the filled primary action, focus outline on paper, caret, active nav underline, text links, service icons, cart count badge.
+- **Bright Green** (rx-bright): the same role on the ink stage only: rx-labels, links, focus ring, the scan beam. It is not used on paper.
+- **Green Wash** (rx-soft): default status pill, hover/accent surface, the light-table glow.
 
 ### Neutral
-- **Clinical Ink** (ink): all headings, primary text, the heavy rule above data lists (usually at 70 to 80 percent opacity), the secondary button stroke and numbered step markers.
-- **Label Paper** (paper): page ground for hero bands, alternating sections, nav and footer.
+- **Clinical Ink** (ink): headings, primary text, heavy rules, numbered step markers.
+- **Label Paper** (paper): page ground for heroes, alternating sections, nav.
 - **Pure Panel** (panel): cards, tier panels, pricing panels, inputs, the specimen frame.
-- **Hairline** (rule): every 1px divider, row separator, panel border and image ring. It is also the shadcn `border` token.
-- **Input Stroke** (input-stroke): text field borders, a step darker than a hairline.
-- **Muted Surface** (muted-surface): disabled and unavailable actions, ghost hover.
-- **Grey Ink** (muted-ink): body copy under headings, captions, rx-labels, secondary links.
-- **Selection Mint** (selection): text selection highlight only.
+- **Hairline** (rule), **Input Stroke**, **Muted Surface**, **Grey Ink** (muted-ink), **Selection Mint**: unchanged roles.
+
+### Ink stage
+- **Stage** (stage): the ground of the proof section, the About CTA, the How It Works CTA panel and the footer.
+- **Stage Raise** (stage-raise): reserved for raised panels on the stage.
+- **Stage Ink** (stage-fg): headings and figures on the stage. **Stage Grey** (stage-muted, 8.9:1 on stage): body, captions and rx-labels on the stage.
+- Lit by a soft green key light (`.stage-light`: two radial glows, top right and bottom left).
+- Hairlines on the stage are white at 10 to 12 percent.
 
 ### Status (functional, not brand)
-- **Destructive red** (destructive) and Tailwind red for errors, "cannot fix" marks and low-stock pills (red-50 fill, red-700 text, red-200 ring).
-- **Amber** (amber-50 fill, amber-200/300 border, amber-900/950 text) for notices: preview banner, closed state, terms summary, turnaround disclaimer.
+- **Destructive red** and Tailwind red for errors, "cannot fix" marks and low-stock pills.
+- **Amber** for notices: preview banner, closed state, terms summary, turnaround disclaimer. Amber notices stay on paper and are never restyled.
 
 ### Named Rules
-**The One Green Rule.** Clinical Green marks exactly four things: the label band, the primary action, focus, and links/service icons. If green appears anywhere else, it is wrong.
+**The One Green Rule.** Green marks the label band, the primary action, focus, links/service icons and the scan beam. On paper it is rx; on the stage it is rx-bright. Nowhere else.
 
-**The Remap Rule.** Tailwind's blue, sky and indigo scales are remapped to the green (hue 165) ramp and slate, gray and zinc to the green-tinted neutral ramp, so legacy utility classes render on-brand. New code should use the named tokens (rx, ink, rule, paper) rather than relying on the remap.
+**The Two Grounds Rule.** Paper carries information; the ink stage carries evidence and decisions. A page gets at most one stage block of content plus the footer. Forms, prices, terms and notices never sit on the stage.
 
-**The No Rainbow Rule.** Tiers are identified by a small metal swatch (32 x 12px) and the tier name, never by recoloring the panel. Swatch fills: bronze #a86b3c, silver #a7b0b5, gold #c9a227, platinum #8e9aa6, diamond #cfdde4, Fast Pass Clinical Green.
+**The Foil Rule.** Holo foil is the only multi-hue gradient on the site, and it only ever depicts card foil: over a specimen photo, as the Diamond tier's edge and wash, as the Diamond swatch. Never on text, buttons or backgrounds.
+
+**The Light Rule.** Other gradients are light, not color: the light-table glow, the stage key light, the button top-edge highlight and sheen, polished metal swatches, edge fades on scrolling content, and the pointer light in the footer wordmark.
+
+**The Remap Rule.** Tailwind's blue, sky and indigo scales map to the green (hue 165) ramp and slate, gray and zinc to the green-tinted neutrals, so legacy utilities render on-brand. New code uses named tokens.
+
+**The No Rainbow Rule (tiers).** Tiers are identified by a polished metal swatch (44 x 14px) and the tier name, never by recoloring the panel. Metals: bronze, silver, gold, platinum, diamond (pearl/holo), Fast Pass (clinical green). Diamond alone gets a holo edge.
 
 ## Typography
 
-**Display Font:** Archivo (variable, width axis enabled), fallback ui-sans-serif, system-ui
+**Display Font:** Archivo (variable, width axis), fallback ui-sans-serif, system-ui
 **Body Font:** Archivo at normal width (wdth 100)
 **Label/Mono Font:** Geist Mono, fallback ui-monospace
 
-**Character:** A narrowed, heavy grotesque for headings that reads like the printed name on a label, paired with a small uppercase mono for the codes and data beneath it. Both are free Google Fonts loaded through `next/font/google` (no licensing substitution needed).
+**Character:** a heavy, hard-narrowed grotesque at poster scale for names and claims, paired with small uppercase mono for the codes and data beneath. Both are free Google Fonts via `next/font/google`.
 
 ### Hierarchy
-- **Display** (800, 48 / 60 / 72px across breakpoints, line-height 0.95, -0.035em, wdth 80): the home "The Card Doc" headline and the About page headline only.
-- **Headline** (800, 36px phone / 60px desktop, -0.03em, wdth 82): page titles on tier selection, prep, how it works.
-- **Section** (800, 30 to 36px, up to 48px on About, tracking tight, wdth 88 from the base heading rule): section h2s.
-- **Title** (700, 18 to 24px, wdth 88): tier names, panel titles, terms item titles, service names (20px).
-- **Figure** (700, 30 to 36px, tabular numerals): prices and stats, set in the heading face.
-- **Body** (400, 15px, line-height 1.625, max 65ch in long answers): answers, descriptions. 14px for row descriptions.
-- **Lead** (400, 18 to 20px, relaxed, Grey Ink, max ~28 to 42rem): the line under a page title.
-- **Label** (Geist Mono 11px, uppercase, 0.06em, Grey Ink): the rx-label; data-row keys, codes, specimen caption, "Contact".
-- **Data** (Geist Mono 12px, sentence case): price notes ("per card"), from-prices, copyright line.
+- **Display** (800, up to ~9.25rem, line-height 0.84, -0.045em, wdth 74): the home "The Card Doc" only, broken as "The Card / Doc". On desktop the Doc's mark and the subline sit right-aligned on the "Doc" line.
+- **Headline** (800, 2.9rem phone to 5.75rem desktop, -0.042em, wdth 78): every inner page title, via `<PageHero/>`.
+- **Section** (800, 2.25rem to 3.75rem, -0.035em, wdth 80): section h2s on paper and stage.
+- **Stat** (800, 4.5rem to 7.5rem, -0.05em, wdth 76): the proof stats on the stage.
+- **Figure** (800, 3rem, -0.04em, wdth 80, tabular): prices on tier and prep panels.
+- **Title** (800, 1.75rem, wdth 84): tier names, service names (1.5rem), FAQ questions (1.25rem bold, wdth 92), link index rows.
+- **Body / Lead / Label / Data**: unchanged (15px body, 18 to 20px lead, Geist Mono 11px labels, 12px data).
 
 ### Named Rules
-**The Narrow Heading Rule.** All h1 to h4 are Archivo 700+ at -0.02em or tighter with the width axis narrowed (88 by default, 80 to 82 at display and page-title scale). Body text stays at full width 100.
+**The Narrow Heading Rule.** All headings are Archivo 700+ with negative tracking and the width axis narrowed (74 at display down to 92 for FAQ questions). Body stays at wdth 100.
 
 **The Mono Is Data Rule.** Monospace is for facts: keys, codes, prices, units, status. Never for sentences or headings.
 
-**The Tabular Rule.** Tables and any `[data-numeric]` element use tabular numerals; prices and stats always do.
+**The Tabular Rule.** Prices and stats always use tabular numerals.
 
 ## Layout
 
-A centered column with generous gutters: `max-w-7xl` (1280px) for nav and home hero, `max-w-6xl` (1152px) for most sections, `max-w-5xl` (1024px) for prep and how it works. Gutters are 16px on phone and 40px from md up. Sections breathe at 64px vertical padding on phone, 96px on desktop, alternating Label Paper and white grounds divided by a hairline.
+A centered column with generous gutters: `max-w-7xl` for nav, hero, footer and the review wall; `max-w-6xl` for most sections; `max-w-5xl` for prep and how it works. Gutters 16px phone, 40px from md. Sections breathe at 80px phone and 128px desktop.
 
-Two-column splits are asymmetric (1.05fr / 1fr in the hero, 1.2fr / 1fr for proof, 1fr / 1.6fr for FAQ with a sticky heading). Tier panels sit on one 1 / 2 / 3 column track so edges align; the Fast Pass panel runs full width below, introduced by an rx-label and a hairline that fills the rest of the line. On phone everything stacks in reading order: headline, subline, specimen image, then the service rows.
+The home hero is a 12-column grid: title and service rows on 7 columns, the specimen stack on 5, spanning both rows. On phone it stacks title, subline, specimen stack, service rows. The whole hero fits a 1440 x 900 viewport with all three service rows visible.
 
-Two-column fact grids (terms, add-ons, how it works) are divided by rules, not gaps: each cell has a bottom hairline and the right-hand cell a left hairline with 40px inner padding.
-
-Breakpoints are Tailwind defaults: sm 640, md 768, lg 1024.
+Two-column fact grids (terms on About, how it works) stay rule-divided. The home terms summary uses four panels with icons; the link index is a 3-column grid of large rows with an arrow at each row's end and a 56px column gap so arrows never read as belonging to the next column.
 
 ## Elevation & Depth
 
-Flat by default. Depth is drawn with strokes: a 1px hairline for ordinary panels, a 70 to 80 percent ink stroke for the featured panel (specimen frame, Diamond, prep pricing), and the heavy ink rule over data lists. Shadows are green-tinted, soft and negative-spread.
+Depth is now light and lift, still restrained.
 
 ### Shadow Vocabulary
-- **Hover lift** (`box-shadow: 0 16px 32px -20px oklch(0.3 0.04 165 / 0.35)`): tier panels on hover only, 200ms.
-- **Floating** (`box-shadow: 0 10px 24px -8px oklch(0.3 0.06 165 / 0.45)`): the fixed mobile "Book a Restoration" bubble.
-- **Dialog** (`box-shadow: 0 24px 60px -20px oklch(0.2 0.03 165 / 0.5)`): the waitlist modal.
+- **Specimen** (`0 40px 80px -40px oklch(0.25 0.05 165 / 0.55)` plus a blurred contact shadow that slides opposite the tilt): hero specimen.
+- **Featured panel at rest** (`0 40px 70px -50px oklch(0.25 0.05 165 / 0.6)`): prep pricing panel; Diamond tier (`0 24px 50px -34px`).
+- **Hover lift** (`0 18px 36px -22px oklch(0.3 0.04 165 / 0.45)`): tier panels, 220ms.
+- **Floating** (`0 10px 24px -8px`): the mobile "Book a Restoration" bubble.
+- **Header** gains `0 10px 30px -18px` once the page scrolls (scroll-driven CSS, no JS).
+- **Button depth** (`.btn-depth`): a lit top edge, a darker bottom edge and a 1px drop, on every primary action.
 
 ### Named Rules
-**The Stroke Not Shadow Rule.** At rest, nothing casts a shadow. Emphasis is a darker stroke; shadow is only for hover or for elements that truly float above the page.
+**The Featured Object Rule.** Only specimens and the one featured panel per page cast a shadow at rest. Everything else is stroked and flat until hovered.
 
 ## Shapes
 
-Small, even corners throughout. Base radius is 6px (`--radius: 0.375rem`): panels, cards, the specimen frame and modals use it. Buttons, inputs, image thumbnails, notices and the brand mark use the slightly smaller control radius (about 5px). Tier swatches use about 3.6px. The full pill is reserved for status: slot counts, sold out, badges, the cart count and radio dots.
-
-Images sit inside a 1px hairline ring. The hero before/after image is framed as a specimen: white panel, ink stroke, 8 to 16px inner padding, and a Clinical Green caption strip carrying an rx-label.
-
-### Named Rules
-**The Pill Is Status Rule.** A fully rounded shape means "state": count, availability, badge. Actions and containers are never pills.
+Base radius stays 6px (`--radius: 0.375rem`); panels now use `rounded-xl` (about 8.4px), the How It Works CTA stage panel `rounded-2xl` (about 10.8px), controls about 5px, tier swatches 3px. The pill is for status, plus one documented exception: the circular FAQ disclosure toggle (36px ring that fills green when open).
 
 ## Components
 
 ### Buttons
-Calm, solid and exact; they press down 1px on click (`translateY(1px)` on `:active`, globally).
-- **Shape:** control radius (about 5px).
-- **Primary:** Clinical Green fill, paper text, semibold 14 to 15px, 44px tall with 24px side padding (48px tall full-width on pricing panels; 36px compact in service rows). Hover drops to 90 percent green.
-- **Secondary:** white or transparent, 1px ink stroke at 70 percent, ink text; hover firms the stroke to full ink and fills Muted Surface. In the nav, "My Account" uses a hairline stroke that darkens to ink/40 on hover.
-- **Unavailable:** Muted Surface fill, Grey Ink text, not-allowed cursor ("Sold Out", "Currently Closed").
-- **Text link action:** Clinical Green semibold with an arrow character, underline on hover.
-- **Focus:** 2px Clinical Green outline, 2px offset, on every focusable element.
-- **On green band (About CTA):** inverted: white fill with green text, and a white/80 outline secondary.
-
-### Status Pills
-- **Style:** Geist Mono 11px uppercase, wide tracking, pill radius, 2px x 10px.
-- **States:** default Green Wash with green text; low stock (3 or fewer) red-50 with red-700 text and red-200 ring; sold out Muted Surface with Grey Ink.
-
-### Cards / Containers
-- **Corner Style:** 6px.
-- **Background:** Pure Panel on Label Paper.
-- **Shadow Strategy:** none at rest; hover lift on selectable tiers (see Elevation).
-- **Border:** hairline; featured panels use ink at 70 percent.
-- **Internal Padding:** 24px (20px top on tier panels, where the swatch and pill sit).
-- Unavailable tiers drop to 70 percent opacity.
-
-### Inputs / Fields
-- **Style:** white fill, Input Stroke 1px, control radius, 44px tall, 16px text on phone (14px desktop), tabular numerals for money. Labels are rx-labels above the field.
-- **Focus:** stroke turns Clinical Green with a 2px green ring at 20 percent.
-- **Error:** red text and destructive stroke; amber-800 semibold for soft validation hints.
-
-### Navigation
-- 64px bar on Label Paper at 95 percent with a light backdrop blur and a hairline bottom.
-- Left: 32px brand image (control radius, hairline ring) and "The Card Doc" in Archivo 800.
-- Center (md+): three service tabs, 15px semibold; inactive Grey Ink, hover ink; active ink with a 2px Clinical Green underline flush to the bar bottom.
-- Right: secondary links 14px Grey Ink, cart icon button with green count pill, "My Account" hairline button.
-- Phone: cart and menu icon buttons (36px); the drawer lists tabs as 18px bold heading rows divided by hairlines (active tab in green), then secondary links.
+- **Primary:** Clinical Green fill, paper text, semibold 15px, 48px tall (40px compact in service rows), `.btn-depth` and `.btn-sheen` (a light sweep crosses it once per hover, mouse only). Hover drops to 90 percent green. Press translates 1px.
+- **Secondary on paper:** white, ink stroke at 70 percent.
+- **Secondary on stage:** transparent, white/25 stroke, stage-fg text; hover firms the stroke to white/60.
+- **Unavailable:** Muted Surface fill, Grey Ink text, 48px.
+- **Focus:** 2px rx outline on paper, rx-bright on the stage.
 
 ### Rx Label (signature)
-The system's defining pattern, used for the home service strip and echoed in every data list.
-- A list with a **6px Clinical Green top band**, an **ink bottom rule** (ink at 80 percent), and **hairline rows** between items.
-- Each row: a 20px green icon, the name in Title type with an rx-label code beside it, a one-line description in 14px Grey Ink, a from-price in Data mono (the amount in ink semibold), and a compact primary button aligned right (below on phone).
-- Lighter variant for facts (tier panels, stats, FAQ, can/can't lists, terms grids): an ink or hairline top rule and hairline rows with an rx-label key on the left and an ink value on the right.
+Unchanged structure: 6px green top band, ink bottom rule, hairline rows. On the home hero each row has a 24px narrowed service name, a 15px line, a mono from-price and a compact primary action; rows tint to white on hover.
+
+### Ink Stage (`.stage .stage-light`)
+The dark light box. On home it arrives as an inset rounded panel and opens to full bleed as it scrolls up (`<ExpandingStage/>`). It holds the proof headline and CTA, the scan-developed before/after photo, the three stats (stat type, divided by white/12 hairlines) and the customer message wall.
+
+### Specimen Stack (home hero)
+The Mickey Mantle before/after in a white frame with an ink stroke and a green caption strip, under glass (`<HoloSpecimen/>`). Behind it, rotated 8 degrees, the Charmander before/after (`public/specimen-charmander.png`, a trimmed copy of `before-after-hero.png`) in a matching frame.
+
+### Tier Panels
+White, hairline, `rounded-xl`, polished metal swatch, slots pill, 28px narrowed name, 48px figure price, rule-divided facts, 48px primary action. `.lift`, `.spotlight` (soft green glow under the pointer) and `.lit-border` (the edge lights green under the pointer). Diamond: transparent border with `.holo-ring` (a slowly rotating foil edge) and a faint holo wash fading down from the top.
+
+### Page Hero (`<PageHero/>`)
+Optional rx-label, headline type with words rising out of their clips, lead line. Used on tier selection, prep, about, how it works, FAQ and shop. Inner pages sit on `.page-glow` (the light-table glow at the top right only).
+
+### Footer
+Ink stage. Brand block and contact links (narrowed 20px bold, rx-bright on hover), then a full-width "The Card Doc" wordmark in white at 9 percent that rises out of its clip once and lights green under a mouse pointer. The wordmark is `aria-hidden`; the real name is in the brand block.
 
 ### FAQ Disclosure
-Native details rows between hairlines under an ink rule: 15px semibold question in ink (green on hover), a green plus that rotates 45 degrees when open (200ms), answer in 15px Grey Ink at max 65ch.
+Native details between hairlines under an ink rule; 18 to 20px narrowed bold question; circular toggle; a green rule draws under the row on hover and stays while open.
 
-### Notices
-Amber notice boxes (amber-50 fill, amber-200/300 stroke, control radius, amber-900/950 text) for legal summaries, closures and the preview banner. They carry the owner's warnings; never restyle them as brand elements.
-
-### Icons
-One family: lucide-react. Pictorial icons are 16 to 20px at stroke 1.75 in Clinical Green or Grey Ink; small status marks (check, cross, plus) use 2 to 2.25. Icons sit bare beside text. No emoji as icons (glyphs like the star in "4.9★" are part of the owner's copy, not iconography).
+### Notices, Icons
+Unchanged: amber notices carry the owner's warnings; lucide-react at stroke 1.75, bare beside text.
 
 ### Motion
-Apple-style, marketing pages only. Cart, checkout, order builder and account screens get no new motion. Curves: `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`, `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)`. Transform and opacity only.
-- **Hero entrance (`.hero-in`, `.specimen-in`):** headline block rises 8px over 800ms; the specimen rises 16px from scale 0.97 over 1000ms, 120ms later. Runs once on load.
-- **Rx reveal (`.rx-reveal`):** service rows and tier cards fade up 8px, 600ms, 180ms base delay + 70ms per index (`--i`).
-- **Scroll reveal (`data-reveal`, `data-reveal="stagger"`):** `components/motion/reveal-observer.tsx` arms only elements below the fold at load; they rise 24px (opacity 700ms, transform 900ms) once when 12% into view. Stagger children step 60ms (capped at 12). Content is visible without JavaScript.
-- **Count-up (`<CountUp value="500+" />`):** stats count from 0 over 1400ms with a quartic ease-out the first time they scroll in, always ending on the owner's exact text. Server render and reduced motion show the final text.
-- **Hover (mouse only, `(hover: hover) and (pointer: fine)`):** `.lift` cards rise 3px with a green-tinted shadow (220ms); `.nudge-arrow .arrow` slides 3px (200ms); `.draw-underline` links draw a 1px underline left to right (250ms). Service rows also tint to Green Wash.
-- **FAQ disclosure:** `<details>` open and close animate height over 280ms where `interpolate-size` is supported; elsewhere they snap.
-- **Masked headline (`<SplitReveal/>`):** each word of the home H1 rises out of its own clip, 900ms ease-out, 90ms apart. Screen readers get the plain text.
-- **Holo specimen (`<HoloSpecimen/>`, Motion):** the hero card tilts up to 9° toward a mouse pointer on critically damped springs (bounce 0, 0.4s) with a pointer-tracked holo-foil sheen (soft-light, the one sanctioned gradient: it depicts card foil). On scroll it drifts up 60px and settles to scale 0.94. Touch and reduced motion: static.
-- **Marquee (`<Marquee/>`, one per page):** home testimonials loop horizontally (80s, linear), edge-faded, paused on hover/focus; reduced motion turns it into a scrollable row.
-- **Spotlight (`.spotlight` + `<SpotlightTracker/>`):** tier cards show a 420px Green Wash glow under a mouse pointer; nothing at rest.
-- **Step walkthrough (`<StepWalkthrough/>`, Prep page):** sticky title with the current step's large numeral; a green progress rule fills with scroll (spring 0.3s) and the step in the middle of the viewport lights up.
-- **Press:** buttons translate 1px down on active.
-- **Ticker:** the countdown ticker scrolls linearly over 35s.
-- **Reduced motion:** entrance, ticker, lift and arrow motion are removed; scroll reveals become a 400ms opacity fade with no movement; count-up is skipped.
+Marketing pages only; cart, checkout, order builder and account screens get no new motion. Curves: `--ease-out: cubic-bezier(0.23, 1, 0.32, 1)`, `--ease-in-out: cubic-bezier(0.77, 0, 0.175, 1)`. Transform, opacity and clip-path only.
+- **Masked headline (`<SplitReveal/>`):** words rise out of their own clip, 900ms, 70 to 110ms apart; `lines` fixes the break. Screen readers get the plain text.
+- **Specimen landing (`.specimen-land`):** the hero card tips down from a 24 degree 3D tilt over 1400ms; opacity resolves in 450ms so the image paints early. The back card fans in 300ms later (`.fan-in`).
+- **Holo specimen (`<HoloSpecimen/>`):** mouse tilt up to 10 degrees on critically damped springs (0.45s), foil and glare follow the pointer; on every device the foil rides the scroll position and brightens with scroll speed, and the card drifts up and tips back as it leaves. Foil stays light so the photo remains legible.
+- **Scroll fan (`<ScrollFan/>`):** the back card rotates 7 degrees further and slides out over the first 700px of scroll.
+- **Expanding stage (`<ExpandingStage/>`):** clip-path inset 48px (12px phone) and radius 28px resolve to full bleed as the stage top travels up the viewport.
+- **Scan reveal (`<ScanReveal/>`):** a bright-green beam sweeps left to right across the before/after photo, leaving full colour behind a dimmed greyscale copy; scroll-linked with a 0.35s spring.
+- **Parallax wall (`<ParallaxWall/>`):** customer messages in 2/3/4 columns drifting at different speeds (40 to 140px of travel), edge-faded.
+- **Count-up, scroll reveals, FAQ height, step walkthrough:** as before (step numeral now 9rem).
+- **Nav:** a hover highlight glides between tabs and the active underline glides between routes (Motion `layoutId`, spring bounce 0.15, 0.45s); the mobile drawer opens on height with staggered rows; the menu icon cross-fades with a 45 degree turn.
+- **Hover details (mouse only):** `.lift`, `.nudge-arrow`, `.draw-underline`, `.btn-sheen`, metal swatch highlight slide (900ms), `.lit-border`, link-index arrow nudge.
+- **Footer wordmark:** rises 65 percent out of its clip over 1400ms once in view (the observed parent never moves, so it always triggers).
+- **Reduced motion:** every entrance, scroll-linked transform, foil, fan, scan, parallax, sheen and holo-ring spin is removed; reveals become a 400ms fade; the stage renders full bleed. Client components read the preference through `usePrefersReducedMotion()` (`components/motion/use-reduced-motion.ts`), which is hydration-safe: Motion's own hook reads the media query during hydration and makes server and client trees disagree.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** keep every visible word exactly as the owner wrote it, including existing em-dashes, punctuation and the lines styled as rx-labels above headings.
-- **Do** reserve Clinical Green for the label band, primary actions, focus and links.
-- **Do** carry facts in hairline rows under an ink rule, with rx-label keys and ink values.
-- **Do** set prices and stats in the heading face with tabular numerals, and their units in Geist Mono.
-- **Do** use 6px panels and about 5px controls; use the pill only for status.
-- **Do** use lucide icons at stroke 1.75, bare, in green or Grey Ink.
-- **Do** mark tiers with the metal swatch and name only.
-- **Do** wrap every reveal animation in the reduced-motion guard and keep content visible without it.
+- **Do** keep every visible word exactly as the owner wrote it, including em-dashes, punctuation and the rx-labels above headings.
+- **Do** put information on paper and evidence on the ink stage.
+- **Do** keep green to the band, primary actions, focus, links and the scan beam (rx on paper, rx-bright on stage).
+- **Do** set prices and stats in the heading face, narrowed, with tabular numerals, units in Geist Mono.
+- **Do** keep holo foil on cards only, and light enough that the photo underneath stays legible.
+- **Do** give every scroll-linked or perpetual effect a static reduced-motion state, and read the preference with `usePrefersReducedMotion()`.
+- **Do** check the hero fits 1440 x 900 with all three service rows visible.
 
 ### Don't:
-- **Don't** use gradients anywhere: no gradient heroes, fills, text or borders.
-- **Don't** put icons in tinted tiles or circles; icons sit bare beside their text.
-- **Don't** use emoji as icons.
-- **Don't** add a dark theme or dark sections; this is a single light theme (the About CTA green band is the only full-bleed color block).
+- **Don't** use colored gradients other than holo foil, and never on text, buttons or page backgrounds.
+- **Don't** put forms, prices, terms or amber notices on the ink stage.
+- **Don't** add more than one stage block of content per page (the footer is separate).
 - **Don't** recolor cards per tier or introduce new accent hues.
-- **Don't** add shadows at rest, glows, or colored shadows under buttons.
-- **Don't** mix icon libraries.
+- **Don't** add shadows at rest beyond specimens and one featured panel per page.
+- **Don't** put icons in tinted tiles; don't use emoji as icons; don't mix icon libraries.
 - **Don't** add new uppercase lines above headings; the ones present are the owner's copy.
+- **Don't** run `next build` while `next dev` is running in the same checkout: it can leave the dev server serving a stale stylesheet. Stop dev first.
