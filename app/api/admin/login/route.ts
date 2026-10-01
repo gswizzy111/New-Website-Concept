@@ -7,7 +7,7 @@ export async function POST(request: Request) {
 
   // ── Full admin login (password only) ─────────────────────────────────────
   if (!email) {
-    if (password !== process.env.ADMIN_PASSWORD) {
+    if (!process.env.ADMIN_PASSWORD || password !== process.env.ADMIN_PASSWORD) {
       return Response.json({ error: "Incorrect password." }, { status: 401 });
     }
     const jar = await cookies();

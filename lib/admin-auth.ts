@@ -10,7 +10,7 @@ export async function getAdminRole(): Promise<AdminRole | null> {
   if (!val) return null;
 
   // Full admin
-  if (val === process.env.ADMIN_PASSWORD) return "admin";
+  if (process.env.ADMIN_PASSWORD && val === process.env.ADMIN_PASSWORD) return "admin";
 
   // Accountant session — cookie is "act_<uuid>"
   if (val.startsWith("act_")) {

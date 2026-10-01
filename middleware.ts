@@ -10,14 +10,37 @@ const COMING_SOON = false;
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Preview mode: no backend is connected, so every API call answers with a
-  // clear "not functional yet" error, and private areas are closed.
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminCookie = request.cookies.get("admin_auth")?.value;
+  // Full admin: exact password match (never matches when no password is set).
+  // Accountant: act_<uuid> prefix (DB verified at page/route level).
+  const isAdminSession =
+    (!!adminPassword && adminCookie === adminPassword) || !!adminCookie?.startsWith("act_");
+
+  // Preview mode: checkout, payments, shipping and customer accounts are off.
+  // The admin area works read-only behind its password (when ADMIN_PASSWORD is
+  // set): admin pages and GET admin APIs run, every other API call answers
+  // "not functional yet", and Supabase writes are refused in lib/preview.ts.
   if (PREVIEW_MODE) {
+    const adminOpen = !!adminPassword;
+    const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
+    const isAdminApi = pathname.startsWith("/api/admin/");
+
     if (pathname.startsWith("/api/")) {
+      const isAuthRoute = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
+      if (adminOpen && isAuthRoute) return NextResponse.next();
+      if (adminOpen && isAdminApi && request.method === "GET") {
+        return isAdminSession
+          ? NextResponse.next()
+          : NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
       return NextResponse.json({ error: PREVIEW_MESSAGE }, { status: 503 });
     }
-    const PRIVATE = ["/admin", "/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
-    if (PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    const PRIVATE = ["/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
+    if (
+      (isAdminPage && !adminOpen) ||
+      PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))
+    ) {
       return NextResponse.rewrite(new URL("/not-available", request.url));
     }
   }
@@ -25,9 +48,7 @@ export async function middleware(request: NextRequest) {
   // Admin auth (always runs)
   if (pathname.startsWith("/admin")) {
     if (pathname.startsWith("/admin/login")) return NextResponse.next();
-    const auth = request.cookies.get("admin_auth")?.value;
-    // Full admin: exact password match. Accountant: act_<uuid> prefix (DB verified at page level).
-    if (auth !== process.env.ADMIN_PASSWORD && !auth?.startsWith("act_")) {
+    if (!isAdminSession) {
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
     return NextResponse.next();
