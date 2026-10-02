@@ -3,28 +3,35 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, useSpring } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
+import { useForwardOnly } from "@/components/motion/use-scroll-once";
 
 type Step = { n: string; title: string; body: string };
 
 /**
  * Sticky scroll walkthrough: the current step's number and title stay pinned
  * on the left while the steps scroll past on the right; a progress rule fills
- * with scroll and the step in the middle of the viewport lights up.
+ * with scroll and the step in the middle of the viewport lights up. The rule
+ * and the step markers keep how far the reader got (they don't empty again
+ * on the way back up); the highlight follows the step in view.
  */
 export function StepWalkthrough({ title, steps }: { title: string; steps: Step[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLLIElement | null)[]>([]);
   const [active, setActive] = useState(0);
+  const [reached, setReached] = useState(0);
   const reduce = usePrefersReducedMotion();
 
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 60%", "end 60%"] });
-  const progress = useSpring(scrollYProgress, { bounce: 0, duration: 0.3 });
+  const progress = useSpring(useForwardOnly(scrollYProgress), { bounce: 0, duration: 0.3 });
 
   useEffect(() => {
     const io = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          if (e.isIntersecting) setActive(Number((e.target as HTMLElement).dataset.index));
+          if (!e.isIntersecting) continue;
+          const i = Number((e.target as HTMLElement).dataset.index);
+          setActive(i);
+          setReached((r) => Math.max(r, i));
         }
       },
       { rootMargin: "-45% 0px -45% 0px" }
@@ -72,7 +79,7 @@ export function StepWalkthrough({ title, steps }: { title: string; steps: Step[]
             >
               <span
                 className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-md font-mono text-xs transition-colors duration-300 ${
-                  i <= active ? "bg-rx text-primary-foreground" : "bg-white text-muted-foreground ring-1 ring-rule"
+                  i <= reached ? "bg-rx text-primary-foreground" : "bg-white text-muted-foreground ring-1 ring-rule"
                 }`}
               >
                 {step.n}

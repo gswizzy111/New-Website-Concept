@@ -4,18 +4,20 @@ import { useRef } from "react";
 import Image, { type StaticImageData } from "next/image";
 import { motion, useMotionTemplate, useScroll, useSpring, useTransform } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
+import { useForwardOnly } from "@/components/motion/use-scroll-once";
 
 /**
  * A before/after photo "developed" by a scan beam as it scrolls into view:
  * the beam sweeps left to right (the order the photo reads, before then
- * after) and leaves the full-colour image behind it. Both layers use the
- * same file, so it downloads once. Reduced motion: the finished image.
+ * after) and leaves the full-colour image behind it. A developed photo stays
+ * developed when the page scrolls back up. Both layers use the same file, so
+ * it downloads once. Reduced motion: the finished image.
  */
 export function ScanReveal({ src, alt, sizes }: { src: StaticImageData; alt: string; sizes: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const reduce = usePrefersReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 85%", "center 45%"] });
-  const p = useSpring(scrollYProgress, { bounce: 0, duration: 0.35 });
+  const p = useSpring(useForwardOnly(scrollYProgress), { bounce: 0, duration: 0.35 });
   const percent = useTransform(p, [0, 1], [0, 100]);
   const clipPath = useMotionTemplate`inset(-10% calc(100% - ${percent}%) -10% -10%)`;
   const beamX = useMotionTemplate`${percent}%`;

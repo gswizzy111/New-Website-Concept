@@ -31,8 +31,8 @@ function Entry({ page, hidden = false }: { page: TrustedPage; hidden?: boolean }
 
 /**
  * "Trusted by": the pages The Card Doc has restored cards for, as a slow
- * marquee of handles linking to each page that surges with scroll speed and
- * follows the scroll direction. Static and wrapping under
+ * marquee of handles linking to each page that surges with scroll speed.
+ * Static and wrapping under
  * reduced motion. Renders nothing until lib/trusted-by.ts has entries.
  */
 export function TrustedBy() {

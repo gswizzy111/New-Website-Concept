@@ -11,6 +11,7 @@ import {
   useVelocity,
 } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
+import { useSettleOnReturn } from "@/components/motion/use-scroll-once";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,7 +21,8 @@ import { cn } from "@/lib/utils";
  *   (Apple: damping 1.0, response ~0.45s) and a holo foil + glare follow it.
  * - Every device: the foil band rides the scroll position and brightens with
  *   scroll speed, so phones see the card shimmer as the page moves. The card
- *   drifts up and tips back slightly as it leaves the viewport.
+ *   drifts up and tips back slightly as it leaves the viewport, and settles
+ *   back on a spring (not in reverse) when the page scrolls up.
  * - A contact shadow slides opposite the tilt to sell the depth.
  * Reduced motion: a still card, no foil.
  */
@@ -49,11 +51,13 @@ export function HoloSpecimen({
   const rotateY = useTransform(sx, [0, 1], [-10, 10]);
   const pointerTiltX = useTransform(sy, [0, 1], [8, -8]);
 
-  // Scroll: 0.5 is "centred in the viewport" for anything near the top.
+  // Scroll: 0.5 is "centred in the viewport" for anything near the top. The
+  // exit drift plays on the way down; scrolling up settles the card instead.
   const { scrollYProgress, scrollY } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const scrollTiltX = useTransform(scrollYProgress, [0.5, 1], [0, 9], { clamp: true });
+  const exit = useSettleOnReturn(scrollYProgress);
+  const scrollTiltX = useTransform(exit, [0.5, 1], [0, 9], { clamp: true });
   const rotateX = useTransform(() => pointerTiltX.get() + scrollTiltX.get());
-  const y = useTransform(scrollYProgress, [0.5, 1], [0, -drift], { clamp: true });
+  const y = useTransform(exit, [0.5, 1], [0, -drift], { clamp: true });
 
   // Foil: follows the pointer while hovered, the scroll position otherwise.
   const speed = useSpring(useTransform(useVelocity(scrollY), (v) => Math.min(Math.abs(v) / 2400, 1)), {
