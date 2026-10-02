@@ -233,6 +233,9 @@
     specimen-land 1400ms var(--ease-out) 120ms both,
     fade-in 450ms ease-out 120ms both;
 }
+@keyframes fade-out {
+  to { opacity: 0; }
+}
 @keyframes fan-in {
   from { transform: translate(-40px, 36px) rotate(-5deg); }
   to   { transform: none; }
@@ -413,6 +416,75 @@
   }
 }
 
+/* Smooth scroll (<SmoothScroll/>, Lenis). From lenis/dist/lenis.css, minus its
+   `height: auto` on html/body: this layout's h-full/min-h-full pins the footer. */
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+.lenis [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+.lenis.lenis-autoToggle {
+  transition-property: overflow;
+  transition-duration: 1ms;
+  transition-behavior: allow-discrete;
+}
+
+/* Page transitions (React <ViewTransition>, app/(public)/template.tsx).
+   The old page lifts away fast; the new one rises in a beat later. */
+@keyframes page-out {
+  to { opacity: 0; transform: translateY(-12px); }
+}
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(28px); }
+}
+::view-transition-old(.page-out) {
+  animation: page-out 180ms var(--ease-out) both;
+}
+::view-transition-new(.page-in) {
+  animation: page-in 620ms var(--ease-out) 110ms both;
+}
+/* The loading skeleton dissolves into the page that replaces it. */
+::view-transition-old(.skeleton-out) {
+  animation: fade-out 260ms ease-out both;
+}
+/* The chrome holds still above the moving page. It is named only while a
+   transition runs: a view-transition-name would otherwise make the shell a
+   backdrop root and flatten the header's frosted blur. */
+html:active-view-transition .vt-header { view-transition-name: site-header; }
+html:active-view-transition .vt-dock   { view-transition-name: site-dock; }
+html:active-view-transition .vt-menu   { view-transition-name: site-menu; }
+html:active-view-transition .vt-grain  { view-transition-name: site-grain; }
+::view-transition-group(site-header),
+::view-transition-group(site-dock),
+::view-transition-group(site-menu),
+::view-transition-group(site-grain) {
+  animation: none;
+}
+::view-transition-group(site-header) { z-index: 100; }
+::view-transition-group(site-dock)   { z-index: 101; }
+::view-transition-group(site-menu)   { z-index: 102; }
+::view-transition-group(site-grain)  { z-index: 103; }
+::view-transition-old(site-header),
+::view-transition-old(site-dock),
+::view-transition-old(site-menu),
+::view-transition-old(site-grain) {
+  display: none;
+}
+::view-transition-new(site-header),
+::view-transition-new(site-dock),
+::view-transition-new(site-menu),
+::view-transition-new(site-grain) {
+  animation: none;
+}
+/* While the snapshot is taken the header can't see the page behind it. */
+html:active-view-transition .vt-header header {
+  background-color: var(--paper);
+}
+
 /* Scroll reveals (armed by <RevealObserver/> only for content below the fold,
    so everything is visible without JS). */
 [data-reveal][data-armed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
@@ -425,8 +497,7 @@
 }
 [data-reveal="stagger"][data-armed] > * {
   transition-delay: calc(var(--i, 0) * 60ms);
-}
-[data-reveal][data-armed][data-revealed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
+}[data-reveal][data-armed][data-revealed]:not([data-reveal="stagger"]):not([data-reveal="rise"]),
 [data-reveal="stagger"][data-armed][data-revealed] > * {
   opacity: 1;
   transform: none;
@@ -527,6 +598,13 @@
   }
   details::details-content {
     transition: none;
+  }
+  /* Page changes become a plain cross-fade. */
+  ::view-transition-old(.page-out) {
+    animation: fade-out 150ms ease both;
+  }
+  ::view-transition-new(.page-in) {
+    animation: fade-in 220ms ease both;
   }
 }
 
@@ -639,22 +717,14 @@ button, [role="button"], summary, nav a, .btn-depth {
   }
 }
 
-/* "Trusted by" marquee: two copies of the list slide one width left, forever.
-   Pauses under the pointer; static and wrapping under reduced motion. */
+/* "Trusted by" marquee: two copies of the list slide one width left, forever,
+   driven by <VelocityMarquee/> (surges with scroll speed, pauses under a mouse).
+   Static and wrapping under reduced motion. */
 .marquee-mask {
   mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
 }
-.marquee-track {
-  animation: marquee 38s linear infinite;
-}
-@media (hover: hover) and (pointer: fine) {
-  .marquee-track:hover { animation-play-state: paused; }
-}
-@keyframes marquee {
-  to { transform: translateX(-50%); }
-}
 @media (prefers-reduced-motion: reduce) {
-  .marquee-track { animation: none; width: auto; justify-content: center; flex-wrap: wrap; }
+  .marquee-track { width: auto; justify-content: center; flex-wrap: wrap; }
   .marquee-track > ul { flex-wrap: wrap; justify-content: center; }
   .marquee-dupe { display: none; }
   .marquee-mask { mask-image: none; }

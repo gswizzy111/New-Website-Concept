@@ -1,4 +1,5 @@
 import { ArrowUpRight } from "lucide-react";
+import { VelocityMarquee } from "@/components/motion/velocity-marquee";
 import { TRUSTED_BY, type TrustedPage } from "@/lib/trusted-by";
 
 function Entry({ page, hidden = false }: { page: TrustedPage; hidden?: boolean }) {
@@ -30,7 +31,8 @@ function Entry({ page, hidden = false }: { page: TrustedPage; hidden?: boolean }
 
 /**
  * "Trusted by": the pages The Card Doc has restored cards for, as a slow
- * marquee of handles linking to each page. Static and wrapping under
+ * marquee of handles linking to each page that surges with scroll speed and
+ * follows the scroll direction. Static and wrapping under
  * reduced motion. Renders nothing until lib/trusted-by.ts has entries.
  */
 export function TrustedBy() {
@@ -41,14 +43,14 @@ export function TrustedBy() {
         Trusted by
       </p>
       <div className="marquee-mask overflow-hidden">
-        <div className="marquee-track flex w-max">
+        <VelocityMarquee>
           <ul className="flex">
-            {TRUSTED_BY.map((p) => <Entry key={p.href} page={p} />)}
+            {TRUSTED_BY.map((p) => <Entry key={p.name} page={p} />)}
           </ul>
           <ul aria-hidden className="marquee-dupe flex">
-            {TRUSTED_BY.map((p) => <Entry key={p.href} page={p} hidden />)}
+            {TRUSTED_BY.map((p) => <Entry key={p.name} page={p} hidden />)}
           </ul>
-        </div>
+        </VelocityMarquee>
       </div>
     </section>
   );

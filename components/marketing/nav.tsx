@@ -188,7 +188,7 @@ export function Nav() {
             animate={reduce ? { opacity: 1 } : { clipPath: "circle(150% at calc(100% - 2.25rem) 2rem)" }}
             exit={reduce ? { opacity: 0 } : { clipPath: "circle(0% at calc(100% - 2.25rem) 2rem)" }}
             transition={{ duration: reduce ? 0.2 : 0.6, ease: EASE_OUT }}
-            className="stage md:hidden !fixed inset-0 z-[70] flex flex-col overflow-y-auto overscroll-contain bg-ink text-paper pt-[env(safe-area-inset-top)] pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+            className="stage vt-menu md:hidden !fixed inset-0 z-[70] flex flex-col overflow-y-auto overscroll-contain bg-ink text-paper pt-[env(safe-area-inset-top)] pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
           >
             <div className="flex h-16 shrink-0 items-center justify-between px-4">
               <Link href="/" onClick={() => setOpen(false)} className="flex items-center gap-2.5">

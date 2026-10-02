@@ -126,7 +126,7 @@ export default function FAQPage() {
         <div className="max-w-4xl mx-auto px-6 md:px-8">
           <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-2 text-center">What we can (and can&apos;t) fix</h2>
           <p className="text-muted-foreground text-sm text-center mb-10">Restoration has real limits. Here&apos;s an honest breakdown.</p>
-          <div className="grid md:grid-cols-2 gap-6">
+          <div data-reveal="stagger" className="grid md:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg border border-green-200 p-6">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-7 h-7 rounded-md bg-rx-soft flex items-center justify-center text-rx"><Check className="h-4 w-4" strokeWidth={2.5} /></div>
@@ -169,7 +169,7 @@ export default function FAQPage() {
         <div className="max-w-3xl mx-auto px-6 md:px-8">
           <div className="flex flex-col gap-16">
             {sections.map((section) => (
-              <div key={section.title}>
+              <div key={section.title} data-reveal>
                 <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-6 [font-variation-settings:'wdth'_80]">
                   {section.title}
                 </h2>

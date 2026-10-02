@@ -50,7 +50,7 @@ export function RestorationBubble() {
           animate={reduce ? { opacity: 1 } : { y: 0 }}
           exit={reduce ? { opacity: 0 } : { y: "110%" }}
           transition={reduce ? { duration: 0.2 } : { type: "spring", bounce: 0, duration: 0.45 }}
-          className="md:hidden fixed inset-x-0 bottom-0 z-50 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          className="vt-dock md:hidden fixed inset-x-0 bottom-0 z-50 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
         >
           <Link
             href="/restoration"
