@@ -416,6 +416,51 @@
   }
 }
 
+/* Before/after comparison (<BeforeAfter/>): the restored photo is wiped in
+   from the left up to --split. On load it sweeps from damaged to 58% (through the face);
+   once a pointer or key takes over, Motion drives --split inline. */
+@property --split {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 58%;
+}
+.ba-intro:not([data-live]) {
+  animation: ba-sweep 1500ms var(--ease-in-out) 750ms both;
+}
+@keyframes ba-sweep {
+  from { --split: 0%; }
+  to   { --split: 58%; }
+}
+.ba-after {
+  clip-path: inset(0 calc(100% - var(--split)) 0 0);
+}
+.ba-divider,
+.ba-handle {
+  left: var(--split);
+}
+.ba-divider {
+  box-shadow:
+    0 0 0 1px oklch(0.2 0.02 170 / 0.2),
+    0 0 16px 1px oklch(0.8 0.12 165 / 0.55);
+}
+.ba-handle {
+  box-shadow: 0 8px 20px -8px oklch(0.2 0.03 165 / 0.55);
+}
+.ba-label {
+  position: absolute;
+  bottom: 0.625rem;
+  pointer-events: none;
+  border-radius: 9999px;
+  background: oklch(0.99 0.003 165 / 0.88);
+  padding: 0.125rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
 /* Smooth scroll (<SmoothScroll/>, Lenis). From lenis/dist/lenis.css, minus its
    `height: auto` on html/body: this layout's h-full/min-h-full pins the footer. */
 .lenis:not(.lenis-autoToggle).lenis-stopped {
@@ -598,6 +643,9 @@ html:active-view-transition .vt-header header {
   }
   details::details-content {
     transition: none;
+  }
+  .ba-intro:not([data-live]) {
+    animation: none;
   }
   /* Page changes become a plain cross-fade. */
   ::view-transition-old(.page-out) {

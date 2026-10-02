@@ -10,7 +10,9 @@ import { ScrollFan } from "@/components/motion/scroll-fan";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { TrustedBy } from "@/components/marketing/trusted-by";
 import { getTestimonials } from "@/lib/testimonials";
-import mickeyMantle from "@/public/before-after-mickey-mantle.png";
+import { BeforeAfter } from "@/components/motion/before-after";
+import mantleBefore from "@/public/specimen-mantle-before.jpg";
+import mantleAfter from "@/public/specimen-mantle-after.jpg";
 import charmander from "@/public/specimen-charmander.png";
 
 export const dynamic = "force-dynamic";
@@ -149,7 +151,7 @@ export default async function HomePage() {
 
           {/* Specimens on the light table: the Charmander case sits behind and fans out on scroll */}
           <figure className="relative mx-auto w-full max-w-[34rem] lg:max-w-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 lg:self-center mt-24 sm:mt-20 lg:mt-0">
-            <div className="absolute -top-[30%] sm:-top-[24%] lg:-top-[30%] left-[4%] sm:left-auto sm:-right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] -rotate-[10deg] sm:rotate-[8deg] z-0">
+            <div className="absolute -top-[30%] sm:-top-[24%] lg:-top-[22%] left-[4%] sm:left-auto sm:-right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] -rotate-[10deg] sm:rotate-[8deg] z-0">
               <div className="fan-in">
                 <ScrollFan>
                   <div className="rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_24px_50px_-24px_oklch(0.25_0.05_165/0.5)]">
@@ -171,13 +173,13 @@ export default async function HomePage() {
               <HoloSpecimen>
                 <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.05_165/0.55)]">
                   <div className="p-2 md:p-3">
-                    <Image
-                      src={mickeyMantle}
-                      alt="A Mickey Mantle card before and after restoration"
-                      sizes="(min-width: 1280px) 520px, (min-width: 1024px) 40vw, 92vw"
-                      className="w-full h-auto rounded-md"
-                      loading="eager"
-                      fetchPriority="high"
+                    <BeforeAfter
+                      before={mantleBefore}
+                      after={mantleAfter}
+                      beforeAlt="A Mickey Mantle card before restoration, cracked across the face and jersey"
+                      afterAlt="The same Mickey Mantle card after restoration"
+                      sizes="(min-width: 1280px) 440px, (min-width: 1024px) 34vw, 92vw"
+                      priority
                     />
                   </div>
                   <div className="bg-rx px-4 py-2">
