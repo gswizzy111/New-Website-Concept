@@ -54,7 +54,7 @@ export function RestorationBubble() {
         >
           <Link
             href="/restoration"
-            className="press flex items-center gap-3 rounded-2xl border border-white/10 bg-ink/85 p-2 pr-2.5 text-paper shadow-[0_18px_40px_-14px_oklch(0.2_0.03_165/0.7)] backdrop-blur-xl backdrop-saturate-150"
+            className="press flex items-center gap-3 rounded-2xl border border-white/10 bg-ink/85 p-2 pr-2.5 text-paper shadow-[0_18px_40px_-14px_oklch(0.2_0.006_70/0.7)] backdrop-blur-xl backdrop-saturate-150"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-white/15" />

@@ -21,7 +21,7 @@ export function PageHero({
   return (
     <div className={className}>
       {eyebrow && <p className="hero-in rx-label text-rx mb-5">{eyebrow}</p>}
-      <h1 className="font-heading font-extrabold text-ink tracking-[-0.042em] leading-[0.9] text-[2.9rem] sm:text-6xl md:text-7xl lg:text-[5.75rem] max-w-5xl [font-variation-settings:'wdth'_78]">
+      <h1 className="font-heading font-extrabold text-ink tracking-[-0.022em] leading-[0.9] text-[2.9rem] sm:text-6xl md:text-7xl lg:text-[5.75rem] max-w-5xl">
         <SplitReveal text={title} lines={lines} step={70} />
       </h1>
       {lead && (

@@ -14,7 +14,7 @@ export function Footer() {
                 alt="The Card Doc"
                 className="w-10 h-10 rounded-md object-cover ring-1 ring-white/15"
               />
-              <span className="font-heading font-extrabold text-2xl tracking-[-0.02em] text-stage-fg [font-variation-settings:'wdth'_86]">The Card Doc</span>
+              <span className="font-heading font-extrabold text-2xl tracking-[-0.01em] text-stage-fg">The Card Doc</span>
             </div>
             <p className="text-[15px] text-stage-muted leading-relaxed max-w-sm">
               Expert PSA prep and card restoration. Every card treated like it&apos;s worth a fortune.
@@ -60,10 +60,10 @@ export function Footer() {
         </div>
       </div>
 
-      {/* Wordmark: rises into place, and lights up green under a mouse pointer */}
+      {/* Wordmark: rises into place, and lights up orange under a mouse pointer */}
       <div aria-hidden className="overflow-hidden select-none">
         <div data-reveal="rise" className="max-w-[100rem] mx-auto px-3 md:px-6">
-          <p className="wordmark wordmark-lit font-heading font-extrabold whitespace-nowrap text-center text-[15.6vw] 2xl:text-[15rem] leading-[0.78] tracking-[-0.05em] translate-y-[0.1em] [font-variation-settings:'wdth'_74]">
+          <p className="wordmark wordmark-lit font-heading font-extrabold whitespace-nowrap text-center text-[14vw] 2xl:text-[14.5rem] leading-[0.78] tracking-[-0.025em] translate-y-[0.1em]">
             The Card Doc
           </p>
         </div>

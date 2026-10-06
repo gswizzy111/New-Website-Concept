@@ -67,7 +67,7 @@ export function WaitlistForm() {
           type="submit"
           disabled={status === "loading"}
           style={{
-            background: "#1a8fe0",
+            background: "var(--rx)",
             color: "#fff",
             border: "none",
             borderRadius: "8px",

@@ -97,7 +97,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             <p className="rx-label text-rx mb-2">
               {product.category}
             </p>
-            <h1 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.03em] text-ink mb-3 [font-variation-settings:'wdth'_84]">{product.name}</h1>
+            <h1 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.015em] text-ink mb-3">{product.name}</h1>
 
             {rating && (
               <div className="flex items-center gap-2 mb-3">
@@ -111,7 +111,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
               </div>
             )}
 
-            <p className="font-heading text-3xl font-bold tracking-tight text-ink tabular-nums">{formatCurrency(product.price_cents)}</p>
+            <p className="font-heading text-3xl font-bold tracking-[-0.01em] text-ink tabular-nums">{formatCurrency(product.price_cents)}</p>
           </div>
 
           {product.description && <DescriptionBlock text={product.description} />}

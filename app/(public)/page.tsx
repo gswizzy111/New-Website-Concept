@@ -130,11 +130,11 @@ export default async function HomePage() {
             <img src="/card-doctor.jpg" alt="The Card Doc" className="hero-in hidden sm:block lg:hidden w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-8" />
             {/* Desktop: the Doc's mark and the subline sit on the "Doc" line, right-aligned, like a label beside the name */}
             <div className="grid">
-              <h1 className="col-start-1 row-start-1 font-heading font-extrabold text-ink tracking-[-0.045em] leading-[0.84] text-[clamp(4.25rem,21vw,6.5rem)] sm:text-[clamp(6rem,15vw,8.5rem)] lg:text-[clamp(7rem,10vw,9.25rem)] [font-variation-settings:'wdth'_74]">
+              <h1 className="col-start-1 row-start-1 font-heading font-extrabold text-ink tracking-[-0.025em] leading-[0.84] text-[clamp(3.75rem,19.5vw,6.5rem)] sm:text-[clamp(6rem,15vw,8.5rem)] lg:text-[clamp(6rem,8.6vw,8.25rem)]">
                 <SplitReveal text="The Card Doc" lines={["The Card", "Doc"]} step={110} />
               </h1>
               <div
-                className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[26.5rem] pb-[0.3rem]"
+                className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[min(26.5rem,30vw)] pb-[0.3rem]"
                 style={{ ["--d" as string]: 420 }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -154,8 +154,8 @@ export default async function HomePage() {
             <div className="absolute -top-[30%] sm:-top-[24%] lg:-top-[22%] left-[4%] sm:left-auto sm:-right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] -rotate-[10deg] sm:rotate-[8deg] z-0">
               <div className="fan-in">
                 <ScrollFan>
-                  <div className="rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_24px_50px_-24px_oklch(0.25_0.05_165/0.5)]">
-                    <div className="rounded-md bg-[oklch(0.96_0.008_165)] px-3 py-4">
+                  <div className="rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_24px_50px_-24px_oklch(0.25_0.006_70/0.5)]">
+                    <div className="rounded-md bg-[oklch(0.96_0.003_80)] px-3 py-4">
                       <Image
                         src={charmander}
                         alt="A Charmander card before and after restoration"
@@ -171,7 +171,7 @@ export default async function HomePage() {
 
             <div className="specimen-land relative z-10">
               <HoloSpecimen>
-                <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.05_165/0.55)]">
+                <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.006_70/0.55)]">
                   <div className="p-2 md:p-3">
                     <BeforeAfter
                       before={mantleBefore}
@@ -201,7 +201,7 @@ export default async function HomePage() {
                   <Icon className="h-5 w-5 text-rx self-start mt-1.5" strokeWidth={1.75} />
                   <span className="min-w-0">
                     <span className="flex items-baseline gap-3">
-                      <span className="font-heading text-2xl font-extrabold tracking-[-0.02em] text-ink [font-variation-settings:'wdth'_84]">{name}</span>
+                      <span className="font-heading text-2xl font-extrabold tracking-[-0.01em] text-ink">{name}</span>
                       <span className="rx-label">{code}</span>
                     </span>
                     <span className="block text-sm md:text-[15px] text-muted-foreground leading-snug mt-1">{line}</span>
@@ -249,7 +249,7 @@ export default async function HomePage() {
             <div className="grid gap-14 lg:gap-16 lg:grid-cols-[1fr_1fr] lg:items-center">
               <div data-reveal>
                 <p className="rx-label text-rx-bright mb-5">Why Collectors Trust Us</p>
-                <h2 className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.04em] leading-[0.92] text-stage-fg mb-7 [font-variation-settings:'wdth'_78]">
+                <h2 className="font-heading text-5xl md:text-[4rem] font-extrabold tracking-[-0.02em] leading-[0.92] text-stage-fg mb-7">
                   Proven Results,<br className="hidden md:block" /> Every Time
                 </h2>
                 <p className="text-lg text-stage-muted max-w-xl leading-relaxed mb-10">
@@ -280,7 +280,7 @@ export default async function HomePage() {
                   className={`flex flex-col-reverse gap-3 py-8 md:py-10 border-b border-white/12 sm:border-b-0 ${i > 0 ? "sm:border-l sm:pl-8 md:pl-10" : ""}`}
                 >
                   <dt className="rx-label text-stage-muted">{s.label}</dt>
-                  <dd className="font-heading text-7xl md:text-8xl lg:text-[7.5rem] font-extrabold tracking-[-0.05em] leading-[0.9] text-stage-fg [font-variation-settings:'wdth'_76]">
+                  <dd className="font-heading text-7xl md:text-8xl lg:text-[7.5rem] font-extrabold tracking-[-0.01em] leading-[0.9] text-stage-fg">
                     <CountUp value={s.stat} />
                   </dd>
                 </div>
@@ -291,7 +291,7 @@ export default async function HomePage() {
           {/* ── Reviews ── */}
           {testimonials.length > 0 && (
             <div className="max-w-7xl mx-auto px-4 md:px-10 pb-16 md:pb-24">
-              <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-stage-fg mt-8 md:mt-12 mb-4 [font-variation-settings:'wdth'_80]">
+              <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mt-8 md:mt-12 mb-4">
                 What our customers say
               </h2>
               <ParallaxWall items={testimonials} />
@@ -303,7 +303,7 @@ export default async function HomePage() {
       {/* ── FAQ ── */}
       <section className="max-w-6xl mx-auto px-4 md:px-10 py-20 md:py-32 grid gap-10 md:gap-16 md:grid-cols-[1fr_1.5fr]">
         <div className="md:sticky md:top-28 md:self-start">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-6 [font-variation-settings:'wdth'_80]">
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-6">
             Frequently asked questions
           </h2>
           <Link href="/faq" className="nudge-arrow draw-underline pb-0.5 text-sm font-semibold text-rx">
@@ -313,7 +313,7 @@ export default async function HomePage() {
         <div data-reveal className="border-t border-ink/80">
           {FAQ.map((item) => (
             <details key={item.q} className="group relative border-b border-rule">
-              <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [font-variation-settings:'wdth'_92] [&::-webkit-details-marker]:hidden">
+              <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [&::-webkit-details-marker]:hidden">
                 <span>{item.q}</span>
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 ring-rule transition-[background-color,box-shadow] duration-300 group-hover:ring-rx group-open:bg-rx group-open:ring-rx">
                   <Plus className="h-4 w-4 text-rx transition-transform duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:text-primary-foreground" strokeWidth={2} />
@@ -332,7 +332,7 @@ export default async function HomePage() {
       <section className="border-t border-rule bg-paper py-20 md:py-32">
         <div className="max-w-6xl mx-auto px-4 md:px-10">
           <div className="mb-12 md:mb-16 max-w-2xl">
-            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">
+            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">
               Terms of Service
             </h2>
             <p className="text-base text-muted-foreground leading-relaxed">
@@ -366,7 +366,7 @@ export default async function HomePage() {
               <li key={l.href} className="border-b border-rule">
                 <Link
                   href={l.href}
-                  className="group flex items-center justify-between gap-4 py-5 md:py-6 pr-2 font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink transition-colors duration-200 hover:text-rx [font-variation-settings:'wdth'_90]"
+                  className="group flex items-center justify-between gap-4 py-5 md:py-6 pr-2 font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink transition-colors duration-200 hover:text-rx"
                 >
                   {l.label}
                   <ArrowUpRight className="h-5 w-5 text-muted-foreground transition-[transform,color] duration-300 ease-[var(--ease-out)] group-hover:text-rx group-hover:translate-x-0.5 group-hover:-translate-y-0.5" strokeWidth={1.75} />

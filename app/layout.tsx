@@ -1,19 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Archivo, Geist_Mono } from "next/font/google";
+import { Schibsted_Grotesk, Young_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
 import { PIXEL_ID } from "@/lib/pixel";
 
-const archivo = Archivo({
-  variable: "--font-sans",
+// Headings: a soft, heavy old-style serif with the feel of vintage card print.
+// It ships in one weight; globals.css turns off faux bold for it.
+const youngSerif = Young_Serif({
+  variable: "--font-heading",
   subsets: ["latin"],
+  weight: "400",
   display: "swap",
-  axes: ["wdth"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-mono",
+// Body, UI, labels and figures: a newspaper grotesque with tabular numerals.
+const schibsted = Schibsted_Grotesk({
+  variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
 });
@@ -24,7 +27,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
   // Matches the paper header at the top of every page.
-  themeColor: "#fbfcfb",
+  themeColor: "#f6f5f2",
 };
 
 export const metadata: Metadata = {
@@ -52,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${archivo.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="en" className={`${youngSerif.variable} ${schibsted.variable} h-full antialiased`}>
       <head>
         <meta name="facebook-domain-verification" content="ihjnpqbitwq29e5kx3x0dujilxh1n9" />
         <script async src="https://www.googletagmanager.com/gtag/js?id=G-LSQXS277DY" />

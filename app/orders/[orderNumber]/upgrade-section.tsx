@@ -69,14 +69,14 @@ export function UpgradeSection({ orderNumber, customerEmail, currentTier, curren
                 <p className="text-xs text-muted-foreground">
                   {tier.turnaround_min_days}–{tier.turnaround_max_days} business days · {formatCents(tier.price_cents)}/card
                 </p>
-                <p className="text-sm font-semibold text-[#1a8fe0] mt-0.5">
+                <p className="text-sm font-semibold text-rx mt-0.5">
                   +{formatCurrency(total)} upgrade fee <span className="text-xs font-normal text-muted-foreground">(incl. tax)</span>
                 </p>
               </div>
               <button
                 onClick={() => handleUpgrade(tier.id)}
                 disabled={loading !== null}
-                className="shrink-0 px-4 py-2 bg-[#1a8fe0] text-white text-sm font-bold rounded-lg hover:bg-[#1570c9] transition-colors disabled:opacity-50"
+                className="shrink-0 px-4 py-2 bg-rx text-white text-sm font-bold rounded-lg hover:bg-rx/90 transition-colors disabled:opacity-50"
               >
                 {loading === tier.id ? "Redirecting..." : "Upgrade"}
               </button>

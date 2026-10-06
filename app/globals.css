@@ -9,7 +9,8 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-heading: var(--font-heading);
-  --font-mono: var(--font-mono);
+  /* Labels and data use the body grotesque: no monospace on this site. */
+  --font-mono: var(--font-sans);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -48,97 +49,99 @@
 /*
  * Palette remap. Pages written before the redesign use Tailwind's blue/sky/
  * indigo and slate/gray/zinc scales directly. Pointing those scales at the
- * clinic palette keeps every screen (including admin) on-brand without
- * touching page logic. Status hues (red, amber, emerald) keep their meaning.
+ * signal orange and the neutral greys keeps every screen (including admin)
+ * on-brand without touching page logic. Status hues (red, amber, emerald)
+ * keep their meaning.
  */
 @theme {
-  --color-blue-50: oklch(0.975 0.014 165);
-  --color-blue-100: oklch(0.95 0.028 165);
-  --color-blue-200: oklch(0.9 0.05 165);
-  --color-blue-300: oklch(0.83 0.075 165);
-  --color-blue-400: oklch(0.71 0.095 165);
-  --color-blue-500: oklch(0.58 0.105 165);
-  --color-blue-600: oklch(0.47 0.095 165);
-  --color-blue-700: oklch(0.4 0.08 165);
-  --color-blue-800: oklch(0.33 0.065 165);
-  --color-blue-900: oklch(0.27 0.05 165);
-  --color-blue-950: oklch(0.2 0.036 165);
+  --color-blue-50: oklch(0.977 0.012 50);
+  --color-blue-100: oklch(0.955 0.022 52);
+  --color-blue-200: oklch(0.91 0.05 50);
+  --color-blue-300: oklch(0.84 0.095 50);
+  --color-blue-400: oklch(0.74 0.145 48);
+  --color-blue-500: oklch(0.65 0.175 42);
+  --color-blue-600: oklch(0.555 0.176 39);
+  --color-blue-700: oklch(0.48 0.155 39);
+  --color-blue-800: oklch(0.4 0.125 39);
+  --color-blue-900: oklch(0.33 0.095 39);
+  --color-blue-950: oklch(0.24 0.065 39);
 
-  --color-sky-50: oklch(0.975 0.014 165);
-  --color-sky-100: oklch(0.95 0.028 165);
-  --color-sky-200: oklch(0.9 0.05 165);
-  --color-sky-300: oklch(0.83 0.075 165);
-  --color-sky-400: oklch(0.71 0.095 165);
-  --color-sky-500: oklch(0.58 0.105 165);
-  --color-sky-600: oklch(0.47 0.095 165);
-  --color-sky-700: oklch(0.4 0.08 165);
-  --color-sky-800: oklch(0.33 0.065 165);
-  --color-sky-900: oklch(0.27 0.05 165);
-  --color-sky-950: oklch(0.2 0.036 165);
+  --color-sky-50: oklch(0.977 0.012 50);
+  --color-sky-100: oklch(0.955 0.022 52);
+  --color-sky-200: oklch(0.91 0.05 50);
+  --color-sky-300: oklch(0.84 0.095 50);
+  --color-sky-400: oklch(0.74 0.145 48);
+  --color-sky-500: oklch(0.65 0.175 42);
+  --color-sky-600: oklch(0.555 0.176 39);
+  --color-sky-700: oklch(0.48 0.155 39);
+  --color-sky-800: oklch(0.4 0.125 39);
+  --color-sky-900: oklch(0.33 0.095 39);
+  --color-sky-950: oklch(0.24 0.065 39);
 
-  --color-indigo-50: oklch(0.975 0.014 165);
-  --color-indigo-100: oklch(0.95 0.028 165);
-  --color-indigo-200: oklch(0.9 0.05 165);
-  --color-indigo-300: oklch(0.83 0.075 165);
-  --color-indigo-400: oklch(0.71 0.095 165);
-  --color-indigo-500: oklch(0.58 0.105 165);
-  --color-indigo-600: oklch(0.47 0.095 165);
-  --color-indigo-700: oklch(0.4 0.08 165);
-  --color-indigo-800: oklch(0.33 0.065 165);
-  --color-indigo-900: oklch(0.27 0.05 165);
-  --color-indigo-950: oklch(0.2 0.036 165);
+  --color-indigo-50: oklch(0.977 0.012 50);
+  --color-indigo-100: oklch(0.955 0.022 52);
+  --color-indigo-200: oklch(0.91 0.05 50);
+  --color-indigo-300: oklch(0.84 0.095 50);
+  --color-indigo-400: oklch(0.74 0.145 48);
+  --color-indigo-500: oklch(0.65 0.175 42);
+  --color-indigo-600: oklch(0.555 0.176 39);
+  --color-indigo-700: oklch(0.48 0.155 39);
+  --color-indigo-800: oklch(0.4 0.125 39);
+  --color-indigo-900: oklch(0.33 0.095 39);
+  --color-indigo-950: oklch(0.24 0.065 39);
 
-  --color-slate-50: oklch(0.985 0.003 165);
-  --color-slate-100: oklch(0.965 0.005 165);
-  --color-slate-200: oklch(0.925 0.007 165);
-  --color-slate-300: oklch(0.87 0.009 165);
-  --color-slate-400: oklch(0.7 0.012 165);
-  --color-slate-500: oklch(0.54 0.014 165);
-  --color-slate-600: oklch(0.45 0.015 165);
-  --color-slate-700: oklch(0.37 0.016 165);
-  --color-slate-800: oklch(0.28 0.016 165);
-  --color-slate-900: oklch(0.21 0.016 165);
-  --color-slate-950: oklch(0.16 0.014 165);
+  --color-slate-50: oklch(0.985 0.002 85);
+  --color-slate-100: oklch(0.955 0.003 80);
+  --color-slate-200: oklch(0.92 0.004 80);
+  --color-slate-300: oklch(0.87 0.005 80);
+  --color-slate-400: oklch(0.7 0.006 75);
+  --color-slate-500: oklch(0.55 0.006 70);
+  --color-slate-600: oklch(0.475 0.006 70);
+  --color-slate-700: oklch(0.38 0.006 70);
+  --color-slate-800: oklch(0.29 0.005 70);
+  --color-slate-900: oklch(0.21 0.004 70);
+  --color-slate-950: oklch(0.16 0.004 70);
 
-  --color-gray-50: oklch(0.985 0.003 165);
-  --color-gray-100: oklch(0.965 0.005 165);
-  --color-gray-200: oklch(0.925 0.007 165);
-  --color-gray-300: oklch(0.87 0.009 165);
-  --color-gray-400: oklch(0.7 0.012 165);
-  --color-gray-500: oklch(0.54 0.014 165);
-  --color-gray-600: oklch(0.45 0.015 165);
-  --color-gray-700: oklch(0.37 0.016 165);
-  --color-gray-800: oklch(0.28 0.016 165);
-  --color-gray-900: oklch(0.21 0.016 165);
-  --color-gray-950: oklch(0.16 0.014 165);
+  --color-gray-50: oklch(0.985 0.002 85);
+  --color-gray-100: oklch(0.955 0.003 80);
+  --color-gray-200: oklch(0.92 0.004 80);
+  --color-gray-300: oklch(0.87 0.005 80);
+  --color-gray-400: oklch(0.7 0.006 75);
+  --color-gray-500: oklch(0.55 0.006 70);
+  --color-gray-600: oklch(0.475 0.006 70);
+  --color-gray-700: oklch(0.38 0.006 70);
+  --color-gray-800: oklch(0.29 0.005 70);
+  --color-gray-900: oklch(0.21 0.004 70);
+  --color-gray-950: oklch(0.16 0.004 70);
 
-  --color-zinc-50: oklch(0.985 0.003 165);
-  --color-zinc-100: oklch(0.965 0.005 165);
-  --color-zinc-200: oklch(0.925 0.007 165);
-  --color-zinc-300: oklch(0.87 0.009 165);
-  --color-zinc-400: oklch(0.7 0.012 165);
-  --color-zinc-500: oklch(0.54 0.014 165);
-  --color-zinc-600: oklch(0.45 0.015 165);
-  --color-zinc-700: oklch(0.37 0.016 165);
-  --color-zinc-800: oklch(0.28 0.016 165);
-  --color-zinc-900: oklch(0.21 0.016 165);
-  --color-zinc-950: oklch(0.16 0.014 165);
+  --color-zinc-50: oklch(0.985 0.002 85);
+  --color-zinc-100: oklch(0.955 0.003 80);
+  --color-zinc-200: oklch(0.92 0.004 80);
+  --color-zinc-300: oklch(0.87 0.005 80);
+  --color-zinc-400: oklch(0.7 0.006 75);
+  --color-zinc-500: oklch(0.55 0.006 70);
+  --color-zinc-600: oklch(0.475 0.006 70);
+  --color-zinc-700: oklch(0.38 0.006 70);
+  --color-zinc-800: oklch(0.29 0.005 70);
+  --color-zinc-900: oklch(0.21 0.004 70);
+  --color-zinc-950: oklch(0.16 0.004 70);
 }
 
 :root {
-  --font-heading: var(--font-sans);          /* Archivo, narrowed via wdth */
-  --paper: oklch(0.99 0.003 165);            /* label paper */
-  --ink: oklch(0.2 0.02 170);                /* clinical green-black */
-  --rx: oklch(0.47 0.095 165);               /* clinical green */
-  --rx-soft: oklch(0.955 0.025 165);
-  --rule: oklch(0.88 0.01 165);              /* hairline */
+  /* --font-heading (Young Serif) and --font-sans (Schibsted Grotesk) are set
+     by next/font in app/layout.tsx. */
+  --paper: oklch(0.97 0.0035 85);            /* warm grey paper, #f6f5f2 */
+  --ink: oklch(0.19 0.004 70);               /* near-black, 16.9:1 on paper */
+  --rx: oklch(0.555 0.176 39);               /* signal orange: 4.7:1 on paper, 5.2:1 under white text */
+  --rx-soft: oklch(0.962 0.02 55);           /* orange wash; rx text on it is 4.6:1 */
+  --rule: oklch(0.885 0.004 80);             /* hairline */
 
   /* Ink stage: the dark "light box" sections (proof, CTAs, footer). */
-  --stage: oklch(0.175 0.02 172);
-  --stage-raise: oklch(0.22 0.022 172);
-  --stage-fg: oklch(0.97 0.005 165);
-  --stage-muted: oklch(0.76 0.018 165);      /* 8.9:1 on stage */
-  --rx-bright: oklch(0.8 0.12 165);          /* green for marks and links on stage */
+  --stage: oklch(0.185 0.004 70);
+  --stage-raise: oklch(0.23 0.005 70);
+  --stage-fg: oklch(0.97 0.003 85);
+  --stage-muted: oklch(0.75 0.006 80);       /* 8.4:1 on stage */
+  --rx-bright: oklch(0.75 0.155 52);         /* orange for marks and links on stage, 8:1 */
 
   --background: oklch(1 0 0);
   --foreground: var(--ink);
@@ -147,23 +150,23 @@
   --popover: oklch(1 0 0);
   --popover-foreground: var(--ink);
   --primary: var(--rx);
-  --primary-foreground: oklch(0.99 0.003 165);
-  --secondary: oklch(0.965 0.005 165);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.955 0.003 80);
   --secondary-foreground: var(--ink);
-  --muted: oklch(0.965 0.005 165);
-  --muted-foreground: oklch(0.45 0.015 165);
+  --muted: oklch(0.955 0.003 80);
+  --muted-foreground: oklch(0.475 0.006 70);  /* 6.1:1 on paper */
   --accent: var(--rx-soft);
   --accent-foreground: var(--ink);
   --destructive: oklch(0.52 0.19 27);
   --destructive-foreground: oklch(1 0 0);
   --border: var(--rule);
-  --input: oklch(0.86 0.01 165);
+  --input: oklch(0.85 0.005 80);
   --ring: var(--rx);
   --radius: 0.375rem;
-  --sidebar: oklch(0.975 0.004 165);
+  --sidebar: oklch(0.975 0.003 85);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--rx);
-  --sidebar-primary-foreground: oklch(0.99 0.003 165);
+  --sidebar-primary-foreground: oklch(1 0 0);
   --sidebar-accent: var(--rx-soft);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--rule);
@@ -212,9 +215,9 @@
   animation-delay: calc(var(--d, 0) * 1ms);
 }
 
-/* Spotlight: a soft green glow follows the pointer (vars set by <Spotlight/>). */
+/* Spotlight: a soft orange glow follows the pointer (vars set by <Spotlight/>). */
 .spotlight {
-  background-image: radial-gradient(420px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.93 0.05 165 / 0.9), transparent 60%);
+  background-image: radial-gradient(420px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.95 0.035 55 / 0.9), transparent 60%);
   background-repeat: no-repeat;
 }
 
@@ -296,7 +299,7 @@
   to { --holo-angle: 360deg; }
 }
 
-/* Lit border: the card edge lights up in green under a mouse pointer
+/* Lit border: the card edge lights up in orange under a mouse pointer
    (position from <SpotlightTracker/>). Nothing at rest. */
 .lit-border::after {
   content: "";
@@ -330,9 +333,9 @@
 .metal-gold     { background-image: linear-gradient(110deg, #7a5c0f 0%, #c9a227 30%, #fbe8a6 48%, #c09a2a 62%, #7a5c0f 100%); }
 .metal-platinum { background-image: linear-gradient(110deg, #5f6b77 0%, #8e9aa6 30%, #eef2f5 48%, #95a1ad 62%, #5f6b77 100%); }
 .metal-diamond  { background-image: linear-gradient(110deg, #a9c3cf 0%, #cfdde4 22%, #f6fbff 36%, #ddd3f6 50%, #fbefd0 62%, #cdeee2 76%, #a9c3cf 100%); }
-.metal-rx       { background-image: linear-gradient(110deg, oklch(0.36 0.08 165) 0%, var(--rx) 30%, oklch(0.72 0.11 165) 48%, var(--rx) 62%, oklch(0.36 0.08 165) 100%); }
+.metal-rx       { background-image: linear-gradient(110deg, oklch(0.4 0.12 39) 0%, var(--rx) 30%, oklch(0.8 0.13 55) 48%, var(--rx) 62%, oklch(0.4 0.12 39) 100%); }
 
-/* Ink stage: dark "light box" sections lit by a soft green key light. */
+/* Ink stage: dark "light box" sections lit by a soft neutral key light. */
 .stage {
   position: relative;
   isolation: isolate;
@@ -346,11 +349,11 @@
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(50% 42% at 82% 6%, oklch(0.52 0.1 165 / 0.34), transparent 72%),
-    radial-gradient(42% 46% at 6% 96%, oklch(0.46 0.09 165 / 0.2), transparent 72%);
+    radial-gradient(50% 42% at 82% 6%, oklch(0.62 0.005 80 / 0.2), transparent 72%),
+    radial-gradient(42% 46% at 6% 96%, oklch(0.55 0.005 80 / 0.12), transparent 72%);
 }
 .stage ::selection {
-  background: oklch(0.5 0.1 165);
+  background: oklch(0.5 0.14 40);
   color: var(--stage-fg);
 }
 .stage :focus-visible {
@@ -360,14 +363,14 @@
 /* Light table: the paper hero, lit from behind the specimen. */
 .light-table {
   background:
-    radial-gradient(48% 62% at 74% 46%, oklch(0.95 0.035 165), transparent 72%),
+    radial-gradient(48% 62% at 74% 46%, oklch(1 0 0), transparent 72%),
     var(--paper);
 }
 
 /* Page glow: inner pages get the light-table key light at the top only. */
 .page-glow {
   background:
-    radial-gradient(55% 560px at 88% 0%, oklch(0.94 0.04 165), transparent 72%),
+    radial-gradient(55% 560px at 88% 0%, oklch(1 0 0), transparent 72%),
     var(--paper);
 }
 
@@ -387,7 +390,7 @@
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.2),
     inset 0 -1px 0 oklch(0 0 0 / 0.14),
-    0 1px 2px oklch(0.25 0.05 165 / 0.22);
+    0 1px 2px oklch(0.25 0.01 60 / 0.22);
 }
 .btn-sheen {
   position: relative;
@@ -412,7 +415,7 @@
     animation-range: 0 140px;
   }
   @keyframes nav-elevate {
-    to { box-shadow: 0 10px 30px -18px oklch(0.25 0.04 165 / 0.4); }
+    to { box-shadow: 0 10px 30px -18px oklch(0.25 0.005 70 / 0.4); }
   }
 }
 
@@ -440,23 +443,24 @@
 }
 .ba-divider {
   box-shadow:
-    0 0 0 1px oklch(0.2 0.02 170 / 0.2),
-    0 0 16px 1px oklch(0.8 0.12 165 / 0.55);
+    0 0 0 1px oklch(0.19 0.004 70 / 0.2),
+    0 0 16px 1px oklch(0.75 0.155 52 / 0.55);
 }
 .ba-handle {
-  box-shadow: 0 8px 20px -8px oklch(0.2 0.03 165 / 0.55);
+  box-shadow: 0 8px 20px -8px oklch(0.19 0.004 70 / 0.55);
 }
 .ba-label {
   position: absolute;
   bottom: 0.625rem;
   pointer-events: none;
   border-radius: 9999px;
-  background: oklch(0.99 0.003 165 / 0.88);
+  background: oklch(1 0 0 / 0.88);
   padding: 0.125rem 0.5rem;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
+  font-weight: 600;
   line-height: 1rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink);
 }
@@ -558,11 +562,11 @@ html:active-view-transition .vt-header header {
   transform: none;
 }
 
-/* Footer wordmark: faint ink-on-ink, lit green where the pointer is. */
+/* Footer wordmark: faint ink-on-ink, lit orange where the pointer is. */
 .wordmark {
   color: transparent;
   background-image:
-    radial-gradient(320px circle at var(--sx, 50%) var(--sy, -999px), oklch(0.8 0.12 165), transparent 70%),
+    radial-gradient(320px circle at var(--sx, 50%) var(--sy, -999px), var(--rx-bright), transparent 70%),
     linear-gradient(oklch(1 0 0 / 0.09), oklch(1 0 0 / 0.09));
   -webkit-background-clip: text;
   background-clip: text;
@@ -575,7 +579,7 @@ html:active-view-transition .vt-header header {
   }
   .lift:hover {
     transform: translateY(-3px);
-    box-shadow: 0 18px 36px -22px oklch(0.3 0.04 165 / 0.45);
+    box-shadow: 0 18px 36px -22px oklch(0.25 0.006 70 / 0.45);
   }
   .nudge-arrow .arrow {
     display: inline-block;
@@ -656,12 +660,13 @@ html:active-view-transition .vt-header header {
   }
 }
 
-/* Small monospace data label, as printed on a prescription label. */
+/* Small caps data label, as printed on a prescription label. */
 @utility rx-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
+  font-weight: 600;
   line-height: 1rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
@@ -687,7 +692,7 @@ html:active-view-transition .vt-header header {
   to   { background-position: -50% 0; }
 }
 .skeleton {
-  background-color: oklch(0.95 0.006 165);
+  background-color: oklch(0.945 0.003 80);
   background-image: linear-gradient(100deg, transparent 30%, oklch(1 0 0 / 0.7) 50%, transparent 70%);
   background-size: 200% 100%;
   animation: skeleton-sheen 1.4s ease-in-out infinite;
@@ -729,25 +734,31 @@ button, [role="button"], summary, nav a, .btn-depth {
     @apply border-border outline-ring/50;
   }
   html {
-    scrollbar-color: oklch(0.8 0.012 165) transparent;
+    scrollbar-color: oklch(0.8 0.005 80) transparent;
     -webkit-tap-highlight-color: transparent;
+  }
+  html {
+    /* Young Serif has one weight: never fake a bolder one. */
+    font-synthesis-weight: none;
   }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
-    font-variation-settings: "wdth" 100;
     caret-color: var(--rx);
   }
   ::selection {
-    background: oklch(0.87 0.07 165);
+    background: oklch(0.89 0.06 55);
     color: var(--ink);
   }
   h1, h2, h3, h4 {
     font-family: var(--font-heading);
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    font-weight: 400;
+    letter-spacing: -0.01em;
     text-wrap: balance;
-    font-variation-settings: "wdth" 88;
+  }
+  /* Young Serif defaults to old-style figures; prices and stats need lining ones. */
+  h1, h2, h3, h4, .font-heading {
+    font-feature-settings: "lnum" 1;
   }
   a {
     text-underline-offset: 3px;

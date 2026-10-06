@@ -124,7 +124,7 @@ export default function FAQPage() {
       {/* Can / Cannot fix */}
       <section className="py-14 md:py-20 bg-white border-b border-border">
         <div className="max-w-4xl mx-auto px-6 md:px-8">
-          <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-2 text-center">What we can (and can&apos;t) fix</h2>
+          <h2 className="font-heading text-3xl font-extrabold tracking-[-0.01em] text-ink mb-2 text-center">What we can (and can&apos;t) fix</h2>
           <p className="text-muted-foreground text-sm text-center mb-10">Restoration has real limits. Here&apos;s an honest breakdown.</p>
           <div data-reveal="stagger" className="grid md:grid-cols-2 gap-6">
             <div className="bg-white rounded-lg border border-green-200 p-6">
@@ -170,7 +170,7 @@ export default function FAQPage() {
           <div className="flex flex-col gap-16">
             {sections.map((section) => (
               <div key={section.title} data-reveal>
-                <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-6 [font-variation-settings:'wdth'_80]">
+                <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-6">
                   {section.title}
                 </h2>
                 <Accordion>

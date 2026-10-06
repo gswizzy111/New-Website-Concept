@@ -41,7 +41,7 @@ function ItemGrid({ items }: { items: { title: string; description: string }[] }
           key={item.title}
           className={`py-7 border-b border-rule md:pr-8 ${i % 2 === 1 ? "md:pl-8 md:border-l" : ""}`}
         >
-          <h3 className="font-heading text-xl md:text-2xl font-extrabold tracking-[-0.02em] text-ink mb-2 [font-variation-settings:'wdth'_86]">{item.title}</h3>
+          <h3 className="font-heading text-xl md:text-2xl font-extrabold tracking-[-0.01em] text-ink mb-2">{item.title}</h3>
           <p className="text-[15px] text-muted-foreground leading-relaxed">{item.description}</p>
         </div>
       ))}
@@ -68,7 +68,7 @@ export default function HowItWorksPage() {
           <div className="flex items-start gap-4 mb-6">
             <Check className="w-6 h-6 mt-1 flex-shrink-0 text-rx" strokeWidth={2.25} />
             <div>
-              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-3 [font-variation-settings:'wdth'_80]">What We Can Restore</h2>
+              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-3">What We Can Restore</h2>
               <p className="text-muted-foreground">
                 Our restoration process can significantly reduce or eliminate the following damage:
               </p>
@@ -82,7 +82,7 @@ export default function HowItWorksPage() {
           <div className="flex items-start gap-4 mb-6">
             <X className="w-6 h-6 mt-1 flex-shrink-0 text-red-600" strokeWidth={2.25} />
             <div>
-              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-3 [font-variation-settings:'wdth'_80]">Limitations</h2>
+              <h2 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-3">Limitations</h2>
               <p className="text-muted-foreground">
                 Unfortunately, the following types of damage cannot be restored:
               </p>
@@ -94,7 +94,7 @@ export default function HowItWorksPage() {
         {/* CTA Section */}
         <section data-reveal className="stage stage-light overflow-hidden rounded-2xl p-8 md:p-12 md:flex md:items-center md:justify-between md:gap-10">
           <div className="mb-8 md:mb-0">
-            <h3 className="font-heading text-3xl md:text-4xl font-extrabold tracking-[-0.03em] leading-[1] text-stage-fg mb-3 [font-variation-settings:'wdth'_82]">Ready to restore your collection?</h3>
+            <h3 className="font-heading text-3xl md:text-4xl font-extrabold tracking-[-0.015em] leading-[1] text-stage-fg mb-3">Ready to restore your collection?</h3>
             <p className="text-stage-muted max-w-xl">
               Submit your cards for restoration and see the difference professional care can make.
             </p>

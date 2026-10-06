@@ -209,7 +209,7 @@ export function StepReview({
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">Review your order.</h2>
+        <h2 className="font-heading text-3xl font-extrabold tracking-[-0.01em] text-ink mb-1">Review your order.</h2>
       </div>
 
       {/* Loyalty discount banner */}

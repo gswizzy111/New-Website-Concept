@@ -90,7 +90,7 @@ export function Nav() {
             alt="The Card Doc"
             className="w-8 h-8 rounded-md object-cover ring-1 ring-rule transition-transform duration-300 ease-[var(--ease-out)] group-hover:-rotate-6"
           />
-          <span className="font-heading text-lg font-extrabold tracking-[-0.02em] text-ink [font-variation-settings:'wdth'_86]">The Card Doc</span>
+          <span className="font-heading text-lg font-extrabold tracking-[-0.01em] text-ink">The Card Doc</span>
         </Link>
 
         {/* Desktop — three service tabs */}
@@ -194,7 +194,7 @@ export function Nav() {
               <Link href="/" onClick={() => setOpen(false)} className="flex items-center gap-2.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/card-doctor.jpg" alt="The Card Doc" className="w-8 h-8 rounded-md object-cover ring-1 ring-white/20" />
-                <span className="font-heading text-lg font-extrabold tracking-[-0.02em] [font-variation-settings:'wdth'_86]">The Card Doc</span>
+                <span className="font-heading text-lg font-extrabold tracking-[-0.01em]">The Card Doc</span>
               </Link>
               <button
                 onClick={() => setOpen(false)}
@@ -223,7 +223,7 @@ export function Nav() {
                           className="press group flex items-end justify-between gap-4 py-5"
                         >
                           <span>
-                            <span className={`block font-heading text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.035em] [font-variation-settings:'wdth'_80] ${active ? "text-[oklch(0.82_0.11_165)]" : "text-paper"}`}>
+                            <span className={`block font-heading text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.02em] ${active ? "text-rx-bright" : "text-paper"}`}>
                               {tab.label}
                             </span>
                             <span className="mt-2 block font-mono text-xs text-paper/55">{TAB_HINTS[tab.href]}</span>

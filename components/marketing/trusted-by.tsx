@@ -12,7 +12,7 @@ function Entry({ page, hidden = false }: { page: TrustedPage; hidden?: boolean }
         tabIndex={hidden ? -1 : undefined}
         className="group flex items-baseline gap-3 px-6 md:px-10 py-2"
       >
-        <span className="font-heading text-2xl md:text-4xl font-extrabold tracking-[-0.03em] text-ink [font-variation-settings:'wdth'_82] transition-colors duration-200 group-hover:text-rx">
+        <span className="font-heading text-2xl md:text-4xl font-extrabold tracking-[-0.015em] text-ink transition-colors duration-200 group-hover:text-rx">
           {page.name}
         </span>
         <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">

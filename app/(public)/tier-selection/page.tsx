@@ -134,7 +134,7 @@ function TierCard({
   );
 
   return (
-    <div className={`lift spotlight lit-border relative rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.04_165/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`lift spotlight lit-border relative rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.006_70/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       <div className="flex items-center justify-between gap-3 px-6 pt-6">
         <span className={`metal h-3.5 w-11 rounded-[3px] ${swatch}`} aria-hidden />
         {bannerLabel && (
@@ -149,13 +149,13 @@ function TierCard({
           <div className="flex items-start gap-3 mb-5">
             <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
             <div>
-              <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.025em] text-ink leading-tight [font-variation-settings:'wdth'_84]">{tier.name}</h3>
+              <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">{tier.name}</h3>
               <p className="text-sm text-muted-foreground mt-0.5">{tier.description}</p>
             </div>
           </div>
 
           <div className="mb-6">
-            <div className="font-heading text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">{price}</div>
+            <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
             <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
           </div>
 
@@ -340,7 +340,7 @@ export default async function TierSelectionPage() {
         {testimonials.length > 0 && (
           <div className="mt-24 md:mt-32">
             <div className="mb-10">
-              <h2 data-reveal className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink [font-variation-settings:'wdth'_80]">What Our Customers Say</h2>
+              <h2 data-reveal className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink">What Our Customers Say</h2>
             </div>
             <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
               {testimonials.map((t) => (
@@ -350,7 +350,7 @@ export default async function TierSelectionPage() {
                   src={t.url}
                   alt={t.alt ?? "Customer review"}
                   loading="lazy"
-                  className="w-full h-auto break-inside-avoid rounded-xl ring-1 ring-rule shadow-[0_18px_40px_-28px_oklch(0.25_0.04_165/0.5)]"
+                  className="w-full h-auto break-inside-avoid rounded-xl ring-1 ring-rule shadow-[0_18px_40px_-28px_oklch(0.25_0.006_70/0.5)]"
                 />
               ))}
             </div>

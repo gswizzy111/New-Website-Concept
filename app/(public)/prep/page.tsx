@@ -62,10 +62,10 @@ export default async function PrepPage() {
         <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start hero-in" style={{ ["--d" as string]: 120 }}>
           <div className="flex flex-col gap-8">
             {/* Pricing */}
-            <div className="lit-border relative bg-white border border-ink/70 rounded-xl shadow-[0_40px_70px_-50px_oklch(0.25_0.05_165/0.6)]">
+            <div className="lit-border relative bg-white border border-ink/70 rounded-xl shadow-[0_40px_70px_-50px_oklch(0.25_0.006_70/0.6)]">
               <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-5 border-b border-ink/70 border-t-[6px] border-t-rx rounded-t-xl">
                 <div>
-                  <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.025em] text-ink [font-variation-settings:'wdth'_84]">Prep Pricing</h2>
+                  <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.01em] text-ink">Prep Pricing</h2>
                   <p className="font-mono text-xs text-muted-foreground mt-1">Per card — price based on declared value</p>
                 </div>
                 <Microscope className="h-6 w-6 text-rx" strokeWidth={1.75} />
@@ -77,7 +77,7 @@ export default async function PrepPage() {
                     <p className="text-sm text-muted-foreground mt-0.5">Surface clean, penny sleeve + semi-rigid holder</p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">{fmt(prices.standardPriceCents)}</p>
+                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{fmt(prices.standardPriceCents)}</p>
                     <p className="font-mono text-xs text-muted-foreground">per card</p>
                   </div>
                 </div>
@@ -89,7 +89,7 @@ export default async function PrepPage() {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">2%</p>
+                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">2%</p>
                     <p className="font-mono text-xs text-muted-foreground">of declared value</p>
                   </div>
                 </div>

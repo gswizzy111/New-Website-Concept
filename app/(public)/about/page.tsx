@@ -75,7 +75,7 @@ export default function AboutPage() {
       {/* Can / Cannot fix */}
       <section className="py-16 md:py-24">
         <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">What we can (and can&apos;t) fix</h2>
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">What we can (and can&apos;t) fix</h2>
           <p className="text-muted-foreground mb-10 max-w-xl">
             Restoration has real limits. Here&apos;s an honest breakdown of what our process can address.
           </p>
@@ -123,7 +123,7 @@ export default function AboutPage() {
       <section className="py-16 md:py-24 bg-paper border-y border-rule">
         <div data-reveal className="max-w-6xl mx-auto px-4 md:px-10 grid gap-8 md:grid-cols-[1fr_1.6fr]">
           <div>
-            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">Frequently asked questions</h2>
+            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Frequently asked questions</h2>
             <p className="text-muted-foreground mb-5">Everything you need to know before placing your first order.</p>
             <p className="text-sm text-muted-foreground">
               Still have questions?{" "}
@@ -135,7 +135,7 @@ export default function AboutPage() {
           <div className="border-t border-ink/80 border-b border-b-rule divide-y divide-rule">
             {faqItems.map((item) => (
               <details key={item.q} className="group relative">
-                <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [font-variation-settings:'wdth'_92] [&::-webkit-details-marker]:hidden">
+                <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [&::-webkit-details-marker]:hidden">
                   {item.q}
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 ring-rule transition-[background-color,box-shadow] duration-300 group-hover:ring-rx group-open:bg-rx group-open:ring-rx">
                     <Plus className="h-4 w-4 text-rx transition-transform duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:text-primary-foreground" strokeWidth={2} />
@@ -154,7 +154,7 @@ export default function AboutPage() {
       {/* Terms & Conditions summary */}
       <section className="py-16 md:py-24">
         <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-5 [font-variation-settings:'wdth'_80]">Terms & Conditions</h2>
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Terms & Conditions</h2>
           <p className="text-muted-foreground mb-10">The key points — plain English. Read the full version before submitting.</p>
           <div data-reveal="stagger" className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
             {[
@@ -203,7 +203,7 @@ export default function AboutPage() {
       {/* CTA */}
       <section className="stage stage-light overflow-hidden py-24 md:py-36">
         <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
-          <h2 data-reveal className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.04em] leading-[0.92] text-stage-fg mb-6 [font-variation-settings:'wdth'_78]">Ready to restore your cards?</h2>
+          <h2 data-reveal className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.02em] leading-[0.92] text-stage-fg mb-6">Ready to restore your cards?</h2>
           <p className="text-lg text-stage-muted mb-10">Book a restoration or grab a kit and get started today.</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link

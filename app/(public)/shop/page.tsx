@@ -127,7 +127,7 @@ function ProductSection({ title, products }: { title: string; products: Product[
   return (
     <div>
       <div className="mb-6">
-        <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-tight text-ink">{title}</h2>
+        <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.01em] text-ink">{title}</h2>
       </div>
       <div data-reveal="stagger" className={`grid ${getSectionGridClass(products.length)} bg-rule border border-rule rounded-lg overflow-hidden`} style={{ gap: "1px" }}>
         {products.map((p) => <ProductCard key={p.id} product={p} />)}

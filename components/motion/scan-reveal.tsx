@@ -46,7 +46,7 @@ export function ScanReveal({ src, alt, sizes }: { src: StaticImageData; alt: str
       {/* Beam */}
       <motion.div aria-hidden className="pointer-events-none absolute -inset-y-[6%] inset-x-0" style={{ x: beamX }}>
         <motion.div className="absolute inset-y-0 left-0 w-px bg-rx-bright" style={{ opacity: beamOpacity }}>
-          <div className="absolute inset-y-0 -left-6 w-12 bg-[radial-gradient(closest-side,oklch(0.8_0.12_165/0.45),transparent)]" />
+          <div className="absolute inset-y-0 -left-6 w-12 bg-[radial-gradient(closest-side,oklch(0.75_0.155_52/0.45),transparent)]" />
         </motion.div>
       </motion.div>
     </div>

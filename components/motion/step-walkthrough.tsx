@@ -45,10 +45,10 @@ export function StepWalkthrough({ title, steps }: { title: string; steps: Step[]
   return (
     <div ref={ref} className="grid gap-8 md:grid-cols-[0.9fr_1.1fr] md:gap-16">
       <div className="md:sticky md:top-32 md:self-start">
-        <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.035em] leading-[0.95] text-ink mb-6 [font-variation-settings:'wdth'_80]">{title}</h2>
+        <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-6">{title}</h2>
         <div className="hidden md:block" aria-hidden>
           <div className="flex items-baseline gap-4">
-            <span key={current.n} className="font-heading text-[9rem] leading-none font-extrabold tracking-[-0.05em] text-rx tabular-nums [font-variation-settings:'wdth'_76] animate-[rx-in_500ms_var(--ease-out)_both]">
+            <span key={current.n} className="font-heading text-[9rem] leading-none font-extrabold tracking-[-0.025em] text-rx tabular-nums animate-[rx-in_500ms_var(--ease-out)_both]">
               {current.n}
             </span>
             <span className="font-mono text-sm text-muted-foreground">/ {steps.length}</span>

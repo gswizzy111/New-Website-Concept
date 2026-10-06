@@ -23,7 +23,7 @@ export function WaitlistModal() {
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-lg border border-rule shadow-[0_24px_60px_-20px_oklch(0.2_0.03_165/0.5)] w-full max-w-md p-8 z-10">
+      <div className="relative bg-white rounded-lg border border-rule shadow-[0_24px_60px_-20px_oklch(0.2_0.006_70/0.5)] w-full max-w-md p-8 z-10">
         {/* Close button */}
         <button
           onClick={() => setOpen(false)}

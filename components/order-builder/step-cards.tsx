@@ -82,7 +82,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-heading text-3xl font-extrabold tracking-tight text-ink mb-1">
+        <h2 className="font-heading text-3xl font-extrabold tracking-[-0.01em] text-ink mb-1">
           Tell us about your cards.
         </h2>
         <p className="text-muted-foreground">

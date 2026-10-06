@@ -35,7 +35,7 @@ export function DiamondCard({
     : "bg-rx-soft text-rx";
 
   return (
-    <div className={`lift spotlight holo-ring relative rounded-xl border border-transparent bg-card flex flex-col shadow-[0_24px_50px_-34px_oklch(0.25_0.05_165/0.55)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`lift spotlight holo-ring relative rounded-xl border border-transparent bg-card flex flex-col shadow-[0_24px_50px_-34px_oklch(0.25_0.006_70/0.55)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       {/* Foil wash: Diamond is the one tier printed on holo stock */}
       <div aria-hidden className="holo-bands pointer-events-none absolute inset-x-0 top-0 h-28 rounded-t-xl opacity-[0.16] [background-position:30%_40%] [mask-image:linear-gradient(to_bottom,#000,transparent)]" />
       <div className="relative flex items-center justify-between gap-3 px-6 pt-6">
@@ -49,14 +49,14 @@ export function DiamondCard({
         <div className="flex items-start gap-3 mb-5">
           <Gem className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
           <div>
-            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.025em] text-ink leading-tight [font-variation-settings:'wdth'_84]">Diamond</h3>
+            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">Diamond</h3>
             <p className="text-sm text-muted-foreground mt-0.5">White-glove service for high-value cards</p>
           </div>
         </div>
 
         {/* Dynamic price display */}
         <div className="mb-4">
-          <div className="font-heading text-5xl font-extrabold tracking-[-0.04em] text-ink tabular-nums [font-variation-settings:'wdth'_80]">
+          <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">
             {priceDollars ? `$${priceDollars}` : "7%"}
           </div>
           <p className="font-mono text-xs text-muted-foreground mt-1">
