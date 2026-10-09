@@ -53,21 +53,21 @@ export async function logCheckoutError(entry: CheckoutErrorEntry): Promise<void>
       to: adminEmail,
       subject: `⚠️ Checkout Failed — ${entry.code} — ${entry.customer_name ?? "Unknown customer"}`,
       html: `
-        <div style="font-family:sans-serif;max-width:560px;color:#111">
+        <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;color:#111">
           <div style="background:#dc2626;border-radius:8px 8px 0 0;padding:16px 20px">
-            <h2 style="margin:0;color:#fff;font-size:20px">Checkout Failure Alert</h2>
+            <h2 style="font-family:Georgia,'Times New Roman',serif;margin:0;color:#fff;font-size:20px">Checkout Failure Alert</h2>
           </div>
-          <div style="border:1px solid #e5e7eb;border-top:0;border-radius:0 0 8px 8px;padding:20px;background:#fff">
+          <div style="border:1px solid #e6e4e2;border-top:0;border-radius:0 0 8px 8px;padding:20px;background:#fff">
             <table style="width:100%;border-collapse:collapse;font-size:14px">
-              <tr><td style="padding:6px 0;color:#6b7280;width:140px">Error Code</td><td style="font-weight:700;color:#dc2626">${entry.code}</td></tr>
-              <tr><td style="padding:6px 0;color:#6b7280">Ref</td><td style="font-family:monospace;font-size:12px">${entry.ref}</td></tr>
-              <tr><td style="padding:6px 0;color:#6b7280">Time</td><td>${new Date(entry.timestamp).toLocaleString("en-US", { timeZone: "America/New_York" })} ET</td></tr>
-              ${entry.customer_name ? `<tr><td style="padding:6px 0;color:#6b7280">Customer</td><td><strong>${entry.customer_name}</strong></td></tr>` : ""}
-              ${entry.customer_email ? `<tr><td style="padding:6px 0;color:#6b7280">Email</td><td><a href="mailto:${entry.customer_email}">${entry.customer_email}</a></td></tr>` : ""}
-              ${entry.customer_phone ? `<tr><td style="padding:6px 0;color:#6b7280">Phone</td><td>${entry.customer_phone}</td></tr>` : ""}
-              ${entry.tier ? `<tr><td style="padding:6px 0;color:#6b7280">Tier</td><td>${entry.tier}</td></tr>` : ""}
-              ${entry.card_count ? `<tr><td style="padding:6px 0;color:#6b7280">Cards</td><td>${entry.card_count}</td></tr>` : ""}
-              ${entry.shipping_method ? `<tr><td style="padding:6px 0;color:#6b7280">Shipping</td><td>${entry.shipping_method}</td></tr>` : ""}
+              <tr><td style="padding:6px 0;color:#74716e;width:140px">Error Code</td><td style="font-weight:700;color:#dc2626">${entry.code}</td></tr>
+              <tr><td style="padding:6px 0;color:#74716e">Ref</td><td style="font-family:monospace;font-size:12px">${entry.ref}</td></tr>
+              <tr><td style="padding:6px 0;color:#74716e">Time</td><td>${new Date(entry.timestamp).toLocaleString("en-US", { timeZone: "America/New_York" })} ET</td></tr>
+              ${entry.customer_name ? `<tr><td style="padding:6px 0;color:#74716e">Customer</td><td><strong>${entry.customer_name}</strong></td></tr>` : ""}
+              ${entry.customer_email ? `<tr><td style="padding:6px 0;color:#74716e">Email</td><td><a href="mailto:${entry.customer_email}">${entry.customer_email}</a></td></tr>` : ""}
+              ${entry.customer_phone ? `<tr><td style="padding:6px 0;color:#74716e">Phone</td><td>${entry.customer_phone}</td></tr>` : ""}
+              ${entry.tier ? `<tr><td style="padding:6px 0;color:#74716e">Tier</td><td>${entry.tier}</td></tr>` : ""}
+              ${entry.card_count ? `<tr><td style="padding:6px 0;color:#74716e">Cards</td><td>${entry.card_count}</td></tr>` : ""}
+              ${entry.shipping_method ? `<tr><td style="padding:6px 0;color:#74716e">Shipping</td><td>${entry.shipping_method}</td></tr>` : ""}
             </table>
             <div style="margin-top:16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px">
               <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:0.05em">Actual Error</p>
@@ -76,12 +76,12 @@ export async function logCheckoutError(entry: CheckoutErrorEntry): Promise<void>
             ${entry.customer_email ? `
             <div style="margin-top:16px;text-align:center">
               <a href="mailto:${entry.customer_email}?subject=Your Card Doc Order — We Can Help&body=Hi ${entry.customer_name?.split(" ")[0] ?? "there"},%0A%0AWe noticed you had trouble checking out and wanted to reach out to help complete your order.%0A%0A— The Card Doc"
-                style="display:inline-block;background:#1d4ed8;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px">
+                style="display:inline-block;background:#a23200;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:700;font-size:14px">
                 Email Customer →
               </a>
             </div>` : ""}
-            <p style="margin-top:16px;font-size:12px;color:#6b7280;text-align:center">
-              View all errors at <a href="${process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com"}/admin/checkout-errors" style="color:#1d4ed8">Admin → Checkout Errors</a>
+            <p style="margin-top:16px;font-size:12px;color:#74716e;text-align:center">
+              View all errors at <a href="${process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com"}/admin/checkout-errors" style="color:#a23200">Admin → Checkout Errors</a>
             </p>
           </div>
         </div>

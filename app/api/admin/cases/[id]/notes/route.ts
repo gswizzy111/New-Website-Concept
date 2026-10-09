@@ -41,8 +41,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         to: caseRow.customer_email,
         subject: `Update on your case: ${caseRow.title}`,
         html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">
-            <h2 style="margin-bottom:8px">Hi${caseRow.customer_name ? ` ${caseRow.customer_name}` : ""},</h2>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px">
+            <h2 style="font-family:Georgia,'Times New Roman',serif;margin-bottom:8px">Hi${caseRow.customer_name ? ` ${caseRow.customer_name}` : ""},</h2>
             <p style="color:#555">We have an update on your case: <strong>${caseRow.title}</strong></p>
             <div style="background:#f5f5f5;border-radius:8px;padding:16px;margin:16px 0;white-space:pre-wrap;font-size:15px;color:#333">${parsed.data.body}</div>
             <p style="color:#888;font-size:13px">If you have questions, reply to this email or contact us directly.</p>

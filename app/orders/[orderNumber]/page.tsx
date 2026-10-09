@@ -43,7 +43,7 @@ function shippoCarrierToken(provider: string): string {
 const TRACKING_BADGE: Record<string, { label: string; cls: string }> = {
   UNKNOWN:     { label: "Label Created",  cls: "bg-gray-100 text-gray-700" },
   PRE_TRANSIT: { label: "Label Created",  cls: "bg-gray-100 text-gray-700" },
-  TRANSIT:     { label: "In Transit",     cls: "bg-blue-100 text-blue-700" },
+  TRANSIT:     { label: "In Transit",     cls: "bg-ink text-paper" },
   DELIVERED:   { label: "Delivered",      cls: "bg-green-100 text-green-700" },
   RETURNED:    { label: "Returned",       cls: "bg-orange-100 text-orange-700" },
   FAILURE:     { label: "Delivery Issue", cls: "bg-red-100 text-red-700" },

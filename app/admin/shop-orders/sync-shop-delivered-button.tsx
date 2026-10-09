@@ -42,7 +42,7 @@ export function SyncShopDeliveredButton() {
     <button
       onClick={handleSync}
       disabled={state === "loading"}
-      className="text-sm font-bold px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+      className="text-sm font-bold px-4 py-2 bg-rx text-white rounded-lg hover:bg-rx/90 transition-colors disabled:opacity-50 whitespace-nowrap"
     >
       {state === "loading" ? "Checking Shippo…" : "Sync Delivered"}
       {state === "error" && " (failed)"}

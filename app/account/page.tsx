@@ -13,9 +13,9 @@ const STATUS_BADGE: Record<string, string> = {
   awaiting_payment: "bg-gray-100 text-gray-600",
   awaiting_cards:   "bg-amber-100 text-amber-700",
   received:         "bg-blue-100 text-blue-700",
-  in_progress:      "bg-purple-100 text-purple-700",
+  in_progress:      "bg-rx text-white",
   completed:        "bg-green-100 text-green-700",
-  shipped_back:     "bg-cyan-100 text-cyan-700",
+  shipped_back:     "bg-ink text-paper",
   delivered:        "bg-emerald-100 text-emerald-700",
   cancelled:        "bg-red-100 text-red-700",
 };
@@ -23,7 +23,7 @@ const STATUS_BADGE: Record<string, string> = {
 const KIT_STATUS_BADGE: Record<string, string> = {
   paid:       "bg-blue-100 text-blue-700",
   processing: "bg-yellow-100 text-yellow-700",
-  shipped:    "bg-purple-100 text-purple-700",
+  shipped:    "bg-ink text-paper",
   delivered:  "bg-emerald-100 text-emerald-700",
   cancelled:  "bg-red-100 text-red-700",
 };

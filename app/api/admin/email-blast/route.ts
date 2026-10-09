@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
   // Wrap plain text in a clean HTML email template
   const htmlBody = `
-    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111;line-height:1.6">
+    <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;line-height:1.6">
       ${messageBody
         .split("\n")
         .map((line) => (line.trim() === "" ? "<br>" : `<p style="margin:0 0 12px">${line}</p>`))

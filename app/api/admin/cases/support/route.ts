@@ -52,9 +52,9 @@ async function sendCaseEmail(opts: {
     to: opts.to,
     subject: `[${caseRef}] ${opts.subject} — ${businessName} Support`,
     html: `
-      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111;">
-        <div style="background:#1a8fe0;padding:24px 32px;">
-          <h1 style="color:#fff;margin:0;font-size:20px;">${businessName} Support</h1>
+      <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;">
+        <div style="background:#c34104;padding:24px 32px;">
+          <h1 style="font-family:Georgia,'Times New Roman',serif;color:#fff;margin:0;font-size:20px;">${businessName} Support</h1>
         </div>
         <div style="padding:32px;">
           <p style="font-size:15px;margin-top:0;">Hi ${opts.customerName},</p>
@@ -66,8 +66,8 @@ async function sendCaseEmail(opts: {
             <p style="margin:8px 0 0;font-size:14px;color:#444;">${opts.subject}</p>
           </div>
 
-          <div style="background:#e8f4fd;border-left:4px solid #1a8fe0;padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0;">
-            <span style="font-size:13px;font-weight:600;color:#1a8fe0;">Status: ${statusBadge}</span>
+          <div style="background:#fff5f0;border-left:4px solid #c34104;padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0;">
+            <span style="font-size:13px;font-weight:600;color:#c34104;">Status: ${statusBadge}</span>
           </div>
 
           ${opts.notes ? `

@@ -17,7 +17,7 @@ const TIMELINE: KitStatus[] = ["paid", "processing", "shipped", "delivered"];
 const STATUS_COLORS: Record<KitStatus, string> = {
   paid:       "bg-blue-50 text-blue-700 border-blue-200",
   processing: "bg-yellow-50 text-yellow-700 border-yellow-200",
-  shipped:    "bg-purple-50 text-purple-700 border-purple-200",
+  shipped:    "bg-ink text-paper border-ink",
   delivered:  "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 

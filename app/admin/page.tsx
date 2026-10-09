@@ -16,8 +16,8 @@ const TIER_BADGES: Record<string, { label: string; color: string }> = {
   regular:       { label: "Bronze",    color: "bg-amber-100 text-amber-700" },
   expedited:     { label: "Silver",    color: "bg-slate-100 text-slate-600" },
   premium:       { label: "Gold",      color: "bg-yellow-100 text-yellow-700" },
-  ultra_premium: { label: "Platinum",  color: "bg-blue-100 text-blue-600" },
-  elite:         { label: "Diamond",   color: "bg-cyan-100 text-cyan-700" },
+  ultra_premium: { label: "Platinum",  color: "bg-slate-200 text-slate-800" },
+  elite:         { label: "Diamond",   color: "bg-ink text-paper" },
   fast_pass:     { label: "Fast Pass", color: "bg-orange-100 text-orange-700" },
 };
 
@@ -25,8 +25,8 @@ const TIER_STYLES: Record<string, { label: string; cls: string }> = {
   regular:       { label: "Bronze",    cls: "bg-amber-100 text-amber-700" },
   expedited:     { label: "Silver",    cls: "bg-slate-100 text-slate-600" },
   premium:       { label: "Gold",      cls: "bg-yellow-100 text-yellow-700" },
-  ultra_premium: { label: "Platinum",  cls: "bg-blue-100 text-blue-600" },
-  elite:         { label: "Diamond",   cls: "bg-cyan-100 text-cyan-700" },
+  ultra_premium: { label: "Platinum",  cls: "bg-slate-200 text-slate-800" },
+  elite:         { label: "Diamond",   cls: "bg-ink text-paper" },
   fast_pass:     { label: "Fast Pass", cls: "bg-orange-100 text-orange-700" },
 };
 
@@ -36,16 +36,16 @@ const STATUS_COLORS: Record<string, string> = {
   awaiting_payment: "bg-gray-100 text-gray-600",
   awaiting_cards: "bg-yellow-100 text-yellow-700",
   received: "bg-blue-100 text-blue-700",
-  in_progress: "bg-purple-100 text-purple-700",
+  in_progress: "bg-rx text-white",
   completed: "bg-green-100 text-green-700",
-  shipped_back: "bg-cyan-100 text-cyan-700",
+  shipped_back: "bg-ink text-paper",
   delivered: "bg-emerald-100 text-emerald-700",
   cancelled: "bg-red-100 text-red-700",
 };
 
 const FULFILLMENT_STATUS_STYLES: Record<string, { label: string; cls: string }> = {
   received:    { label: "Cards Received", cls: "bg-blue-100 text-blue-700" },
-  in_progress: { label: "In Progress",    cls: "bg-purple-100 text-purple-700" },
+  in_progress: { label: "In Progress",    cls: "bg-rx text-white" },
 };
 
 function businessDaysSince(dateStr: string): number {
@@ -1030,7 +1030,7 @@ export default async function AdminPage({
           const SHIP_BADGE: Record<string, { label: string; cls: string }> = {
             UNKNOWN:     { label: "Waiting to be Shipped Out", cls: "bg-gray-100 text-gray-700" },
             PRE_TRANSIT: { label: "Waiting to be Shipped Out", cls: "bg-gray-100 text-gray-700" },
-            TRANSIT:     { label: "Out for Delivery",           cls: "bg-blue-100 text-blue-700" },
+            TRANSIT:     { label: "Out for Delivery",           cls: "bg-ink text-paper" },
             DELIVERED:   { label: "Delivered",                  cls: "bg-green-100 text-green-700" },
             RETURNED:    { label: "Being Returned",             cls: "bg-orange-100 text-orange-700" },
             FAILURE:     { label: "Delivery Issue",             cls: "bg-red-100 text-red-700" },
@@ -1044,10 +1044,10 @@ export default async function AdminPage({
           return (
             <>
               {/* Sync delivered — always shown on shipped tab */}
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="bg-white border border-rule rounded-xl p-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1">
-                  <p className="font-bold text-emerald-800 text-sm">Sync delivered status</p>
-                  <p className="text-xs text-emerald-700 mt-0.5">
+                  <p className="font-bold text-ink text-sm">Sync delivered status</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Checks every shipped order against USPS via Shippo and marks any confirmed deliveries as Delivered.
                   </p>
                 </div>

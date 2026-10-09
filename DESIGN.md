@@ -208,7 +208,9 @@ Neutral with one pop: warm-leaning greys (chroma under 0.006, never cream) and a
 
 **The Light Rule.** Other gradients are light, not color: the light-table glow, the stage key light, the button top-edge highlight and sheen, polished metal swatches, edge fades on scrolling content, and the pointer light in the footer wordmark.
 
-**The Remap Rule.** Tailwind's blue, sky and indigo scales map to the orange ramp (600 is rx) and slate, gray and zinc to the neutral greys, so legacy utilities render on-brand. New code uses named tokens.
+**The Remap Rule.** Older screens (account, order tracking, admin) use Tailwind's color scales directly, so `app/globals.css` remaps them: blue, sky, indigo, orange, purple, violet, fuchsia and pink go to the orange ramp (600 is rx); slate, gray and zinc to the neutral greys; cyan and teal to a charcoal ramp (600 to 900 are near ink). Red, amber, yellow, green and emerald keep their status meaning. New code uses named tokens.
+
+**The Status Rule.** Order and kit statuses read as neutral, pop or status: awaiting payment grey; awaiting cards amber; received / paid orange wash; in progress solid orange (`bg-rx text-white`); completed green; shipped, shipped back and in transit solid ink (`bg-ink text-paper`); delivered emerald; cancelled red. Tier badges in the admin: Bronze amber, Silver light slate, Gold yellow, Platinum darker slate, Diamond solid ink, Fast Pass orange. Actions are always orange, never green.
 
 **The No Rainbow Rule (tiers).** Tiers are identified by a polished metal swatch (44 x 14px) and the tier name, never by recoloring the panel. Metals: bronze, silver, gold, platinum, diamond (pearl/holo), Fast Pass (signal orange). Diamond alone gets a holo edge.
 
@@ -294,6 +296,15 @@ Ink stage. Brand block and contact links (20px serif, rx-bright on hover), then 
 
 ### FAQ Disclosure
 Native details between hairlines under an ink rule; 18 to 20px serif question; circular toggle; an orange rule draws under the row on hover and stays while open.
+
+### 404
+`app/not-found.tsx` (unmatched URLs, with its own brand mark), `app/(public)/not-found.tsx` and `app/admin/not-found.tsx` (inside their layouts) share `<NotFoundPanel/>`: a display-size serif "404", a 6px orange band, Next's default line "This page could not be found." and a primary "Back to home".
+
+### Toasts
+Sonner toasts use Schibsted Grotesk and ink text with a hairline border (`[data-sonner-toaster]` in `globals.css`); rich success / error colors are status and stay.
+
+### Emails
+Transactional emails (HTML strings in `app/api/**` and `lib/checkout-error-log.ts`) follow the site in web-safe form: Helvetica/Arial body, Georgia headings, signal orange `#c34104` for buttons, links and code boxes (`#fff5f0` wash, `#7c2704` deep), charcoal `#1e1d1a` for tracking numbers. Error alerts stay red, notices amber, gift-card receipts green.
 
 ### Notices, Icons
 Unchanged: amber notices carry the owner's warnings; lucide-react at stroke 1.75, bare beside text.

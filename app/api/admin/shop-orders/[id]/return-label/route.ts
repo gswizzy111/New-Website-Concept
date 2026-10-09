@@ -199,20 +199,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         to: order.customer_email as string,
         subject: `Your order is on the way! — ${businessName}`,
         html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-size:22px;font-weight:900;margin-bottom:4px">Your order has shipped!</h1>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">Your order has shipped!</h1>
             <p>Hi ${firstName}, your kit order is on its way to you.</p>
 
-            <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:20px;margin:20px 0">
-              <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#0891b2">Tracking Number</p>
-              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#0e7490;letter-spacing:0.05em">${trackingNumber}</p>
+            <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
+              <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Tracking Number</p>
+              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${trackingNumber}</p>
               ${trackingUrl
-                ? `<a href="${trackingUrl}" style="display:inline-block;background:#0891b2;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
+                ? `<a href="${trackingUrl}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
                 : ""}
             </div>
 
             <p style="font-size:14px;color:#666;">You can also copy the tracking number above and paste it on your carrier's website to follow your package.</p>
-            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}" style="color:#c0392b">${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}</a></p>
+            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}" style="color:#c34104">${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}</a></p>
             <p style="font-size:13px;color:#999">${businessName}</p>
           </div>
         `,

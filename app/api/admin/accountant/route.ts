@@ -41,12 +41,12 @@ export async function POST(request: Request) {
       to: email,
       subject: `You've been invited to access The Card Doc admin — ${businessName}`,
       html: `
-        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;color:#111">
-          <h1 style="font-size:22px;font-weight:900;margin-bottom:4px">You've been invited</h1>
+        <div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
+          <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">You've been invited</h1>
           <p>Hi ${name.split(" ")[0]}, you've been granted accountant access to The Card Doc admin dashboard.</p>
           <p style="color:#555;font-size:14px">You'll be able to view tax reports, P&L, statements, and orders — but won't be able to make any changes.</p>
           <div style="margin:28px 0">
-            <a href="${setupUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">
+            <a href="${setupUrl}" style="display:inline-block;background:#a23200;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">
               Set Your Password →
             </a>
           </div>

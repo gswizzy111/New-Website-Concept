@@ -64,7 +64,7 @@ export default async function PartnerDashboard() {
         </div>
 
         {/* Profit banner */}
-        <div className="bg-primary rounded-xl p-6 mb-4 flex items-center justify-between">
+        <div className="bg-ink rounded-xl p-6 mb-4 flex items-center justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-widest text-primary-foreground/70 mb-1">Total Profit Earned</p>
             <p className="font-heading font-black text-4xl text-primary-foreground">${totalProfit.toFixed(2)}</p>

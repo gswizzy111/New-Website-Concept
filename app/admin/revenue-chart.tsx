@@ -198,13 +198,13 @@ export function RevenueChart({ entries, label = "Revenue" }: { entries: Entry[];
             tickFormatter={(v) => `$${v}`}
           />
           <Tooltip content={<CustomTooltip range={range} />} />
-          <Bar dataKey="revenue" fill="oklch(0.55 0.22 265)" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="orders" fill="oklch(0.75 0.15 265)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="revenue" fill="var(--rx)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="orders" fill="oklch(0.8 0.005 80)" radius={[4, 4, 0, 0]} />
           {showTrend && (
             <Line
               dataKey="trend"
               type="monotone"
-              stroke="#f97316"
+              stroke="var(--ink)"
               strokeWidth={2}
               dot={false}
               connectNulls={false}
@@ -218,11 +218,11 @@ export function RevenueChart({ entries, label = "Revenue" }: { entries: Entry[];
           <span className="w-3 h-3 rounded-sm bg-primary inline-block" />Revenue
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "oklch(0.75 0.15 265)" }} />Orders
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "oklch(0.8 0.005 80)" }} />Orders
         </div>
         {showTrend && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="w-3 h-0.5 bg-orange-500 inline-block" />
+            <span className="w-3 h-0.5 bg-ink inline-block" />
             {range === "all" ? "3-mo avg" : "7-day avg"}
           </div>
         )}

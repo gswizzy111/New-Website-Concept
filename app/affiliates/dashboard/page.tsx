@@ -90,7 +90,7 @@ export default async function AffiliateDashboard() {
         </div>
 
         {/* Earnings banner */}
-        <div className="bg-green-600 rounded-xl p-6 mb-6">
+        <div className="bg-ink rounded-xl p-6 mb-6">
           <p className="text-xs font-bold uppercase tracking-widest text-white/70 mb-1">Total Earned</p>
           <p className="font-heading font-black text-4xl text-white">${earnings.toFixed(2)}</p>
           <p className="text-white/70 text-sm mt-1">

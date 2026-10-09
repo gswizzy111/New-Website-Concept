@@ -47,11 +47,13 @@
 }
 
 /*
- * Palette remap. Pages written before the redesign use Tailwind's blue/sky/
- * indigo and slate/gray/zinc scales directly. Pointing those scales at the
- * signal orange and the neutral greys keeps every screen (including admin)
- * on-brand without touching page logic. Status hues (red, amber, emerald)
- * keep their meaning.
+ * Palette remap. Pages written before the redesign use Tailwind's color
+ * scales directly. Pointing them at the brand keeps every screen (account,
+ * order tracking, admin) on-brand without touching page logic:
+ *   blue, sky, indigo, orange, purple, violet, fuchsia, pink -> signal orange
+ *   slate, gray, zinc                                        -> neutral greys
+ *   cyan, teal                                               -> charcoal (ink) ramp
+ * Status hues (red, amber, yellow, green, emerald) keep their meaning.
  */
 @theme {
   --color-blue-50: oklch(0.977 0.012 50);
@@ -89,6 +91,90 @@
   --color-indigo-800: oklch(0.4 0.125 39);
   --color-indigo-900: oklch(0.33 0.095 39);
   --color-indigo-950: oklch(0.24 0.065 39);
+
+  --color-orange-50: oklch(0.977 0.012 50);
+  --color-orange-100: oklch(0.955 0.022 52);
+  --color-orange-200: oklch(0.91 0.05 50);
+  --color-orange-300: oklch(0.84 0.095 50);
+  --color-orange-400: oklch(0.74 0.145 48);
+  --color-orange-500: oklch(0.65 0.175 42);
+  --color-orange-600: oklch(0.555 0.176 39);
+  --color-orange-700: oklch(0.48 0.155 39);
+  --color-orange-800: oklch(0.4 0.125 39);
+  --color-orange-900: oklch(0.33 0.095 39);
+  --color-orange-950: oklch(0.24 0.065 39);
+
+  --color-purple-50: oklch(0.977 0.012 50);
+  --color-purple-100: oklch(0.955 0.022 52);
+  --color-purple-200: oklch(0.91 0.05 50);
+  --color-purple-300: oklch(0.84 0.095 50);
+  --color-purple-400: oklch(0.74 0.145 48);
+  --color-purple-500: oklch(0.65 0.175 42);
+  --color-purple-600: oklch(0.555 0.176 39);
+  --color-purple-700: oklch(0.48 0.155 39);
+  --color-purple-800: oklch(0.4 0.125 39);
+  --color-purple-900: oklch(0.33 0.095 39);
+  --color-purple-950: oklch(0.24 0.065 39);
+
+  --color-violet-50: oklch(0.977 0.012 50);
+  --color-violet-100: oklch(0.955 0.022 52);
+  --color-violet-200: oklch(0.91 0.05 50);
+  --color-violet-300: oklch(0.84 0.095 50);
+  --color-violet-400: oklch(0.74 0.145 48);
+  --color-violet-500: oklch(0.65 0.175 42);
+  --color-violet-600: oklch(0.555 0.176 39);
+  --color-violet-700: oklch(0.48 0.155 39);
+  --color-violet-800: oklch(0.4 0.125 39);
+  --color-violet-900: oklch(0.33 0.095 39);
+  --color-violet-950: oklch(0.24 0.065 39);
+
+  --color-fuchsia-50: oklch(0.977 0.012 50);
+  --color-fuchsia-100: oklch(0.955 0.022 52);
+  --color-fuchsia-200: oklch(0.91 0.05 50);
+  --color-fuchsia-300: oklch(0.84 0.095 50);
+  --color-fuchsia-400: oklch(0.74 0.145 48);
+  --color-fuchsia-500: oklch(0.65 0.175 42);
+  --color-fuchsia-600: oklch(0.555 0.176 39);
+  --color-fuchsia-700: oklch(0.48 0.155 39);
+  --color-fuchsia-800: oklch(0.4 0.125 39);
+  --color-fuchsia-900: oklch(0.33 0.095 39);
+  --color-fuchsia-950: oklch(0.24 0.065 39);
+
+  --color-pink-50: oklch(0.977 0.012 50);
+  --color-pink-100: oklch(0.955 0.022 52);
+  --color-pink-200: oklch(0.91 0.05 50);
+  --color-pink-300: oklch(0.84 0.095 50);
+  --color-pink-400: oklch(0.74 0.145 48);
+  --color-pink-500: oklch(0.65 0.175 42);
+  --color-pink-600: oklch(0.555 0.176 39);
+  --color-pink-700: oklch(0.48 0.155 39);
+  --color-pink-800: oklch(0.4 0.125 39);
+  --color-pink-900: oklch(0.33 0.095 39);
+  --color-pink-950: oklch(0.24 0.065 39);
+
+  --color-cyan-50: oklch(0.975 0.002 85);
+  --color-cyan-100: oklch(0.945 0.003 80);
+  --color-cyan-200: oklch(0.9 0.004 80);
+  --color-cyan-300: oklch(0.83 0.005 80);
+  --color-cyan-400: oklch(0.65 0.006 75);
+  --color-cyan-500: oklch(0.45 0.006 70);
+  --color-cyan-600: oklch(0.29 0.005 70);
+  --color-cyan-700: oklch(0.23 0.005 70);
+  --color-cyan-800: oklch(0.21 0.004 70);
+  --color-cyan-900: oklch(0.19 0.004 70);
+  --color-cyan-950: oklch(0.16 0.004 70);
+
+  --color-teal-50: oklch(0.975 0.002 85);
+  --color-teal-100: oklch(0.945 0.003 80);
+  --color-teal-200: oklch(0.9 0.004 80);
+  --color-teal-300: oklch(0.83 0.005 80);
+  --color-teal-400: oklch(0.65 0.006 75);
+  --color-teal-500: oklch(0.45 0.006 70);
+  --color-teal-600: oklch(0.29 0.005 70);
+  --color-teal-700: oklch(0.23 0.005 70);
+  --color-teal-800: oklch(0.21 0.004 70);
+  --color-teal-900: oklch(0.19 0.004 70);
+  --color-teal-950: oklch(0.16 0.004 70);
 
   --color-slate-50: oklch(0.985 0.002 85);
   --color-slate-100: oklch(0.955 0.003 80);
@@ -774,6 +860,15 @@ button, [role="button"], summary, nav a, .btn-depth {
   a[role="button"]:active {
     transform: translateY(1px);
   }
+}
+
+/* Toasts (sonner): the site's typeface and ink instead of sonner's system stack. */
+html [data-sonner-toaster] {
+  font-family: var(--font-sans);
+}
+html [data-sonner-toaster][data-sonner-theme="light"] {
+  --normal-text: var(--ink);
+  --normal-border: var(--rule);
 }
 
 /* "Trusted by" marquee: two copies of the list slide one width left, forever,

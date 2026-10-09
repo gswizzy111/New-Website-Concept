@@ -64,17 +64,17 @@ export async function POST(request: Request) {
           to: recipientEmail,
           subject: `You received a ${amountStr} Gift Card — ${businessName}`,
           html: `
-            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-              <h1 style="font-size:24px;font-weight:900;margin-bottom:4px">You got a gift card! 🎁</h1>
+            <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+              <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:900;margin-bottom:4px">You got a gift card! 🎁</h1>
               <p>Hi ${recipientFirstName},${isSelfPurchase ? " your gift card is ready to use." : ` ${purchaserName} sent you a gift card for ${businessName}.`}</p>
-              ${personalMessage ? `<div style="background:#f8f9fa;border-left:4px solid #1a8fe0;padding:12px 16px;margin:16px 0;border-radius:4px;font-style:italic;color:#444">"${personalMessage}"</div>` : ""}
-              <div style="background:#eff6ff;border:2px solid #1a8fe0;border-radius:16px;padding:24px;margin:24px 0;text-align:center">
-                <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#1a8fe0">Your Gift Card Code</p>
-                <p style="margin:0 0 8px;font-family:monospace;font-size:32px;font-weight:900;color:#0d47a1;letter-spacing:0.1em">${code}</p>
-                <p style="margin:0;font-size:20px;font-weight:700;color:#1a8fe0">${amountStr} Value</p>
+              ${personalMessage ? `<div style="background:#f8f9fa;border-left:4px solid #c34104;padding:12px 16px;margin:16px 0;border-radius:4px;font-style:italic;color:#444">"${personalMessage}"</div>` : ""}
+              <div style="background:#fff5f0;border:2px solid #c34104;border-radius:16px;padding:24px;margin:24px 0;text-align:center">
+                <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#c34104">Your Gift Card Code</p>
+                <p style="margin:0 0 8px;font-family:monospace;font-size:32px;font-weight:900;color:#7c2704;letter-spacing:0.1em">${code}</p>
+                <p style="margin:0;font-size:20px;font-weight:700;color:#c34104">${amountStr} Value</p>
               </div>
               <p style="font-size:14px;color:#444">To redeem, enter this code in the <strong>"Gift Card"</strong> field at checkout when placing a restoration order.</p>
-              <a href="${appUrl}/restoration" style="display:inline-block;background:#1a8fe0;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin:8px 0 24px">Start a Restoration Order →</a>
+              <a href="${appUrl}/restoration" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin:8px 0 24px">Start a Restoration Order →</a>
               <p style="font-size:12px;color:#999">Gift cards never expire and can be used on any restoration order. ${businessName}</p>
             </div>
           `,
@@ -91,8 +91,8 @@ export async function POST(request: Request) {
             to: purchaserEmail,
             subject: `Gift Card Sent — ${businessName}`,
             html: `
-              <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-                <h1 style="font-size:22px;font-weight:900;margin-bottom:4px">Gift Card Sent!</h1>
+              <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+                <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">Gift Card Sent!</h1>
                 <p>Hi ${purchaserName.split(" ")[0] || "there"}, your ${amountStr} gift card has been sent to <strong>${recipientEmail}</strong>.</p>
                 <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:16px;margin:16px 0">
                   <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:0.05em">Gift Card Code</p>
@@ -202,8 +202,8 @@ export async function POST(request: Request) {
             to: customerEmail,
             subject: `Order Confirmed — ${businessName}`,
             html: `
-              <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-                <h1 style="font-size:22px;font-weight:900">Order Confirmed</h1>
+              <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+                <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900">Order Confirmed</h1>
                 <p>Hi ${customerName.split(" ")[0] || "there"}, your order has been placed and will ship within 1-2 business days.</p>
                 <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px">
                   ${itemsHtml}
@@ -230,13 +230,13 @@ export async function POST(request: Request) {
           to: adminEmail,
           subject: `New Kit Order — ${customerName}`,
           html: `
-            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-              <h1 style="font-size:20px;font-weight:900">New kit order!</h1>
+            <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+              <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">New kit order!</h1>
               <p><strong>${customerName}</strong> just purchased a kit.</p>
               <p style="color:#666;font-size:14px">${customerEmail} · ${customerPhone}</p>
               ${addrLine ? `<p style="font-size:14px"><strong>Ship to:</strong> ${addrLine}</p>` : ""}
               <p style="font-size:14px"><strong>Total:</strong> $${(totalCents / 100).toFixed(2)}</p>
-              <a href="${appUrl}/admin/shop-orders" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Kit Orders</a>
+              <a href="${appUrl}/admin/shop-orders" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Kit Orders</a>
             </div>
           `,
         });
@@ -292,8 +292,8 @@ export async function POST(request: Request) {
             to: subCustomerEmail,
             subject: `Welcome to Monthly Kit Club — ${businessName}`,
             html: `
-              <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-                <h1 style="font-size:22px;font-weight:900">Welcome to Monthly Kit Club!</h1>
+              <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+                <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900">Welcome to Monthly Kit Club!</h1>
                 <p>Hi ${subCustomerName.split(" ")[0] || "there"}, you&rsquo;re officially subscribed.</p>
                 <p>Your first kit will ship within 1-2 business days. After that, you&rsquo;ll be billed $${(subFirstPriceCents / 100).toFixed(2)} on the same day each month and a new kit will be on its way.</p>
                 <p>You can cancel anytime by emailing us at <a href="mailto:${fromEmail}">${fromEmail}</a>.</p>
@@ -500,11 +500,11 @@ export async function POST(request: Request) {
 
     const inboundShippingBlock = inboundTrackingNumber
       ? `
-        <div style="background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:16px;margin:16px 0">
-          <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#0891b2">Inbound Tracking</p>
-          <p style="margin:0 0 8px;font-family:monospace;font-size:18px;font-weight:900;color:#0e7490">${inboundTrackingNumber}</p>
-          ${inboundEta ? `<p style="margin:0 0 4px;font-size:13px;color:#0891b2">Estimated arrival: <strong>${new Date(inboundEta).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</strong></p>` : ""}
-          ${inboundTrackingUrl ? `<a href="${inboundTrackingUrl}" style="font-size:13px;color:#0891b2">Track on carrier website →</a>` : ""}
+        <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:16px;margin:16px 0">
+          <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Inbound Tracking</p>
+          <p style="margin:0 0 8px;font-family:monospace;font-size:18px;font-weight:900;color:#1e1d1a">${inboundTrackingNumber}</p>
+          ${inboundEta ? `<p style="margin:0 0 4px;font-size:13px;color:#2d2b29">Estimated arrival: <strong>${new Date(inboundEta).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</strong></p>` : ""}
+          ${inboundTrackingUrl ? `<a href="${inboundTrackingUrl}" style="font-size:13px;color:#2d2b29">Track on carrier website →</a>` : ""}
         </div>`
       : `<p style="font-size:14px;color:#666;">Customer is self-shipping — no prepaid label.</p>`;
 
@@ -517,8 +517,8 @@ export async function POST(request: Request) {
           ? `🔬 New Prep Order #${o.order_number} — ${o.customer_name}`
           : `📦 New Restoration Order #${o.order_number} — ${o.customer_name}`,
         html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-size:20px;font-weight:900">${isPrep ? "New prep order!" : "New restoration order!"}</h1>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">${isPrep ? "New prep order!" : "New restoration order!"}</h1>
             <p><strong>${o.customer_name}</strong> just placed order <strong>#${o.order_number}</strong>.</p>
             <table style="font-size:14px;width:100%;border-collapse:collapse;margin:12px 0">
               <tr><td style="padding:4px 0;color:#666;width:120px">Email</td><td style="font-weight:600">${o.customer_email}</td></tr>
@@ -527,7 +527,7 @@ export async function POST(request: Request) {
               <tr><td style="padding:4px 0;color:#666">Shipping</td><td style="font-weight:600">${o.inbound_carrier ? `${o.inbound_carrier} — ${o.inbound_service_level}` : "Self-ship"}</td></tr>
             </table>
             ${inboundShippingBlock}
-            <a href="${appUrl2}/admin/orders/${orderId}" style="display:inline-block;background:#c0392b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
+            <a href="${appUrl2}/admin/orders/${orderId}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
           </div>
         `,
       });
@@ -542,17 +542,17 @@ export async function POST(request: Request) {
 
     const firstName = order.customer_name?.split(" ")[0] ?? "there";
     const shippingSection = shippingLabelUrl
-      ? `<div style="background:#eff6ff;border:2px solid #93c5fd;border-radius:12px;padding:24px;margin:24px 0">
-          <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#1e3a8a">📦 Your Prepaid Shipping Label Is Ready</p>
+      ? `<div style="background:#fff5f0;border:2px solid #feb993;border-radius:12px;padding:24px;margin:24px 0">
+          <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#5c1f08">📦 Your Prepaid Shipping Label Is Ready</p>
           ${isInternational ? `<div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:12px;margin-bottom:14px"><p style="margin:0;font-size:13px;font-weight:700;color:#92400e">⚠️ International shipment — you MUST bring this to a carrier counter or post office in person. Do not drop in a mailbox. You may also need to present the customs form to the agent.</p></div>` : ""}
-          <p style="margin:0 0 16px;color:#1e40af;font-size:14px;line-height:1.6">We've generated a prepaid label for you. Just:</p>
-          <ol style="margin:0 0 16px;padding-left:20px;color:#1e40af;font-size:14px;line-height:2">
+          <p style="margin:0 0 16px;color:#7c2704;font-size:14px;line-height:1.6">We've generated a prepaid label for you. Just:</p>
+          <ol style="margin:0 0 16px;padding-left:20px;color:#7c2704;font-size:14px;line-height:2">
             <li>Package your cards securely in a bubble mailer or small box</li>
             <li>Print the label${isInternational && inboundCustomsFormUrl ? " and customs form" : ""} and tape the label to the outside</li>
             <li>${isInternational ? "Bring the package to your nearest post office or carrier counter — do not use a mailbox" : "Drop the package off at your nearest carrier location"}</li>
           </ol>
-          <a href="${shippingLabelUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
-          ${isInternational && inboundCustomsFormUrl ? `<br><br><a href="${inboundCustomsFormUrl}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Customs Form (PDF)</a>` : ""}
+          <a href="${shippingLabelUrl}" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
+          ${isInternational && inboundCustomsFormUrl ? `<br><br><a href="${inboundCustomsFormUrl}" style="display:inline-block;background:#1e1d1a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Customs Form (PDF)</a>` : ""}
         </div>`
       : `<div style="background:#fefce8;border:2px solid #fbbf24;border-radius:12px;padding:24px;margin:24px 0">
           <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#78350f">📬 Ship Your Cards To Us</p>
@@ -580,12 +580,12 @@ export async function POST(request: Request) {
           ? `Prep Order Confirmed — ${businessName} #${order.order_number}`
           : `Restoration Order Confirmed — ${businessName} #${order.order_number}`,
         html: `
-          <div style="font-family:sans-serif;max-width:580px;margin:0 auto;color:#111">
-            <div style="background:#1d4ed8;border-radius:12px 12px 0 0;padding:24px;text-align:center">
-              <p style="margin:0;color:#bfdbfe;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${businessName}</p>
-              <h1 style="margin:6px 0 0;color:#fff;font-size:28px;font-weight:900">${isPrep ? "Prep Order Confirmed ✓" : "Restoration Order Confirmed ✓"}</h1>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:580px;margin:0 auto;color:#111">
+            <div style="background:#a23200;border-radius:12px 12px 0 0;padding:24px;text-align:center">
+              <p style="margin:0;color:#fed8c4;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${businessName}</p>
+              <h1 style="font-family:Georgia,'Times New Roman',serif;margin:6px 0 0;color:#fff;font-size:28px;font-weight:900">${isPrep ? "Prep Order Confirmed ✓" : "Restoration Order Confirmed ✓"}</h1>
             </div>
-            <div style="background:#fff;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;padding:28px">
+            <div style="background:#fff;border:1px solid #e6e4e2;border-top:0;border-radius:0 0 12px 12px;padding:28px">
               <p style="color:#666;margin:0 0 4px;font-size:13px">Order number</p>
               <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${order.order_number}</p>
               <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6">Hi ${firstName}! 👋 Thank you for your ${isPrep ? "prep" : "restoration"} order. Here's what to do next to get your cards to us.</p>
@@ -593,9 +593,9 @@ export async function POST(request: Request) {
               <div style="text-align:center;margin:24px 0">
                 <a href="${trackingUrl}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
               </div>
-              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+              <hr style="border:none;border-top:1px solid #e6e4e2;margin:24px 0">
               <p style="font-size:13px;color:#666;margin:0 0 6px">Questions? We're always happy to help:</p>
-              <p style="font-size:13px;color:#333;margin:0">Instagram: <a href="https://instagram.com/the_card_doc" style="color:#1d4ed8;font-weight:600">@the_card_doc</a></p>
+              <p style="font-size:13px;color:#333;margin:0">Instagram: <a href="https://instagram.com/the_card_doc" style="color:#a23200;font-weight:600">@the_card_doc</a></p>
             </div>
           </div>
         `,

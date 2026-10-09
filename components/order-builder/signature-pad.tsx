@@ -48,7 +48,7 @@ export function SignaturePad({ onSign, onClear }: SignaturePadProps) {
     ctx.lineWidth = 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#111827";
+    ctx.strokeStyle = "#151312";
     ctx.lineTo(x, y);
     ctx.stroke();
   }

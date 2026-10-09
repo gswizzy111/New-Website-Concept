@@ -34,18 +34,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         to: order.customer_email as string,
         subject: `Restoration complete — notes from The Card Doc`,
         html: `
-          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-size:22px;font-weight:900;margin-bottom:4px">Your restoration is complete!</h1>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">Your restoration is complete!</h1>
             <p>Hi ${firstName}, we finished working on your cards and wanted to share our notes.</p>
 
-            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin:20px 0">
-              <p style="margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Restoration Notes</p>
+            <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
+              <p style="margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#74716e">Restoration Notes</p>
               <p style="margin:0;font-size:15px;color:#111;white-space:pre-wrap;">${notes.trim()}</p>
             </div>
 
-            <a href="${orderTrackingUrl}" style="display:inline-block;background:#c0392b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin-bottom:24px">View Your Order →</a>
+            <a href="${orderTrackingUrl}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin-bottom:24px">View Your Order →</a>
 
-            <p style="font-size:14px;color:#666;">Questions? Reply to this email or reach out at <a href="mailto:${fromEmail}" style="color:#c0392b">${fromEmail}</a>.</p>
+            <p style="font-size:14px;color:#666;">Questions? Reply to this email or reach out at <a href="mailto:${fromEmail}" style="color:#c34104">${fromEmail}</a>.</p>
             <p style="font-size:13px;color:#999">${businessName}</p>
           </div>
         `,

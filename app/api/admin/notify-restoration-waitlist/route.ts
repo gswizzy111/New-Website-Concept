@@ -20,7 +20,7 @@ function personalize(template: string, firstName: string): string {
 
 function bodyToHtml(body: string): string {
   return `
-    <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111;line-height:1.6">
+    <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;line-height:1.6">
       ${body
         .split("\n")
         .map((line) =>
@@ -30,7 +30,7 @@ function bodyToHtml(body: string): string {
         )
         .join("")}
       <p style="margin:24px 0">
-        <a href="${bookingUrl}" style="background:#1a8fe0;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:15px">
+        <a href="${bookingUrl}" style="background:#c34104;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:15px">
           Book Your Restoration
         </a>
       </p>

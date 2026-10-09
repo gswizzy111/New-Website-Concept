@@ -44,17 +44,17 @@ export async function POST(request: Request) {
     const labelUrl = order.shipping_label_url as string | null;
 
     const shippingSection = labelUrl
-      ? `<div style="background:#eff6ff;border:2px solid #93c5fd;border-radius:12px;padding:24px;margin:24px 0">
-          <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#1e3a8a">📦 Your Prepaid Shipping Label Is Ready</p>
-          <p style="margin:0 0 16px;color:#1e40af;font-size:14px;line-height:1.6">
+      ? `<div style="background:#fff5f0;border:2px solid #feb993;border-radius:12px;padding:24px;margin:24px 0">
+          <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#5c1f08">📦 Your Prepaid Shipping Label Is Ready</p>
+          <p style="margin:0 0 16px;color:#7c2704;font-size:14px;line-height:1.6">
             We've generated a prepaid label for you. Just:
           </p>
-          <ol style="margin:0 0 16px;padding-left:20px;color:#1e40af;font-size:14px;line-height:2">
+          <ol style="margin:0 0 16px;padding-left:20px;color:#7c2704;font-size:14px;line-height:2">
             <li>Package your cards securely in a bubble mailer or small box</li>
             <li>Print the label below and tape it to the outside</li>
             <li>Drop the package off at your nearest carrier location</li>
           </ol>
-          <a href="${labelUrl}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
+          <a href="${labelUrl}" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
         </div>`
       : `<div style="background:#fefce8;border:2px solid #fbbf24;border-radius:12px;padding:24px;margin:24px 0">
           <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#78350f">📬 Ship Your Cards To Us</p>
@@ -82,12 +82,12 @@ export async function POST(request: Request) {
         to: order.customer_email,
         subject: `Order Confirmed — ${businessName} #${order.order_number}`,
         html: `
-          <div style="font-family:sans-serif;max-width:580px;margin:0 auto;color:#111">
-            <div style="background:#1d4ed8;border-radius:12px 12px 0 0;padding:24px;text-align:center">
-              <p style="margin:0;color:#bfdbfe;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${businessName}</p>
-              <h1 style="margin:6px 0 0;color:#fff;font-size:28px;font-weight:900">Order Confirmed ✓</h1>
+          <div style="font-family:Helvetica,Arial,sans-serif;max-width:580px;margin:0 auto;color:#111">
+            <div style="background:#a23200;border-radius:12px 12px 0 0;padding:24px;text-align:center">
+              <p style="margin:0;color:#fed8c4;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${businessName}</p>
+              <h1 style="font-family:Georgia,'Times New Roman',serif;margin:6px 0 0;color:#fff;font-size:28px;font-weight:900">Order Confirmed ✓</h1>
             </div>
-            <div style="background:#fff;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;padding:28px">
+            <div style="background:#fff;border:1px solid #e6e4e2;border-top:0;border-radius:0 0 12px 12px;padding:28px">
               <p style="color:#666;margin:0 0 4px;font-size:13px">Order number</p>
               <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${order.order_number}</p>
               <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6">
@@ -97,10 +97,10 @@ export async function POST(request: Request) {
               <div style="text-align:center;margin:24px 0">
                 <a href="${trackingUrl}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
               </div>
-              <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+              <hr style="border:none;border-top:1px solid #e6e4e2;margin:24px 0">
               <p style="font-size:13px;color:#666;margin:0 0 6px">Questions? We're always happy to help:</p>
               <p style="font-size:13px;color:#333;margin:0">
-                Instagram: <a href="https://instagram.com/the_card_doc" style="color:#1d4ed8;font-weight:600">@the_card_doc</a>
+                Instagram: <a href="https://instagram.com/the_card_doc" style="color:#a23200;font-weight:600">@the_card_doc</a>
               </p>
             </div>
           </div>
