@@ -6,7 +6,6 @@ import { CartProvider } from "@/lib/cart-context";
 import { PreviewBanner } from "@/components/marketing/preview-banner";
 import { RevealObserver } from "@/components/motion/reveal-observer";
 import { SpotlightTracker } from "@/components/motion/spotlight-tracker";
-import { SmoothScroll } from "@/components/motion/smooth-scroll";
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,7 +20,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <RestorationBubble />
       <RevealObserver />
       <SpotlightTracker />
-      <SmoothScroll />
       <div aria-hidden className="grain-overlay vt-grain" />
     </CartProvider>
   );

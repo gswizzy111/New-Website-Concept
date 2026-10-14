@@ -131,7 +131,7 @@ export default function WhatWeCanFixPage() {
       {/* One section per card type */}
       <div className="max-w-6xl mx-auto px-4 md:px-10 pb-20 md:pb-28 flex flex-col gap-16 md:gap-24">
         {CATEGORIES.map((c, i) => (
-          <section key={c.id} id={c.id} aria-labelledby={`${c.id}-title`} className="scroll-mt-28">
+          <section key={c.id} id={c.id} aria-labelledby={`${c.id}-title`}>
             <div data-reveal className="mb-7 md:mb-9 border-t border-ink/80 pt-5 md:pt-6">
               <p className="rx-label text-rx mb-3 tabular-nums">{String(i + 1).padStart(2, "0")}</p>
               <h2

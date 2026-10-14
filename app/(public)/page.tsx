@@ -3,7 +3,6 @@ import Image from "next/image";
 import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, ShieldCheck, Sparkles, Star, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
-import { HoloSpecimen } from "@/components/motion/holo-specimen";
 import { ParallaxWall } from "@/components/motion/parallax-wall";
 import { ScanReveal } from "@/components/motion/scan-reveal";
 import { ScrollFan } from "@/components/motion/scroll-fan";
@@ -169,24 +168,23 @@ export default async function HomePage() {
               </div>
             </div>
 
+            {/* Held still: only the compare bar moves, and only when dragged. */}
             <div className="specimen-land relative z-10">
-              <HoloSpecimen>
-                <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.006_70/0.55)]">
-                  <div className="p-2 md:p-3">
-                    <BeforeAfter
-                      before={mantleBefore}
-                      after={mantleAfter}
-                      beforeAlt="A Mickey Mantle card before restoration, cracked across the face and jersey"
-                      afterAlt="The same Mickey Mantle card after restoration"
-                      sizes="(min-width: 1280px) 440px, (min-width: 1024px) 34vw, 92vw"
-                      priority
-                    />
-                  </div>
-                  <div className="bg-rx px-4 py-2">
-                    <span className="rx-label text-primary-foreground">The Card Doc</span>
-                  </div>
+              <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.006_70/0.55)]">
+                <div className="p-2 md:p-3">
+                  <BeforeAfter
+                    before={mantleBefore}
+                    after={mantleAfter}
+                    beforeAlt="A Mickey Mantle card before restoration, cracked across the face and jersey"
+                    afterAlt="The same Mickey Mantle card after restoration"
+                    sizes="(min-width: 1280px) 440px, (min-width: 1024px) 34vw, 92vw"
+                    priority
+                  />
                 </div>
-              </HoloSpecimen>
+                <div className="bg-rx px-4 py-2">
+                  <span className="rx-label text-primary-foreground">The Card Doc</span>
+                </div>
+              </div>
             </div>
           </figure>
 
