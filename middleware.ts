@@ -45,6 +45,16 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Admin APIs: each route checks its own role too; this backstop keeps a
+  // route that forgets from being open to everyone.
+  if (pathname.startsWith("/api/admin/")) {
+    const isAuthRoute = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
+    if (!isAuthRoute && !isAdminSession) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
   // Admin auth (always runs)
   if (pathname.startsWith("/admin")) {
     if (pathname.startsWith("/admin/login")) return NextResponse.next();
