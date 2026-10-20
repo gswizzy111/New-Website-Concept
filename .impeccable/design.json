@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-30T00:00:00Z",
+  "title": "Design System: The Card Doc",
+  "extensions": {
+    "colorMeta": {
+      "rx": { "role": "primary", "displayName": "Clinical Green", "canonical": "oklch(0.47 0.095 165)", "tonalRamp": ["oklch(0.2 0.036 165)", "oklch(0.27 0.05 165)", "oklch(0.33 0.065 165)", "oklch(0.4 0.08 165)", "oklch(0.47 0.095 165)", "oklch(0.58 0.105 165)", "oklch(0.83 0.075 165)", "oklch(0.95 0.028 165)"] },
+      "rx-soft": { "role": "primary", "displayName": "Green Wash", "canonical": "oklch(0.955 0.025 165)", "tonalRamp": ["oklch(0.2 0.036 165)", "oklch(0.33 0.065 165)", "oklch(0.47 0.095 165)", "oklch(0.71 0.095 165)", "oklch(0.83 0.075 165)", "oklch(0.9 0.05 165)", "oklch(0.955 0.025 165)", "oklch(0.975 0.014 165)"] },
+      "ink": { "role": "neutral", "displayName": "Clinical Ink", "canonical": "oklch(0.2 0.02 170)", "tonalRamp": ["oklch(0.16 0.014 165)", "oklch(0.2 0.02 170)", "oklch(0.28 0.016 165)", "oklch(0.37 0.016 165)", "oklch(0.45 0.015 165)", "oklch(0.54 0.014 165)", "oklch(0.7 0.012 165)", "oklch(0.87 0.009 165)"] },
+      "paper": { "role": "neutral", "displayName": "Label Paper", "canonical": "oklch(0.99 0.003 165)", "tonalRamp": ["oklch(0.21 0.016 165)", "oklch(0.37 0.016 165)", "oklch(0.54 0.014 165)", "oklch(0.7 0.012 165)", "oklch(0.87 0.009 165)", "oklch(0.925 0.007 165)", "oklch(0.965 0.005 165)", "oklch(0.99 0.003 165)"] },
+      "panel": { "role": "neutral", "displayName": "Pure Panel", "canonical": "oklch(1 0 0)" },
+      "rule": { "role": "neutral", "displayName": "Hairline", "canonical": "oklch(0.88 0.01 165)" },
+      "input-stroke": { "role": "neutral", "displayName": "Input Stroke", "canonical": "oklch(0.86 0.01 165)" },
+      "muted-surface": { "role": "neutral", "displayName": "Muted Surface", "canonical": "oklch(0.965 0.005 165)" },
+      "muted-ink": { "role": "neutral", "displayName": "Grey Ink", "canonical": "oklch(0.45 0.015 165)" },
+      "selection": { "role": "neutral", "displayName": "Selection Mint", "canonical": "oklch(0.87 0.07 165)" },
+      "destructive": { "role": "status", "displayName": "Destructive Red", "canonical": "oklch(0.52 0.19 27)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Home and About headlines only; Archivo 800 narrowed to wdth 80." },
+      "headline": { "displayName": "Page Title", "purpose": "Page h1s on tier selection, prep, how it works; wdth 82." },
+      "section": { "displayName": "Section", "purpose": "Section h2s; base heading width 88." },
+      "title": { "displayName": "Title", "purpose": "Tier names, panel titles, service names." },
+      "figure": { "displayName": "Figure", "purpose": "Prices and stats in the heading face with tabular numerals." },
+      "body": { "displayName": "Body", "purpose": "Answers and descriptions at full width; max 65ch." },
+      "lead": { "displayName": "Lead", "purpose": "Subline under a page title, Grey Ink." },
+      "label": { "displayName": "Rx Label", "purpose": "Mono uppercase data keys, codes and captions." },
+      "data": { "displayName": "Data", "purpose": "Mono price notes, units, from-prices." }
+    },
+    "shadows": [
+      { "name": "hover-lift", "value": "0 16px 32px -20px oklch(0.3 0.04 165 / 0.35)", "purpose": "Tier panels on hover only." },
+      { "name": "floating", "value": "0 10px 24px -8px oklch(0.3 0.06 165 / 0.45)", "purpose": "Fixed mobile booking bubble." },
+      { "name": "dialog", "value": "0 24px 60px -20px oklch(0.2 0.03 165 / 0.5)", "purpose": "Waitlist modal." }
+    ],
+    "motion": [
+      { "name": "rx-reveal", "value": "rx-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both; delay calc(var(--i) * 70ms)", "purpose": "Label rows and tier panels fade up 6px once, staggered. Removed under prefers-reduced-motion." },
+      { "name": "press", "value": "translateY(1px)", "purpose": "Active state on buttons and role=button links." },
+      { "name": "color-transition", "value": "150ms", "purpose": "Link, tab and button color changes." },
+      { "name": "shadow-transition", "value": "200ms", "purpose": "Hover lift on tier panels; FAQ plus rotation." },
+      { "name": "ticker", "value": "35s linear infinite", "purpose": "Countdown ticker scroll. Removed under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Clinical Green filled action; the only filled button color.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Select Gold</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 24px; border-radius: 4.8px; background: oklch(0.47 0.095 165); color: oklch(0.99 0.003 165); font-family: Archivo, system-ui, sans-serif; font-weight: 600; font-size: 15px; text-decoration: none; transition: background-color 150ms; } .ds-btn-primary:hover { background: oklch(0.47 0.095 165 / 0.9); } .ds-btn-primary:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ink-outlined action beside a primary.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Browse Kits</a>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 44px; padding: 0 24px; border-radius: 4.8px; background: #fff; color: oklch(0.2 0.02 170); border: 1px solid oklch(0.2 0.02 170 / 0.7); font-family: Archivo, system-ui, sans-serif; font-weight: 600; font-size: 15px; text-decoration: none; transition: border-color 150ms, background-color 150ms; } .ds-btn-secondary:hover { border-color: oklch(0.2 0.02 170); background: oklch(0.965 0.005 165); } .ds-btn-secondary:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Value Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Money field with rx-label above; green stroke and soft ring on focus.",
+      "html": "<label class=\"ds-input-label\" for=\"ds-v\">Estimated card value (USD)</label><input id=\"ds-v\" class=\"ds-input\" placeholder=\"e.g. 6000\" inputmode=\"decimal\">",
+      "css": ".ds-input-label { display: block; margin-bottom: 6px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; line-height: 16px; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.45 0.015 165); } .ds-input { width: 100%; height: 44px; padding: 0 12px; border-radius: 4.8px; border: 1px solid oklch(0.86 0.01 165); background: #fff; color: oklch(0.2 0.02 170); font-family: Archivo, system-ui, sans-serif; font-size: 14px; font-variant-numeric: tabular-nums; outline: none; } .ds-input:focus { border-color: oklch(0.47 0.095 165); box-shadow: 0 0 0 2px oklch(0.47 0.095 165 / 0.2); }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav-bar",
+      "description": "Paper bar with brand, three service tabs (green underline when active), secondary links.",
+      "html": "<nav class=\"ds-nav\"><span class=\"ds-nav-brand\">The Card Doc</span><div class=\"ds-nav-tabs\"><a class=\"ds-nav-tab is-active\" href=\"#\">Restorations</a><a class=\"ds-nav-tab\" href=\"#\">Prep</a><a class=\"ds-nav-tab\" href=\"#\">Kits</a></div><a class=\"ds-nav-account\" href=\"#\">My Account</a></nav>",
+      "css": ".ds-nav { display: flex; align-items: stretch; justify-content: space-between; gap: 24px; height: 64px; padding: 0 40px; background: oklch(0.99 0.003 165 / 0.95); border-bottom: 1px solid oklch(0.88 0.01 165); font-family: Archivo, system-ui, sans-serif; } .ds-nav-brand { align-self: center; font-weight: 800; font-size: 18px; letter-spacing: -0.025em; color: oklch(0.2 0.02 170); } .ds-nav-tabs { display: flex; gap: 28px; } .ds-nav-tab { position: relative; display: flex; align-items: center; font-size: 15px; font-weight: 600; color: oklch(0.45 0.015 165); text-decoration: none; transition: color 150ms; } .ds-nav-tab:hover { color: oklch(0.2 0.02 170); } .ds-nav-tab.is-active { color: oklch(0.2 0.02 170); } .ds-nav-tab.is-active::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: oklch(0.47 0.095 165); } .ds-nav-tab:focus-visible, .ds-nav-account:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; } .ds-nav-account { align-self: center; display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid oklch(0.88 0.01 165); border-radius: 4.8px; font-size: 14px; font-weight: 600; color: oklch(0.2 0.02 170); text-decoration: none; transition: border-color 150ms; } .ds-nav-account:hover { border-color: oklch(0.2 0.02 170 / 0.4); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "The only pill shape: availability and badges.",
+      "html": "<span class=\"ds-pill\">7 slots left</span> <span class=\"ds-pill ds-pill-low\">2 slots left</span> <span class=\"ds-pill ds-pill-out\">Sold out</span>",
+      "css": ".ds-pill { display: inline-block; padding: 2px 10px; border-radius: 9999px; background: oklch(0.955 0.025 165); color: oklch(0.47 0.095 165); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.025em; text-transform: uppercase; } .ds-pill-low { background: #fef2f2; color: #b91c1c; box-shadow: 0 0 0 1px #fecaca; } .ds-pill-out { background: oklch(0.965 0.005 165); color: oklch(0.45 0.015 165); }"
+    },
+    {
+      "name": "Tier Panel",
+      "kind": "card",
+      "refersTo": "tier-panel",
+      "description": "Tier card: metal swatch and status pill, name, price, hairline fact rows, green action. Lifts faintly on hover.",
+      "html": "<div class=\"ds-tier\"><div class=\"ds-tier-top\"><span class=\"ds-tier-swatch\"></span><span class=\"ds-pill\">Most popular</span></div><h3 class=\"ds-tier-name\">Gold</h3><div class=\"ds-tier-price\">$150.00</div><p class=\"ds-tier-note\">per card</p><dl class=\"ds-tier-facts\"><div><dt>Turnaround</dt><dd>2–3 weeks</dd></div><div><dt>Card value</dt><dd>Up to $2,500</dd></div></dl><a class=\"ds-btn-primary ds-tier-cta\" href=\"#\">Select Gold</a></div>",
+      "css": ".ds-tier { width: 300px; padding: 20px 24px 24px; border: 1px solid oklch(0.88 0.01 165); border-radius: 6px; background: #fff; font-family: Archivo, system-ui, sans-serif; color: oklch(0.2 0.02 170); transition: box-shadow 200ms; } .ds-tier:hover { box-shadow: 0 16px 32px -20px oklch(0.3 0.04 165 / 0.35); } .ds-tier-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; } .ds-tier-swatch { width: 32px; height: 12px; border-radius: 3.6px; background: #c9a227; box-shadow: 0 0 0 1px oklch(0.88 0.01 165); } .ds-pill { padding: 2px 10px; border-radius: 9999px; background: oklch(0.955 0.025 165); color: oklch(0.47 0.095 165); font-family: 'Geist Mono', monospace; font-size: 11px; text-transform: uppercase; } .ds-tier-name { margin: 0 0 16px; font-size: 24px; font-weight: 700; letter-spacing: -0.02em; font-variation-settings: 'wdth' 88; } .ds-tier-price { font-size: 36px; font-weight: 700; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; } .ds-tier-note { margin: 4px 0 20px; font-family: 'Geist Mono', monospace; font-size: 12px; color: oklch(0.45 0.015 165); } .ds-tier-facts { margin: 0 0 20px; border-top: 1px solid oklch(0.88 0.01 165); } .ds-tier-facts div { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid oklch(0.88 0.01 165); font-size: 14px; } .ds-tier-facts div:last-child { border-bottom: 0; } .ds-tier-facts dt { font-family: 'Geist Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.45 0.015 165); } .ds-tier-facts dd { margin: 0; font-weight: 500; } .ds-tier-cta { display: flex; align-items: center; justify-content: center; height: 44px; border-radius: 4.8px; background: oklch(0.47 0.095 165); color: oklch(0.99 0.003 165); font-weight: 600; font-size: 14px; text-decoration: none; } .ds-tier-cta:hover { background: oklch(0.47 0.095 165 / 0.9); } .ds-tier-cta:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; }"
+    },
+    {
+      "name": "Rx Label Strip",
+      "kind": "custom",
+      "refersTo": "rx-label",
+      "description": "Signature service list: 6px green band, hairline rows, ink bottom rule; rows fade up with a 70ms stagger.",
+      "html": "<ul class=\"ds-rx\"><li style=\"--i:0\"><svg class=\"ds-rx-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z\"/></svg><div><span class=\"ds-rx-name\">Restoration</span><span class=\"ds-rx-code\">Service</span><p class=\"ds-rx-line\">Surfaces, corners &amp; edges — cleaned and restored to their best.</p><p class=\"ds-rx-price\">From <b>$75</b> / card</p></div><a class=\"ds-rx-btn\" href=\"#\">View Tiers →</a></li><li style=\"--i:1\"><svg class=\"ds-rx-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"11\" cy=\"11\" r=\"6\"/><path d=\"M20 20l-4.5-4.5\"/></svg><div><span class=\"ds-rx-name\">Prep</span><span class=\"ds-rx-code\">Service</span><p class=\"ds-rx-line\">Grade-ready submission prep for PSA, BGS &amp; CGC.</p><p class=\"ds-rx-price\">From <b>$25</b> / card</p></div><a class=\"ds-rx-btn\" href=\"#\">View Pricing →</a></li></ul>",
+      "css": ".ds-rx { list-style: none; margin: 0; padding: 0; max-width: 560px; border-top: 6px solid oklch(0.47 0.095 165); border-bottom: 1px solid oklch(0.2 0.02 170 / 0.8); font-family: Archivo, system-ui, sans-serif; } .ds-rx li { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 16px; align-items: center; padding: 20px 0; border-top: 1px solid oklch(0.88 0.01 165); animation: ds-rx-in 520ms cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: calc(var(--i, 0) * 70ms); } .ds-rx li:first-child { border-top: 0; } .ds-rx-icon { width: 20px; height: 20px; color: oklch(0.47 0.095 165); align-self: start; margin-top: 4px; } .ds-rx-name { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: oklch(0.2 0.02 170); font-variation-settings: 'wdth' 88; margin-right: 12px; } .ds-rx-code { font-family: 'Geist Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.45 0.015 165); } .ds-rx-line { margin: 2px 0 0; font-size: 14px; color: oklch(0.45 0.015 165); } .ds-rx-price { margin: 6px 0 0; font-family: 'Geist Mono', monospace; font-size: 12px; color: oklch(0.45 0.015 165); } .ds-rx-price b { color: oklch(0.2 0.02 170); font-weight: 600; } .ds-rx-btn { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 4.8px; background: oklch(0.47 0.095 165); color: oklch(0.99 0.003 165); font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap; } .ds-rx-btn:hover { background: oklch(0.47 0.095 165 / 0.9); } .ds-rx-btn:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; } @keyframes ds-rx-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } } @media (prefers-reduced-motion: reduce) { .ds-rx li { animation: none; } }"
+    },
+    {
+      "name": "FAQ Disclosure",
+      "kind": "custom",
+      "refersTo": "faq",
+      "description": "Details rows between hairlines under an ink rule; green plus rotates on open.",
+      "html": "<div class=\"ds-faq\"><details><summary>How long does it take?<span class=\"ds-faq-plus\">+</span></summary><p>Prep typically turns around in 10–15 business days.</p></details><details><summary>How do I ship my cards to you?<span class=\"ds-faq-plus\">+</span></summary><p>Choose a prepaid label or ship on your own.</p></details></div>",
+      "css": ".ds-faq { max-width: 560px; border-top: 1px solid oklch(0.2 0.02 170 / 0.8); border-bottom: 1px solid oklch(0.88 0.01 165); font-family: Archivo, system-ui, sans-serif; } .ds-faq details + details { border-top: 1px solid oklch(0.88 0.01 165); } .ds-faq summary { display: flex; justify-content: space-between; gap: 24px; padding: 20px 0; list-style: none; cursor: pointer; font-weight: 600; font-size: 15px; color: oklch(0.2 0.02 170); transition: color 150ms; } .ds-faq summary::-webkit-details-marker { display: none; } .ds-faq summary:hover { color: oklch(0.47 0.095 165); } .ds-faq summary:focus-visible { outline: 2px solid oklch(0.47 0.095 165); outline-offset: 2px; } .ds-faq-plus { color: oklch(0.47 0.095 165); transition: transform 200ms; } .ds-faq details[open] .ds-faq-plus { transform: rotate(45deg); } .ds-faq p { margin: 0; padding: 0 40px 20px 0; font-size: 15px; line-height: 1.625; max-width: 65ch; color: oklch(0.45 0.015 165); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Prescription Label",
+    "overview": "Every service is dispensed like an Rx: a white label, a band of clinical green across the top, a heavy ink rule under it, and hairline rows of precise facts in a monospace data face. The page reads like something a careful pharmacist printed, not like a promotion. Headings are a tight, narrowed grotesque; data and labels are mono; everything sits on near-white label paper or pure white panels.\n\nDensity is moderate and structured. Information is carried by rows and rules rather than by floating cards, so a phone visitor scanning a tier or a price sees a stack of labelled lines. Color is scarce on purpose: one green does the band, the primary action, the focus ring and the occasional link; everything else is ink, grey ink and hairline.\n\nThe system is flat. Depth comes from rules and strokes, with a faint lift only on hover and a real shadow only on things that genuinely float (modal, mobile booking bubble). There is one light theme.",
+    "keyCharacteristics": [
+      "One committed clinical green, used for band, primary action, focus and links only.",
+      "Hairline (1px) rows under a heavier ink rule, like a pharmacy label.",
+      "Narrowed Archivo (width axis 80 to 88) for headings; Geist Mono for labels, prices and codes.",
+      "Small radius (6px panels, about 5px controls); pill shape reserved for status.",
+      "Flat surfaces; no gradients, no glow, no emoji as icons.",
+      "Single light theme, including browser chrome (caret, selection, scrollbar)."
+    ],
+    "rules": [
+      { "name": "The One Green Rule", "body": "Clinical Green marks exactly four things: the label band, the primary action, focus, and links/service icons. If green appears anywhere else, it is wrong.", "section": "colors" },
+      { "name": "The Remap Rule", "body": "Tailwind's blue, sky and indigo scales are remapped to the green (hue 165) ramp and slate, gray and zinc to the green-tinted neutral ramp, so legacy utility classes render on-brand. New code should use the named tokens (rx, ink, rule, paper) rather than relying on the remap.", "section": "colors" },
+      { "name": "The No Rainbow Rule", "body": "Tiers are identified by a small metal swatch (32 x 12px) and the tier name, never by recoloring the panel. Swatch fills: bronze #a86b3c, silver #a7b0b5, gold #c9a227, platinum #8e9aa6, diamond #cfdde4, Fast Pass Clinical Green.", "section": "colors" },
+      { "name": "The Narrow Heading Rule", "body": "All h1 to h4 are Archivo 700+ at -0.02em or tighter with the width axis narrowed (88 by default, 80 to 82 at display and page-title scale). Body text stays at full width 100.", "section": "typography" },
+      { "name": "The Mono Is Data Rule", "body": "Monospace is for facts: keys, codes, prices, units, status. Never for sentences or headings.", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "Tables and any [data-numeric] element use tabular numerals; prices and stats always do.", "section": "typography" },
+      { "name": "The Stroke Not Shadow Rule", "body": "At rest, nothing casts a shadow. Emphasis is a darker stroke; shadow is only for hover or for elements that truly float above the page.", "section": "elevation" },
+      { "name": "The Pill Is Status Rule", "body": "A fully rounded shape means \"state\": count, availability, badge. Actions and containers are never pills.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep every visible word exactly as the owner wrote it, including existing em-dashes, punctuation and the lines styled as rx-labels above headings.",
+      "Do reserve Clinical Green for the label band, primary actions, focus and links.",
+      "Do carry facts in hairline rows under an ink rule, with rx-label keys and ink values.",
+      "Do set prices and stats in the heading face with tabular numerals, and their units in Geist Mono.",
+      "Do use 6px panels and about 5px controls; use the pill only for status.",
+      "Do use lucide icons at stroke 1.75, bare, in green or Grey Ink.",
+      "Do mark tiers with the metal swatch and name only.",
+      "Do wrap every reveal animation in the reduced-motion guard and keep content visible without it."
+    ],
+    "donts": [
+      "Don't use gradients anywhere: no gradient heroes, fills, text or borders.",
+      "Don't put icons in tinted tiles or circles; icons sit bare beside their text.",
+      "Don't use emoji as icons.",
+      "Don't add a dark theme or dark sections; this is a single light theme (the About CTA green band is the only full-bleed color block).",
+      "Don't recolor cards per tier or introduce new accent hues.",
+      "Don't add shadows at rest, glows, or colored shadows under buttons.",
+      "Don't mix icon libraries.",
+      "Don't add new uppercase lines above headings; the ones present are the owner's copy."
+    ]
+  }
+}

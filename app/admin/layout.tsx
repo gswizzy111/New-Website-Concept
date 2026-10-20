@@ -1,0 +1,42 @@
+import { cookies } from "next/headers";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { AdminNav } from "./admin-nav";
+import { InquiryAlert } from "./inquiry-alert";
+import { getAdminRole } from "@/lib/admin-auth";
+import { INQUIRY_TYPE, OPEN_CASE_STATUSES } from "@/lib/card-inquiries";
+
+export const dynamic = "force-dynamic";
+
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const role = await getAdminRole();
+  const isAdmin = role === "admin";
+
+  let openCaseCount = 0;
+  let openInquiryCount = 0;
+  if (isAdmin) {
+    const admin = createAdminClient();
+    const [{ count }, { count: inquiryCount }] = await Promise.all([
+      admin
+        .from("cases")
+        .select("id", { count: "exact", head: true })
+        .in("status", OPEN_CASE_STATUSES),
+      admin
+        .from("cases")
+        .select("id", { count: "exact", head: true })
+        .eq("type", INQUIRY_TYPE)
+        .in("status", OPEN_CASE_STATUSES),
+    ]);
+    openCaseCount = count ?? 0;
+    openInquiryCount = inquiryCount ?? 0;
+  }
+
+  return (
+    <div className="flex min-h-screen">
+      <AdminNav openCaseCount={openCaseCount} role={role} />
+      <main className="flex-1 min-w-0 pt-14 lg:pt-0">
+        <InquiryAlert count={openInquiryCount} />
+        {children}
+      </main>
+    </div>
+  );
+}

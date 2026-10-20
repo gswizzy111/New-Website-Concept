@@ -1,0 +1,24 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ── Production is live ──────────────────────────────────────────────────────
+# Real keys (Supabase, Stripe, Shippo, Resend, CRON_SECRET, ...) come from
+# Netlify > Site configuration > Environment variables. Don't put keys here:
+# values in this file override those.
+#
+# Branch deploys and deploy previews stay in preview mode: every /api call
+# answers "not functional yet", private areas are closed and Supabase is
+# read-only (see middleware.ts and lib/preview.ts). Only the production
+# branch takes orders.
+[context.branch-deploy.environment]
+  NEXT_PUBLIC_PREVIEW_MODE = "true"
+
+[context.deploy-preview.environment]
+  NEXT_PUBLIC_PREVIEW_MODE = "true"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
