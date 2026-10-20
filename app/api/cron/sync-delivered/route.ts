@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shippo } from "@/lib/shippo";
 
-// Runs every 2 hours.
+// Runs daily at 2pm UTC via netlify/functions/cron-sync-delivered.mjs.
 // Checks Shippo transaction tracking and updates restoration + kit order statuses.
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization");

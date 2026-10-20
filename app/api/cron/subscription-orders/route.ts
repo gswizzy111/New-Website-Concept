@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 
-// Runs daily at 8am UTC via Vercel Cron.
+// Runs daily at 8am UTC via netlify/functions/cron-subscription-orders.mjs.
 // Finds any subscription invoices paid in the last 48 hours that don't yet
 // have a shop_order, and creates them. Acts as a safety net if the
 // invoice.paid webhook missed an event.

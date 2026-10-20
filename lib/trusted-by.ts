@@ -13,12 +13,4 @@ export type TrustedPage = {
   followers?: string;
 };
 
-// PLACEHOLDERS so the row is visible on the preview. Replace with the real
-// pages (and their links) before launch.
-export const TRUSTED_BY: TrustedPage[] = [
-  { name: "@your_page_here", platform: "Instagram", href: "https://www.instagram.com/the_card_doc", followers: "1.2M" },
-  { name: "@big_page_name", platform: "TikTok", href: "https://www.instagram.com/the_card_doc", followers: "850K" },
-  { name: "Page Name Here", platform: "YouTube", href: "https://www.instagram.com/the_card_doc", followers: "400K" },
-  { name: "@another_page", platform: "Instagram", href: "https://www.instagram.com/the_card_doc", followers: "310K" },
-  { name: "@page_name", platform: "Facebook", href: "https://www.instagram.com/the_card_doc", followers: "1.4M" },
-];
+export const TRUSTED_BY: TrustedPage[] = [];

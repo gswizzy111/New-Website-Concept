@@ -11,14 +11,18 @@ Rules for this repo:
 
 - **Appearance only.** Do not change logic, data, routes, prices, policies or
   flows. **Never change the owner's wording**, including punctuation.
-- **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`, set in `netlify.toml`)
-  runs the site without checkout or accounts: `/api/*` returns "not
-  functional yet" and private areas show `/not-available`. Supabase is
-  read-only: reads show real data, every write is refused in
-  `lib/preview.ts`. The preview Netlify site (nimble-chebakia-ecb45c)
-  gets the Supabase URL and keys from its Netlify environment variables.
-  See `lib/preview.ts` and `middleware.ts`. Remove the placeholder block in
-  `netlify.toml` before any real launch.
+- **Production is live.** The Netlify site (nimble-chebakia-ecb45c) gets
+  every key from its Netlify environment variables; never put keys in
+  `netlify.toml`. It shares the Supabase database and Stripe account with
+  the old site (thecarddoc1.com, repo `gswizzy111/card-restoration`).
+- **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`) is on for branch deploys
+  and deploy previews only (`netlify.toml`). It runs the site without
+  checkout or accounts: `/api/*` returns "not functional yet" and private
+  areas show `/not-available`. Supabase is read-only: reads show real data,
+  every write is refused in `lib/preview.ts`. See `lib/preview.ts` and
+  `middleware.ts`.
+- **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
+  which call `/api/cron/*` with `CRON_SECRET`.
 
 ## Design skills: who owns what
 
