@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import { isSoldOut } from "@/lib/site-config";
 import { addressProblem, normalizeAddress } from "@/lib/shipping-address";
 import { usAddressRejection } from "@/lib/verify-address";
+import { verifyKitRate } from "@/lib/kit-shipping";
 
 const BodySchema = z.object({
   items: z.array(z.object({ id: z.string(), quantity: z.number().int().positive(), slug: z.string(), size: z.string().optional() })).min(1),
@@ -19,8 +20,8 @@ const BodySchema = z.object({
   }),
   affiliate_code: z.string().optional(),
   gift_card_code: z.string().optional(),
-  international_shipping_cents: z.number().int().positive().optional(),
-  international_shipping_label: z.string().optional(),
+  // The shipping option the customer picked (/api/shop/shipping-rates)
+  shipping_rate_id: z.string().min(1).optional(),
 });
 
 export async function POST(request: Request) {
@@ -38,8 +39,8 @@ export async function POST(request: Request) {
   const data = parsed.data;
   const isInternational = data.address.country !== "US";
 
-  if (isInternational && !data.international_shipping_cents) {
-    return Response.json({ error: "Please calculate international shipping before proceeding." }, { status: 400 });
+  if (isInternational && !data.shipping_rate_id) {
+    return Response.json({ error: "Please calculate shipping before proceeding." }, { status: 400 });
   }
 
   // No kit is paid for without a shippable address: complete, with a house
@@ -53,6 +54,21 @@ export async function POST(request: Request) {
       const advice = /please check/i.test(rejection) ? "" : " Please check it and try again.";
       return Response.json({ error: `We couldn't verify that address with USPS: ${rejection}${advice}` }, { status: 400 });
     }
+  }
+
+  // Shipping: the option the customer picked, priced from Shippo (never from
+  // the browser) and only if it was quoted for this address. A page opened
+  // before live rates existed sends none: flat US shipping, label bought by hand.
+  let shippingCents = 599;
+  let shippingName = "Standard Shipping";
+  let kitRate: Awaited<ReturnType<typeof verifyKitRate>> = null;
+  if (data.shipping_rate_id) {
+    kitRate = await verifyKitRate(data.shipping_rate_id, address);
+    if (!kitRate) {
+      return Response.json({ error: "Your shipping quote expired or doesn't match your address. Please recalculate shipping." }, { status: 400 });
+    }
+    shippingCents = kitRate.priceCents;
+    shippingName = `Shipping — ${kitRate.provider} ${kitRate.service}`.trim();
   }
 
   const admin = createAdminClient();
@@ -116,22 +132,10 @@ export async function POST(request: Request) {
 
   // Shipping is a line item: the checked address above is the ship-to, so
   // Stripe's page doesn't collect another one
-  if (!isInternational) {
-    lineItems.push({
-      price_data: { currency: "usd", product_data: { name: "Standard Shipping" }, unit_amount: 599 },
-      quantity: 1,
-    });
-  }
-  if (isInternational && data.international_shipping_cents) {
-    lineItems.push({
-      price_data: {
-        currency: "usd",
-        product_data: { name: `International Shipping — ${data.international_shipping_label ?? "Standard"}` },
-        unit_amount: data.international_shipping_cents,
-      },
-      quantity: 1,
-    });
-  }
+  lineItems.push({
+    price_data: { currency: "usd", product_data: { name: shippingName }, unit_amount: shippingCents },
+    quantity: 1,
+  });
 
   // Gift card
   let giftCardDiscountCents = 0;
@@ -145,7 +149,7 @@ export async function POST(request: Request) {
       .maybeSingle();
     if (gc && gc.status === "active" && gc.remaining_cents > 0) {
       giftCardId = gc.id;
-      const preTaxTotal = productSubtotalCents - discountCents + taxCents + (isInternational ? (data.international_shipping_cents ?? 0) : 0);
+      const preTaxTotal = productSubtotalCents - discountCents + taxCents + shippingCents;
       giftCardDiscountCents = Math.min(gc.remaining_cents, preTaxTotal);
     }
   }
@@ -188,6 +192,12 @@ export async function POST(request: Request) {
   // The checked address travels with the order; the webhook ships to it
   metadata.shipping_address_json = JSON.stringify(address);
   if (isInternational) metadata.is_international = "true";
+  metadata.kit_shipping_cents = String(shippingCents);
+  if (kitRate) {
+    // The webhook buys this rate as the outbound label once the order is paid
+    metadata.kit_rate_object_id = kitRate.id;
+    metadata.kit_shipping_service = `${kitRate.provider} ${kitRate.service}`.trim().slice(0, 100);
+  }
 
   let session;
   try {

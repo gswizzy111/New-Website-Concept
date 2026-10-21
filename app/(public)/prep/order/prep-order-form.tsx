@@ -1,6 +1,7 @@
 "use client";
 
 import { Camera, Check, Hammer, Mailbox, Package, X } from "lucide-react";
+import { useAccountPrefill } from "@/lib/use-account-prefill";
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
@@ -131,6 +132,20 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const [city, setCity] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [zip, setZip] = useState("");
+  // Signed in: fill contact and address from the account (only empty fields)
+  useAccountPrefill((p) => {
+    setName((v) => v || p.name);
+    setEmail((v) => v || p.email);
+    setPhone((v) => v || p.phone);
+    if (p.address) {
+      const a = p.address;
+      setStreet1((v) => v || a.street1);
+      setStreet2((v) => v || a.street2);
+      setCity((v) => v || a.city);
+      setStateCode((v) => v || a.state);
+      setZip((v) => v || a.zip);
+    }
+  });
 
   // Rate fetching
   const [rates, setRates] = useState<ShippingRate[]>([]);
@@ -346,16 +361,16 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <h2 className="font-heading font-extrabold text-base text-foreground">Your Info</h2>
           <div>
             <label className={labelCls}>Full Name *</label>
-            <input className={input} value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
+            <input className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>Email *</label>
-              <input className={input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
+              <input className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
             </div>
             <div>
               <label className={labelCls}>Phone *</label>
-              <input className={input} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
+              <input className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
             </div>
           </div>
         </div>
@@ -502,11 +517,11 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
                 <div>
                   <label className={labelCls}>Street Address *</label>
-                  <input className={input} value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
+                  <input className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
                 </div>
                 <div>
                   <label className={labelCls}>Apt / Suite / Unit <span className="font-normal">(optional)</span></label>
-                  <input className={input} value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
+                  <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
                 </div>
 
                 {!isInternational ? (
@@ -514,7 +529,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   <div className="grid grid-cols-5 gap-2">
                     <div className="col-span-2">
                       <label className={labelCls}>City *</label>
-                      <input className={input} value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                      <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
                     </div>
                     <div>
                       <label className={labelCls}>State *</label>
@@ -525,7 +540,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     </div>
                     <div className="col-span-2">
                       <label className={labelCls}>ZIP Code *</label>
-                      <input className={input} value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                      <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
                     </div>
                   </div>
                 ) : (

@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { KIT_US_STATES, addressProblem } from "@/lib/shipping-address";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { useAccountPrefill } from "@/lib/use-account-prefill";
+import type { KitRate } from "@/lib/kit-shipping";
 
 const INPUT_CN = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
 
@@ -46,12 +48,20 @@ const COUNTRIES = [
   { code: "AE", name: "United Arab Emirates" },
 ];
 
-type ShippingRate = {
-  provider: string;
-  service: string;
-  amountCents: number;
-  days: number | null;
-};
+// If Shippo can't quote at all, US orders still go through at the old flat
+// rate (no rate ID, so the label is bought by hand as before)
+const FLAT_US_SHIPPING: KitRate = { id: "", provider: "", service: "Standard Shipping", days: null, postageCents: 599, priceCents: 599 };
+const SELECT_CN = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none";
+
+function rateName(r: KitRate) {
+  return [r.provider, r.service].filter(Boolean).join(" ");
+}
+
+function rateEta(r: KitRate) {
+  if (!r.id) return null;
+  if (!r.days) return "Delivery estimate unavailable";
+  return `Est. ${r.days} ${r.days === 1 ? "day" : "days"} in transit`;
+}
 
 function CheckoutInner() {
   const { items, totalCents, clearCart } = useCart();
@@ -76,19 +86,37 @@ function CheckoutInner() {
   const [giftCardCode, setGiftCardCode] = useState("");
   const [giftCardAmountCents, setGiftCardAmountCents] = useState(0);
 
-  // International shipping
+  // Shipping: live options for this address, priced by speed
   const [rateStatus, setRateStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [chosenRate, setChosenRate] = useState<ShippingRate | null>(null);
+  const [rates, setRates] = useState<KitRate[]>([]);
+  const [chosenRate, setChosenRate] = useState<KitRate | null>(null);
   const [rateError, setRateError] = useState("");
+
+  function resetRates() {
+    setRates([]);
+    setChosenRate(null);
+    setRateStatus("idle");
+    setRateError("");
+  }
 
   function set(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
-    // Reset rate if address changes
-    if (isInternational && ["street1", "city", "zip", "country"].includes(field)) {
-      setChosenRate(null);
-      setRateStatus("idle");
-    }
+    // A quote is only good for the address it was made for
+    if (["street1", "city", "state", "zip", "country"].includes(field)) resetRates();
   }
+
+  // Signed in: fill what's still empty from the account (US address only)
+  useAccountPrefill((p) => {
+    setForm((prev) => ({
+      ...prev,
+      name: prev.name || p.name,
+      email: prev.email || p.email,
+      phone: prev.phone || p.phone,
+      ...(!isInternational && p.address && !prev.street1 && !prev.city && !prev.zip
+        ? { street1: p.address.street1, street2: p.address.street2, city: p.address.city, state: p.address.state, zip: p.address.zip }
+        : {}),
+    }));
+  });
 
   async function applyCreatorCode() {
     const trimmed = codeInput.trim();
@@ -132,27 +160,43 @@ function CheckoutInner() {
   async function calculateShipping() {
     setRateStatus("loading");
     setRateError("");
+    setRates([]);
     setChosenRate(null);
     try {
-      const res = await fetch("/api/shop/international-rate", {
+      const res = await fetch("/api/shop/shipping-rates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name,
-          street1: form.street1,
-          street2: form.street2 || undefined,
-          city: form.city,
-          state: form.state || undefined,
-          zip: form.zip,
-          country: form.country,
+          phone: form.phone,
+          email: form.email,
+          address: {
+            street1: form.street1,
+            street2: form.street2 || undefined,
+            city: form.city,
+            state: form.state || "",
+            zip: form.zip,
+            country: isInternational ? form.country : "US",
+          },
           item_names: items.map((i) => i.name),
+          declared_value_cents: totalCents,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) { setRateError(data.error ?? "Failed to calculate shipping"); setRateStatus("error"); return; }
-      // Pick cheapest rate
-      const cheapest: ShippingRate = data.rates[0];
-      setChosenRate(cheapest);
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 502 && !isInternational) {
+        setRates([FLAT_US_SHIPPING]);
+        setChosenRate(FLAT_US_SHIPPING);
+        setRateStatus("done");
+        return;
+      }
+      if (!res.ok || !Array.isArray(data.rates) || data.rates.length === 0) {
+        setRateError(data.error ?? "We couldn't get shipping prices. Please try again.");
+        setRateStatus("error");
+        return;
+      }
+      // Cheapest first; the customer can pick a faster one
+      setRates(data.rates);
+      setChosenRate(data.rates[0]);
       setRateStatus("done");
     } catch {
       setRateError("Network error. Please try again.");
@@ -170,9 +214,7 @@ function CheckoutInner() {
   }
 
   function canPay() {
-    if (!isAddressValid()) return false;
-    if (isInternational) return rateStatus === "done" && !!chosenRate;
-    return true;
+    return isAddressValid() && rateStatus === "done" && !!chosenRate;
   }
 
   async function handleCheckout() {
@@ -193,10 +235,7 @@ function CheckoutInner() {
       };
       if (codeStatus === "valid" && creatorCode) body.affiliate_code = creatorCode;
       if (gcStatus === "valid" && giftCardCode) body.gift_card_code = giftCardCode;
-      if (isInternational && chosenRate) {
-        body.international_shipping_cents = chosenRate.amountCents + 1000;
-        body.international_shipping_label = `${chosenRate.provider} ${chosenRate.service}`;
-      }
+      if (chosenRate?.id) body.shipping_rate_id = chosenRate.id;
 
       const res = await fetch("/api/shop/checkout", {
         method: "POST",
@@ -209,6 +248,7 @@ function CheckoutInner() {
         window.location.href = data.url;
       } else {
         toast.error(typeof data.error === "string" ? data.error : "Something went wrong.");
+        if (typeof data.error === "string" && /recalculate shipping/i.test(data.error)) resetRates();
         setSubmitting(false);
       }
     } catch {
@@ -217,11 +257,11 @@ function CheckoutInner() {
     }
   }
 
-  const intlShippingTotal = chosenRate ? chosenRate.amountCents + 1000 : 0;
+  const shippingCents = chosenRate?.priceCents ?? 0;
   const discountCents = discountPercent > 0 ? Math.round(totalCents * discountPercent / 100) : 0;
   const discountedTotal = totalCents - discountCents;
   const taxCents = Math.round(discountedTotal * 0.06625);
-  const preTaxTotal = discountedTotal + taxCents + (isInternational && chosenRate ? intlShippingTotal : 0);
+  const preTaxTotal = discountedTotal + taxCents + shippingCents;
   const gcApplied = Math.min(giftCardAmountCents, preTaxTotal);
   const finalTotal = preTaxTotal - gcApplied;
 
@@ -253,15 +293,15 @@ function CheckoutInner() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label>Full Name *</Label>
-                <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="John Smith" />
+                <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="John Smith" autoComplete="name" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Email *</Label>
-                <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="john@email.com" />
+                <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="john@email.com" autoComplete="email" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Phone *</Label>
-                <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="(555) 000-0000" />
+                <Input type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="(555) 000-0000" autoComplete="tel" />
               </div>
             </div>
           </div>
@@ -276,7 +316,8 @@ function CheckoutInner() {
                   <select
                     value={form.country}
                     onChange={(e) => set("country", e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                    autoComplete="country"
+                    className={SELECT_CN}
                   >
                     <option value="">Select country</option>
                     {COUNTRIES.map((c) => (
@@ -290,23 +331,24 @@ function CheckoutInner() {
                 <AddressAutocomplete
                   value={form.street1}
                   onChange={(v) => set("street1", v)}
-                  onPlaceSelect={(f) => setForm((prev) => ({ ...prev, street1: f.street1, city: f.city, state: f.state, zip: f.zip }))}
+                  onPlaceSelect={(f) => { setForm((prev) => ({ ...prev, street1: f.street1, city: f.city, state: f.state, zip: f.zip })); resetRates(); }}
+                  countries={isInternational ? (form.country ? [form.country.toLowerCase()] : []) : ["us"]}
                   className={INPUT_CN}
                   placeholder="123 Main St"
                 />
               </div>
               <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label>Apt / Suite</Label>
-                <Input value={form.street2} onChange={(e) => set("street2", e.target.value)} placeholder="Apt 4B" />
+                <Input value={form.street2} onChange={(e) => set("street2", e.target.value)} placeholder="Apt 4B" autoComplete="address-line2" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>City *</Label>
-                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="London" />
+                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="London" autoComplete="address-level2" />
               </div>
               {isInternational ? (
                 <div className="flex flex-col gap-1.5">
                   <Label>State / Province</Label>
-                  <Input value={form.state} onChange={(e) => set("state", e.target.value)} placeholder="Optional" />
+                  <Input value={form.state} onChange={(e) => set("state", e.target.value)} placeholder="Optional" autoComplete="address-level1" />
                 </div>
               ) : (
                 <div className="flex flex-col gap-1.5">
@@ -314,7 +356,8 @@ function CheckoutInner() {
                   <select
                     value={form.state}
                     onChange={(e) => set("state", e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none"
+                    autoComplete="address-level1"
+                    className={SELECT_CN}
                   >
                     <option value="">Select state</option>
                     {KIT_US_STATES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -323,7 +366,7 @@ function CheckoutInner() {
               )}
               <div className="flex flex-col gap-1.5">
                 <Label>Postal Code *</Label>
-                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="SW1A 1AA" />
+                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="SW1A 1AA" autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
               </div>
             </div>
 
@@ -331,43 +374,64 @@ function CheckoutInner() {
               <p role="alert" className="text-xs font-semibold text-red-600 mt-3">{addressIssue}</p>
             )}
 
-            {/* International shipping calculator */}
-            {isInternational && (
-              <div className="mt-5 pt-5 border-t border-border">
+            {/* Shipping options: live prices for this address, by speed */}
+            <div className="mt-5 pt-5 border-t border-border">
+              <h3 className="text-sm font-bold text-foreground mb-3">Shipping speed</h3>
+              {rateStatus !== "done" && (
                 <button
                   type="button"
                   onClick={calculateShipping}
                   disabled={!isAddressValid() || rateStatus === "loading"}
                   className="w-full h-10 bg-secondary text-foreground text-sm font-bold rounded-lg hover:bg-secondary/70 disabled:opacity-40 transition-colors"
                 >
-                  {rateStatus === "loading" ? "Calculating..." : "Calculate Exact Shipping"}
+                  {rateStatus === "loading" ? "Getting prices..." : "See shipping options"}
                 </button>
+              )}
+              {rateStatus === "idle" && !isAddressValid() && (
+                <p className="text-xs text-muted-foreground mt-2">Fill in your contact details and address to see prices.</p>
+              )}
+              {rateStatus === "error" && (
+                <p role="alert" className="text-xs font-semibold text-red-600 mt-2">{rateError}</p>
+              )}
 
-                {rateStatus === "error" && (
-                  <p className="text-xs text-red-600 mt-2">{rateError}</p>
-                )}
-
-                {rateStatus === "done" && chosenRate && (
-                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm font-bold text-blue-900 mb-2">Shipping Quote</p>
-                    <div className="flex flex-col gap-1 text-sm text-blue-800">
-                      <div className="flex justify-between">
-                        <span>{chosenRate.provider} — {chosenRate.service}{chosenRate.days ? ` (${chosenRate.days} days)` : ""}</span>
-                        <span>${(chosenRate.amountCents / 100).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-xs text-blue-600">
-                        <span>Handling fee</span>
-                        <span>$10.00</span>
-                      </div>
-                      <div className="flex justify-between font-extrabold text-blue-900 border-t border-blue-200 pt-1 mt-1">
-                        <span>Shipping total</span>
-                        <span>${(intlShippingTotal / 100).toFixed(2)}</span>
-                      </div>
-                    </div>
+              {rateStatus === "done" && rates.length > 0 && (
+                <fieldset>
+                  <legend className="sr-only">Choose a shipping speed</legend>
+                  <div className="flex flex-col gap-2">
+                    {rates.map((r) => {
+                      const chosen = chosenRate?.id === r.id;
+                      return (
+                        <label
+                          key={r.id || "flat"}
+                          className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 ${
+                            chosen ? "border-rx bg-rx-soft" : "border-border hover:border-rx/50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="kit-shipping"
+                            value={r.id}
+                            checked={chosen}
+                            onChange={() => setChosenRate(r)}
+                            className="h-4 w-4 shrink-0 accent-[var(--rx)]"
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span className={`block text-sm font-semibold ${chosen ? "text-rx" : "text-foreground"}`}>{rateName(r)}</span>
+                            {rateEta(r) && <span className="block text-xs text-muted-foreground">{rateEta(r)}</span>}
+                          </span>
+                          <span className={`text-sm font-bold tabular-nums ${chosen ? "text-rx" : "text-foreground"}`}>{formatCurrency(r.priceCents)}</span>
+                        </label>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
-            )}
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {rates[0].id
+                      ? `Prices include ${formatCurrency(rates[0].priceCents - rates[0].postageCents)} handling. Your shipping label is created as soon as you pay.`
+                      : "Live shipping prices aren't available right now, so standard shipping applies."}
+                  </p>
+                </fieldset>
+              )}
+            </div>
           </div>
 
           {/* Creator Code */}
@@ -435,17 +499,14 @@ function CheckoutInner() {
                 <span className="text-muted-foreground">Sales Tax (6.625%)</span>
                 <span className="font-medium">{formatCurrency(taxCents)}</span>
               </div>
-              {isInternational && chosenRate ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">International Shipping</span>
-                  <span className="font-medium">{formatCurrency(intlShippingTotal)}</span>
-                </div>
-              ) : !isInternational ? (
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Shipping</span>
-                  <span className="text-muted-foreground text-xs">Calculated at Stripe</span>
-                </div>
-              ) : null}
+              <div className="flex justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">
+                  Shipping{chosenRate ? <span className="block text-xs">{rateName(chosenRate)}</span> : null}
+                </span>
+                {chosenRate
+                  ? <span className="font-medium">{formatCurrency(shippingCents)}</span>
+                  : <span className="text-muted-foreground text-xs">Choose a speed</span>}
+              </div>
               {gcApplied > 0 && (
                 <div className="flex justify-between text-sm text-green-600 font-semibold">
                   <span>Gift Card</span>
@@ -457,9 +518,9 @@ function CheckoutInner() {
                 <span className="text-primary">{formatCurrency(finalTotal)}</span>
               </div>
             </div>
-            {isInternational && !chosenRate && (
-              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-                Enter your address above and click Calculate Exact Shipping before paying.
+            {!chosenRate && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+                Enter your address and choose a shipping speed before paying.
               </p>
             )}
             <Button

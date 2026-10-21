@@ -5,7 +5,7 @@ import { formatCurrency } from "@/lib/utils";
 import { ORDER_STATUSES } from "@/lib/constants";
 import type { OrderStatus } from "@/lib/constants";
 import Link from "next/link";
-import { LogoutButton } from "./logout-button";
+import { AccountHeader } from "./account-header";
 
 export const dynamic = "force-dynamic";
 
@@ -59,21 +59,7 @@ export default async function AccountPage() {
 
   return (
     <div className="min-h-screen bg-secondary/30">
-      {/* Header */}
-      <header className="bg-white border-b border-border sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="font-heading font-black text-lg text-foreground hover:text-primary transition-colors">
-              The Card Doc
-            </Link>
-            <span className="text-muted-foreground text-sm hidden sm:block">My Account</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:block">{email}</span>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+      <AccountHeader email={email} active="orders" />
 
       <div className="max-w-4xl mx-auto px-6 py-10 flex flex-col gap-8">
         <div>

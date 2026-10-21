@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Gem } from "lucide-react";
+import { useAccountPrefill } from "@/lib/use-account-prefill";
 import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,14 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
   const [step, setStep] = useState(1);
   const [cards, setCards] = useState<CardEntry[]>([defaultCard(serviceId, selectedTier)]);
   const [customer, setCustomer] = useState<CustomerInfo>(emptyCustomer());
+  // Signed in: fill the customer step from the account (only empty fields)
+  useAccountPrefill((p) => setCustomer((c) => ({
+    ...c,
+    name: c.name || p.name,
+    email: c.email || p.email,
+    phone: c.phone || p.phone,
+    ...(!c.street1 && p.address ? { street1: p.address.street1, street2: p.address.street2, city: p.address.city, state: p.address.state, zip: p.address.zip } : {}),
+  })));
   const [shippingMethod, setShippingMethod] = useState<"buy_label" | "self_ship" | null>(null);
   const [selectedRate, setSelectedRate] = useState<ShippingRate | null>(null);
   const [customerNotes, setCustomerNotes] = useState("");

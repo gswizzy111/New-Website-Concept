@@ -8,8 +8,8 @@ import type { OrderStatus } from "@/lib/constants";
 import Link from "next/link";
 import { LogoutButton } from "../../logout-button";
 import { CardEditor } from "./card-editor";
-import { WhereIsMyCard } from "./where-is-my-card";
-import { INQUIRY_TYPE, OPEN_CASE_STATUSES } from "@/lib/card-inquiries";
+import { UpdateRequestPanel } from "@/components/account/update-request-panel";
+import { getUpdateRequestState } from "@/lib/order-update-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -51,30 +51,12 @@ export default async function AccountOrderPage({
   if (!order) notFound();
   if (order.customer_email?.toLowerCase() !== user.email?.toLowerCase()) notFound();
 
-  const [cardsResult, servicesResult, inquiriesResult] = await Promise.all([
+  const [cardsResult, servicesResult, updateState] = await Promise.all([
     admin.from("cards").select("*").eq("order_id", id).order("created_at"),
     admin.from("order_services").select("*").eq("order_id", id),
-    admin
-      .from("cases")
-      .select("id, status, created_at")
-      .eq("type", INQUIRY_TYPE)
-      .eq("order_ref", String(order.order_number))
-      .order("created_at", { ascending: false }),
+    getUpdateRequestState(admin, String(order.order_number)),
   ]);
 
-  // "Where's my card?": an unanswered question, and our latest emailed reply.
-  const inquiries = inquiriesResult.data ?? [];
-  const openInquiry = inquiries.find((q) => OPEN_CASE_STATUSES.includes(q.status));
-  const { data: lastReplyRow } = inquiries.length
-    ? await admin
-        .from("case_notes")
-        .select("body, created_at")
-        .in("case_id", inquiries.map((q) => q.id))
-        .eq("is_customer_visible", true)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle()
-    : { data: null };
   const canAsk = !["cancelled", "awaiting_payment"].includes(order.status);
 
   const cards = (cardsResult.data ?? []) as Array<{
@@ -195,13 +177,15 @@ export default async function AccountOrderPage({
               </div>
             </div>
 
-            {/* Where's my card? */}
+            {/* Request an update (once a week) */}
             {canAsk && (
-              <WhereIsMyCard
-                orderId={id}
+              <UpdateRequestPanel
+                endpoint={`/api/account/orders/${id}/inquiry`}
                 email={order.customer_email}
-                askedAt={openInquiry?.created_at ?? null}
-                lastReply={lastReplyRow ? { body: lastReplyRow.body, at: lastReplyRow.created_at } : null}
+                askedAt={updateState.askedAt}
+                nextAllowedAt={updateState.nextAllowedAt}
+                lastReply={updateState.lastReply}
+                subject="card"
               />
             )}
 

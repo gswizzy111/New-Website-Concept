@@ -1,6 +1,7 @@
 import { getTierById, getCardPriceCents } from "@/lib/restoration-tiers";
 import { getPriceCents } from "@/lib/pricing";
 import { SIGNATURE_FEE_CENTS } from "@/lib/site-config";
+import { bulkDiscountPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import type { CardEntry, ShippingRate } from "@/lib/types";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 
@@ -28,19 +29,30 @@ export function computeOrderTotals(input: OrderTotalsInput) {
   const { cards, selectedTier } = input;
 
   let subtotal = 0;
+  let bulkBase = 0; // the per-card prices the bulk discount applies to (not Diamond)
   for (const card of cards) {
     const tierId = card.tier ?? selectedTier;
     if (!tierId) {
       subtotal = getPriceCents(cards.length);
+      bulkBase = 0;
       break;
     }
     const valueCents = card.estimated_value
       ? Math.round(parseFloat(card.estimated_value.replace(/[$,]/g, "")) * 100) || 0
       : 0;
-    subtotal += getCardPriceCents(getTierById(tierId), valueCents);
+    const price = getCardPriceCents(getTierById(tierId), valueCents);
+    subtotal += price;
+    if (isBulkEligible(tierId)) bulkBase += price;
   }
 
-  const discountCents = input.discountPercent > 0 ? Math.round(subtotal * input.discountPercent / 100) : 0;
+  // Codes and bulk pricing don't stack: the biggest discount applies (as at checkout)
+  const codeDiscountCents = input.discountPercent > 0 ? Math.round(subtotal * input.discountPercent / 100) : 0;
+  const bulkPercent = bulkDiscountPercent(cards.length);
+  const bulkDiscountCents = bulkPercent > 0 ? Math.round(bulkBase * bulkPercent / 100) : 0;
+  const bulkWins = bulkDiscountCents > codeDiscountCents;
+  const discountCents = bulkWins ? bulkDiscountCents : codeDiscountCents;
+  const discountKind: "bulk" | "code" | null = discountCents === 0 ? null : bulkWins ? "bulk" : "code";
+  const discountPercentApplied = bulkWins ? bulkPercent : input.discountPercent;
   const taxCents = Math.round((subtotal - discountCents) * TAX_RATE);
   const shippingCents = input.shippingMethod === "buy_label" && input.selectedRate ? input.selectedRate.amount_cents : 0;
   const signatureCents = input.addSignatureConfirmation && input.shippingMethod === "buy_label" ? SIGNATURE_FEE_CENTS : 0;
@@ -63,6 +75,9 @@ export function computeOrderTotals(input: OrderTotalsInput) {
   return {
     subtotal,
     discountCents,
+    discountKind,
+    discountPercentApplied,
+    bulkPercent,
     taxCents,
     shippingCents,
     signatureCents,

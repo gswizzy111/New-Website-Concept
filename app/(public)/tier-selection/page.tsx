@@ -8,6 +8,8 @@ import { WaitlistModal } from "./waitlist-modal";
 import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
 import { FACT_ROW } from "./fact-row";
+import { BulkSwitch } from "./bulk-switch";
+import { BULK_PLANS, bulkPriceCents, isBulkEligible } from "@/lib/bulk-pricing";
 import { SnapDeck } from "@/components/motion/snap-deck";
 import { ReviewsPanel } from "@/components/marketing/customer-reviews";
 import { PixelViewContent } from "@/components/pixel-view-content";
@@ -159,7 +161,21 @@ function TierCard({
         </div>
 
         <div className="mb-6">
-          <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
+          {tier.pricing_type !== "percentage" && isBulkEligible(tier.id) ? (
+            // One price per plan; the BulkSwitch above the grid shows the chosen one
+            BULK_PLANS.map((p) => (
+              <div key={p.id} data-plan={p.id} className="flex flex-wrap items-baseline gap-x-2.5">
+                <span className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">
+                  ${(bulkPriceCents(tier.price_cents, p.percent) / 100).toFixed(2)}
+                </span>
+                {p.percent > 0 && (
+                  <span className="text-sm text-muted-foreground line-through tabular-nums" aria-label={`was ${price}`}>{price}</span>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
+          )}
           <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
         </div>
 
@@ -262,6 +278,7 @@ export default async function TierSelectionPage() {
 
         {/* All six tiers on one track, equal heights per row: 3 x 2 from 1072px (where
             a card's facts fit side by side, see fact-row.ts), 2 x 3 below that */}
+        <BulkSwitch>
         <SnapDeck
           labels={[...topTiers, ...midTiers, ...(eliteTier ? [eliteTier] : []), ...(fastPass ? [fastPass] : [])].map((t) => t.name)}
           gridClassName="md:grid md:grid-cols-2 min-[67rem]:grid-cols-3 md:gap-5 min-[67rem]:gap-6"
@@ -290,6 +307,7 @@ export default async function TierSelectionPage() {
             </div>
           )}
         </SnapDeck>
+        </BulkSwitch>
 
         {/* Turnaround disclaimer */}
         <details className="mt-8 border border-amber-200 bg-amber-50 rounded-md group">

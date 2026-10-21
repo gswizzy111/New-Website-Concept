@@ -9,6 +9,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/account";
+  const unconfirmed = searchParams.get("unconfirmed") === "1";
 
   const [tab, setTab] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -16,6 +17,8 @@ function LoginForm() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // After signing up: the confirm email is on its way
+  const [sentTo, setSentTo] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,6 +45,10 @@ function LoginForm() {
       setError(data.error ?? "Something went wrong. Please try again.");
       return;
     }
+    if (data.confirmationSent) {
+      setSentTo(email.trim());
+      return;
+    }
 
     router.push(next);
     router.refresh();
@@ -57,6 +64,28 @@ function LoginForm() {
           <p className="text-muted-foreground text-sm mt-2">Customer portal</p>
         </div>
 
+        {unconfirmed && !sentTo && (
+          <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Please confirm your email to open your account. Sign in and we&apos;ll send you a new confirmation link.
+          </div>
+        )}
+
+        {sentTo ? (
+          <div role="status" className="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
+            <h1 className="font-heading font-black text-2xl text-foreground">Check your email</h1>
+            <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+              We sent a confirmation link to <span className="font-semibold text-foreground [overflow-wrap:anywhere]">{sentTo}</span>.
+              Open it to confirm your email and see your orders. The link expires in 1 hour.
+            </p>
+            <button
+              type="button"
+              onClick={() => { setSentTo(""); setTab("login"); }}
+              className="mt-6 text-sm font-semibold text-primary hover:underline"
+            >
+              Back to sign in
+            </button>
+          </div>
+        ) : (
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
           {/* Tabs */}
           <div className="grid grid-cols-2 border-b border-border">
@@ -81,6 +110,7 @@ function LoginForm() {
                 <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Full Name</label>
                 <input
                   type="text"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
@@ -94,6 +124,7 @@ function LoginForm() {
               <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Email</label>
               <input
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -106,6 +137,7 @@ function LoginForm() {
               <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Password</label>
               <input
                 type="password"
+                autoComplete={tab === "signup" ? "new-password" : "current-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -133,6 +165,12 @@ function LoginForm() {
                   : "Create Account"}
             </button>
 
+            {tab === "login" && (
+              <p className="text-sm text-center">
+                <Link href="/account/forgot-password" className="font-semibold text-primary hover:underline">Forgot your password?</Link>
+              </p>
+            )}
+
             {tab === "signup" && (
               <p className="text-xs text-center text-muted-foreground">
                 Use the same email you used when placing your order so your orders appear automatically.
@@ -140,6 +178,7 @@ function LoginForm() {
             )}
           </form>
         </div>
+        )}
       </div>
     </div>
   );

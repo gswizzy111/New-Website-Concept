@@ -50,7 +50,8 @@ restorer, not a faceless shop.
 - Next.js 16 (App Router), Tailwind v4, shadcn/ui, Supabase, Stripe, Shippo,
   Resend. Deployed via Vercel/Netlify from `gswizzy111/card-restoration`.
 - Functionality is complete and correct. **Redesign changes appearance only**:
-  no changes to logic, data, routes, prices, policies or flows.
+  no changes to logic, data, routes, prices, policies or flows, except the
+  features the owner asks for (see "Owner-requested features" below).
 - **All visible wording stays exactly as it is** (owner's instruction). This
   includes existing em-dashes and punctuation in copy.
 - Public pages: home, services, tier selection, restoration, prep, prep order,
@@ -85,9 +86,27 @@ restorer, not a faceless shop.
 - Trusted by (`lib/trusted-by.ts`): only people with a confirmed order or
   conversation (Joey Valence, Boston Scott). Unconfirmed contacts stay out.
 - Facts the owner corrected: cards are insured only when the customer adds
-  insurance (no "all cards are insured" claim); kits ship for $5.99 in the US
-  (not free); the owner does not answer email, so the site points people to
-  Instagram DMs. The Privacy Policy keeps its email for data requests.
+  insurance (no "all cards are insured" claim); kits never ship free; the
+  owner does not answer email, so the site points people to Instagram DMs.
+  The Privacy Policy keeps its email for data requests.
+
+## Owner-requested features (Oct 2026, new site)
+
+- **Bulk pricing**: 10+ cards 10% off, 20+ cards 15% off the per-card price,
+  every tier except Diamond (`lib/bulk-pricing.ts`). Discounts never combine:
+  the biggest of bulk, creator code and loyalty applies. The Restorations
+  page has an Individual / 10+ / 20+ switch showing the per-card price.
+- **Kit shipping** is priced live for the customer's address and the speed
+  they pick: carrier postage plus $2 handling in the US, $10 abroad
+  (`lib/kit-shipping.ts`). The rate they pick is bought as the label when
+  they pay (Stripe webhook; the live webhook runs on the old site). If live
+  rates are down, US orders fall back to $5.99 Standard Shipping and the
+  label is bought by hand.
+- **Request an update** on an order in the customer's account: once a week
+  per order, filed as an Update Request case for the admin.
+- **Accounts**: new accounts confirm their email before signing in (orders
+  link to accounts by email), forgot/reset password, and Settings (name,
+  phone, default address, password) that prefills checkout.
 
 ## Product Principles
 

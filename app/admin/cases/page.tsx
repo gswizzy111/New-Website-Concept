@@ -16,7 +16,7 @@ const STATUS_STYLES: Record<string, string> = {
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   internal:       { label: "Internal",     cls: "bg-gray-100 text-gray-600" },
   support:        { label: "Support",      cls: "bg-purple-100 text-purple-700" },
-  [INQUIRY_TYPE]: { label: "Card Inquiry", cls: "bg-rx text-white" },
+  [INQUIRY_TYPE]: { label: "Update Request", cls: "bg-rx text-white" },
 };
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -54,7 +54,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       <Link
         key={value}
         href={`/admin/cases?${sp2}`}
-        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:border-primary/40"}`}
+        className={`px-3 py-1.5 rounded-lg text-xs font-bold border whitespace-nowrap transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:border-primary/40"}`}
       >
         {label}
       </Link>
@@ -82,11 +82,11 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
             {filterBtn("Resolved", "resolved", "filter", filter)}
             {filterBtn("All", "all", "filter", filter)}
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             {filterBtn("All Types", "all", "type", typeFilter)}
             {filterBtn("Internal", "internal", "type", typeFilter)}
             {filterBtn("Support", "support", "type", typeFilter)}
-            {filterBtn("Card Inquiries", "inquiry", "type", typeFilter)}
+            {filterBtn("Update Requests", "inquiry", "type", typeFilter)}
           </div>
         </div>
 

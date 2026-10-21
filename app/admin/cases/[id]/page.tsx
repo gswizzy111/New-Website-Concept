@@ -46,12 +46,21 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   // Support cases and card inquiries both have a customer to write back to.
   const hasCustomer = isSupport || isInquiry;
 
-  // Card inquiries: the order as it stands now, to answer from.
-  const { data: order } = isInquiry && c.order_ref
+  // Update requests: the order as it stands now, to answer from. Kit orders
+  // are filed as K<order number>.
+  const kitNumber = isInquiry && c.order_ref && /^K\d+$/.test(c.order_ref) ? Number(c.order_ref.slice(1)) : null;
+  const { data: order } = isInquiry && c.order_ref && kitNumber === null
     ? await admin
         .from("orders")
         .select("id, order_number, status, created_at")
         .eq("order_number", c.order_ref)
+        .maybeSingle()
+    : { data: null };
+  const { data: kitOrder } = kitNumber !== null
+    ? await admin
+        .from("shop_orders")
+        .select("id, order_number, status, created_at")
+        .eq("order_number", kitNumber)
         .maybeSingle()
     : { data: null };
 
@@ -67,7 +76,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         <div className="bg-white rounded-xl border border-border p-6 mb-5">
           <div className="flex flex-wrap items-start gap-2 mb-3">
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isInquiry ? "bg-rx text-white" : isSupport ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
-              {isInquiry ? "Card Inquiry" : isSupport ? "Support" : "Internal"}
+              {isInquiry ? "Update Request" : isSupport ? "Support" : "Internal"}
             </span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[c.status] ?? "bg-gray-100 text-gray-500"}`}>
               {c.status.replace("_", " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
@@ -115,6 +124,15 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                       {`Placed ${new Date(order.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                     </span>
                     <Link href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">Open order →</Link>
+                  </div>
+                ) : kitOrder ? (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                    <span className="font-heading font-black">Kit order K{kitOrder.order_number}</span>
+                    <span className="font-medium capitalize">{kitOrder.status}</span>
+                    <span className="text-muted-foreground">
+                      {`Placed ${new Date(kitOrder.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                    </span>
+                    <Link href="/admin/shop-orders" className="font-semibold text-primary hover:underline">Open Kit Orders →</Link>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Order #{c.order_ref} wasn&apos;t found.</p>
