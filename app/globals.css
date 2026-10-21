@@ -405,6 +405,10 @@
 .lit-border:hover::after {
   opacity: 1;
 }
+/* On the ink stage the edge lights in the stage's orange */
+.stage .lit-border::after {
+  background: radial-gradient(280px circle at var(--sx, 50%) var(--sy, -999px), var(--rx-bright), transparent 70%);
+}
 
 /* Tier metals: a polished swatch whose highlight slides across on hover. */
 .metal {
@@ -865,6 +869,6 @@ html [data-sonner-toaster][data-sonner-theme="light"] {
 @media (prefers-reduced-motion: reduce) {
   .marquee-track { width: auto; justify-content: center; flex-wrap: wrap; }
   .marquee-track > ul { flex-wrap: wrap; justify-content: center; }
-  .marquee-dupe { display: none; }
+  .marquee-dupe, .marquee-repeat { display: none; }
   .marquee-mask { mask-image: none; }
 }

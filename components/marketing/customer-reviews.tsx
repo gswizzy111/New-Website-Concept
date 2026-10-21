@@ -1,14 +1,17 @@
+import { CountUp } from "@/components/motion/count-up";
+import { ScrollLitText } from "@/components/motion/scroll-lit-text";
 import { CASE_STUDY, FEATURED_REVIEW, REVIEWS } from "@/lib/reviews";
 
-// Phones show the first few quotes so the page stays short; the screenshot
-// wall below carries the rest.
+// Phones show the first few quotes so the page stays short.
 const PHONE_LIMIT = 6;
 
 /**
  * Customer reviews on the home ink stage: the convention quote at headline
- * size beside the Charizard case (the one raised panel), then the rest of the
- * messages as a masonry of hairline cards, each tagged with its card. Every
- * quote is the customer's own words (lib/reviews.ts).
+ * size, lighting up word by word as it scrolls in with its closing phrase in
+ * full white, beside the Charizard case (the one raised panel, figures
+ * counting up), then the rest of the messages as a masonry of hairline cards
+ * whose edge lights under the pointer. Every quote is the customer's own
+ * words (lib/reviews.ts).
  */
 export function CustomerReviews() {
   const steps = [
@@ -20,16 +23,18 @@ export function CustomerReviews() {
   return (
     <div className="max-w-6xl mx-auto">
       <div className="grid gap-12 lg:gap-16 lg:grid-cols-12 lg:items-center">
-        <figure data-reveal className="lg:col-span-7">
-          <blockquote className="font-heading text-[1.85rem] sm:text-[2.35rem] lg:text-[2.75rem] leading-[1.1] tracking-[-0.015em] text-stage-muted">
-            <p>
-              <span aria-hidden className="-ml-[0.42em]">“</span>
-              {FEATURED_REVIEW.lead}
-              <span className="text-stage-fg">{FEATURED_REVIEW.emphasis}</span>
-              <span aria-hidden>”</span>
+        <figure className="lg:col-span-7">
+          <blockquote className="font-heading text-[1.85rem] sm:text-[2.35rem] lg:text-[2.75rem] leading-[1.1] tracking-[-0.015em] text-stage-fg [text-wrap:pretty]">
+            <p className="-indent-[0.42em]">
+              <ScrollLitText
+                segments={[
+                  { text: `“${FEATURED_REVIEW.lead}`, lit: 0.62 },
+                  { text: `${FEATURED_REVIEW.emphasis}”`, lit: 1 },
+                ]}
+              />
             </p>
           </blockquote>
-          <figcaption className="mt-7 flex items-center gap-3 text-sm text-stage-muted">
+          <figcaption data-reveal className="mt-7 flex items-center gap-3 text-sm text-stage-muted">
             <span aria-hidden className="h-px w-8 bg-white/30" />
             <span className="font-semibold text-stage-fg">{FEATURED_REVIEW.from}</span>
           </figcaption>
@@ -51,9 +56,9 @@ export function CustomerReviews() {
               <div key={s.label} className="flex items-baseline justify-between gap-4 border-b border-white/12 py-4">
                 <dt className="rx-label text-stage-muted">{s.label}</dt>
                 <dd
-                  className={`font-heading text-4xl md:text-5xl leading-none tracking-[-0.02em] tabular-nums [font-feature-settings:'lnum'_1,'tnum'_1] ${s.muted ? "text-stage-muted" : "text-stage-fg"}`}
+                  className={`font-heading text-4xl md:text-5xl leading-none tracking-[-0.02em] [font-feature-settings:'lnum'_1,'tnum'_1] ${s.muted ? "text-stage-muted" : "text-stage-fg"}`}
                 >
-                  {s.value}
+                  <CountUp value={s.value} />
                 </dd>
               </div>
             ))}
@@ -67,7 +72,7 @@ export function CustomerReviews() {
             key={r.quote}
             data-reveal
             style={{ transitionDelay: `${(i % 3) * 80}ms` }}
-            className={`mb-4 md:mb-5 break-inside-avoid rounded-xl ring-1 ring-white/12 p-6 ${i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
+            className={`lit-border relative mb-4 md:mb-5 break-inside-avoid rounded-xl ring-1 ring-white/12 p-6 transition-colors duration-300 hover:bg-white/[0.025] ${i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
           >
             <figure>
               {r.card && <p className="rx-label text-stage-muted">{r.card}</p>}
