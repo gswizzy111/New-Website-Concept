@@ -79,12 +79,14 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Account portal — protect all routes except login/signup
-  if (
-    (pathname === "/account" || pathname.startsWith("/account/")) &&
-    !pathname.startsWith("/account/login") &&
-    !pathname.startsWith("/account/signup")
-  ) {
+  // Customer accounts. Orders are matched to accounts by email, so only a
+  // signed-in customer with a confirmed email gets past here.
+  const ACCOUNT_PUBLIC = ["/account/login", "/account/signup", "/account/forgot-password", "/account/reset-password", "/account/confirm"];
+  const isAccountPage = (pathname === "/account" || pathname.startsWith("/account/")) && !ACCOUNT_PUBLIC.some((p) => pathname.startsWith(p));
+  const isAccountApi = pathname.startsWith("/api/account/") && !pathname.startsWith("/api/account/auth/")
+    // Checkout pages ask for prefill details; the route answers 204 when signed out
+    && !(pathname === "/api/account/profile" && request.method === "GET");
+  if (isAccountPage || isAccountApi) {
     let response = NextResponse.next({ request });
 
     const supabase = createServerClient(
@@ -105,9 +107,18 @@ export async function middleware(request: NextRequest) {
     );
 
     const { data: { user } } = await supabase.auth.getUser();
+    const confirmed = !!user?.email_confirmed_at;
+    if (isAccountApi && !confirmed) {
+      return NextResponse.json({ error: "Please log in again." }, { status: 401 });
+    }
     if (!user) {
       const loginUrl = new URL("/account/login", request.url);
       loginUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+    if (!confirmed) {
+      const loginUrl = new URL("/account/login", request.url);
+      loginUrl.searchParams.set("unconfirmed", "1");
       return NextResponse.redirect(loginUrl);
     }
     return response;

@@ -51,8 +51,8 @@ const TOS_HIGHLIGHTS = [
     Icon: Truck,
   },
   {
-    title: "Restoration alters your card",
-    body: "Restoration is detectable by professional graders and results in an 'Altered' designation. If your card is damaged during restoration, our liability is limited to the service fee paid — not the card's market value.",
+    title: "Alteration Risk",
+    body: "Cards can be flagged as altered: professional graders can detect restoration and may give an 'Altered' designation. If your card is damaged during restoration, our liability is limited to the service fee paid — not the card's market value.",
     Icon: ShieldAlert,
   },
   {

@@ -872,3 +872,9 @@ html [data-sonner-toaster][data-sonner-theme="light"] {
   .marquee-dupe, .marquee-repeat { display: none; }
   .marquee-mask { mask-image: none; }
 }
+
+/* Restorations: the bulk-pricing switch (BulkSwitch) shows one price per card */
+[data-bulk] [data-plan] { display: none; }
+[data-bulk="single"] [data-plan="single"],
+[data-bulk="10"] [data-plan="10"],
+[data-bulk="20"] [data-plan="20"] { display: flex; }

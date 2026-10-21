@@ -40,12 +40,13 @@ export async function GET(request: Request) {
   );
   for (const n of restorations) console.log(`[cron/sync-delivered] R${n} → delivered`);
 
-  // Kit orders — TRANSIT → shipped, DELIVERED → delivered
+  // Kit orders — TRANSIT → shipped, DELIVERED → delivered. Not PRE_TRANSIT:
+  // a label bought at checkout sits in that state until the kit is dropped off
   const [kitsDelivered, kitsShipped] = await Promise.all([
     moveKitOrders(admin, (kitOrders ?? []).filter((o) => statusOf(o) === "DELIVERED").map((o) => o.id), "delivered"),
     moveKitOrders(
       admin,
-      (kitOrders ?? []).filter((o) => statusOf(o) === "TRANSIT" || statusOf(o) === "PRE_TRANSIT").map((o) => o.id),
+      (kitOrders ?? []).filter((o) => statusOf(o) === "TRANSIT").map((o) => o.id),
       "shipped",
       ["processing"]
     ),

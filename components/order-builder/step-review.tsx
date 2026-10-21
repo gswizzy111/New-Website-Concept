@@ -192,7 +192,7 @@ export function StepReview({
     instagramFeature,
     giftCardAmountCents,
   });
-  const { subtotal, discountCents, taxCents, signatureCents, total } = totals;
+  const { subtotal, discountCents, discountKind, discountPercentApplied, bulkPercent, taxCents, signatureCents, total } = totals;
   const shipping = totals.shippingCents;
   const gcApplied = totals.giftCardCents;
 
@@ -202,8 +202,21 @@ export function StepReview({
         <h2 className="font-heading text-3xl font-extrabold tracking-[-0.01em] text-ink mb-1">Review your order.</h2>
       </div>
 
+      {/* Bulk discount banner (it replaces a smaller code or loyalty discount) */}
+      {discountKind === "bulk" && (
+        <div className="bg-rx-soft border border-rx/30 rounded-lg p-4 flex items-center gap-3">
+          <Trophy className="h-6 w-6 shrink-0 text-rx" strokeWidth={1.75} />
+          <div>
+            <p className="font-bold text-ink text-sm">{discountPercentApplied}% bulk discount applied!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {cards.length} cards: {discountPercentApplied}% off the per-card price{cards.some((c) => (c.tier ?? selectedTier) === "elite") ? " (Diamond cards excluded)" : ""}.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Loyalty discount banner */}
-      {loyaltyDiscountPercent > 0 && (
+      {loyaltyDiscountPercent > 0 && discountKind !== "bulk" && (
         <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 flex items-center gap-3">
           <Trophy className="h-6 w-6 shrink-0 text-amber-700" strokeWidth={1.75} />
           <div>
@@ -435,7 +448,9 @@ export function StepReview({
         {discountCents > 0 && (
           <div className="flex justify-between text-sm text-green-600 font-medium">
             <span>
-              {loyaltyDiscountPercent >= discountPercent
+              {discountKind === "bulk"
+                ? `Bulk Discount (${discountPercentApplied}% off, ${cards.length} cards)`
+                : loyaltyDiscountPercent >= discountPercent
                 ? `Loyalty Discount (${effectiveDiscountPct}% off)`
                 : `Discount (${effectiveDiscountPct}% off)`}
             </span>
@@ -530,8 +545,11 @@ export function StepReview({
             Apply
           </button>
         </div>
-        {codeStatus === "valid" && discountPercent > 0 && (
+        {codeStatus === "valid" && discountPercent > 0 && discountKind !== "bulk" && (
           <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />{discountPercent}% discount applied — {codeName}</p>
+        )}
+        {codeStatus === "valid" && discountPercent > 0 && discountKind === "bulk" && (
+          <p className="text-sm text-muted-foreground">Your {bulkPercent}% bulk discount is bigger, so it applies instead of this code (discounts don&apos;t combine).</p>
         )}
         {codeStatus === "valid" && discountPercent === 0 && (
           <p className="text-sm text-rx font-medium"><Check className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.5} />Code applied — {codeName}</p>

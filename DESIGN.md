@@ -293,6 +293,15 @@ The Mickey Mantle card as a before/after comparison (`<BeforeAfter/>`) in a whit
 ### Tier Panels
 White, hairline, `rounded-xl`. A fixed 48px header row holds the polished metal swatch and, in the corner, the tier's pill (the owner's badge, Fast Pass's "Express Option" with a bolt, or "SOLD OUT"), so cards with and without a pill line up. Then the 28px serif name with two lines reserved for the description, the 48px figure price, rule-divided facts (Turnaround, Card value, Slots left, plus Fast Pass's queue line and Diamond's value field as one more row), and the 48px primary action on the card's floor. Facts follow the price directly and only the action is anchored, so names, prices, facts and actions all sit at the same height across a row. Each fact is label left, value right; the facts list is a size container and stacks a row (label over value) only when the card is narrower than 16.5rem (`fact-row.ts`). The six tiers share one grid, in tier order: 3 x 2 from 67rem (1072px, where the facts fit side by side), 2 x 3 from `md`, the snap deck on phones (natural heights). `.lift`, `.spotlight` (soft orange glow under the pointer) and `.lit-border` (the edge lights orange under the pointer). Diamond: transparent border with `.holo-ring` (a slowly rotating foil edge) and a faint holo wash fading down from the top.
 
+### Bulk Switch (`bulk-switch.tsx`, Restorations)
+A segmented control above the tier grid: one white pill track (`border-rule`, `p-1`) holding three 48px segments, each a label over a 10px mono line ("Standard", "10% off", "15% off"). The chosen segment is solid ink with the percent in `rx-bright`. Full width on phones so it never reads as another row of tier chips. A real radio group (arrow keys, Home/End). Each eligible tier price renders every plan (`data-plan`) and CSS shows the chosen one, so the cards stay server-rendered; discounted prices show the full price struck through beside them.
+
+### Option Cards (kit shipping speed)
+Choices with a price (shipping speeds) are full-width label rows: native radio, name over a muted detail line, price right-aligned in `tabular-nums`. Chosen: `border-rx bg-rx-soft`, name and price in `text-rx`. The focus ring sits on the row (`has-[:focus-visible]`).
+
+### Account pages (`auth-card.tsx`)
+Sign in, sign up, confirm, forgot and reset password share one centered white card (`AuthCard`) with uppercase field labels and a full-width primary button; signed-in pages share `AccountHeader` (Orders, Settings, email, Sign out). Confirming an email or resetting a password takes a button press on our page, so link scanners can't spend the one-time token.
+
 ### Page Hero (`<PageHero/>`)
 Optional rx-label, headline type with words rising out of their clips, lead line. Used on tier selection, prep, about, how it works, FAQ and shop. Inner pages sit on `.page-glow` (the light-table glow at the top right only).
 

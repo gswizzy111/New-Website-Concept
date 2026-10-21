@@ -44,6 +44,9 @@ interface Props {
   onPlaceSelect: (fields: PlaceFields) => void;
   placeholder?: string;
   className?: string;
+  /** Countries Google suggests from (lower-case ISO codes, up to 5); US by
+   *  default, none (any country) when empty. */
+  countries?: string[];
 }
 
 export function AddressAutocomplete({
@@ -53,11 +56,15 @@ export function AddressAutocomplete({
   onPlaceSelect,
   placeholder = "123 Main St",
   className,
+  countries = ["us"],
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   // Keep a stable ref so the autocomplete listener always calls the latest version
   const onPlaceSelectRef = useRef(onPlaceSelect);
   onPlaceSelectRef.current = onPlaceSelect;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const acRef = useRef<any>(null);
+  const countriesKey = countries.join(",");
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -72,9 +79,10 @@ export function AddressAutocomplete({
 
       const ac = new G.Autocomplete(inputRef.current, {
         types: ["address"],
-        componentRestrictions: { country: "us" },
+        ...(countries.length ? { componentRestrictions: { country: countries } } : {}),
         fields: ["address_components"],
       });
+      acRef.current = ac;
 
       ac.addListener("place_changed", () => {
         const place = ac.getPlace();
@@ -101,6 +109,12 @@ export function AddressAutocomplete({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The country picker can change after Google has loaded
+  useEffect(() => {
+    const list = countriesKey ? countriesKey.split(",") : [];
+    acRef.current?.setComponentRestrictions(list.length ? { country: list } : null);
+  }, [countriesKey]);
+
   return (
     <input
       ref={inputRef}
@@ -109,7 +123,9 @@ export function AddressAutocomplete({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       className={className}
-      autoComplete="off"
+      // Google suggestions when a Maps key is set; otherwise the browser's own
+      // saved-address autofill
+      autoComplete={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? "off" : "address-line1"}
     />
   );
 }

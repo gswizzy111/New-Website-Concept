@@ -32,7 +32,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex min-h-screen">
-      <AdminNav openCaseCount={openCaseCount} role={role} />
+      <AdminNav openCaseCount={openCaseCount} openUpdateRequestCount={openInquiryCount} role={role} />
       <main className="flex-1 min-w-0 pt-14 lg:pt-0">
         <InquiryAlert count={openInquiryCount} />
         {children}

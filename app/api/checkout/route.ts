@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bulkDiscountPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 import { getPriceCents, getRatePerCard } from "@/lib/pricing";
@@ -237,6 +238,25 @@ export async function POST(request: Request) {
     discountPercent = loyaltyDiscountPercent;
     discountCents = Math.round(subtotalCents * discountPercent / 100);
     discountLabel = completedOrders === 1 ? "Loyalty — 2nd order" : "Loyalty — returning customer";
+  }
+
+  // Bulk pricing (10+ cards 10% off, 20+ 15% off, Diamond excluded) is a third
+  // discount in the same contest: only the biggest one applies.
+  const bulkPercent = bulkDiscountPercent(data.cards.length);
+  let bulkDiscountCents = 0;
+  if (bulkPercent > 0) {
+    const bulkBaseCents = data.cards.reduce((sum, card, i) => {
+      const tierId = cardTiers[i];
+      if (!tierId || !isBulkEligible(tierId)) return sum;
+      const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
+      return sum + getCardPriceCents(tier, card.estimated_value_cents);
+    }, 0);
+    bulkDiscountCents = Math.round(bulkBaseCents * bulkPercent / 100);
+    if (bulkDiscountCents > discountCents) {
+      discountPercent = bulkPercent;
+      discountCents = bulkDiscountCents;
+      discountLabel = `Bulk (${data.cards.length} cards)`;
+    }
   }
 
   if (data.customer.address.country && data.customer.address.country !== "US") {
@@ -638,6 +658,7 @@ export async function POST(request: Request) {
         pregrade_count: pregradeCount > 0 ? String(pregradeCount) : "",
         instagram_feature: data.instagram_feature ? "true" : "",
         loyalty_discount_percent: loyaltyDiscountPercent > 0 ? String(loyaltyDiscountPercent) : "",
+        bulk_discount_percent: bulkDiscountCents > 0 && discountCents === bulkDiscountCents ? String(bulkPercent) : "",
       },
     });
   } catch (err) {

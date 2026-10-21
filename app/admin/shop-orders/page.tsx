@@ -257,10 +257,11 @@ export default async function ShopOrdersPage({
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
 
-    // Orders with a label and status "shipped", within last 30 days
+    // Orders with a label, shipped or still being packed (label bought at
+    // checkout), within last 30 days
     const candidates = (orders ?? []).filter((o) => {
       const tracking = o.tracking_number ?? (Array.isArray(o.labels) && o.labels.length > 0 ? o.labels[0]?.trackingNumber : null);
-      return tracking && o.status === "shipped" && new Date(o.created_at) > cutoff;
+      return tracking && (o.status === "shipped" || o.status === "processing") && new Date(o.created_at) > cutoff;
     });
 
     // Check Shippo tracking in parallel (cap at 20 to keep load fast)

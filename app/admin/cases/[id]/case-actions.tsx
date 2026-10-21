@@ -104,7 +104,7 @@ export function AddNoteForm({ caseId, isSupport, isInquiry = false, hasEmail }: 
         rows={3}
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder={isInquiry ? "Write the customer an update on their card..." : "Add a note or update..."}
+        placeholder={isInquiry ? "Write the customer an update on their order..." : "Add a note or update..."}
       />
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">

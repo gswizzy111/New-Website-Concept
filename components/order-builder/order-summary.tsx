@@ -30,7 +30,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
   const isMixed = tierEntries.length > 1;
 
   const {
-    subtotal, discountCents, taxCents, signatureCents, insuranceCents,
+    subtotal, discountCents, discountKind, discountPercentApplied, taxCents, signatureCents, insuranceCents,
     slabCrackCount, slabCrackCents, pregradeCount, pregradeCents, instagramCents, giftCardCents, total,
   } = computeOrderTotals({
     cards,
@@ -85,7 +85,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
         </div>
         {discountCents > 0 && (
           <div className="flex justify-between text-green-600 font-semibold">
-            <span>Discount ({discountPercent}% off)</span>
+            <span>{discountKind === "bulk" ? `Bulk discount (${discountPercentApplied}% off, ${cards.length} cards)` : `Discount (${discountPercentApplied}% off)`}</span>
             <span>−{formatCurrency(discountCents)}</span>
           </div>
         )}
