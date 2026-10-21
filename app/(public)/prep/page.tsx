@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PixelViewContent } from "@/components/pixel-view-content";
 import { PageHero } from "@/components/marketing/page-hero";
+import { ReviewsPanel } from "@/components/marketing/customer-reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -184,6 +185,11 @@ export default async function PrepPage() {
             ]}
           />
         </section>
+      </div>
+
+      {/* Customer Reviews: the same panel, at the same width, as the Restorations page */}
+      <div className="max-w-6xl mx-auto px-4 md:px-10 pt-4 md:pt-12 pb-12 md:pb-20">
+        <ReviewsPanel title="What Our Customers Say" />
       </div>
     </div>
   );

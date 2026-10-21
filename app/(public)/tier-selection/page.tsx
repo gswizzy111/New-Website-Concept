@@ -7,8 +7,9 @@ import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocke
 import { WaitlistModal } from "./waitlist-modal";
 import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
+import { FACT_ROW } from "./fact-row";
 import { SnapDeck } from "@/components/motion/snap-deck";
-import { getTestimonials } from "@/lib/testimonials";
+import { ReviewsPanel } from "@/components/marketing/customer-reviews";
 import { PixelViewContent } from "@/components/pixel-view-content";
 import { PageHero } from "@/components/marketing/page-hero";
 
@@ -42,13 +43,13 @@ function TierCard({
   settingsMap,
   slotCounts,
   restorationsOpen,
-  wide = false,
+  label,
 }: {
   tier: RestorationTier;
   settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; display_slots_remaining?: number | null }>;
   slotCounts: Record<string, number>;
   restorationsOpen: boolean;
-  wide?: boolean;
+  label?: React.ReactNode;
 }) {
   const swatch = SWATCH[tier.id] ?? SWATCH.regular;
   const Icon = ICON_MAP[tier.id as keyof typeof ICON_MAP] ?? CheckCircle;
@@ -60,17 +61,11 @@ function TierCard({
   const slotsLeft = maxSlots !== null ? Math.max(0, maxSlots - usedSlots) : null;
   const isSoldOut = s?.is_open === false || (slotsLeft !== null && slotsLeft === 0);
 
-  const bannerLabel: string | null = isSoldOut
-    ? "SOLD OUT"
-    : slotsLeft !== null && restorationsOpen
-    ? `${slotsLeft} slot${slotsLeft !== 1 ? "s" : ""} left`
-    : (tier.badge ?? null);
-
-  const bannerCls: string = isSoldOut
-    ? "bg-secondary text-muted-foreground"
-    : slotsLeft !== null
-    ? slotsLeft <= 3 ? "bg-red-50 text-red-700 ring-1 ring-red-200" : "bg-rx-soft text-rx"
-    : "bg-rx-soft text-rx";
+  // Corner pill: sold out, else the owner's badge (or the card's own label).
+  // Slots left sit in the facts beside the action, the same row on every card.
+  const bannerLabel: React.ReactNode = isSoldOut ? "SOLD OUT" : (label ?? tier.badge ?? null);
+  const bannerCls: string = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-rx-soft text-rx";
+  const showSlots = !isSoldOut && slotsLeft !== null && restorationsOpen;
 
   const price = tier.pricing_type === "percentage"
     ? `${((tier.pricing_rate ?? 0) * 100).toFixed(0)}%`
@@ -100,15 +95,15 @@ function TierCard({
   );
 
   const facts = (
-    <dl className="divide-y divide-rule border-t border-rule">
-      <div className="flex justify-between gap-4 py-2.5 text-sm">
-        <dt className="rx-label self-center">Turnaround</dt>
-        <dd className="font-medium text-ink text-right">
+    <dl className="@container divide-y divide-rule border-t border-rule">
+      <div className={FACT_ROW}>
+        <dt className="rx-label @min-[16.5rem]:self-center">Turnaround</dt>
+        <dd className="font-medium text-ink @min-[16.5rem]:text-right">
           {formatTurnaround(tier)}{" "}
           <span className="text-xs text-muted-foreground">(est.)</span>
         </dd>
       </div>
-      <div className="flex justify-between gap-4 py-2.5 text-sm items-center">
+      <div className={`${FACT_ROW} @min-[16.5rem]:items-center`}>
         <dt className="rx-label">Card value</dt>
         <dd className="font-medium text-ink flex items-center gap-1">
           {tier.id === "fast_pass"
@@ -124,6 +119,14 @@ function TierCard({
           </span>
         </dd>
       </div>
+      {showSlots && (
+        <div className={FACT_ROW}>
+          <dt className="rx-label @min-[16.5rem]:self-center">Slots</dt>
+          <dd className={`tabular-nums @min-[16.5rem]:text-right ${slotsLeft! <= 3 ? "font-semibold text-red-700" : "font-medium text-ink"}`}>
+            {slotsLeft} left
+          </dd>
+        </div>
+      )}
       {tier.id === "fast_pass" && (
         <div className="flex items-center gap-2 py-2.5 text-sm">
           <Check className="h-4 w-4 text-rx" strokeWidth={2.25} />
@@ -134,51 +137,45 @@ function TierCard({
   );
 
   return (
-    <div className={`lift spotlight lit-border relative rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.006_70/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
-      <div className="flex items-center justify-between gap-3 px-6 pt-6">
-        <span className={`metal h-3.5 w-11 rounded-[3px] ${swatch}`} aria-hidden />
+    <div className={`lift spotlight lit-border relative h-full rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.006_70/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+      {/* Fixed height, so a card with a corner pill lines up with one without */}
+      <div className="flex h-12 items-end justify-between gap-3 px-6">
+        <span className={`metal mb-[5px] h-3.5 w-11 rounded-[3px] ${swatch}`} aria-hidden />
         {bannerLabel && (
-          <span className={`font-mono text-[11px] uppercase tracking-wide rounded-full px-2.5 py-0.5 ${bannerCls}`}>
+          <span className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-[11px] leading-4 uppercase tracking-wide rounded-full px-2.5 py-1 ${bannerCls}`}>
             {bannerLabel}
           </span>
         )}
       </div>
 
-      <div className={`p-6 pt-4 flex-1 ${wide ? "grid gap-6 md:grid-cols-[1.2fr_1fr] md:items-end" : "flex flex-col"}`}>
-        <div className={wide ? "" : "flex flex-col flex-1"}>
-          <div className="flex items-start gap-3 mb-5">
-            <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
-            <div>
-              <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">{tier.name}</h3>
-              <p className="text-sm text-muted-foreground mt-0.5">{tier.description}</p>
-            </div>
+      <div className="p-6 pt-4 flex flex-col flex-1">
+        <div className="flex items-start gap-3 mb-5">
+          <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
+          <div className="min-w-0">
+            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">{tier.name}</h3>
+            {/* Two lines reserved, so prices line up across a row */}
+            <p className="text-sm text-muted-foreground mt-0.5 min-h-10">{tier.description}</p>
           </div>
-
-          <div className="mb-6">
-            <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
-            <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
-          </div>
-
-          {!wide && <div className="mb-5">{facts}</div>}
-          {!wide && <div className="mt-auto">{action}</div>}
         </div>
 
-        {wide && (
-          <div className="flex flex-col gap-5">
-            {facts}
-            {action}
-          </div>
-        )}
+        <div className="mb-6">
+          <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
+          <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
+        </div>
+
+        {facts}
+
+        {/* The action sits on the card's floor, level across a row */}
+        <div className="mt-auto pt-6">{action}</div>
       </div>
     </div>
   );
 }
 
 export default async function TierSelectionPage() {
-  const [restorationsOpen, slotsOpenedAt, testimonials] = await Promise.all([
+  const [restorationsOpen, slotsOpenedAt] = await Promise.all([
     getRestorationsOpen(),
     getSlotsOpenedAt(),
-    getTestimonials(),
   ]);
   const defaultTiers = getAllTiers();
   const admin = createAdminClient();
@@ -263,41 +260,36 @@ export default async function TierSelectionPage() {
             : "We're temporarily closed. Browse our pricing below and join the waitlist to be notified when we reopen."}
         />
 
-        {/* All tiers on one 3-column track so card edges align */}
+        {/* All six tiers on one track, equal heights per row: 3 x 2 from 1072px (where
+            a card's facts fit side by side, see fact-row.ts), 2 x 3 below that */}
         <SnapDeck
-          labels={[...topTiers, ...midTiers, ...(eliteTier ? [eliteTier] : [])].map((t) => t.name)}
-          gridClassName="md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-5 lg:gap-6 md:items-start"
+          labels={[...topTiers, ...midTiers, ...(eliteTier ? [eliteTier] : []), ...(fastPass ? [fastPass] : [])].map((t) => t.name)}
+          gridClassName="md:grid md:grid-cols-2 min-[67rem]:grid-cols-3 md:gap-5 min-[67rem]:gap-6"
         >
           {[...topTiers, ...midTiers].map((tier, i) => (
-            <div key={tier.id} className="rx-reveal" style={{ ["--i" as string]: i }}>
-              <div>
-                <TierCard tier={tier} {...sharedProps} />
-              </div>
+            <div key={tier.id} className="rx-reveal h-full" style={{ ["--i" as string]: i }}>
+              <TierCard tier={tier} {...sharedProps} />
             </div>
           ))}
           {eliteTier && (
-            <div className="rx-reveal" style={{ ["--i" as string]: topTiers.length + midTiers.length }}>
-              <div>
-                <DiamondCard
-                  slotsLeft={eliteSlotsLeft}
-                  isSoldOut={eliteIsSoldOut}
-                  restorationsOpen={restorationsOpen}
-                />
-              </div>
+            <div className="rx-reveal h-full" style={{ ["--i" as string]: topTiers.length + midTiers.length }}>
+              <DiamondCard
+                slotsLeft={eliteSlotsLeft}
+                isSoldOut={eliteIsSoldOut}
+                restorationsOpen={restorationsOpen}
+              />
+            </div>
+          )}
+          {fastPass && (
+            <div className="rx-reveal h-full" style={{ ["--i" as string]: topTiers.length + midTiers.length + 1 }}>
+              <TierCard
+                tier={fastPass}
+                {...sharedProps}
+                label={<><Zap className="h-3 w-3" strokeWidth={2.25} aria-hidden />Express Option</>}
+              />
             </div>
           )}
         </SnapDeck>
-
-        {/* Fast Pass — bottom */}
-        {fastPass && (
-          <div>
-            <div className="flex items-center gap-3 mt-14 mb-4">
-              <span className="rx-label text-rx flex items-center gap-1.5"><Zap className="h-3.5 w-3.5" strokeWidth={2} />Express Option</span>
-              <div className="h-px flex-1 bg-rule" />
-            </div>
-            <TierCard tier={fastPass} {...sharedProps} wide />
-          </div>
-        )}
 
         {/* Turnaround disclaimer */}
         <details className="mt-8 border border-amber-200 bg-amber-50 rounded-md group">
@@ -337,25 +329,9 @@ export default async function TierSelectionPage() {
         </div>
 
         {/* Customer Reviews */}
-        {testimonials.length > 0 && (
-          <div className="mt-24 md:mt-32">
-            <div className="mb-10">
-              <h2 data-reveal className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink">What Our Customers Say</h2>
-            </div>
-            <div data-reveal="stagger" className="columns-2 md:columns-3 gap-3 md:gap-4 [&>*]:mb-3 md:[&>*]:mb-4">
-              {testimonials.map((t) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={t.id}
-                  src={t.url}
-                  alt={t.alt ?? "Customer review"}
-                  loading="lazy"
-                  className="w-full h-auto break-inside-avoid rounded-xl ring-1 ring-rule shadow-[0_18px_40px_-28px_oklch(0.25_0.006_70/0.5)]"
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        <div className="mt-24 md:mt-32">
+          <ReviewsPanel title="What Our Customers Say" />
+        </div>
       </div>
     </div>
   );

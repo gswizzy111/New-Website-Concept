@@ -70,8 +70,8 @@ restorer, not a faceless shop.
 - Before/after images: `public/before-after-hero.png`,
   `public/before-after-garchomp.png`, `public/before-after-mickey-mantle.png`.
 - Customer message screenshots: `public/testimonial-*.{png,jpeg}` plus
-  testimonials loaded from the database (no longer shown on the home page;
-  the owner asked for the text reviews instead).
+  testimonials loaded from the database (no longer shown on the home,
+  Restorations or Prep pages; the owner asked for the text reviews instead).
 - Customer reviews as text, word for word from the "Client Reviews"
   Instagram highlight, with the Charizard case study ($400 with an edge lift,
   back as a PSA 10 worth over $2,500): `lib/reviews.ts`. Never edit a quote.

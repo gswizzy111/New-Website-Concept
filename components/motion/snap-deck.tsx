@@ -62,10 +62,10 @@ export function SnapDeck({
 
       <div
         ref={trackRef}
-        className={`-mx-4 flex items-start snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-4 [scrollbar-width:none] md:mx-0 md:overflow-visible md:px-0 md:pb-0 ${gridClassName}`}
+        className={`-mx-4 flex items-start md:items-stretch snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-4 [scrollbar-width:none] md:mx-0 md:overflow-visible md:px-0 md:pb-0 ${gridClassName}`}
       >
         {items.map((child, i) => (
-          <div key={i} data-index={i} className="w-[86%] shrink-0 snap-start md:w-auto">
+          <div key={i} data-index={i} className="w-[88%] shrink-0 snap-start md:w-auto">
             {child}
           </div>
         ))}
