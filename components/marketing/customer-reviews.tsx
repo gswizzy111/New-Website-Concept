@@ -73,12 +73,15 @@ export function CustomerReviews({ compact = false }: { compact?: boolean }) {
           ? "mt-14 md:mt-20 grid gap-4 md:gap-5 md:grid-cols-3"
           : "mt-16 md:mt-24 columns-1 sm:columns-2 lg:columns-3 gap-4 md:gap-5"}
       >
+        {/* In the masonry each card is an inline-block: Chromium drops the
+            lit edge's mask on block children of a multi-column list, which
+            floods the whole card with the glow. */}
         {(compact ? REVIEWS.filter((r) => r.card && COMPACT_PICKS.includes(r.card)) : REVIEWS).map((r, i) => (
           <li
             key={r.quote}
             data-reveal
             style={{ transitionDelay: `${(i % 3) * 80}ms` }}
-            className={`lit-border relative rounded-xl ring-1 ring-white/12 p-6 transition-colors duration-300 hover:bg-white/[0.025] ${compact ? "" : "mb-4 md:mb-5 break-inside-avoid"} ${!compact && i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
+            className={`lit-border relative rounded-xl ring-1 ring-white/12 p-6 transition-colors duration-300 hover:bg-white/[0.025] ${compact ? "" : "mb-4 md:mb-5 inline-block w-full align-top break-inside-avoid"} ${!compact && i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
           >
             <figure className="flex h-full flex-col">
               {r.card && <p className="rx-label text-stage-muted">{r.card}</p>}

@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { shippo } from "@/lib/shippo";
+import { getShippoTrackingStatuses, markRestorationsDelivered, moveKitOrders } from "@/lib/sync-delivered";
 
 // Runs daily at 2pm UTC via netlify/functions/cron-sync-delivered.mjs.
 // Checks Shippo transaction tracking and updates restoration + kit order statuses.
@@ -30,61 +30,30 @@ export async function GET(request: Request) {
     return Response.json({ updated: 0, checked: 0 });
   }
 
-  // Page through Shippo transactions to build trackingNumber → status map
-  const trackingToStatus = new Map<string, string>();
-  for (let page = 1; page <= 20; page++) {
-    try {
-      const txList = await shippo.transactions.list({ page, results: 100 });
-      for (const tx of txList.results ?? []) {
-        if (tx.trackingNumber && tx.trackingStatus) {
-          trackingToStatus.set(tx.trackingNumber, tx.trackingStatus);
-        }
-      }
-      if (!txList.next) break;
-    } catch {
-      break;
-    }
-  }
-
-  let updated = 0;
+  const trackingToStatus = await getShippoTrackingStatuses();
+  const statusOf = (o: { tracking_number: string | null }) => trackingToStatus.get(o.tracking_number!);
 
   // Restoration orders — only DELIVERED transition
-  for (const order of restorationOrders ?? []) {
-    const shippoStatus = trackingToStatus.get(order.tracking_number!);
-    if (shippoStatus !== "DELIVERED") continue;
-
-    await Promise.all([
-      admin.from("orders").update({ status: "delivered" }).eq("id", order.id),
-      admin.from("order_events").insert({
-        order_id: order.id,
-        event_type: "status_updated",
-        description: "Marked Delivered — confirmed via Shippo transaction tracking.",
-        is_customer_visible: true,
-      }),
-    ]);
-    updated++;
-    console.log(`[cron/sync-delivered] R${order.order_number} → delivered`);
-  }
+  const restorations = await markRestorationsDelivered(
+    admin,
+    (restorationOrders ?? []).filter((o) => statusOf(o) === "DELIVERED").map((o) => o.id)
+  );
+  for (const n of restorations) console.log(`[cron/sync-delivered] R${n} → delivered`);
 
   // Kit orders — TRANSIT → shipped, DELIVERED → delivered
-  for (const order of kitOrders ?? []) {
-    const shippoStatus = trackingToStatus.get(order.tracking_number!);
-    if (!shippoStatus) continue;
+  const [kitsDelivered, kitsShipped] = await Promise.all([
+    moveKitOrders(admin, (kitOrders ?? []).filter((o) => statusOf(o) === "DELIVERED").map((o) => o.id), "delivered"),
+    moveKitOrders(
+      admin,
+      (kitOrders ?? []).filter((o) => statusOf(o) === "TRANSIT" || statusOf(o) === "PRE_TRANSIT").map((o) => o.id),
+      "shipped",
+      ["processing"]
+    ),
+  ]);
+  for (const n of kitsDelivered) console.log(`[cron/sync-delivered] K${n} → delivered`);
+  for (const n of kitsShipped) console.log(`[cron/sync-delivered] K${n} → shipped`);
 
-    if (shippoStatus === "DELIVERED" && order.status !== "delivered") {
-      await admin.from("shop_orders").update({ status: "delivered" }).eq("id", order.id);
-      updated++;
-      console.log(`[cron/sync-delivered] K${order.order_number} → delivered`);
-    } else if (
-      (shippoStatus === "TRANSIT" || shippoStatus === "PRE_TRANSIT") &&
-      order.status === "processing"
-    ) {
-      await admin.from("shop_orders").update({ status: "shipped" }).eq("id", order.id);
-      updated++;
-      console.log(`[cron/sync-delivered] K${order.order_number} → shipped`);
-    }
-  }
-
+  const updated = restorations.length + kitsDelivered.length + kitsShipped.length;
   const checked = (restorationOrders?.length ?? 0) + (kitOrders?.length ?? 0);
   console.log(`[cron/sync-delivered] checked ${checked}, updated ${updated}`);
   return Response.json({ updated, checked });
