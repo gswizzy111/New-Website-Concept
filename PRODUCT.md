@@ -74,7 +74,10 @@ restorer, not a faceless shop.
   Restorations or Prep pages; the owner asked for the text reviews instead).
 - Customer reviews as text, word for word from the "Client Reviews"
   Instagram highlight, with the Charizard case study ($400 with an edge lift,
-  back as a PSA 10 worth over $2,500): `lib/reviews.ts`. Never edit a quote.
+  back as a PSA 10 worth over $2,500): `lib/reviews.ts`. Never edit a quote
+  without the owner: they trimmed the featured quote to "…you are the best
+  of the best when it comes to card restoration." and asked that every
+  attribution read "Repeat customer" (no individual names).
 - "Cards Restored" is live: cards sent in on website orders (not abandoned or
   cancelled) plus 600 done outside the website, the owner's figure
   (`lib/site-stats.ts`). "4.9★" and "100% documented" are the owner's
