@@ -14,8 +14,23 @@ export async function middleware(request: NextRequest) {
   const adminCookie = request.cookies.get("admin_auth")?.value;
   // Full admin: exact password match (never matches when no password is set).
   // Accountant: act_<uuid> prefix (DB verified at page/route level).
-  const isAdminSession =
-    (!!adminPassword && adminCookie === adminPassword) || !!adminCookie?.startsWith("act_");
+  const isFullAdmin = !!adminPassword && adminCookie === adminPassword;
+  const isAccountantSession = !isFullAdmin && !!adminCookie?.startsWith("act_");
+  const isAdminSession = isFullAdmin || isAccountantSession;
+
+  // Accountants get the tax reports and nothing else: no orders, customers or
+  // settings. Any other admin page sends them back to the tax reports, and any
+  // other admin API refuses them (the tax page re-checks the account itself).
+  if (isAccountantSession) {
+    const within = (base: string) => pathname === base || pathname.startsWith(base + "/");
+    const isAuthRoute = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
+    if (pathname.startsWith("/api/admin/") && !isAuthRoute && !within("/api/admin/tax/export")) {
+      return NextResponse.json({ error: "Not available to accountants" }, { status: 403 });
+    }
+    if (within("/admin") && !within("/admin/login") && !within("/admin/tax")) {
+      return NextResponse.redirect(new URL("/admin/tax", request.url));
+    }
+  }
 
   // Preview mode: checkout, payments, shipping and customer accounts are off.
   // The admin area works read-only behind its password (when ADMIN_PASSWORD is

@@ -32,8 +32,12 @@ export async function getAdminRole(): Promise<AdminRole | null> {
   return null;
 }
 
+// Accountants see the tax reports and nothing else (see middleware.ts).
+export const ACCOUNTANT_HOME = "/admin/tax";
+
 export async function requireAdmin(): Promise<"admin"> {
   const role = await getAdminRole();
+  if (role === "accountant") redirect(ACCOUNTANT_HOME);
   if (role !== "admin") redirect("/admin/login");
   return "admin";
 }
