@@ -3,12 +3,10 @@ import Image from "next/image";
 import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, Sparkles, Star, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
-import { ParallaxWall } from "@/components/motion/parallax-wall";
 import { ScanReveal } from "@/components/motion/scan-reveal";
 import { ScrollFan } from "@/components/motion/scroll-fan";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { TrustedBy } from "@/components/marketing/trusted-by";
-import { getTestimonials } from "@/lib/testimonials";
 import { getCardsRestoredStat } from "@/lib/site-stats";
 import { CustomerReviews } from "@/components/marketing/customer-reviews";
 import { BeforeAfter } from "@/components/motion/before-after";
@@ -77,13 +75,6 @@ const QUICK_LINKS = [
 ];
 
 export default async function HomePage() {
-  let testimonials: Awaited<ReturnType<typeof getTestimonials>> = [];
-  try {
-    testimonials = await getTestimonials();
-  } catch {
-    testimonials = [];
-  }
-
   const services = [
     {
       href: "/tier-selection",
@@ -272,7 +263,8 @@ export default async function HomePage() {
               </div>
             </div>
 
-            <dl className="mt-20 md:mt-32 grid grid-cols-1 sm:grid-cols-3 border-t border-white/12">
+            {/* Figures are sized to the row (container units), so a longer one like "2,321+" never runs into the next */}
+            <dl className="@container mt-20 md:mt-32 grid grid-cols-1 sm:grid-cols-[1.25fr_1fr_1fr] border-t border-white/12">
               {stats.map((s, i) => (
                 <div
                   key={s.stat}
@@ -281,7 +273,7 @@ export default async function HomePage() {
                   className={`flex flex-col-reverse gap-3 py-8 md:py-10 border-b border-white/12 sm:border-b-0 ${i > 0 ? "sm:border-l sm:pl-8 md:pl-10" : ""}`}
                 >
                   <dt className="rx-label text-stage-muted">{s.label}</dt>
-                  <dd className="font-heading text-7xl md:text-8xl lg:text-[7.5rem] font-extrabold tracking-[-0.01em] leading-[0.9] text-stage-fg">
+                  <dd className="font-heading text-[clamp(4rem,21cqi,6rem)] sm:text-[clamp(2.75rem,9cqi,6.75rem)] font-extrabold tracking-[-0.015em] leading-[0.9] whitespace-nowrap text-stage-fg">
                     <CountUp value={s.stat} />
                   </dd>
                 </div>
@@ -289,17 +281,12 @@ export default async function HomePage() {
             </dl>
           </div>
 
-          {/* ── Reviews: the customers' own words, then the screenshots they came from ── */}
-          <div className="max-w-7xl mx-auto px-4 md:px-10 pb-16 md:pb-24">
+          {/* ── Reviews: the customers' own words ── */}
+          <div className="max-w-7xl mx-auto px-4 md:px-10 pb-24 md:pb-36">
             <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mt-8 md:mt-12 mb-12 md:mb-16">
               What our customers say
             </h2>
             <CustomerReviews />
-            {testimonials.length > 0 && (
-              <div className="mt-16 md:mt-24">
-                <ParallaxWall items={testimonials} />
-              </div>
-            )}
           </div>
         </ExpandingStage>
       </section>
