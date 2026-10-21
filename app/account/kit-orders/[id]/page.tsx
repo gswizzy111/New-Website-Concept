@@ -180,8 +180,8 @@ export default async function KitOrderPage({
 
         <p className="text-center text-sm text-muted-foreground">
           Questions?{" "}
-          <a href={`mailto:${process.env.CONTACT_EMAIL ?? "hello@thecarddoc.com"}`} className="text-primary font-medium hover:underline">
-            Contact us
+          <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary font-medium hover:underline">
+            DM us on Instagram
           </a>
         </p>
       </div>

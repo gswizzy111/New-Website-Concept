@@ -163,9 +163,9 @@ export default function WhatWeCanFixPage() {
               Not sure if your card qualifies?
             </h2>
             <p className="text-stage-muted max-w-xl">
-              Email us a photo at{" "}
-              <a href="mailto:thecarddoc1@gmail.com" className="underline text-stage-fg hover:text-rx-bright">
-                thecarddoc1@gmail.com
+              DM us a photo on Instagram at{" "}
+              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="underline text-stage-fg hover:text-rx-bright">
+                @the_card_doc
               </a>{" "}
               before placing an order.
             </p>
@@ -178,10 +178,12 @@ export default function WhatWeCanFixPage() {
               Book Restoration
             </Link>
             <a
-              href="mailto:thecarddoc1@gmail.com"
-              className="inline-flex h-12 items-center justify-center px-7 border border-white/25 text-stage-fg font-semibold rounded-md hover:border-white/60 hover:bg-white/5 transition-colors"
+              href="https://www.instagram.com/the_card_doc"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 items-center justify-center px-7 border border-white/25 text-stage-fg font-semibold rounded-md hover:border-white/60 hover:bg-white/5 transition-colors whitespace-nowrap"
             >
-              Email us
+              DM us on Instagram
             </a>
           </div>
         </section>

@@ -165,9 +165,9 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
-        Questions? Email us at{" "}
-        <a href={`mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}`} className="text-primary font-medium">
-          {process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}
+        Questions? DM us on Instagram{" "}
+        <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">
+          @the_card_doc
         </a>
       </p>
     </div>
@@ -428,7 +428,7 @@ export default async function OrderDetailPage({
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
-        Questions? Email us at <a href={`mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}`} className="text-primary font-medium">{process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}</a>
+        Questions? DM us on Instagram <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">@the_card_doc</a>
       </p>
     </div>
   );

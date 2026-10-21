@@ -71,8 +71,19 @@ restorer, not a faceless shop.
   `public/before-after-garchomp.png`, `public/before-after-mickey-mantle.png`.
 - Customer message screenshots: `public/testimonial-*.{png,jpeg}` plus
   testimonials loaded from the database.
-- Stats already on the site ("500+ cards restored", "4.9★", "100%
-  documented") are the owner's claims; do not add new numbers or claims.
+- Customer reviews as text, word for word from the "Client Reviews"
+  Instagram highlight, with the Charizard case study ($400 with an edge lift,
+  back as a PSA 10 worth over $2,500): `lib/reviews.ts`. Never edit a quote.
+- "Cards Restored" is live: cards sent in on website orders (not abandoned or
+  cancelled) plus 600 done outside the website, the owner's figure
+  (`lib/site-stats.ts`). "4.9★" and "100% documented" are the owner's
+  claims; do not add new numbers or claims.
+- Trusted by (`lib/trusted-by.ts`): only people with a confirmed order or
+  conversation (Joey Valence, Boston Scott). Unconfirmed contacts stay out.
+- Facts the owner corrected: cards are insured only when the customer adds
+  insurance (no "all cards are insured" claim); kits ship for $5.99 in the US
+  (not free); the owner does not answer email, so the site points people to
+  Instagram DMs. The Privacy Policy keeps its email for data requests.
 
 ## Product Principles
 

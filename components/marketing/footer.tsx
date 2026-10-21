@@ -35,20 +35,11 @@ export function Footer() {
             >
               DM us on @the_card_doc
             </a>
-            <a
-              href="mailto:thecarddoc1@gmail.com"
-              className="draw-underline self-start font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-stage-fg hover:text-rx-bright transition-colors break-all sm:break-normal"
-            >
-              Email us at thecarddoc1@gmail.com
-            </a>
             <p className="text-sm text-stage-muted">We reply within 1 business day.</p>
           </div>
         </div>
 
         <div className="mt-14 pt-6 border-t border-white/12 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-          <p className="text-xs text-stage-muted">
-            All cards are insured during transit. Results may vary by card condition.
-          </p>
           <div className="flex items-center gap-5">
             <Link href="/terms" className="text-xs font-medium text-stage-muted hover:text-stage-fg transition-colors">
               Terms & Conditions

@@ -34,7 +34,7 @@ const sections = [
     items: [
       {
         q: "What kinds of cards do you restore?",
-        a: "We restore trading cards of all eras and types — vintage and modern sports cards, Pokémon, Magic: The Gathering, and other collectible card games. We can work on cards in any condition short of total destruction. If you're unsure whether your card is a good candidate, email us a photo before placing your order.",
+        a: "We restore trading cards of all eras and types — vintage and modern sports cards, Pokémon, Magic: The Gathering, and other collectible card games. We can work on cards in any condition short of total destruction. If you're unsure whether your card is a good candidate, DM us a photo on Instagram before placing your order.",
       },
       {
         q: "How do I know which service to pick?",
@@ -157,9 +157,9 @@ export default function FAQPage() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground text-center mt-6">
-            Not sure if your card qualifies? Email a photo to{" "}
-            <a href="mailto:thecarddoc1@gmail.com" className="underline">thecarddoc1@gmail.com</a>{" "}
-            before ordering.
+            Not sure if your card qualifies? DM a photo to{" "}
+            <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="underline">@the_card_doc</a>{" "}
+            on Instagram before ordering.
           </p>
         </div>
       </section>
