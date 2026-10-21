@@ -4,6 +4,8 @@ import { CASE_STUDY, FEATURED_REVIEW, REVIEWS } from "@/lib/reviews";
 
 // Phones show the first few quotes so the page stays short.
 const PHONE_LIMIT = 6;
+// The three quotes the compact version (service pages) shows, in one even row.
+const COMPACT_PICKS = ["Charmander", "Sold on TCGplayer", "7 cards to grading"];
 
 /**
  * Customer reviews on the home ink stage: the convention quote at headline
@@ -13,7 +15,7 @@ const PHONE_LIMIT = 6;
  * whose edge lights under the pointer. Every quote is the customer's own
  * words (lib/reviews.ts).
  */
-export function CustomerReviews() {
+export function CustomerReviews({ compact = false }: { compact?: boolean }) {
   const steps = [
     { label: "Bought for", value: CASE_STUDY.paid, muted: true },
     { label: "Came back", value: CASE_STUDY.grade, muted: false },
@@ -66,24 +68,44 @@ export function CustomerReviews() {
         </figure>
       </div>
 
-      <ul className="mt-16 md:mt-24 columns-1 sm:columns-2 lg:columns-3 gap-4 md:gap-5">
-        {REVIEWS.map((r, i) => (
+      <ul
+        className={compact
+          ? "mt-14 md:mt-20 grid gap-4 md:gap-5 md:grid-cols-3"
+          : "mt-16 md:mt-24 columns-1 sm:columns-2 lg:columns-3 gap-4 md:gap-5"}
+      >
+        {(compact ? REVIEWS.filter((r) => r.card && COMPACT_PICKS.includes(r.card)) : REVIEWS).map((r, i) => (
           <li
             key={r.quote}
             data-reveal
             style={{ transitionDelay: `${(i % 3) * 80}ms` }}
-            className={`lit-border relative mb-4 md:mb-5 break-inside-avoid rounded-xl ring-1 ring-white/12 p-6 transition-colors duration-300 hover:bg-white/[0.025] ${i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
+            className={`lit-border relative rounded-xl ring-1 ring-white/12 p-6 transition-colors duration-300 hover:bg-white/[0.025] ${compact ? "" : "mb-4 md:mb-5 break-inside-avoid"} ${!compact && i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
           >
-            <figure>
+            <figure className="flex h-full flex-col">
               {r.card && <p className="rx-label text-stage-muted">{r.card}</p>}
               <blockquote className="mt-3 text-base md:text-[17px] leading-relaxed text-stage-fg">
                 <p>“{r.quote}”</p>
               </blockquote>
-              <figcaption className="mt-4 text-[13px] text-stage-muted">{r.from}</figcaption>
+              <figcaption className="mt-auto pt-4 text-[13px] text-stage-muted">{r.from}</figcaption>
             </figure>
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * The reviews for a service page (paper): one inset ink-stage panel, so the
+ * evidence sits on the stage like it does on the home page, with the compact
+ * set of quotes. Used identically on Restorations and Prep.
+ */
+export function ReviewsPanel({ title }: { title: string }) {
+  return (
+    <section className="stage stage-light overflow-hidden rounded-2xl px-5 py-14 sm:px-8 md:px-12 md:py-20">
+      <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mb-10 md:mb-14">
+        {title}
+      </h2>
+      <CustomerReviews compact />
+    </section>
   );
 }

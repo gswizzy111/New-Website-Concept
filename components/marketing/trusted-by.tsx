@@ -15,33 +15,31 @@ function Entry({ page, decorative }: { page: TrustedPage; decorative: boolean })
         target="_blank"
         rel="noopener noreferrer"
         tabIndex={decorative ? -1 : undefined}
-        className="group flex items-center gap-5 md:gap-8 px-8 md:px-14 py-4"
+        className="group flex items-baseline gap-3 px-6 md:px-10 py-1.5"
       >
-        <span className="whitespace-nowrap font-heading text-5xl md:text-7xl lg:text-[5.5rem] leading-[0.9] tracking-[-0.025em] text-ink transition-colors duration-300 ease-[var(--ease-out)] group-hover:text-rx">
+        <span className="whitespace-nowrap font-heading text-2xl md:text-4xl leading-none tracking-[-0.015em] text-ink transition-colors duration-300 ease-[var(--ease-out)] group-hover:text-rx">
           {page.name}
         </span>
-        <span className="flex flex-col gap-1.5 whitespace-nowrap text-[13px] md:text-sm leading-tight">
-          {page.role && <span className="text-muted-foreground">{page.role}</span>}
-          <span className="flex items-center gap-1.5 tabular-nums">
-            <span className="font-semibold text-ink">{page.handle}</span>
-            {page.followers && <span className="text-muted-foreground">· {page.followers} followers</span>}
-            <ArrowUpRight
-              aria-hidden
-              strokeWidth={1.75}
-              className="h-4 w-4 text-muted-foreground transition-transform duration-300 ease-[var(--ease-out)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-rx"
-            />
-          </span>
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground">
+          {page.role && <>{page.role} · </>}
+          <span className="font-semibold text-ink">{page.handle}</span>
+          {page.followers && <> {page.followers} followers</>}
         </span>
+        <ArrowUpRight
+          aria-hidden
+          strokeWidth={1.75}
+          className="h-4 w-4 self-center text-muted-foreground transition-transform duration-300 ease-[var(--ease-out)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-rx"
+        />
       </a>
-      <span aria-hidden className="h-14 md:h-20 w-px bg-rule" />
+      <span aria-hidden className="h-5 w-px bg-rule" />
     </li>
   );
 }
 
 /**
- * "Trusted by": people The Card Doc has restored cards for, as a slow marquee
- * of poster-size names (role, handle and followers beside each, linking to
- * their page) that surges with scroll speed and pauses under a mouse. Static,
+ * "Trusted by": people The Card Doc has restored cards for, as a thin, slow
+ * marquee of names (role, handle and followers beside each, linking to their
+ * page) that surges with scroll speed and pauses under a mouse. Static,
  * one of each, wrapping under reduced motion. Renders nothing until
  * lib/trusted-by.ts has entries.
  */
@@ -51,8 +49,8 @@ export function TrustedBy() {
   const row = Array.from({ length: reps }, (_, r) => TRUSTED_BY.map((page) => ({ page, decorative: r > 0 }))).flat();
 
   return (
-    <section aria-labelledby="trusted-by" className="border-b border-rule bg-paper py-12 md:py-16">
-      <p id="trusted-by" data-reveal className="rx-label text-center mb-6 md:mb-8">
+    <section aria-labelledby="trusted-by" className="border-b border-rule bg-paper py-7 md:py-9">
+      <p id="trusted-by" data-reveal className="rx-label text-center mb-3 md:mb-4">
         Trusted by
       </p>
       <div className="marquee-mask overflow-hidden">
