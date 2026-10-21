@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, ShieldCheck, Sparkles, Star, Truck, Wrench } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, Sparkles, Star, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
 import { ParallaxWall } from "@/components/motion/parallax-wall";
@@ -9,6 +9,8 @@ import { ScrollFan } from "@/components/motion/scroll-fan";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { TrustedBy } from "@/components/marketing/trusted-by";
 import { getTestimonials } from "@/lib/testimonials";
+import { getCardsRestoredStat } from "@/lib/site-stats";
+import { CustomerReviews } from "@/components/marketing/customer-reviews";
 import { BeforeAfter } from "@/components/motion/before-after";
 import mantleBefore from "@/public/specimen-mantle-before.jpg";
 import mantleAfter from "@/public/specimen-mantle-after.jpg";
@@ -106,14 +108,15 @@ export default async function HomePage() {
       code: "Shop",
       name: "DIY Kits",
       line: <>The same pro-grade tools The Card Doc uses — delivered to you.</>,
-      price: <><span className="text-ink font-semibold">Free shipping</span> on all kits</>,
+      price: <><span className="text-ink font-semibold">$5.99</span> flat-rate US shipping</>,
       action: "Shop Now →",
       Icon: Wrench,
     },
   ];
 
+  const cardsRestored = await getCardsRestoredStat();
   const stats = [
-    { stat: "500+", label: "Cards Restored" },
+    { stat: cardsRestored, label: "Cards Restored" },
     { stat: "4.9★", label: "Avg. Rating" },
     { stat: "100%", label: "Documented" },
   ];
@@ -217,16 +220,16 @@ export default async function HomePage() {
 
       {/* ── Trust strip: the owner's own facts, at a glance ── */}
       <section aria-label="Why collectors trust The Card Doc" className="border-b border-rule bg-white">
-        <ul data-reveal="stagger" className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-4 divide-rule [&>li]:border-rule">
+        {/* Phone: the two figures side by side, the reply time across the row below. Desktop: one row of three. */}
+        <ul data-reveal="stagger" className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-3 divide-rule [&>li]:border-rule">
           {[
-            { Icon: BadgeCheck, strong: "500+", text: "Cards Restored" },
+            { Icon: BadgeCheck, strong: cardsRestored, text: "Cards Restored" },
             { Icon: Star, strong: "4.9★", text: "Avg. Rating" },
-            { Icon: ShieldCheck, strong: null, text: "All cards are insured during transit." },
             { Icon: MessageCircle, strong: null, text: "We reply within 1 business day." },
           ].map(({ Icon, strong, text }, i) => (
             <li
               key={text}
-              className={`flex items-center gap-3 px-4 md:px-10 py-5 md:py-6 ${i % 2 === 1 ? "border-l" : ""} ${i < 2 ? "border-b lg:border-b-0" : ""} ${i === 2 ? "lg:border-l" : ""}`}
+              className={`flex items-center gap-3 px-4 md:px-10 py-5 md:py-6 ${i === 1 ? "border-l" : ""} ${i < 2 ? "border-b lg:border-b-0" : ""} ${i === 2 ? "col-span-2 lg:col-span-1 lg:border-l" : ""}`}
             >
               <Icon className="h-5 w-5 shrink-0 text-rx" strokeWidth={1.75} />
               <span className="text-[13px] md:text-sm leading-snug text-ink">
@@ -286,15 +289,18 @@ export default async function HomePage() {
             </dl>
           </div>
 
-          {/* ── Reviews ── */}
-          {testimonials.length > 0 && (
-            <div className="max-w-7xl mx-auto px-4 md:px-10 pb-16 md:pb-24">
-              <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mt-8 md:mt-12 mb-4">
-                What our customers say
-              </h2>
-              <ParallaxWall items={testimonials} />
-            </div>
-          )}
+          {/* ── Reviews: the customers' own words, then the screenshots they came from ── */}
+          <div className="max-w-7xl mx-auto px-4 md:px-10 pb-16 md:pb-24">
+            <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mt-8 md:mt-12 mb-12 md:mb-16">
+              What our customers say
+            </h2>
+            <CustomerReviews />
+            {testimonials.length > 0 && (
+              <div className="mt-16 md:mt-24">
+                <ParallaxWall items={testimonials} />
+              </div>
+            )}
+          </div>
         </ExpandingStage>
       </section>
 

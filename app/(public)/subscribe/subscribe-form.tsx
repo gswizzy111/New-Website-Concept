@@ -138,7 +138,7 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
             </button>
 
             <p className="text-center text-xs text-muted-foreground">
-              Secured by Stripe. Cancel anytime by emailing us.
+              Secured by Stripe. Cancel anytime by DMing us on Instagram.
             </p>
           </form>
         </div>

@@ -283,8 +283,7 @@ export default function TermsPage() {
               If you have any questions about these Terms or our Services, please contact us via DM on Instagram{" "}
               <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
                 @the_card_doc
-              </a>{" "}
-              or email thecarddoc1@gmail.com. We reply within 1 business day.
+              </a>. We reply within 1 business day.
             </p>
           </section>
 

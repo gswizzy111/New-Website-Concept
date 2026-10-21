@@ -112,8 +112,8 @@ export default function AboutPage() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground mt-8">
-            Not sure if your card qualifies? Email us a photo at{" "}
-            <a href="mailto:thecarddoc1@gmail.com" className="underline hover:text-ink">thecarddoc1@gmail.com</a>{" "}
+            Not sure if your card qualifies? DM us a photo on Instagram at{" "}
+            <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">@the_card_doc</a>{" "}
             before placing an order.
           </p>
         </div>
@@ -126,9 +126,7 @@ export default function AboutPage() {
             <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Frequently asked questions</h2>
             <p className="text-muted-foreground mb-5">Everything you need to know before placing your first order.</p>
             <p className="text-sm text-muted-foreground">
-              Still have questions?{" "}
-              <a href="mailto:thecarddoc1@gmail.com" className="text-rx font-semibold hover:underline">Email us</a>{" "}
-              or DM us on{" "}
+              Still have questions? DM us on{" "}
               <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-rx font-semibold hover:underline">Instagram</a>.
             </p>
           </div>

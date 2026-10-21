@@ -54,7 +54,7 @@ const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 const TAB_HINTS: Record<string, string> = {
   "/tier-selection": "From $75 / card",
   "/prep": "From $25 / card",
-  "/shop": "Free shipping on all kits",
+  "/shop": "$5.99 flat-rate US shipping",
 };
 
 export function Nav() {

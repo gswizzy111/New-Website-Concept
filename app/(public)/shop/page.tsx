@@ -1,5 +1,6 @@
 import { Star } from "lucide-react";
 import { PageHero } from "@/components/marketing/page-hero";
+import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -122,7 +123,7 @@ function getSectionGridClass(count: number): string {
   return SECTION_GRID[count] ?? "grid-cols-2 md:grid-cols-4";
 }
 
-function ProductSection({ title, products }: { title: string; products: Product[] }) {
+function ProductSection({ title, products, review }: { title: string; products: Product[]; review?: Review }) {
   if (products.length === 0) return null;
   return (
     <div>
@@ -132,6 +133,14 @@ function ProductSection({ title, products }: { title: string; products: Product[
       <div data-reveal="stagger" className={`grid ${getSectionGridClass(products.length)} bg-rule border border-rule rounded-lg overflow-hidden`} style={{ gap: "1px" }}>
         {products.map((p) => <ProductCard key={p.id} product={p} />)}
       </div>
+      {review && (
+        <figure data-reveal className="mt-6 flex flex-col sm:flex-row sm:items-baseline gap-1.5 sm:gap-4">
+          <blockquote className="font-heading text-xl md:text-2xl tracking-[-0.01em] text-ink">
+            <p>“{review.quote}”</p>
+          </blockquote>
+          <figcaption className="text-[13px] text-muted-foreground">{review.from}</figcaption>
+        </figure>
+      )}
     </div>
   );
 }
@@ -164,7 +173,7 @@ export default async function ShopPage() {
 
       {products.length > 0 && (
         <div className="flex flex-col gap-16">
-          <ProductSection title="Kits" products={kits} />
+          <ProductSection title="Kits" products={kits} review={KIT_REVIEW} />
           <ProductSection title="Tools" products={tools} />
           <ProductSection title="Supplies" products={supplies} />
         </div>
