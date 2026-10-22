@@ -23,7 +23,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: card } = await admin.from("cards").select("*").eq("id", id).single();
   if (!card) return Response.json({ error: "Card not found" }, { status: 404 });
   const { data: order } = await admin.from("orders")
-    .select("id, order_number, total_cents, refunded_cents, payment_status, stripe_session_id, customer_name, customer_email")
+    .select("id, order_number, total_cents, refunded_cents, payment_status, stripe_session_id, stripe_payment_intent_id, customer_name, customer_email")
     .eq("id", card.order_id).single();
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
 
@@ -36,12 +36,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const remaining = (order.total_cents ?? 0) - (order.refunded_cents ?? 0);
   const amount = Math.min(gate.refundableCents, remaining);
   if (amount <= 0) return Response.json({ error: "The order is already fully refunded." }, { status: 409 });
-  if (!order.stripe_session_id) return Response.json({ error: "No Stripe payment on this order." }, { status: 400 });
+  if (!order.stripe_payment_intent_id && !order.stripe_session_id) return Response.json({ error: "No Stripe payment on this order." }, { status: 400 });
 
   let refundId: string;
   try {
-    const s = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
-    const pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id;
+    let pi: string | null | undefined = order.stripe_payment_intent_id;
+    if (!pi) {
+      const s = await stripe.checkout.sessions.retrieve(order.stripe_session_id!);
+      pi = typeof s.payment_intent === "string" ? s.payment_intent : s.payment_intent?.id;
+    }
     if (!pi) return Response.json({ error: "No payment found on the Stripe session." }, { status: 400 });
     const refund = await stripe.refunds.create({
       payment_intent: pi,

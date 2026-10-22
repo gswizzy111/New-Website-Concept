@@ -1,17 +1,19 @@
-import termsMarkdown from "@/legal/terms-v1.0.md";
-import keyTermsMarkdown from "@/legal/key-terms-v1.0.md";
-import esignMarkdown from "@/legal/esign-consent-v1.0.md";
+import { LEGAL_TEXTS } from "./generated-texts";
 import { blocksToText, findClause, frontMatter, parseLegalMarkdown, quotedStatement, sectionBlocks } from "./legal-doc";
 
 /**
  * The Terms of Service in effect for new orders, and the checkout wording that
- * goes with them. The Terms text lives in legal/terms-v<version>.md and is
- * never edited here. A wording change is a new file and a new TERMS_VERSION:
+ * goes with them. The Terms text lives in legal/terms-v<version>.md (turned
+ * into lib/legal/generated-texts.ts by scripts/legal-texts.mjs) and is never
+ * edited here. A wording change is a new file and a new TERMS_VERSION:
  * the version signed at checkout governs that order, and every version stays
  * readable at /terms/v<version> (terms_versions keeps each one, unchanged).
  * Browser-safe; shared by both sites.
  */
 export const TERMS_VERSION = "1.0";
+const termsMarkdown = LEGAL_TEXTS[`terms-v${TERMS_VERSION}`];
+const keyTermsMarkdown = LEGAL_TEXTS[`key-terms-v${TERMS_VERSION}`];
+const esignMarkdown = LEGAL_TEXTS[`esign-consent-v${TERMS_VERSION}`];
 export const TERMS_MARKDOWN = termsMarkdown;
 export const TERMS_BLOCKS = parseLegalMarkdown(termsMarkdown);
 

@@ -8,6 +8,7 @@ import { NoticeForm } from "./notice-form";
 export const dynamic = "force-dynamic";
 
 const DAY = 24 * 60 * 60 * 1000;
+const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / DAY);
 const date = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
 
 /**
@@ -29,11 +30,10 @@ export default async function UnclaimedPage() {
     ? await admin.from("order_notices").select("*").in("order_id", orders.map((o) => o.id)).order("sent_at")
     : { data: [] };
 
-  const now = Date.now();
   const rows = orders.map((o) => {
     const log = (notices ?? []).filter((n) => n.order_id === o.id);
     const first = log[0]?.sent_at as string | undefined;
-    const days = first ? Math.floor((now - new Date(first).getTime()) / DAY) : null;
+    const days = first ? daysSince(first) : null;
     const isUndeliverable = o.outbound_tracking_status === "RETURNED" || o.outbound_tracking_status === "FAILURE";
     return { o, log, first, days, isUndeliverable };
   }).sort((a, b) => (b.days ?? -1) - (a.days ?? -1));

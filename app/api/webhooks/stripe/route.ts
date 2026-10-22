@@ -628,6 +628,9 @@ export async function POST(request: Request) {
     const autoPaymentMethod = gcId && gcDiscount > 0 && amountCharged === 0 ? "gift_card" : "card";
 
     const updatePayload: Record<string, unknown> = { status: "awaiting_cards", payment_status: "paid", payment_method: autoPaymentMethod };
+    // The payment to refund against (per-card refunds, lib/work-gates.ts)
+    const paidIntent = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+    if (paidIntent) updatePayload.stripe_payment_intent_id = paidIntent;
     if (shippingLabelUrl) updatePayload.shipping_label_url = shippingLabelUrl;
     if (inboundTrackingNumber) updatePayload.inbound_tracking_number = inboundTrackingNumber;
     if (inboundCustomsFormUrl) updatePayload.inbound_customs_form_url = inboundCustomsFormUrl;

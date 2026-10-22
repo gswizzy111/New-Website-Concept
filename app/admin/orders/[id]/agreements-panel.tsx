@@ -242,7 +242,7 @@ export function AgreementsPanel({
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                {c.slabSelected && (c.slabOpenedAt ? (
+                {c.slabSelected && c.status !== "refunded" && (c.slabOpenedAt ? (
                   <span className="text-xs text-muted-foreground">Slab opened {when(c.slabOpenedAt)}{c.slabBy ? ` by ${c.slabBy}` : ""}</span>
                 ) : (
                   <button type="button" disabled={!c.canStartSlab || busy !== null} onClick={() => startWork(c, "start_slab_opening")} className={`${BTN} border border-foreground/60 text-foreground`}>
