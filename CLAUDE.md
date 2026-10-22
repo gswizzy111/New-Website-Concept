@@ -38,6 +38,13 @@ Rules for this repo:
   1-hour link (SHA-256 in `admin_password_resets`) to that recovery email or
   the accountant's email, and using it signs that person out everywhere
   (`lib/admin-password.ts`).
+- **Creator portal** (`/affiliates`, linked in the footer): creators sign in
+  with their code and a password they set from a one-time, 7-day setup link
+  the admin makes on the Affiliates page (codes are public, so a code alone
+  opens nothing). Sessions are random IDs hashed in `affiliate_sessions`. The
+  dashboard shows totals for the code (sales, revenue, 10% commission, by
+  service and month, recent sales) and never customer details; the admin
+  Affiliates page counts sales the same way (`lib/creator-portal.ts`).
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 
