@@ -5,6 +5,7 @@ import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import { formatCurrency } from "@/lib/utils";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
+import { addedCardsBulkPercent, isBulkEligible } from "@/lib/bulk-pricing";
 
 const TAX_RATE = 0.06625;
 
@@ -20,6 +21,8 @@ interface Props {
   orderNumber: string;
   customerEmail: string;
   tier: RestorationTierId;
+  /** Cards already on the order (with the added ones, it sets the bulk percent) */
+  cardsOnOrder: number;
 }
 
 function emptyCard(): CardEntry {
@@ -29,7 +32,7 @@ function emptyCard(): CardEntry {
 const inputCls =
   "w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rx";
 
-export function AddCardsSection({ orderNumber, customerEmail, tier }: Props) {
+export function AddCardsSection({ orderNumber, customerEmail, tier, cardsOnOrder }: Props) {
   const tierInfo = RESTORATION_TIERS[tier] ?? RESTORATION_TIERS["regular"];
   const isElite = tier === "elite";
   const priceRate = tierInfo.pricing_rate ?? 0.07;
@@ -55,7 +58,11 @@ export function AddCardsSection({ orderNumber, customerEmail, tier }: Props) {
     return tierInfo.price_cents;
   }
 
-  const subtotal = cards.reduce((sum, c) => sum + cardPrice(c), 0);
+  // Same pricing as the add-cards route: the order's new size sets the bulk percent
+  const listSubtotal = cards.reduce((sum, c) => sum + cardPrice(c), 0);
+  const bulkPercent = addedCardsBulkPercent(tier, cardsOnOrder, cards.length);
+  const bulkDiscount = Math.round(listSubtotal * bulkPercent / 100);
+  const subtotal = listSubtotal - bulkDiscount;
   const tax = Math.round(subtotal * TAX_RATE);
   const total = subtotal + tax;
   const canSubmit = cards.every((c) => c.name.trim().length > 0) && !loading;
@@ -93,6 +100,11 @@ export function AddCardsSection({ orderNumber, customerEmail, tier }: Props) {
           ? ` (${(priceRate * 100).toFixed(0)}% of declared value)`
           : ` (${formatCurrency(tierInfo.price_cents)}/card)`}.
       </p>
+      {isBulkEligible(tier) && (
+        <p className="text-xs text-muted-foreground -mt-3 mb-5">
+          Bulk pricing counts your whole order: at 10+ cards the added cards are 10% off, at 20+ they&apos;re 15% off.
+        </p>
+      )}
 
       <div className="flex flex-col gap-4">
         {cards.map((card, i) => (
@@ -199,8 +211,14 @@ export function AddCardsSection({ orderNumber, customerEmail, tier }: Props) {
           <span>
             {cards.length} card{cards.length !== 1 ? "s" : ""}
           </span>
-          <span>{formatCurrency(subtotal)}</span>
+          <span>{formatCurrency(listSubtotal)}</span>
         </div>
+        {bulkDiscount > 0 && (
+          <div className="flex justify-between text-sm font-semibold text-rx mb-1">
+            <span>Bulk discount ({bulkPercent}% off, {cardsOnOrder + cards.length} cards on the order)</span>
+            <span>−{formatCurrency(bulkDiscount)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-sm text-muted-foreground mb-2">
           <span>Tax (6.625%)</span>
           <span>{formatCurrency(tax)}</span>

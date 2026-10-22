@@ -96,6 +96,9 @@ restorer, not a faceless shop.
   every tier except Diamond (`lib/bulk-pricing.ts`). Discounts never combine:
   the biggest of bulk, creator code and loyalty applies. The Restorations
   page has an Individual / 10+ / 20+ switch showing the per-card price.
+  Cards added to an order get the percent for the order's new size (cards
+  already paid keep their price); a tier upgrade pays the difference with the
+  order's bulk percent off.
 - **Kit shipping** is priced live for the customer's address and the speed
   they pick: carrier postage plus $2 handling in the US, $10 abroad
   (`lib/kit-shipping.ts`). The rate they pick is bought as the label when
@@ -104,6 +107,9 @@ restorer, not a faceless shop.
   label is bought by hand.
 - **Request an update** on an order in the customer's account: once a week
   per order, filed as an Update Request case for the admin.
+- **Address suggestions** come from Google (Places API (New), key in
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, restricted to the site's domains) on the
+  cart, order builder, prep order form, subscriptions and Settings.
 - **Accounts**: new accounts confirm their email before signing in (orders
   link to accounts by email), forgot/reset password, and Settings (name,
   phone, default address, password) that prefills checkout.

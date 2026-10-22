@@ -35,3 +35,11 @@ export function bulkDiscountPercent(cardCount: number): number {
 export function bulkPriceCents(priceCents: number, percent: number): number {
   return Math.round(priceCents * (100 - percent) / 100);
 }
+
+/**
+ * Cards added to an existing order: the order's new size decides the bulk
+ * percent, taken off the added cards (cards already paid for keep their price).
+ */
+export function addedCardsBulkPercent(tierId: RestorationTierId | string | null | undefined, cardsOnOrder: number, adding: number): number {
+  return isBulkEligible(tierId) ? bulkDiscountPercent(cardsOnOrder + adding) : 0;
+}

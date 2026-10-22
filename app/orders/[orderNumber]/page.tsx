@@ -312,6 +312,7 @@ export default async function OrderDetailPage({
           orderNumber={String(order.order_number)}
           customerEmail={order.customer_email}
           tier={(order.restoration_tier as RestorationTierId) ?? "regular"}
+          cardsOnOrder={cards?.length ?? 0}
         />
       )}
 

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 import { getTierById, RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { bulkDiscountPercent, bulkPriceCents } from "@/lib/bulk-pricing";
 
 const TAX_RATE = 0.06625;
 
@@ -79,8 +80,11 @@ export async function POST(
       return Response.json({ error: "No slots available for that service level" }, { status: 409 });
   }
 
-  const taxCents = Math.round(diffCents * TAX_RATE);
-  const totalUpgradeCents = diffCents + taxCents;
+  // Bulk pricing: an order of 10+ cards pays the difference with its bulk percent off
+  const bulkPercent = bulkDiscountPercent(numCards);
+  const chargeCents = bulkPriceCents(diffCents, bulkPercent);
+  const taxCents = Math.round(chargeCents * TAX_RATE);
+  const totalUpgradeCents = chargeCents + taxCents;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
 
@@ -91,8 +95,8 @@ export async function POST(
       {
         price_data: {
           currency: "usd",
-          product_data: { name: `Upgrade to ${newTier.name} — ${numCards} card${numCards !== 1 ? "s" : ""}` },
-          unit_amount: diffCents,
+          product_data: { name: `Upgrade to ${newTier.name} — ${numCards} card${numCards !== 1 ? "s" : ""}${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}` },
+          unit_amount: chargeCents,
         },
         quantity: 1,
       },
@@ -113,7 +117,8 @@ export async function POST(
       order_number: orderNumber,
       new_tier,
       upgrade_amount_cents: String(totalUpgradeCents),
-      upgrade_subtotal_cents: String(diffCents),
+      upgrade_subtotal_cents: String(chargeCents),
+      ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent) } : {}),
     },
   });
 

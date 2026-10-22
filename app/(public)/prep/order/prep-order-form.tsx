@@ -5,6 +5,7 @@ import { useAccountPrefill } from "@/lib/use-account-prefill";
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
+import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 
 type CardRow = {
   id: string;
@@ -517,7 +518,14 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
                 <div>
                   <label className={labelCls}>Street Address *</label>
-                  <input className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
+                  <AddressAutocomplete
+                    value={street1}
+                    onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
+                    onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
+                    countries={[country.toLowerCase()]}
+                    className={input}
+                    placeholder="123 Main St"
+                  />
                 </div>
                 <div>
                   <label className={labelCls}>Apt / Suite / Unit <span className="font-normal">(optional)</span></label>
