@@ -56,13 +56,19 @@ Rules for this repo:
   `legal/*.md` into `lib/legal/generated-texts.ts` before every build and
   dev run. Each version is stored once in `terms_versions` (immutable) and
   stays at `/terms/v<version>`; `/terms` shows the current one with its
-  PDF. Restoration, prep and add-cards checkouts require the master
-  signature, E-SIGN consent and an insurance buy-or-decline choice (the
-  master signature also records exactly what was authorized: each card's
-  details and declared value, its services and prices, and the order's
-  charges and total, via `authorizedOrderText` in `lib/checkout-signing.ts`); each
-  slab to open needs its own authorization (unsigned slabs are dropped with
-  their $7); cards over $5,000 are created `on_hold_high_value` and get a
+  PDF. Checkout stays short on purpose (the owner's call): picking slab
+  cracking pops up that card's Slab Removal Authorization, signed there
+  with a checkbox and typed name (closing it unsigned takes the slab and its
+  $7 off); at the end "Sign to confirm your order" has a Terms link, two
+  required boxes (the Terms, electronic records), the certification behind
+  a tap, and Full legal name (`components/checkout/`). Restoration, prep and
+  add-cards checkouts require the master signature, E-SIGN consent and an
+  insurance buy-or-decline choice; the master signature's text holds the
+  certification, the e-sign consent, both boxes, exactly what was
+  authorized (each card's details, declared value, services and prices, the
+  order's charges and total) and the optional choices
+  (`authorizedOrderText` in `lib/checkout-signing.ts`), and its PDF prints
+  all of it after the Terms. Cards over $5,000 are created `on_hold_high_value` and get a
   High-Value Agreement emailed after payment and countersigned on the admin
   order page (`lib/high-value.ts`). `signatures` and `consents` can't be
   edited or deleted and the database sets the signing time; orders with
