@@ -47,6 +47,9 @@ export function Footer() {
             <Link href="/privacy" className="text-xs font-medium text-stage-muted hover:text-stage-fg transition-colors">
               Privacy Policy
             </Link>
+            <Link href="/affiliates" className="text-xs font-medium text-stage-muted hover:text-stage-fg transition-colors">
+              Creator Portal
+            </Link>
           </div>
         </div>
       </div>
