@@ -13,6 +13,7 @@ import { StepShipping } from "./step-shipping";
 import { StepReview } from "./step-review";
 import { SigningSection, emptySigning, signingReady, slabSigned, submittedSigning, type SigningState, type SlabCard } from "@/components/checkout/signing-section";
 import { SlabAuthorizationDialog, type HolderPatch } from "@/components/checkout/slab-authorization-dialog";
+import { MissingNote, Need, revealMissing } from "@/components/checkout/required";
 import { emptyIdentity, identityPayload } from "@/components/checkout/card-identity-fields";
 import type { InsuranceElection } from "@/components/checkout/insurance-election";
 import { SIGN_BUTTON_LABEL } from "@/lib/legal/current-terms";
@@ -89,6 +90,8 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
   const [skippedSlabs, setSkippedSlabs] = useState<string[]>([]);
   // The card whose slab authorization pop-up is open
   const [slabDialogId, setSlabDialogId] = useState<string | null>(null);
+  // Pressed Continue / sign with something missing: outline it in red
+  const [showMissing, setShowMissing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [insuranceElection, setInsuranceElection] = useState<InsuranceElection>(null);
   const [insurance, setInsurance] = useState<InsuranceSelection>({ declaredValueCents: 0, type: "none", chargeCents: 0 });
@@ -125,13 +128,6 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
   const insuranceOk = insuranceElection === "declined"
     || (insuranceElection === "purchased" && insurance.declaredValueCents > 0 && insurance.type !== "none");
   const readyToSign = signingReady(signing, slabCards) && insuranceOk;
-  const stillNeeded = [
-    insuranceElection === null ? "choose to buy or decline shipping insurance" : !insuranceOk ? "enter the amount to insure and pick a coverage" : null,
-    ...slabCards.filter((c) => !slabSigned(signing, c)).map((c) => `sign or skip the slab authorization for ${c.details.card_name || `card ${c.index + 1}`}`),
-    !signing.agreed ? "check the box agreeing to the Terms" : null,
-    !signing.esign ? "check the electronic records box" : null,
-    signing.signerName.trim().length < 2 ? "type your full legal name" : null,
-  ].filter(Boolean) as string[];
 
   // The paid Instagram feature needs the photo permission, and goes when it's unchecked
   function changeInstagramFeature(v: boolean) {
@@ -180,6 +176,24 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
       return true;
     }
     return true;
+  }
+
+  function goToStep(n: number) {
+    setShowMissing(false);
+    setStep(n);
+  }
+  function tryContinue() {
+    if (canAdvance()) return goToStep(step + 1);
+    setShowMissing(true);
+    revealMissing();
+  }
+  function trySign() {
+    if (readyToSign) {
+      setShowMissing(false);
+      return handleSubmit();
+    }
+    setShowMissing(true);
+    revealMissing();
   }
 
   async function handleSubmit() {
@@ -290,9 +304,10 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
               defaultTier={selectedTier}
               slabSigned={slabStatus}
               onOpenSlab={setSlabDialogId}
+              showMissing={showMissing}
             />
           )}
-          {step === 2 && <StepCustomer customer={customer} onChange={setCustomer} />}
+          {step === 2 && <StepCustomer customer={customer} onChange={setCustomer} showMissing={showMissing} />}
           {step === 3 && (
             <StepShipping
               customer={customer}
@@ -304,6 +319,7 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
                 setInsurance((ins) => ({ ...ins, type: "none", chargeCents: 0 }));
               }}
               onRateChange={setSelectedRate}
+              showMissing={showMissing}
             />
           )}
           {step === 4 && (
@@ -330,6 +346,7 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
                   onOpenSlab={(i) => setSlabDialogId(cards[i]?.id ?? null)}
                   skippedSlabs={skippedSlabs}
                   mediaRequiredNote={instagramFeature ? "The Instagram feature you added needs the first permission; unchecking it removes the feature." : undefined}
+                  showMissing={showMissing}
                 />
               }
               insuranceElection={insuranceElection}
@@ -348,11 +365,12 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
               onLoyaltyDiscountChange={setLoyaltyDiscountPercent}
               onEditStep={(s) => {
                 // remap review edit targets to new step numbers
-                if (s === 2) setStep(1); // cards
-                else if (s === 3) setStep(2); // customer
-                else if (s === 4) setStep(3); // shipping
+                if (s === 2) goToStep(1); // cards
+                else if (s === 3) goToStep(2); // customer
+                else if (s === 4) goToStep(3); // shipping
               }}
               selectedTier={selectedTier}
+              showMissing={showMissing}
             />
           )}
 
@@ -394,7 +412,8 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
 
           {/* Diamond minimum value warning */}
           {step === 1 && isDiamondOrder && !diamondValueOk && (
-            <div className="mt-6 rounded-md border border-amber-300 bg-amber-50 px-5 py-4 flex items-start gap-3">
+            <Need missing={showMissing} note={null} className="mt-6">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-5 py-4 flex items-start gap-3">
               <Gem className="h-6 w-6 shrink-0 text-amber-700" strokeWidth={1.75} />
               <div>
                 <p className="font-bold text-amber-900 text-sm">Diamond tier requires $5,000+ in total card value</p>
@@ -403,29 +422,28 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
                 </p>
               </div>
             </div>
+            </Need>
           )}
 
           <div className="flex justify-between mt-10 pt-6 border-t border-border">
             <Button
               variant="outline"
-              onClick={() => setStep((s) => s - 1)}
+              onClick={() => goToStep(step - 1)}
               disabled={step === 1}
             >
               Back
             </Button>
             {step < 4 ? (
-              <Button onClick={() => setStep((s) => s + 1)} disabled={!canAdvance()}>
+              <Button onClick={tryContinue}>
                 Continue
               </Button>
             ) : (
-              <Button onClick={handleSubmit} disabled={submitting || !readyToSign} className="px-8">
+              <Button onClick={trySign} disabled={submitting} className="px-8">
                 {submitting ? "Redirecting..." : SIGN_BUTTON_LABEL}
               </Button>
             )}
           </div>
-          {step === 4 && !readyToSign && stillNeeded.length > 0 && (
-            <p className="mt-3 text-xs text-muted-foreground sm:text-right">To sign, {stillNeeded.join("; ")}.</p>
-          )}
+          <MissingNote show={showMissing && (step === 4 ? !readyToSign : !canAdvance())} />
         </div>
 
         <div className="lg:col-span-1">
