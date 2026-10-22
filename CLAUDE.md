@@ -49,16 +49,24 @@ Rules for this repo:
   0%); `affiliate_commission_rates` keeps each rate's start, and a sale earns
   the rate in effect when it was placed, so "from now on" changes never
   reprice past sales.
-- **Terms and checkout agreements.** The Terms of Service text lives in
-  `lib/legal/terms.ts` (identical in both repos; bump `TERMS_UPDATED` with
-  any change, since the version at checkout governs an order). Checkout
-  requires a Slab-Removal Authorization whenever slab cracking is chosen and
-  a separate High-Value Card Agreement for every card declared above $5,000
-  (`lib/agreements.ts`, typed name + checkbox, dated by the server). The
-  restoration checkout, prep checkout and add-cards routes all refuse an
-  order without them and store each one with its exact text in
-  `order_agreements`; admins see them on the order page and customers on
-  their order page. Prep checkout also requires agreeing to the Terms.
+- **Terms of Service v1.0 and signing.** The Terms text is
+  `legal/terms-v<version>.md`, word for word (never edit it: a wording
+  change is a new file and a new `TERMS_VERSION` in
+  `lib/legal/current-terms.ts`). `scripts/legal-texts.mjs` turns
+  `legal/*.md` into `lib/legal/generated-texts.ts` before every build and
+  dev run. Each version is stored once in `terms_versions` (immutable) and
+  stays at `/terms/v<version>`; `/terms` shows the current one with its
+  PDF. Restoration, prep and add-cards checkouts require the master
+  signature, E-SIGN consent and an insurance buy-or-decline choice; each
+  slab to open needs its own authorization (unsigned slabs are dropped with
+  their $7); cards over $5,000 are created `on_hold_high_value` and get a
+  High-Value Agreement emailed after payment and countersigned on the admin
+  order page (`lib/high-value.ts`). `signatures` and `consents` can't be
+  edited or deleted and the database sets the signing time; orders with
+  signed records can't be deleted. Start cleaning / slab opening and
+  per-card refunds follow `lib/work-gates.ts`. Same code in both repos
+  (the old site has its own page styling). Schema:
+  `supabase/migrations/20261022_terms_v1.sql`.
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 
