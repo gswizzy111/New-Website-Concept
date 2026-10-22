@@ -26,6 +26,14 @@ Rules for this repo:
   areas show `/not-available`. Supabase is read-only: reads show real data,
   every write is refused in `lib/preview.ts`. See `lib/preview.ts` and
   `middleware.ts`.
+- **Admin logins** are per person: `admin_users` (username + PBKDF2 hash from
+  `lib/crypto.ts`) in the shared database, so the same logins work on both
+  sites; accountants sign in with their email (`accountant_access`). The
+  cookie (`admin_session`) holds a random session ID whose SHA-256 is in
+  `admin_sessions`; it ends with the browser, on sign-out, or after 12 hours
+  (`lib/admin-session.ts`). Pages and routes check with `isAdmin()` /
+  `requireAdmin()` from `lib/admin-auth.ts`; never compare cookies to an env
+  var. `ADMIN_PASSWORD` is no longer used.
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 

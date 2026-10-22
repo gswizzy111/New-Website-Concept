@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { PREVIEW_MODE, PREVIEW_MESSAGE } from "@/lib/preview";
+import { ADMIN_SESSION_COOKIE, lookupAdminSession } from "@/lib/admin-session";
 
 // ─── COMING SOON MODE ───────────────────────────────────────────────────────
 // Set to false and push to bring the full site back.
@@ -10,13 +11,15 @@ const COMING_SOON = false;
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const adminPassword = process.env.ADMIN_PASSWORD;
-  const adminCookie = request.cookies.get("admin_auth")?.value;
-  // Full admin: exact password match (never matches when no password is set).
-  // Accountant: act_<uuid> prefix (DB verified at page/route level).
-  const isFullAdmin = !!adminPassword && adminCookie === adminPassword;
-  const isAccountantSession = !isFullAdmin && !!adminCookie?.startsWith("act_");
-  const isAdminSession = isFullAdmin || isAccountantSession;
+  // Admin and accountant sign-in sessions (lib/admin-session.ts), looked up
+  // only on admin paths. Each page and route checks the role again itself.
+  const onAdminPath = pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/");
+  const adminSession = onAdminPath && !PREVIEW_MODE
+    ? await lookupAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value)
+    : null;
+  const isFullAdmin = adminSession?.role === "admin";
+  const isAccountantSession = adminSession?.role === "accountant";
+  const isAdminSession = !!adminSession;
 
   // Accountants get the tax reports and nothing else: no orders, customers or
   // settings. Any other admin page sends them back to the tax reports, and any
@@ -32,30 +35,16 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Preview mode: checkout, payments, shipping and customer accounts are off.
-  // The admin area works read-only behind its password (when ADMIN_PASSWORD is
-  // set): admin pages and GET admin APIs run, every other API call answers
-  // "not functional yet", and Supabase writes are refused in lib/preview.ts.
+  // Preview mode: checkout, payments, shipping, customer accounts and the
+  // admin area are off. Every API call answers "not functional yet" and
+  // Supabase writes are refused in lib/preview.ts (signing in to the admin
+  // writes a session, so it can't work here).
   if (PREVIEW_MODE) {
-    const adminOpen = !!adminPassword;
-    const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
-    const isAdminApi = pathname.startsWith("/api/admin/");
-
     if (pathname.startsWith("/api/")) {
-      const isAuthRoute = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
-      if (adminOpen && isAuthRoute) return NextResponse.next();
-      if (adminOpen && isAdminApi && request.method === "GET") {
-        return isAdminSession
-          ? NextResponse.next()
-          : NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       return NextResponse.json({ error: PREVIEW_MESSAGE }, { status: 503 });
     }
-    const PRIVATE = ["/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
-    if (
-      (isAdminPage && !adminOpen) ||
-      PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))
-    ) {
+    const PRIVATE = ["/admin", "/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
+    if (PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       return NextResponse.rewrite(new URL("/not-available", request.url));
     }
   }
