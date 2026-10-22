@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { BarChart3, Hammer, Microscope, PauseCircle, X } from "lucide-react";
-import { StepWalkthrough } from "@/components/motion/step-walkthrough";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PixelViewContent } from "@/components/pixel-view-content";
@@ -173,18 +172,6 @@ export default async function PrepPage() {
           </div>
         </div>
 
-        {/* How it works: sticky scroll walkthrough */}
-        <section className="mt-20 md:mt-32 border-t border-ink/80 pt-12 md:pt-20">
-          <StepWalkthrough
-            title="How Prep Works"
-            steps={[
-              { n: "1", title: "Place your order", body: "Add your cards, choose your add-ons, and choose how to ship them to us." },
-              { n: "2", title: "Ship your cards", body: "Use our prepaid label or ship yourself. We recommend USPS Priority Mail with tracking." },
-              { n: "3", title: "We prep your cards", body: "Our team surface-cleans, inspects, and submission-readies every card — penny sleeve + semi-rigid." },
-              { n: "4", title: "Cards returned", body: "We return your prepped cards ready for submission. Typical turnaround is 10–15 business days." },
-            ]}
-          />
-        </section>
       </div>
 
       {/* Customer Reviews: the same panel, at the same width, as the Restorations page */}
