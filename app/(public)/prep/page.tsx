@@ -49,7 +49,7 @@ export default async function PrepPage() {
           eyebrow="Prep Service"
           title="Get Your Cards Grade-Ready"
           lines={["Get Your Cards", "Grade-Ready"]}
-          lead={<>We surface-clean and prep your cards so they&apos;re submission-ready. Prep is grader-legal and won&apos;t affect your numeric grade.</>}
+          lead={<>We surface-clean and prep your cards so they&apos;re submission-ready. Graders make their own call, so no grade is ever guaranteed.</>}
         />
 
         {!prices.isOpen && (
