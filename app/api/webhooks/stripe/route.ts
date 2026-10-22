@@ -7,6 +7,8 @@ import { resend, fromEmail, businessName } from "@/lib/resend";
 import { randomUUID } from "node:crypto";
 import { isHighValue } from "@/lib/legal/agreements-v1";
 import { itemAmounts } from "@/lib/item-pricing";
+import { signedPdfAttachments } from "@/lib/signed-pdfs";
+import { startHighValueAgreements } from "@/lib/high-value";
 
 /** A card added to a paid order, as the add-cards route saved it. */
 type AddedCard = {
@@ -470,6 +472,21 @@ export async function POST(request: Request) {
           description: `Customer added ${newCardRows.length} card${newCardRows.length !== 1 ? "s" : ""} — additional payment of $${(paidCents / 100).toFixed(2)} received`,
           is_customer_visible: true,
         });
+
+        // The signature given for these cards, emailed as a PDF; then any high-value agreements
+        const { data: addSig } = await admin.from("signatures").select("id").eq("order_id", addOrderId).eq("type", "master_terms").order("signed_at", { ascending: false }).limit(1);
+        const docs = addSig?.length ? await signedPdfAttachments(admin, addOrderId, [addSig[0].id]).catch(() => []) : [];
+        const { data: addOrder } = await admin.from("orders").select("order_number, customer_email").eq("id", addOrderId).single();
+        if (docs.length && addOrder) {
+          await resend.emails.send({
+            from: fromEmail,
+            to: addOrder.customer_email,
+            subject: `Cards added — ${businessName} #${addOrder.order_number}`,
+            html: `<div style="font-family:Helvetica,Arial,sans-serif;max-width:580px;margin:0 auto;color:#333;font-size:15px;line-height:1.6"><p>Thanks! We added ${newCardRows.length} card${newCardRows.length !== 1 ? "s" : ""} to order #${addOrder.order_number}. Your signed copy of the Terms of Service for them is attached as a PDF.</p></div>`,
+            attachments: docs,
+          }).catch((err) => console.error("Add-cards documents email failed:", err));
+        }
+        await startHighValueAgreements(admin, addOrderId).catch((err) => console.error("High-value agreements failed:", err));
       }
       return Response.json({ received: true });
     }
@@ -733,6 +750,11 @@ export async function POST(request: Request) {
     const trackingUrl = `${appUrl}/orders/${order.order_number}`;
 
     const firstName = order.customer_name?.split(" ")[0] ?? "there";
+    // The signed Terms and slab authorizations, stored and attached (lib/signed-pdfs.ts)
+    const signedDocs = await signedPdfAttachments(admin, orderId!).catch((err) => {
+      console.error("Signed PDFs failed:", err);
+      return [];
+    });
     const shippingSection = shippingLabelUrl
       ? `<div style="background:#fff5f0;border:2px solid #feb993;border-radius:12px;padding:24px;margin:24px 0">
           <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#5c1f08">📦 Your Prepaid Shipping Label Is Ready</p>
@@ -782,6 +804,7 @@ export async function POST(request: Request) {
               <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${order.order_number}</p>
               <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6">Hi ${firstName}! 👋 Thank you for your ${isPrep ? "prep" : "restoration"} order. Here's what to do next to get your cards to us.</p>
               ${shippingSection}
+              ${signedDocs.length ? `<p style="margin:0 0 16px;font-size:14px;color:#333;line-height:1.6">Your signed copy of the Terms of Service${signedDocs.length > 1 ? " and slab removal authorizations are" : " is"} attached as PDF${signedDocs.length > 1 ? "s" : ""}. Please keep ${signedDocs.length > 1 ? "them" : "it"} for your records.</p>` : ""}
               <div style="text-align:center;margin:24px 0">
                 <a href="${trackingUrl}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
               </div>
@@ -791,10 +814,13 @@ export async function POST(request: Request) {
             </div>
           </div>
         `,
+        ...(signedDocs.length ? { attachments: signedDocs } : {}),
       });
     } catch (err) {
       console.error("Failed to send confirmation email:", err);
     }
+    // Cards over $5,000: email their High-Value Agreements and tell the owner
+    await startHighValueAgreements(admin, orderId!).catch((err) => console.error("High-value agreements failed:", err));
   }
 
   // ── Invoice paid (recurring subscription billing) ─────────────────────
