@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 import { RESTORATION_TIERS, getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 
 const TAX_RATE = 0.06625;
 
@@ -53,8 +54,17 @@ export async function POST(
   const tier = RESTORATION_TIERS[order.restoration_tier as RestorationTierId] ?? RESTORATION_TIERS["regular"];
 
   const cardPrices = cards.map((c) => getCardPriceCents(tier, c.declaredValueCents));
-  const subtotalCents = cardPrices.reduce((a, b) => a + b, 0);
-  if (subtotalCents <= 0) return Response.json({ error: "Could not compute price" }, { status: 400 });
+  const listSubtotalCents = cardPrices.reduce((a, b) => a + b, 0);
+  if (listSubtotalCents <= 0) return Response.json({ error: "Could not compute price" }, { status: 400 });
+
+  // Bulk pricing: the order's new size (cards on it + these) sets the percent
+  const { count: cardsOnOrder } = await admin
+    .from("cards")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", order.id);
+  const bulkPercent = addedCardsBulkPercent(tier.id, cardsOnOrder ?? 0, cards.length);
+  const bulkDiscountCents = Math.round(listSubtotalCents * bulkPercent / 100);
+  const subtotalCents = listSubtotalCents - bulkDiscountCents;
 
   const taxCents = Math.round(subtotalCents * TAX_RATE);
   const totalCents = subtotalCents + taxCents;
@@ -81,7 +91,7 @@ export async function POST(
         price_data: {
           currency: "usd",
           product_data: {
-            name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration`,
+            name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}`,
           },
           unit_amount: subtotalCents,
         },
@@ -109,6 +119,7 @@ export async function POST(
       tier: tier.id,
       card_count: String(cards.length),
       subtotal_cents: String(subtotalCents),
+      ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
       ...cardMetadata,
     },
   });

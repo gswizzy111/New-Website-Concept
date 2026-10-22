@@ -4,6 +4,7 @@ import { useState } from "react";
 import { getAllTiers, getTierById, formatCents } from "@/lib/restoration-tiers";
 import { formatCurrency } from "@/lib/utils";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { bulkDiscountPercent, bulkPriceCents } from "@/lib/bulk-pricing";
 
 const TIER_ORDER: RestorationTierId[] = ["regular", "expedited", "premium", "ultra_premium"];
 const TAX_RATE = 0.06625;
@@ -61,7 +62,9 @@ export function UpgradeSection({ orderNumber, customerEmail, currentTier, curren
       <div className="flex flex-col gap-3">
         {upgradeTiers.map((tier) => {
           const newSubtotal = tier.price_cents * cardCount;
-          const diff = newSubtotal - currentSubtotalCents;
+          // Same as the upgrade route: the difference, with the order's bulk percent off
+          const bulkPercent = bulkDiscountPercent(cardCount);
+          const diff = bulkPriceCents(newSubtotal - currentSubtotalCents, bulkPercent);
           const tax = Math.round(diff * TAX_RATE);
           const total = diff + tax;
 
@@ -73,7 +76,7 @@ export function UpgradeSection({ orderNumber, customerEmail, currentTier, curren
                   {tier.turnaround_min_days}–{tier.turnaround_max_days} business days · {formatCents(tier.price_cents)}/card
                 </p>
                 <p className="text-sm font-semibold text-rx mt-0.5">
-                  +{formatCurrency(total)} upgrade fee <span className="text-xs font-normal text-muted-foreground">(incl. tax)</span>
+                  +{formatCurrency(total)} upgrade fee <span className="text-xs font-normal text-muted-foreground">(incl. tax{bulkPercent > 0 ? `, ${bulkPercent}% bulk discount` : ""})</span>
                 </p>
               </div>
               <button

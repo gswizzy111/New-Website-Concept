@@ -299,6 +299,9 @@ A segmented control above the tier grid: one white pill track (`border-rule`, `p
 ### Option Cards (kit shipping speed)
 Choices with a price (shipping speeds) are full-width label rows: native radio, name over a muted detail line, price right-aligned in `tabular-nums`. Chosen: `border-rx bg-rx-soft`, name and price in `text-rx`. The focus ring sits on the row (`has-[:focus-visible]`).
 
+### Address suggestions (`address-autocomplete.tsx`)
+The street field keeps the form's own input style; Google's suggestions open in a white list under it (`rounded-lg`, hairline border, `shadow-lg`): street in medium weight over the town in muted xs, the highlighted row on `bg-secondary`, and a quiet "powered by Google" footer (required attribution). An ARIA combobox: arrows move, Enter picks, Escape closes. Picking fills street, city, state and ZIP. Without a key it is a plain input for the browser's own autofill.
+
 ### Account pages (`auth-card.tsx`)
 Sign in, sign up, confirm, forgot and reset password share one centered white card (`AuthCard`) with uppercase field labels and a full-width primary button; signed-in pages share `AccountHeader` (Orders, Settings, email, Sign out). Confirming an email or resetting a password takes a button press on our page, so link scanners can't spend the one-time token.
 
