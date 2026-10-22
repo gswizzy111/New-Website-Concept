@@ -532,7 +532,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               }
               rows.push({ label: "Sales Tax (6.625%)", cents: taxCents, style: "text-muted-foreground" });
               if (shippingCents > 0) rows.push({ label: "Shipping (prepaid label)", cents: shippingCents, style: "text-muted-foreground" });
-              if (insuranceCents > 0) rows.push({ label: `Insured Shipping (${insuranceType === "round_trip" ? "round trip" : "inbound"})`, cents: insuranceCents, style: "text-muted-foreground" });
+              if (insuranceCents > 0) rows.push({ label: `Insured Shipping (${insuranceType === "round_trip" ? "round trip" : insuranceType === "return" ? "return" : "inbound"})`, cents: insuranceCents, style: "text-muted-foreground" });
               if (signatureCents > 0) rows.push({ label: "Signature Confirmation", cents: signatureCents, style: "text-muted-foreground" });
               if (unaccountedCents > 0) rows.push({ label: "Other charges (slab crack, add-ons — check Stripe)", cents: unaccountedCents, style: "text-amber-700" });
               if (gcApplied > 0) rows.push({ label: "Gift Card Applied", cents: -gcApplied, style: "text-green-600" });

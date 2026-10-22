@@ -4,6 +4,18 @@ import { stripe, invoiceSubscriptionId } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shippo } from "@/lib/shippo";
 import { resend, fromEmail, businessName } from "@/lib/resend";
+import { randomUUID } from "node:crypto";
+import { isHighValue } from "@/lib/legal/agreements-v1";
+import { itemAmounts } from "@/lib/item-pricing";
+
+/** A card added to a paid order, as the add-cards route saved it. */
+type AddedCard = {
+  name: string;
+  declaredValueCents: number;
+  photoUrls?: string[];
+  card_set?: string; card_year?: string; card_number?: string; variation?: string;
+  grading_company?: string; grade?: string; cert_number?: string; known_defects?: string;
+};
 import { buyKitLabel, type KitLabel } from "@/lib/kit-shipping";
 import { RESTORATION_TIERS, getCardPriceCents, getTierById } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
@@ -364,8 +376,37 @@ export async function POST(request: Request) {
 
       if (addOrderId && cardCount > 0) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const newCardRows: Record<string, any>[] = [];
-        for (let i = 0; i < cardCount; i++) {
+        let newCardRows: Record<string, any>[] = [];
+        // The full card details saved when the customer signed (add-cards route)
+        const pendingId = session.metadata.pending_event_id;
+        const { data: pending } = pendingId
+          ? await admin.from("order_events").select("metadata").eq("id", pendingId).maybeSingle()
+          : { data: null };
+        const pendingCards = (pending?.metadata as { cards?: AddedCard[] } | null)?.cards;
+        if (pendingCards?.length) {
+          const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
+          const prices = pendingCards.map((c) => getCardPriceCents(addTier, c.declaredValueCents));
+          const amounts = itemAmounts(prices, parseInt(session.metadata.bulk_discount_cents ?? "0", 10) || 0);
+          newCardRows = pendingCards.map((c, i) => ({
+            id: randomUUID(),
+            order_id: addOrderId,
+            card_name: c.name,
+            photo_urls: c.photoUrls ?? [],
+            card_set: c.card_set ?? null,
+            card_year: c.card_year ?? null,
+            card_number: c.card_number ?? null,
+            variation: c.variation ?? null,
+            grading_company: c.grading_company ?? null,
+            grade: c.grade ?? null,
+            cert_number: c.cert_number ?? null,
+            known_defects: c.known_defects ?? null,
+            estimated_value_cents: c.declaredValueCents,
+            tier: addTier.id,
+            status: isHighValue(c.declaredValueCents) ? "on_hold_high_value" : "active",
+            ...amounts[i],
+          }));
+        }
+        for (let i = 0; i < cardCount && !pendingCards?.length; i++) {
           const raw = session.metadata[`card_${i}`];
           if (!raw) continue;
           try {
@@ -385,6 +426,11 @@ export async function POST(request: Request) {
 
         if (newCardRows.length > 0) {
           await admin.from("cards").insert(newCardRows);
+          // Cards over $5,000 wait for their own High-Value Agreement
+          const heldIds = newCardRows.filter((r) => r.status === "on_hold_high_value").map((r) => r.id as string);
+          if (heldIds.length) {
+            await admin.from("high_value_agreements").insert(heldIds.map((id) => ({ order_id: addOrderId, order_item_id: id })));
+          }
 
           // Service lines for the added cards, priced the way the add-cards route charged them
           const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
@@ -499,7 +545,8 @@ export async function POST(request: Request) {
       // avoids depending on DB columns that may not be migrated yet)
       const insuranceCents = parseInt(session.metadata?.insurance_declared_value_cents ?? "0", 10);
       const insuranceType = session.metadata?.insurance_type ?? "";
-      const hasInboundInsurance = insuranceCents > 0 && insuranceType !== "" && insuranceType !== "none";
+      // "return" insures only the trip back, applied when the return label is bought
+      const hasInboundInsurance = insuranceCents > 0 && insuranceType !== "" && insuranceType !== "none" && insuranceType !== "return";
       const wantsSignature = session.metadata?.add_signature_confirmation === "true";
       try {
         // The Shippo SDK's TransactionCreateRequest has no `extra` field — it strips it silently.
