@@ -37,7 +37,7 @@ const LEARN_LINKS = [
 const ACCOUNT_LINKS = [...SEC_LINKS, { href: "/account", label: "My Account" }];
 
 const LEGAL_LINKS = [
-  { href: "/terms", label: "Terms & Conditions" },
+  { href: "/terms", label: "Terms of Service" },
   { href: "/privacy", label: "Privacy Policy" },
 ];
 
