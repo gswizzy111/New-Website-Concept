@@ -15,6 +15,11 @@ Rules for this repo:
   every key from its Netlify environment variables; never put keys in
   `netlify.toml`. It shares the Supabase database and Stripe account with
   the old site (thecarddoc1.com, repo `gswizzy111/card-restoration`).
+  `NEXT_PUBLIC_*` values are baked in at build time: after changing one in
+  Netlify, production needs a new build. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+  is a browser key (Places API (New) + Maps JavaScript API), restricted to the
+  site's domains in Google Cloud; it is not marked secret because it ships in
+  the page. The live Stripe webhook runs on the old site and serves both.
 - **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`) is on for branch deploys
   and deploy previews only (`netlify.toml`). It runs the site without
   checkout or accounts: `/api/*` returns "not functional yet" and private
