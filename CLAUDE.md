@@ -33,7 +33,11 @@ Rules for this repo:
   `admin_sessions`; it ends with the browser, on sign-out, or after 12 hours
   (`lib/admin-session.ts`). Pages and routes check with `isAdmin()` /
   `requireAdmin()` from `lib/admin-auth.ts`; never compare cookies to an env
-  var. `ADMIN_PASSWORD` is no longer used.
+  var. `ADMIN_PASSWORD` is no longer used. Admins change their password and
+  recovery email on `/admin/profile`; "Forgot password?" emails a one-time,
+  1-hour link (SHA-256 in `admin_password_resets`) to that recovery email or
+  the accountant's email, and using it signs that person out everywhere
+  (`lib/admin-password.ts`).
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 
