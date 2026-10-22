@@ -240,8 +240,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
   // No NJ tax for international orders
   const taxCents = isInternational ? 0 : Math.round(serviceSubtotal * NJ_TAX_RATE);
-  // ×2: customer pays inbound label + return label
-  const shippingCents = (selectedRate?.amount_cents ?? 0) * 2;
+  // The prepaid label pays the rate twice (to us and back); shipping your own
+  // way pays it once, for the trip back to you
+  const shippingTrips = shippingMethod === "buy_label" ? 2 : 1;
+  const shippingCents = (selectedRate?.amount_cents ?? 0) * shippingTrips;
   const insuranceDeclaredValueCents = addInsurance ? Math.round((parseFloat(insuranceValueDollars) || 0) * 100) : 0;
   const estimatedInsuranceCents = estimateInsuranceCents(insuranceDeclaredValueCents);
   const totalEstimate = serviceSubtotal + taxCents + shippingCents + estimatedInsuranceCents;
@@ -310,16 +312,17 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     if (!name.trim()) { return fail("Name is required."); }
     if (!email.trim()) { return fail("Email is required."); }
     if (!phone.trim()) { return fail("Phone is required."); }
-    if (shippingMethod === "buy_label") {
-      if (!street1.trim() || !city.trim() || !zip.trim()) {
-        return fail("Full address is required to generate a prepaid label.");
-      }
-      if (!isInternational && !stateCode) {
-        return fail("State is required for US addresses.");
-      }
-      if (!selectedRate) {
-        return fail("Please check shipping rates and select an option before continuing.");
-      }
+    // The cards come back to this address either way
+    if (!street1.trim() || !city.trim() || !zip.trim()) {
+      return fail(shippingMethod === "buy_label"
+        ? "Full address is required to generate a prepaid label."
+        : "Full address is required so we can ship your cards back.");
+    }
+    if (!isInternational && !stateCode) {
+      return fail("State is required for US addresses.");
+    }
+    if (!selectedRate) {
+      return fail("Please check shipping rates and select an option before continuing.");
     }
 
     if (insuranceElection === null) { return fail("Please choose whether to buy or decline shipping insurance."); }
@@ -348,15 +351,15 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           add_pre_grade: addPreGrade,
           insurance_election: insuranceElection,
           shipping_method: shippingMethod,
+          country,
+          street1: street1.trim(),
+          street2: street2.trim() || undefined,
+          city: city.trim(),
+          state: stateCode.trim() || undefined,
+          zip: zip.trim(),
+          shipping_rate_object_id: selectedRate?.id,
+          shipping_amount_cents: shippingCents,
           ...(shippingMethod === "buy_label" ? {
-            country,
-            street1: street1.trim(),
-            street2: street2.trim() || undefined,
-            city: city.trim(),
-            state: stateCode.trim() || undefined,
-            zip: zip.trim(),
-            shipping_rate_object_id: selectedRate?.id,
-            shipping_amount_cents: (selectedRate?.amount_cents ?? 0) * 2,
             add_insurance: addInsurance,
             insurance_amount_cents: insuranceDeclaredValueCents,
           } : {}),
@@ -573,137 +576,139 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             </button>
           </div>
 
-          {shippingMethod === "buy_label" && (
-            <div className="flex flex-col gap-4">
-              <div className="border-t border-border pt-4 flex flex-col gap-3">
-
-                {/* Country selector — always first */}
-                <div>
-                  <label className={labelCls}>Country<Req /></label>
-                  <select
-                    className={selectCls}
-                    value={country}
-                    onChange={(e) => { setCountry(e.target.value); setStateCode(""); resetAddress(); }}
-                  >
-                    {COUNTRIES.map((c) => (
-                      <option key={c.code} value={c.code}>{c.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <Need missing={miss(street1)}>
-                  <label className={labelCls}>Street Address<Req /></label>
-                  <AddressAutocomplete
-                    value={street1}
-                    onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
-                    onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
-                    countries={[country.toLowerCase()]}
-                    className={input}
-                    placeholder="123 Main St"
-                  />
-                </Need>
-                <div>
-                  <label className={labelCls}>Apt / Suite / Unit <span className="font-normal">(optional)</span></label>
-                  <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
-                </div>
-
-                {!isInternational ? (
-                  /* US: city / state dropdown / zip */
-                  <div className="grid grid-cols-5 gap-2">
-                    <Need missing={miss(city)} className="col-span-2">
-                      <label className={labelCls}>City<Req /></label>
-                      <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
-                    </Need>
-                    <Need missing={miss(stateCode)}>
-                      <label className={labelCls}>State<Req /></label>
-                      <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
-                        <option value="">—</option>
-                        {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </Need>
-                    <Need missing={miss(zip)} className="col-span-2">
-                      <label className={labelCls}>ZIP Code<Req /></label>
-                      <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
-                    </Need>
-                  </div>
-                ) : (
-                  /* International: city / state text (optional) / postal code */
-                  <div className="grid grid-cols-5 gap-2">
-                    <Need missing={miss(city)} className="col-span-2">
-                      <label className={labelCls}>City<Req /></label>
-                      <input className={input} value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
-                    </Need>
-                    <div>
-                      <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
-                      <input className={input} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
-                    </div>
-                    <Need missing={miss(zip)} className="col-span-2">
-                      <label className={labelCls}>Postal Code<Req /></label>
-                      <input className={input} value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
-                    </Need>
-                  </div>
-                )}
-              </div>
-
-              {addressComplete && (
-                <Need missing={showMissing && !selectedRate} note="Check shipping rates and choose an option." className="flex flex-col gap-3">
-                  {isInternational ? (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
-                      <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
-                    </div>
-                  ) : (
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
-                      <strong>Shipping price covers both ways.</strong> You&apos;re paying for your label to send cards to us <em>and</em> the return shipment back to you — two labels, billed up front.
-                    </div>
-                  )}
-
-                  {(rates.length === 0 || addressChangedSinceFetch) && !ratesLoading && (
-                    <button type="button" onClick={fetchRates}
-                      className="h-10 w-full border border-primary text-primary text-sm font-bold rounded-lg hover:bg-primary/5 transition-colors">
-                      {addressChangedSinceFetch ? "Refresh Shipping Rates" : "Check Shipping Rates"}
-                    </button>
-                  )}
-
-                  {ratesLoading && (
-                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
-                      <div className="w-4 h-4 border border-primary border-t-transparent rounded-full animate-spin" />
-                      Fetching rates…
-                    </div>
-                  )}
-
-                  {ratesError && (
-                    <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{ratesError}</div>
-                  )}
-
-                  {rates.length > 0 && !addressChangedSinceFetch && (
-                    <div className="flex flex-col gap-2">
-                      <p className="text-xs font-semibold text-muted-foreground">Select a shipping option:</p>
-                      {rates.map((rate) => (
-                        <button key={rate.id} type="button" onClick={() => setSelectedRate(rate)}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left transition-colors ${selectedRate?.id === rate.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
-                          <div className="flex items-center gap-3">
-                            <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedRate?.id === rate.id ? "border-primary" : "border-border"}`}>
-                              {selectedRate?.id === rate.id && <div className="w-2 h-2 rounded-full bg-primary" />}
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold text-foreground">{rate.service}</p>
-                              <p className="text-xs text-muted-foreground">{etaLabel(rate)}</p>
-                            </div>
-                          </div>
-                          <span className="text-sm font-extrabold text-foreground">{fmt(rate.amount_cents * 2)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </Need>
-              )}
-
-            </div>
-          )}
-
           {shippingMethod === "self_ship" && (
             <p className="text-xs text-muted-foreground">After checkout you&apos;ll receive our mailing address. Ship using any tracked, insured method and include your order number inside the package.</p>
           )}
+
+          <div className="flex flex-col gap-4">
+            <div className="border-t border-border pt-4 flex flex-col gap-3">
+
+              {/* Country selector — always first */}
+              <div>
+                <label className={labelCls}>Country<Req /></label>
+                <select
+                  className={selectCls}
+                  value={country}
+                  onChange={(e) => { setCountry(e.target.value); setStateCode(""); resetAddress(); }}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <Need missing={miss(street1)}>
+                <label className={labelCls}>Street Address<Req /></label>
+                <AddressAutocomplete
+                  value={street1}
+                  onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
+                  onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
+                  countries={[country.toLowerCase()]}
+                  className={input}
+                  placeholder="123 Main St"
+                />
+              </Need>
+              <div>
+                <label className={labelCls}>Apt / Suite / Unit <span className="font-normal">(optional)</span></label>
+                <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
+              </div>
+
+              {!isInternational ? (
+                /* US: city / state dropdown / zip */
+                <div className="grid grid-cols-5 gap-2">
+                  <Need missing={miss(city)} className="col-span-2">
+                    <label className={labelCls}>City<Req /></label>
+                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                  </Need>
+                  <Need missing={miss(stateCode)}>
+                    <label className={labelCls}>State<Req /></label>
+                    <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                      <option value="">—</option>
+                      {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </Need>
+                  <Need missing={miss(zip)} className="col-span-2">
+                    <label className={labelCls}>ZIP Code<Req /></label>
+                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                  </Need>
+                </div>
+              ) : (
+                /* International: city / state text (optional) / postal code */
+                <div className="grid grid-cols-5 gap-2">
+                  <Need missing={miss(city)} className="col-span-2">
+                    <label className={labelCls}>City<Req /></label>
+                    <input className={input} value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
+                  </Need>
+                  <div>
+                    <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
+                    <input className={input} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
+                  </div>
+                  <Need missing={miss(zip)} className="col-span-2">
+                    <label className={labelCls}>Postal Code<Req /></label>
+                    <input className={input} value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
+                  </Need>
+                </div>
+              )}
+            </div>
+
+            {addressComplete && (
+              <Need missing={showMissing && !selectedRate} note="Check shipping rates and choose an option." className="flex flex-col gap-3">
+                {shippingMethod === "self_ship" ? (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
+                    <strong>Return shipping is paid now.</strong> You send your cards to us your own way; we ship them back to this address with a tracked label.
+                  </div>
+                ) : isInternational ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
+                    <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
+                    <strong>Shipping price covers both ways.</strong> You&apos;re paying for your label to send cards to us <em>and</em> the return shipment back to you — two labels, billed up front.
+                  </div>
+                )}
+
+                {(rates.length === 0 || addressChangedSinceFetch) && !ratesLoading && (
+                  <button type="button" onClick={fetchRates}
+                    className="h-10 w-full border border-primary text-primary text-sm font-bold rounded-lg hover:bg-primary/5 transition-colors">
+                    {addressChangedSinceFetch ? "Refresh Shipping Rates" : "Check Shipping Rates"}
+                  </button>
+                )}
+
+                {ratesLoading && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                    <div className="w-4 h-4 border border-primary border-t-transparent rounded-full animate-spin" />
+                    Fetching rates…
+                  </div>
+                )}
+
+                {ratesError && (
+                  <div className="text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{ratesError}</div>
+                )}
+
+                {rates.length > 0 && !addressChangedSinceFetch && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground">{shippingMethod === "self_ship" ? "Select a return shipping option:" : "Select a shipping option:"}</p>
+                    {rates.map((rate) => (
+                      <button key={rate.id} type="button" onClick={() => setSelectedRate(rate)}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border text-left transition-colors ${selectedRate?.id === rate.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${selectedRate?.id === rate.id ? "border-primary" : "border-border"}`}>
+                            {selectedRate?.id === rate.id && <div className="w-2 h-2 rounded-full bg-primary" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-foreground">{rate.service}</p>
+                            <p className="text-xs text-muted-foreground">{etaLabel(rate)}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm font-extrabold text-foreground">{fmt(rate.amount_cents * shippingTrips)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Need>
+            )}
+
+          </div>
         </div>
 
         {/* Shipping insurance: a required choice, buy or decline (Terms 15.2, 15.4) */}
@@ -797,14 +802,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <span className="font-semibold">{fmt(taxCents)}</span>
               </div>
             )}
-            {shippingMethod === "buy_label" && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Shipping (inbound + return)</span>
-                {selectedRate
-                  ? <span className="font-semibold">{fmt(shippingCents)}</span>
-                  : <span className="text-xs font-semibold text-muted-foreground">select above</span>}
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{shippingMethod === "buy_label" ? "Shipping (inbound + return)" : "Return shipping"}</span>
+              {selectedRate
+                ? <span className="font-semibold">{fmt(shippingCents)}</span>
+                : <span className="text-xs font-semibold text-muted-foreground">select above</span>}
+            </div>
             {addInsurance && insuranceDeclaredValueCents > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Shipment Insurance (~1.5% of value)</span>
@@ -813,12 +816,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             )}
             <div className="flex justify-between pt-2 border-t border-border mt-1">
               <span className="font-extrabold text-foreground">
-                {shippingMethod === "buy_label" && !selectedRate ? "Subtotal" : "Total"}
+                {!selectedRate ? "Subtotal" : "Total"}
               </span>
               <span className="font-extrabold text-foreground text-lg">{totalEstimate > 0 ? fmt(totalEstimate) : "—"}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              {shippingMethod === "buy_label" && !selectedRate
+              {!selectedRate
                 ? "* Select a shipping option above to see your full total."
                 : isInternational
                   ? "* All amounts in USD. Confirmed at Stripe checkout."

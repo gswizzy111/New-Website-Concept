@@ -99,6 +99,12 @@ restorer, not a faceless shop.
   Cards added to an order get the percent for the order's new size (cards
   already paid keep their price); a tier upgrade pays the difference with the
   order's bulk percent off.
+- **Restoration and prep shipping** is priced from the Shippo rate from the
+  customer's address to us, looked up again on the server
+  (`lib/inbound-rate.ts`). A prepaid label costs that rate twice (to us and
+  back). Customers who send their cards in their own way still pay it once,
+  for the trip back; the service they paid for is kept in
+  `orders.return_carrier` / `return_service_level` for the return label.
 - **Kit shipping** is priced live for the customer's address and the speed
   they pick: carrier postage plus $2 handling in the US, $10 abroad
   (`lib/kit-shipping.ts`). The rate they pick is bought as the label when
