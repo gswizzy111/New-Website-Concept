@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Info } from "lucide-react";
 import { useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
@@ -523,6 +523,10 @@ function CheckoutInner() {
                 Enter your address and choose a shipping speed before paying.
               </p>
             )}
+            <p className="flex items-start gap-2 text-sm text-ink mb-4">
+              <Info className="h-4 w-4 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
+              All sales final. Defective or missing items are replaced or refunded.
+            </p>
             <Button
               onClick={handleCheckout}
               disabled={submitting || !canPay()}

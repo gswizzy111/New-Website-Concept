@@ -30,7 +30,7 @@ const STEPS = [
     n: "1",
     title: "Choose Your Service, Tier, and Add-Ons",
     note: "(Tiers, services, and add-ons lock at checkout and cannot be changed afterward)",
-    body: "Pick Restoration or Prep based on your card's current declared value (what it's worth right now, not its projected graded value). Every tier gets the exact same care—you are only paying for turnaround speed and value coverage.",
+    body: "Pick Restoration or Prep based on your card's current declared value (what it's worth right now, not its projected graded value). Every tier gets the exact same care—you are only paying for turnaround speed and the card value each tier accepts.",
   },
   {
     n: "2",
@@ -123,7 +123,7 @@ const POLICIES = [
   {
     icon: ShieldCheck,
     title: "Alteration risk:",
-    body: "Prep carries zero alteration risk. Restoration stays strictly within grading limits.",
+    body: "Prep is a surface clean, with nothing restorative. Restoration carries a risk, low but not zero, that a grader detects it or returns a card as altered.",
   },
   {
     icon: Package,
@@ -164,7 +164,7 @@ export default function HowItWorksPage() {
                 <div>
                   <h3 className="font-heading text-lg font-bold text-ink">Prep Only:</h3>
                   <p className="text-[15px] text-muted-foreground mt-1 leading-relaxed">
-                    A grader-safe surface clean, inspection under bright light, and fresh sleeving into a Card Saver. Carries zero alteration risk.
+                    A gentle surface clean, inspection under bright light, and fresh sleeving into a Card Saver. Nothing restorative, and no grade is guaranteed.
                   </p>
                 </div>
               </div>

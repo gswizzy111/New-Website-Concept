@@ -40,7 +40,7 @@ const faqItems = [
   },
   {
     q: "Will PSA detect the restoration? Will it come back \"altered\"?",
-    a: "There is always an inherent risk — low, but not zero. We stay within grading limits, add no material, and only manipulate what's already there.",
+    a: "There is always an inherent risk — low, but not zero. We add no material and only manipulate what's already there.",
   },
   {
     q: "How do I ship my cards safely?",
@@ -81,7 +81,7 @@ export default async function AboutPage() {
         <div className="max-w-6xl mx-auto px-4 md:px-10">
           <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Our Tiers</h2>
           <p className="text-muted-foreground mb-10 max-w-xl">
-            Every tier gets the exact same care—you are only paying for turnaround speed and value coverage.
+            Every tier gets the exact same care—you are only paying for turnaround speed and the card value each tier accepts.
           </p>
           <div data-reveal className="rounded-xl bg-white ring-1 ring-rule overflow-x-auto">
             <table className="w-full min-w-[560px] text-left">
@@ -202,8 +202,12 @@ export default async function AboutPage() {
                 body: "We're not responsible for loss, damage, or theft while cards are in transit to or from us. Use tracked, insured shipping and pack your cards properly.",
               },
               {
+                title: "No insurance while we have your cards",
+                body: "We do not currently insure customer cards while they are in our possession. Optional shipping insurance is available at checkout.",
+              },
+              {
                 title: "No guaranteed results",
-                body: "Results and grades are never guaranteed. Restoration stays within grading limits, but there's always an inherent risk, low but not zero, that a grader detects it or returns a card as altered.",
+                body: "Results and grades are never guaranteed. There's always an inherent risk, low but not zero, that a grader detects restoration or returns a card as altered.",
               },
               {
                 title: "Results vary",
