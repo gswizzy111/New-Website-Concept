@@ -42,9 +42,13 @@ Rules for this repo:
   with their code and a password they set from a one-time, 7-day setup link
   the admin makes on the Affiliates page (codes are public, so a code alone
   opens nothing). Sessions are random IDs hashed in `affiliate_sessions`. The
-  dashboard shows totals for the code (sales, revenue, 10% commission, by
+  dashboard shows totals for the code (sales, revenue, commission, by
   service and month, recent sales) and never customer details; the admin
   Affiliates page counts sales the same way (`lib/creator-portal.ts`).
+  Commission is set per code on the Affiliates page (default 10%, coupons
+  0%); `affiliate_commission_rates` keeps each rate's start, and a sale earns
+  the rate in effect when it was placed, so "from now on" changes never
+  reprice past sales.
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 

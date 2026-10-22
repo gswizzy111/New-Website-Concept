@@ -35,7 +35,7 @@ const FAQ = [
   },
   {
     q: "How long does it take?",
-    a: "Prep typically turns around in 10–15 business days. Restorations range from 2–3 months (Bronze) down to 3–5 business days (Ultra Premium) depending on the tier you choose.",
+    a: "Prep typically turns around in 10–15 business days. Restorations range from 2–3 months (Bronze) down to 5–10 business days (Diamond) depending on the tier you choose, or skip the queue with Fast Pass.",
   },
 ];
 
@@ -245,7 +245,7 @@ export default async function HomePage() {
                   Proven Results,<br className="hidden md:block" /> Every Time
                 </h2>
                 <p className="text-lg text-stage-muted max-w-xl leading-relaxed mb-10">
-                  Hundreds of cards restored and prepped — documented with before &amp; after photos for every submission. We don&apos;t just claim results, we show them.
+                  Hundreds of cards restored and prepped. We don&apos;t just claim results, we show them.
                 </p>
                 <Link
                   href="/tier-selection"

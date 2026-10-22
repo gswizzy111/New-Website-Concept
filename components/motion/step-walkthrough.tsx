@@ -5,7 +5,14 @@ import { motion, useScroll, useSpring } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
 import { useForwardOnly } from "@/components/motion/use-scroll-once";
 
-type Step = { n: string; title: string; body: string };
+type Step = {
+  n: string;
+  title: string;
+  /** A short line under the title (a condition or the order status during the step) */
+  note?: string;
+  /** Text, or richer content such as a list */
+  body: React.ReactNode;
+};
 
 /**
  * Sticky scroll walkthrough: the current step's number and title stay pinned
@@ -86,7 +93,12 @@ export function StepWalkthrough({ title, steps }: { title: string; steps: Step[]
               </span>
               <div className={`transition-opacity duration-300 ${i === active ? "opacity-100" : "md:opacity-45"}`}>
                 <p className="font-heading text-xl md:text-2xl font-bold text-ink">{step.title}</p>
-                <p className="mt-1.5 text-[15px] md:text-base text-muted-foreground leading-relaxed max-w-[48ch]">{step.body}</p>
+                {step.note && <p className="mt-1 font-mono text-xs text-rx leading-relaxed max-w-[52ch]">{step.note}</p>}
+                {typeof step.body === "string" ? (
+                  <p className="mt-1.5 text-[15px] md:text-base text-muted-foreground leading-relaxed max-w-[48ch]">{step.body}</p>
+                ) : (
+                  <div className="mt-1.5 text-[15px] md:text-base text-muted-foreground leading-relaxed max-w-[52ch]">{step.body}</div>
+                )}
               </div>
             </li>
           ))}

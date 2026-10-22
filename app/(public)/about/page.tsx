@@ -2,6 +2,9 @@ import { Check, Plus, X } from "lucide-react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/marketing/page-hero";
+import { getLiveTiers, tierPrice, tierTurnaround, tierValueRange } from "@/lib/live-tiers";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "About Us | The Card Doc",
@@ -29,34 +32,36 @@ const cannotFix = [
   "Heavy ink loss or fading",
 ];
 
+// Same answers as the FAQ page and How It Works
 const faqItems = [
   {
     q: "What types of cards do you work on?",
     a: "We restore all trading cards — Pokémon, sports cards (baseball, basketball, football, hockey), Magic: The Gathering, Yu-Gi-Oh!, and more. Vintage or modern, we handle them all.",
   },
   {
-    q: "Will restoration affect PSA/BGS grading?",
-    a: "Yes. Professional graders can detect restoration and will designate the card as 'Altered' or 'Authentic' rather than giving a numeric grade. We're fully transparent about this — restoration is for collectors who want their cards to look their best, not for preparing cards for numeric grades.",
+    q: "Will PSA detect the restoration? Will it come back \"altered\"?",
+    a: "There is always an inherent risk — low, but not zero. We stay within grading limits, add no material, and only manipulate what's already there.",
   },
   {
     q: "How do I ship my cards safely?",
-    a: "Sleeve each card in a penny sleeve, then a toploader. Sandwich the toploaders between two pieces of rigid cardboard taped together, then place inside a padded envelope or small box. Always use a tracked, insured service.",
+    a: "Place each card in a penny sleeve, then inside a Card Saver 1 or toploader. Sandwich the holders between two pieces of rigid cardboard. Wrap in bubble wrap and seal inside a padded mailer or small box so nothing shifts.",
   },
   {
-    q: "What if my card can't be fully restored?",
-    a: "We'll contact you before starting work if we believe a card won't respond well to treatment. You'll decide whether to proceed, and we'll refund the service portion if we can't meet a reasonable standard.",
+    q: "What if you can't fix my card?",
+    a: "Then we refund the service cost and send it back — you just cover shipping both ways. We inspect every card on arrival specifically to make that call before work begins.",
   },
   {
     q: "How long does restoration take?",
-    a: "Turnaround varies by tier: Regular is 12–15 business days, Expedited is 7–10 business days, Premium is 5–7 business days, and Ultra Premium is 3–5 business days. All times start from when we physically receive your cards.",
+    a: "It depends on the tier you choose (see Our Tiers above). Estimates start when your status hits Cards Received (or upon arrival for Fast Pass) and do not include shipping transit time.",
   },
   {
     q: "Do you offer refunds?",
-    a: "If we determine a card can't be restored to a reasonable standard, we refund the service cost (shipping is non-refundable). Once restoration is complete, refunds aren't offered — but if you're unsatisfied with the result we'll work with you to make it right.",
+    a: "We never guarantee results or grades. Every card is evaluated when it arrives: if we can't improve a restoration card, we refund the service cost and ship it back untouched (you only cover round-trip shipping), and if a card booked for restoration only needs a clean, we downgrade it to Prep so you don't overpay. Have a concern about a finished card? Message @the_card_doc and we'll take another look.",
   },
 ];
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const tiers = await getLiveTiers();
   return (
     <>
       {/* Hero */}
@@ -71,6 +76,42 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* Tiers: the same names, prices and turnarounds as the booking page */}
+      <section className="pt-16 md:pt-24">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Our Tiers</h2>
+          <p className="text-muted-foreground mb-10 max-w-xl">
+            Every tier gets the exact same care—you are only paying for turnaround speed and value coverage.
+          </p>
+          <div data-reveal className="rounded-xl bg-white ring-1 ring-rule overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left">
+              <thead>
+                <tr className="border-b border-ink/80">
+                  {["Tier", "Price", "Card value", "Turnaround"].map((h) => (
+                    <th key={h} scope="col" className="px-5 md:px-7 py-4 font-mono text-xs font-normal uppercase tracking-[0.06em] text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-rule">
+                {tiers.map((t) => (
+                  <tr key={t.id}>
+                    <th scope="row" className="px-5 md:px-7 py-4 font-heading text-lg font-bold text-ink">{t.name}</th>
+                    <td className="px-5 md:px-7 py-4 text-[15px] text-ink">{tierPrice(t)}</td>
+                    <td className="px-5 md:px-7 py-4 text-[15px] text-muted-foreground">{tierValueRange(t)}</td>
+                    <td className="px-5 md:px-7 py-4 text-[15px] text-muted-foreground">{tierTurnaround(t)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-sm text-muted-foreground mt-6">
+            Prefer a clean without restoration?{" "}
+            <Link href="/prep" className="font-semibold text-rx hover:underline">See Prep pricing</Link>
+            {" "}·{" "}
+            <Link href="/tier-selection" className="font-semibold text-rx hover:underline">Book a restoration</Link>
+          </p>
+        </div>
+      </section>
 
       {/* Can / Cannot fix */}
       <section className="py-16 md:py-24">
