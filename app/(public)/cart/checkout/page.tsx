@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { KIT_US_STATES, addressProblem } from "@/lib/shipping-address";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
 import type { KitRate } from "@/lib/kit-shipping";
 
@@ -69,6 +70,9 @@ function CheckoutInner() {
   const isInternational = searchParams.get("international") === "true";
 
   const [submitting, setSubmitting] = useState(false);
+  // Pressed pay (or see shipping) with something missing: outline it in red
+  const [showMissing, setShowMissing] = useState(false);
+  const miss = (v: string | undefined) => showMissing && !v?.trim();
   const [form, setForm] = useState({
     name: "", email: "", phone: "",
     street1: "", street2: "", city: "", state: "", zip: "", country: "",
@@ -217,8 +221,13 @@ function CheckoutInner() {
     return isAddressValid() && rateStatus === "done" && !!chosenRate;
   }
 
+  function showWhatsMissing() {
+    setShowMissing(true);
+    revealMissing();
+  }
+
   async function handleCheckout() {
-    if (!canPay()) return;
+    if (!canPay()) return showWhatsMissing();
     setSubmitting(true);
     try {
       const body: Record<string, unknown> = {
@@ -291,18 +300,18 @@ function CheckoutInner() {
           <div className="bg-white border border-border rounded-lg p-6">
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Contact</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2 flex flex-col gap-1.5">
-                <Label>Full Name *</Label>
+              <Need missing={miss(form.name)} className="sm:col-span-2 flex flex-col gap-1.5">
+                <Label>Full Name<Req /></Label>
                 <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="John Smith" autoComplete="name" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Email *</Label>
+              </Need>
+              <Need missing={miss(form.email)} className="flex flex-col gap-1.5">
+                <Label>Email<Req /></Label>
                 <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="john@email.com" autoComplete="email" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Phone *</Label>
+              </Need>
+              <Need missing={miss(form.phone)} className="flex flex-col gap-1.5">
+                <Label>Phone<Req /></Label>
                 <Input type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="(555) 000-0000" autoComplete="tel" />
-              </div>
+              </Need>
             </div>
           </div>
 
@@ -311,8 +320,8 @@ function CheckoutInner() {
             <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Shipping Address</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isInternational && (
-                <div className="sm:col-span-2 flex flex-col gap-1.5">
-                  <Label>Country *</Label>
+                <Need missing={miss(form.country)} className="sm:col-span-2 flex flex-col gap-1.5">
+                  <Label>Country<Req /></Label>
                   <select
                     value={form.country}
                     onChange={(e) => set("country", e.target.value)}
@@ -324,10 +333,10 @@ function CheckoutInner() {
                       <option key={c.code} value={c.code}>{c.name}</option>
                     ))}
                   </select>
-                </div>
+                </Need>
               )}
-              <div className="sm:col-span-2 flex flex-col gap-1.5">
-                <Label>Street Address *</Label>
+              <Need missing={miss(form.street1)} className="sm:col-span-2 flex flex-col gap-1.5">
+                <Label>Street Address<Req /></Label>
                 <AddressAutocomplete
                   value={form.street1}
                   onChange={(v) => set("street1", v)}
@@ -336,23 +345,23 @@ function CheckoutInner() {
                   className={INPUT_CN}
                   placeholder="123 Main St"
                 />
-              </div>
+              </Need>
               <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label>Apt / Suite</Label>
                 <Input value={form.street2} onChange={(e) => set("street2", e.target.value)} placeholder="Apt 4B" autoComplete="address-line2" />
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>City *</Label>
+              <Need missing={miss(form.city)} className="flex flex-col gap-1.5">
+                <Label>City<Req /></Label>
                 <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="London" autoComplete="address-level2" />
-              </div>
+              </Need>
               {isInternational ? (
                 <div className="flex flex-col gap-1.5">
                   <Label>State / Province</Label>
                   <Input value={form.state} onChange={(e) => set("state", e.target.value)} placeholder="Optional" autoComplete="address-level1" />
                 </div>
               ) : (
-                <div className="flex flex-col gap-1.5">
-                  <Label>State *</Label>
+                <Need missing={miss(form.state)} className="flex flex-col gap-1.5">
+                  <Label>State<Req /></Label>
                   <select
                     value={form.state}
                     onChange={(e) => set("state", e.target.value)}
@@ -362,12 +371,12 @@ function CheckoutInner() {
                     <option value="">Select state</option>
                     {KIT_US_STATES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
-                </div>
+                </Need>
               )}
-              <div className="flex flex-col gap-1.5">
-                <Label>Postal Code *</Label>
+              <Need missing={miss(form.zip)} className="flex flex-col gap-1.5">
+                <Label>Postal Code<Req /></Label>
                 <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="SW1A 1AA" autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
-              </div>
+              </Need>
             </div>
 
             {addressStarted && addressIssue && (
@@ -375,13 +384,13 @@ function CheckoutInner() {
             )}
 
             {/* Shipping options: live prices for this address, by speed */}
-            <div className="mt-5 pt-5 border-t border-border">
-              <h3 className="text-sm font-bold text-foreground mb-3">Shipping speed</h3>
+            <Need missing={showMissing && isAddressValid() && !(rateStatus === "done" && chosenRate)} note="See shipping options and choose one." className="mt-5 pt-5 border-t border-border">
+              <h3 className="text-sm font-bold text-foreground mb-3">Shipping speed<Req /></h3>
               {rateStatus !== "done" && (
                 <button
                   type="button"
-                  onClick={calculateShipping}
-                  disabled={!isAddressValid() || rateStatus === "loading"}
+                  onClick={() => (isAddressValid() ? calculateShipping() : showWhatsMissing())}
+                  disabled={rateStatus === "loading"}
                   className="w-full h-10 bg-secondary text-foreground text-sm font-bold rounded-lg hover:bg-secondary/70 disabled:opacity-40 transition-colors"
                 >
                   {rateStatus === "loading" ? "Getting prices..." : "See shipping options"}
@@ -431,7 +440,7 @@ function CheckoutInner() {
                   </p>
                 </fieldset>
               )}
-            </div>
+            </Need>
           </div>
 
           {/* Creator Code */}
@@ -529,11 +538,12 @@ function CheckoutInner() {
             </p>
             <Button
               onClick={handleCheckout}
-              disabled={submitting || !canPay()}
+              disabled={submitting}
               className="w-full font-bold"
             >
               {submitting ? "Redirecting..." : "Pay Securely with Stripe"}
             </Button>
+            <MissingNote show={showMissing && !canPay()} />
           </div>
         </div>
       </div>
