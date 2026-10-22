@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
-  CardFieldsSchema, SigningSchema, cardDetails, checkoutConsents, masterSignatureInput, signingError, slabSignatureFor, slabSignatureInput, usd,
+  CardFieldsSchema, SigningSchema, cardDetails, checkoutConsents, signingChoices, masterSignatureInput, signingError, slabSignatureFor, slabSignatureInput, usd,
   type AuthorizedOrder,
 } from "@/lib/checkout-signing";
 import { recordConsents, recordSignatures, signingContext, type SignatureInput } from "@/lib/signatures";
@@ -621,6 +621,7 @@ export async function POST(request: Request) {
       ...(giftCardDiscountCents > 0 ? [{ name: "Gift card", cents: -giftCardDiscountCents }] : []),
     ],
     total_cents: totalCents,
+    choices: signingChoices(data),
   };
 
   // The signatures and consents must be on file before payment
