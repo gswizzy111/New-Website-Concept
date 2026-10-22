@@ -57,7 +57,10 @@ Rules for this repo:
   dev run. Each version is stored once in `terms_versions` (immutable) and
   stays at `/terms/v<version>`; `/terms` shows the current one with its
   PDF. Restoration, prep and add-cards checkouts require the master
-  signature, E-SIGN consent and an insurance buy-or-decline choice; each
+  signature, E-SIGN consent and an insurance buy-or-decline choice (the
+  master signature also records exactly what was authorized: each card's
+  details and declared value, its services and prices, and the order's
+  charges and total, via `authorizedOrderText` in `lib/checkout-signing.ts`); each
   slab to open needs its own authorization (unsigned slabs are dropped with
   their $7); cards over $5,000 are created `on_hold_high_value` and get a
   High-Value Agreement emailed after payment and countersigned on the admin
@@ -66,7 +69,8 @@ Rules for this repo:
   signed records can't be deleted. Start cleaning / slab opening and
   per-card refunds follow `lib/work-gates.ts`. Same code in both repos
   (the old site has its own page styling). Schema:
-  `supabase/migrations/20261022_terms_v1.sql`.
+  `supabase/migrations/20261022_terms_v1.sql`. v1.0 was corrected once,
+  before anyone signed it (`20261022_terms_v1_heading_fix.sql`).
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 
