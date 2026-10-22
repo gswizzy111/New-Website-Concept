@@ -34,7 +34,7 @@ const STEPS = [
   },
   {
     n: "2",
-    title: "Book Your Order at thecarddoc1.com",
+    title: "Book Your Order at theonethatsaveditall.com",
     note: "(Payment is collected in full at checkout)",
     body: (
       <>
@@ -113,7 +113,7 @@ const POLICIES = [
   {
     icon: MessageCircle,
     title: "Getting updates:",
-    body: "Log in at thecarddoc1.com and hit Request an Update on your order page. The technician working on your card will reply within 1–2 business days.",
+    body: "Log in at theonethatsaveditall.com and hit Request an Update on your order page. The technician working on your card will reply within 1–2 business days.",
   },
   {
     icon: Clock,

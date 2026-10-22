@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AgreementSignatures, agreementsComplete, submittedAgreements, type AgreementState } from "@/components/agreements/agreement-signatures";
 import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import { formatCurrency } from "@/lib/utils";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
@@ -40,6 +41,8 @@ export function AddCardsSection({ orderNumber, customerEmail, tier, cardsOnOrder
   const [cards, setCards] = useState<CardEntry[]>([emptyCard()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A High-Value Card Agreement for each added card declared above $5,000
+  const [agreementState, setAgreementState] = useState<AgreementState>({});
 
   function updateCard(i: number, patch: Partial<CardEntry>) {
     setCards((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
@@ -65,7 +68,9 @@ export function AddCardsSection({ orderNumber, customerEmail, tier, cardsOnOrder
   const subtotal = listSubtotal - bulkDiscount;
   const tax = Math.round(subtotal * TAX_RATE);
   const total = subtotal + tax;
-  const canSubmit = cards.every((c) => c.name.trim().length > 0) && !loading;
+  const agreementCards = cards.map((c, i) => ({ name: c.name.trim() || `Card ${i + 1}`, declaredValueCents: c.declaredValueCents }));
+  const agreementsOk = agreementsComplete(agreementState, 0, agreementCards);
+  const canSubmit = cards.every((c) => c.name.trim().length > 0) && agreementsOk && !loading;
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -75,7 +80,7 @@ export function AddCardsSection({ orderNumber, customerEmail, tier, cardsOnOrder
       const res = await fetch(`/api/orders/${orderNumber}/add-cards`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: customerEmail, cards }),
+        body: JSON.stringify({ email: customerEmail, cards, agreements: submittedAgreements(agreementState, 0, agreementCards) }),
       });
       const data = await res.json();
       if (data.url) {
@@ -227,6 +232,10 @@ export function AddCardsSection({ orderNumber, customerEmail, tier, cardsOnOrder
           <span>Total Due</span>
           <span className="text-rx">{formatCurrency(total)}</span>
         </div>
+      </div>
+
+      <div className="mt-5">
+        <AgreementSignatures slabCards={0} cards={agreementCards} state={agreementState} onChange={setAgreementState} />
       </div>
 
       {error && <p className="text-sm text-red-500 mt-3">{error}</p>}

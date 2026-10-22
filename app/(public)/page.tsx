@@ -242,7 +242,7 @@ export default async function HomePage() {
               <div data-reveal>
                 <p className="rx-label text-rx-bright mb-5">Why Collectors Trust Us</p>
                 <h2 className="font-heading text-5xl md:text-[4rem] font-extrabold tracking-[-0.02em] leading-[0.92] text-stage-fg mb-7">
-                  Proven Results,<br className="hidden md:block" /> Every Time
+                  Proven Results
                 </h2>
                 <p className="text-lg text-stage-muted max-w-xl leading-relaxed mb-10">
                   Hundreds of cards restored and prepped. We don&apos;t just claim results, we show them.

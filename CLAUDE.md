@@ -49,6 +49,16 @@ Rules for this repo:
   0%); `affiliate_commission_rates` keeps each rate's start, and a sale earns
   the rate in effect when it was placed, so "from now on" changes never
   reprice past sales.
+- **Terms and checkout agreements.** The Terms of Service text lives in
+  `lib/legal/terms.ts` (identical in both repos; bump `TERMS_UPDATED` with
+  any change, since the version at checkout governs an order). Checkout
+  requires a Slab-Removal Authorization whenever slab cracking is chosen and
+  a separate High-Value Card Agreement for every card declared above $5,000
+  (`lib/agreements.ts`, typed name + checkbox, dated by the server). The
+  restoration checkout, prep checkout and add-cards routes all refuse an
+  order without them and store each one with its exact text in
+  `order_agreements`; admins see them on the order page and customers on
+  their order page. Prep checkout also requires agreeing to the Terms.
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 

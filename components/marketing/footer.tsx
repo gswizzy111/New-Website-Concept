@@ -42,7 +42,7 @@ export function Footer() {
         <div className="mt-14 pt-6 border-t border-white/12 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
           <div className="flex items-center gap-5">
             <Link href="/terms" className="text-xs font-medium text-stage-muted hover:text-stage-fg transition-colors">
-              Terms & Conditions
+              Terms of Service
             </Link>
             <Link href="/privacy" className="text-xs font-medium text-stage-muted hover:text-stage-fg transition-colors">
               Privacy Policy
