@@ -17,7 +17,6 @@ import { MissingNote, Need, revealMissing } from "@/components/checkout/required
 import { emptyIdentity, identityPayload } from "@/components/checkout/card-identity-fields";
 import type { InsuranceElection } from "@/components/checkout/insurance-election";
 import { SIGN_BUTTON_LABEL } from "@/lib/legal/current-terms";
-import { isHighValue } from "@/lib/legal/agreements-v1";
 import { cardProblems } from "./step-cards";
 import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection } from "@/lib/types";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
@@ -124,7 +123,6 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
     const i = cards.findIndex((c) => c.id === cardId);
     return i >= 0 && slabSigned(signing, slabCardOf(cards[i], i));
   };
-  const highValueCards = cards.filter((c) => isHighValue(cardValueCents(c))).map((c) => ({ name: c.card_name.trim(), valueCents: cardValueCents(c) }));
   const insuranceOk = insuranceElection === "declined"
     || (insuranceElection === "purchased" && insurance.declaredValueCents > 0 && insurance.type !== "none");
   const readyToSign = signingReady(signing, slabCards) && insuranceOk;
@@ -336,7 +334,6 @@ export function OrderBuilder({ services, selectedTier }: { services: Service[]; 
               signingSlot={
                 <SigningSection
                   slabCards={slabCards}
-                  highValueCards={highValueCards}
                   state={signing}
                   onChange={changeSigning}
                   onSkipSlab={skipSlab}

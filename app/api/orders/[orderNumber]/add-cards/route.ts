@@ -7,6 +7,7 @@ import { stripe } from "@/lib/stripe";
 import { RESTORATION_TIERS, getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
+import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 
 const TAX_RATE = 0.06625;
 
@@ -14,7 +15,7 @@ const CardSchema = z.object({
   name: z.string().trim().min(1).max(200),
   // Required: every card needs its own declared value (Terms Section 4)
   declaredValueCents: z.number().int().positive(),
-  photoUrls: z.array(z.string()).optional().default([]),
+  photoUrls: z.array(z.string()).max(MAX_CARD_PHOTOS).optional().default([]),
 }).extend(CardFieldsSchema.shape);
 
 const Body = z.object({
@@ -41,7 +42,7 @@ export async function POST(
   const { email, cards } = parsed.data;
 
   // The added cards are signed for like a new order: the Terms of Service v1.0
-  // and e-sign consent. Cards over $5,000 go on hold for a High-Value Agreement.
+  // and e-sign consent.
   const signingProblem = signingError(parsed.data);
   if (signingProblem) return Response.json(signingProblem, { status: 400 });
   const admin = createAdminClient();

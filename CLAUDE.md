@@ -49,7 +49,7 @@ Rules for this repo:
   0%); `affiliate_commission_rates` keeps each rate's start, and a sale earns
   the rate in effect when it was placed, so "from now on" changes never
   reprice past sales.
-- **Terms of Service v1.0 and signing.** The Terms text is
+- **Terms of Service (v1.1 current) and signing.** The Terms text is
   `legal/terms-v<version>.md`, word for word (never edit it: a wording
   change is a new file and a new `TERMS_VERSION` in
   `lib/legal/current-terms.ts`). `scripts/legal-texts.mjs` turns
@@ -68,12 +68,14 @@ Rules for this repo:
   authorized (each card's details, declared value, services and prices, the
   order's charges and total) and the optional choices
   (`authorizedOrderText` in `lib/checkout-signing.ts`), and its PDF prints
-  all of it after the Terms. Cards over $5,000 are created `on_hold_high_value` and get a
-  High-Value Agreement emailed after payment and countersigned on the admin
-  order page (`lib/high-value.ts`). `signatures` and `consents` can't be
+  all of it after the Terms. v1.1 (October 23, 2026) removed the separate
+  High-Value Agreement for cards over $5,000 (the owner's call); v1.0 stays
+  at `/terms/v1.0` for orders signed under it, and the unused
+  `high_value_agreements` table is kept for history. `signatures` and `consents` can't be
   edited or deleted and the database sets the signing time; orders with
   signed records can't be deleted. Start cleaning / slab opening and
-  per-card refunds follow `lib/work-gates.ts`. Same code in both repos
+  per-card refunds follow `lib/work-gates.ts`. Up to 3 photos per card.
+  Same code in both repos
   (the old site has its own page styling). Schema:
   `supabase/migrations/20261022_terms_v1.sql`. v1.0 was corrected once,
   before anyone signed it (`20261022_terms_v1_heading_fix.sql`).
