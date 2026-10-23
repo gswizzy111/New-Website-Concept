@@ -32,8 +32,14 @@ an order, and ordering, paying, shipping and tracking all work without help.
 
 ## Positioning
 
-The Doc personally does the work. Customers are dealing with one hands-on
-restorer, not a faceless shop.
+Built by collectors, trusted with collections. The Card Doc was started by
+two collectors, Owen and Gavin, with 30+ years of combined collecting
+experience. They began by restoring their own cards, posted the results
+online, and other collectors started asking; it grew into the business. Both
+still work on customer cards. Customers are dealing with the founders, not a
+faceless shop. (Confirmed by the owner, Oct 2026. No founding year,
+surnames, credentials, team size or separate roles have been confirmed: don't
+state any.)
 
 ## Operating Context
 
@@ -81,7 +87,10 @@ restorer, not a faceless shop.
   attribution read "Repeat customer" (no individual names).
 - "Cards Restored" is live: cards sent in on website orders (not abandoned or
   cancelled) plus 600 done outside the website, the owner's figure
-  (`lib/site-stats.ts`). "4.9★" and "100% documented" are the owner's
+  (`lib/site-stats.ts`). It also counts unfinished cards, cards not yet
+  received and prep cards. The About page uses a narrower live figure instead:
+  cards on paid, finished website orders, labelled "Cards restored and
+  prepped" (`getCardsFinishedStat`). "4.9★" and "100% documented" are the owner's
   claims; do not add new numbers or claims.
 - Trusted by (`lib/trusted-by.ts`): only people with a confirmed order or
   conversation (Joey Valence, Boston Scott). Unconfirmed contacts stay out.

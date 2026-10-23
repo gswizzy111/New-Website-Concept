@@ -189,7 +189,7 @@ Neutral with one pop: warm-leaning greys (chroma under 0.006, never cream) and a
 - **Hairline** (rule), **Input Stroke**, **Muted Surface**, **Grey Ink** (muted-ink), **Selection Peach**: unchanged roles.
 
 ### Ink stage
-- **Stage** (stage): the ground of the proof section, the About CTA, the How It Works CTA panel and the footer.
+- **Stage** (stage): the ground of the proof section, the About results, reviews and close, the How It Works CTA panel and the footer.
 - **Stage Raise** (stage-raise): reserved for raised panels on the stage.
 - **Stage Ink** (stage-fg): headings and figures on the stage. **Stage Grey** (stage-muted, 8.9:1 on stage): body, captions and rx-labels on the stage.
 - Lit by a soft neutral key light (`.stage-light`: two grey radial glows, top right and bottom left). A colored glow on charcoal turns brown, so the light stays neutral.
@@ -306,7 +306,16 @@ The street field keeps the form's own input style; Google's suggestions open in 
 Sign in, sign up, confirm, forgot and reset password share one centered white card (`AuthCard`) with uppercase field labels and a full-width primary button; signed-in pages share `AccountHeader` (Orders, Settings, email, Sign out). Confirming an email or resetting a password takes a button press on our page, so link scanners can't spend the one-time token.
 
 ### Page Hero (`<PageHero/>`)
-Optional rx-label, headline type with words rising out of their clips, lead line. Used on tier selection, prep, about, how it works, FAQ and shop. Inner pages sit on `.page-glow` (the light-table glow at the top right only).
+Optional rx-label, headline type with words rising out of their clips, lead line. Used on tier selection, prep, how it works, FAQ and shop (About has its own hero, below). Inner pages sit on `.page-glow` (the light-table glow at the top right only).
+
+### About (`app/(public)/about/page.tsx`)
+Every word, figure, photo and result comes from `lib/about.ts`, which also lists the photo slots (file names and sizes). Paper first, then one stage:
+- **Hero** (paper, `.page-glow`): the owner's "About Us" label, then the headline as two sentences of two lines each ("Built by / Collectors." and "Trusted with / Collections.", the second indented 0.9em from `sm`), headline type up to 5.75rem, words rising out of their clips. On the right, the restored Mickey Mantle in a blue nitrile glove (cut from the owner's `before-after-mickey-mantle.png`) in a white print frame tipped 2.5 degrees, with the specimen shadow and `.specimen-land`; the frame's foot holds the serif card name and an "After restoration" label.
+- **How it all started** (white): the title sticks on the left; five chapters on the right as hairline rows threaded by a 1px rule with a dot per chapter (hollow, the last solid ink).
+- **Meet the founders** (paper): the two first names at up to 8.5rem side by side under an ink rule, divided by a hairline, each with one label line of facts; then the founders' message in serif at up to 3.25rem, offset three columns. No portraits until real ones exist (4:5 slots).
+- **Why collectors choose us** (white): an Rx label (6px orange band, "The Card Doc" with the founders' names, a 2px ink rule, four hairline rows of a 24px serif title and a 15px line). Flat: no shadow.
+- **Behind the restoration** (paper): a close-up of the damaged Mantle leads (sticky on desktop; on phones it sits between the intro and the methods), the five methods as hairline rows, "We never" with three items, then the honesty line and links to What We Can Fix, the FAQ and the Terms.
+- **Stage** (`<ExpandingStage/>`): Real results (`<ResultsGallery/>`: case chips with a 1 / 2 count, a scroll-snap track where phones swipe and the next case peeks in; a slider case is `<BeforeAfter/>` in a white frame, a composite is the owner's side-by-side photo), What our customers say (the live finished-cards figure, right-aligned, over `<CustomerReviews compact/>`), and the close ("Your Collection Means Something. / We Understand Why.", centered, primary to /tier-selection, secondary "Contact Us" to Instagram).
 
 ### Footer
 Ink stage. Brand block and contact links (20px serif, rx-bright on hover), then a full-width "The Card Doc" wordmark (14vw, capped at 14.5rem) in white at 9 percent that rises out of its clip once and lights orange under a mouse pointer. The wordmark is `aria-hidden`; the real name is in the brand block.

@@ -1,269 +1,331 @@
-import { Check, Plus, X } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import type { Metadata } from "next";
-import { PageHero } from "@/components/marketing/page-hero";
-import { getLiveTiers, tierPrice, tierTurnaround, tierValueRange } from "@/lib/live-tiers";
+import { ArrowUpRight, X } from "lucide-react";
+import { SplitReveal } from "@/components/motion/split-reveal";
+import { ExpandingStage } from "@/components/motion/expanding-stage";
+import { CountUp } from "@/components/motion/count-up";
+import { CustomerReviews } from "@/components/marketing/customer-reviews";
+import { PhotoFigure } from "@/components/about/photo-figure";
+import { ResultsGallery } from "@/components/about/results-gallery";
+import { getCardsFinishedStat } from "@/lib/site-stats";
+import { FOUNDERS, FOUNDERS_MESSAGE, HERO, PROCESS, REASONS, RESULTS, STORY } from "@/lib/about";
 
-export const dynamic = "force-dynamic";
+// The finished-cards figure is read from the database; refresh it hourly.
+export const revalidate = 3600;
+
+// The site's own address (set in Netlify), so the share image and structured
+// data point at the domain the page is served from.
+const SITE = process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
+// The root layout has no metadataBase, so the share image needs a full URL.
+const OG_IMAGE = { url: `${SITE}/og-image.png`, width: 1254, height: 1254 };
+const INSTAGRAM = "https://www.instagram.com/the_card_doc";
+const DESCRIPTION =
+  "Built by collectors, trusted with collections. Meet Owen and Gavin, the collectors behind The Card Doc, with 30+ years of combined collecting experience.";
 
 export const metadata: Metadata = {
   title: "About Us | The Card Doc",
-  description: "Learn about The Card Doc — expert PSA prep and card restoration for collectors.",
+  description: DESCRIPTION,
+  openGraph: {
+    title: "About The Card Doc",
+    description: DESCRIPTION,
+    url: `${SITE}/about`,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary",
+    title: "About The Card Doc",
+    description: DESCRIPTION,
+    images: [OG_IMAGE.url],
+  },
 };
 
-const canFix = [
-  "Surface dirt, dust, and fingerprints",
-  "Soft or dinged corners",
-  "Light surface scratches and scuffs",
-  "Dull or hazy surfaces",
-  "Minor stains or residue",
-  "Light creases (partial reduction possible)",
-  "Slight print lines on the surface",
-];
+// Only what's true: the two founders by first name, the shop's town (as on
+// How It Works), the US service area and the Instagram the site points to.
+const JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "AboutPage",
+  name: "About The Card Doc",
+  url: `${SITE}/about`,
+  description: DESCRIPTION,
+  mainEntity: {
+    "@type": "Organization",
+    "@id": `${SITE}/#organization`,
+    name: "The Card Doc",
+    url: SITE,
+    description: "Trading card restoration and grading prep, done by hand.",
+    founder: FOUNDERS.map((f) => ({ "@type": "Person", name: f.name })),
+    address: { "@type": "PostalAddress", addressLocality: "Ridgewood", addressRegion: "NJ", addressCountry: "US" },
+    areaServed: { "@type": "Country", name: "United States" },
+    sameAs: [INSTAGRAM],
+  },
+};
 
-const cannotFix = [
-  "Deep or permanent creases and folds",
-  "Torn, cut, or ripped cards",
-  "Water damage and warping",
-  "Delamination or missing layers",
-  "Factory print defects (miscuts, misprints)",
-  "Trimmed or altered edges",
-  "Major structural damage",
-  "Heavy ink loss or fading",
-];
-
-// Same answers as the FAQ page and How It Works
-const faqItems = [
-  {
-    q: "What types of cards do you work on?",
-    a: "We restore all trading cards — Pokémon, sports cards (baseball, basketball, football, hockey), Magic: The Gathering, Yu-Gi-Oh!, and more. Vintage or modern, we handle them all.",
-  },
-  {
-    q: "Will PSA detect the restoration? Will it come back \"altered\"?",
-    a: "There is always an inherent risk — low, but not zero. We add no material and only manipulate what's already there.",
-  },
-  {
-    q: "How do I ship my cards safely?",
-    a: "Place each card in a penny sleeve, then inside a Card Saver 1 or toploader. Sandwich the holders between two pieces of rigid cardboard. Wrap in bubble wrap and seal inside a padded mailer or small box so nothing shifts.",
-  },
-  {
-    q: "What if you can't fix my card?",
-    a: "Then we refund the service cost and send it back — you just cover shipping both ways. We inspect every card on arrival specifically to make that call before work begins.",
-  },
-  {
-    q: "How long does restoration take?",
-    a: "It depends on the tier you choose (see Our Tiers above). Estimates start when your status hits Cards Received (or upon arrival for Fast Pass) and do not include shipping transit time.",
-  },
-  {
-    q: "Do you offer refunds?",
-    a: "We never guarantee results or grades. Every card is evaluated when it arrives: if we can't improve a restoration card, we refund the service cost and ship it back untouched (you only cover round-trip shipping), and if a card booked for restoration only needs a clean, we downgrade it to Prep so you don't overpay. Have a concern about a finished card? Message @the_card_doc and we'll take another look.",
-  },
-];
+const sectionTitle = "font-heading text-4xl md:text-6xl tracking-[-0.02em] leading-[0.95]";
 
 export default async function AboutPage() {
-  const tiers = await getLiveTiers();
+  const cardsFinished = await getCardsFinishedStat();
+
   return (
     <>
-      {/* Hero */}
-      <section className="page-glow border-b border-rule pt-14 pb-16 md:pt-24 md:pb-28">
-        <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <PageHero
-            eyebrow="About Us"
-            title="We treat every card like it's worth a fortune."
-            lines={["We treat every card", "like it's worth a fortune."]}
-            lead={<>The Card Doc is a professional card restoration service built for collectors who care about how their cards look. We don&apos;t cut corners.</>}
-          />
-        </div>
-      </section>
-
-      {/* Tiers: the same names, prices and turnarounds as the booking page */}
-      <section className="pt-16 md:pt-24">
-        <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Our Tiers</h2>
-          <p className="text-muted-foreground mb-10 max-w-xl">
-            Every tier gets the exact same care—you are only paying for turnaround speed and the card value each tier accepts.
-          </p>
-          <div data-reveal className="rounded-xl bg-white ring-1 ring-rule overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left">
-              <thead>
-                <tr className="border-b border-ink/80">
-                  {["Tier", "Price", "Card value", "Turnaround"].map((h) => (
-                    <th key={h} scope="col" className="px-5 md:px-7 py-4 font-mono text-xs font-normal uppercase tracking-[0.06em] text-muted-foreground">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-rule">
-                {tiers.map((t) => (
-                  <tr key={t.id}>
-                    <th scope="row" className="px-5 md:px-7 py-4 font-heading text-lg font-bold text-ink">{t.name}</th>
-                    <td className="px-5 md:px-7 py-4 text-[15px] text-ink">{tierPrice(t)}</td>
-                    <td className="px-5 md:px-7 py-4 text-[15px] text-muted-foreground">{tierValueRange(t)}</td>
-                    <td className="px-5 md:px-7 py-4 text-[15px] text-muted-foreground">{tierTurnaround(t)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-sm text-muted-foreground mt-6">
-            Prefer a clean without restoration?{" "}
-            <Link href="/prep" className="font-semibold text-rx hover:underline">See Prep pricing</Link>
-            {" "}·{" "}
-            <Link href="/tier-selection" className="font-semibold text-rx hover:underline">Book a restoration</Link>
-          </p>
-        </div>
-      </section>
-
-      {/* Can / Cannot fix */}
-      <section className="py-16 md:py-24">
-        <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">What we can (and can&apos;t) fix</h2>
-          <p className="text-muted-foreground mb-10 max-w-xl">
-            Restoration has real limits. Here&apos;s an honest breakdown of what our process can address.
-          </p>
-          <div data-reveal="stagger" className="grid md:grid-cols-2 gap-5">
-            {/* Can fix */}
-            <div className="rounded-xl bg-white ring-1 ring-rule p-6 md:p-8">
-              <div className="flex items-center gap-2.5 mb-4">
-                <Check className="h-5 w-5 text-rx" strokeWidth={2.25} />
-                <h3 className="font-heading text-xl font-bold text-ink">We CAN help with</h3>
-              </div>
-              <ul className="border-t border-ink/80 divide-y divide-rule">
-                {canFix.map((item) => (
-                  <li key={item} className="flex items-start gap-3 py-3 text-[15px] text-ink">
-                    <Check className="h-4 w-4 mt-1 shrink-0 text-rx" strokeWidth={2.25} />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            {/* Cannot fix */}
-            <div className="rounded-xl bg-white ring-1 ring-rule p-6 md:p-8">
-              <div className="flex items-center gap-2.5 mb-4">
-                <X className="h-5 w-5 text-red-600" strokeWidth={2.25} />
-                <h3 className="font-heading text-xl font-bold text-ink">We CANNOT fix</h3>
-              </div>
-              <ul className="border-t border-ink/80 divide-y divide-rule">
-                {cannotFix.map((item) => (
-                  <li key={item} className="flex items-start gap-3 py-3 text-[15px] text-ink">
-                    <X className="h-4 w-4 mt-1 shrink-0 text-red-600" strokeWidth={2.25} />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground mt-8">
-            Not sure if your card qualifies? DM us a photo on Instagram at{" "}
-            <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">@the_card_doc</a>{" "}
-            before placing an order.
-          </p>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section className="py-16 md:py-24 bg-paper border-y border-rule">
-        <div data-reveal className="max-w-6xl mx-auto px-4 md:px-10 grid gap-8 md:grid-cols-[1fr_1.6fr]">
-          <div>
-            <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Frequently asked questions</h2>
-            <p className="text-muted-foreground mb-5">Everything you need to know before placing your first order.</p>
-            <p className="text-sm text-muted-foreground">
-              Still have questions? DM us on{" "}
-              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-rx font-semibold hover:underline">Instagram</a>.
+      {/* ── A. Hero: the headline, and a restored card in a gloved hand ── */}
+      <section className="page-glow relative overflow-x-clip border-b border-rule">
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-12 pb-16 md:pt-20 md:pb-24 lg:pt-24 lg:pb-28 grid gap-14 lg:gap-x-10 lg:grid-cols-12 lg:items-center">
+          <div className="lg:col-span-7">
+            <p className="hero-in rx-label text-rx mb-6 md:mb-8">About Us</p>
+            <h1 className="font-heading text-ink tracking-[-0.022em] leading-[0.9] text-[clamp(2.9rem,13.4vw,4.75rem)] md:text-[clamp(4.5rem,9.5vw,5.75rem)] lg:text-[clamp(4rem,6vw,5.75rem)]">
+              <span className="block">
+                <SplitReveal text={HERO.headline[0]} lines={["Built by", "Collectors."]} step={80} />
+              </span>
+              <span className="block mt-[0.14em] sm:pl-[0.9em]">
+                <SplitReveal text={HERO.headline[1]} lines={["Trusted with", "Collections."]} delay={240} step={80} />
+              </span>
+            </h1>
+            <p className="hero-in mt-8 md:mt-10 text-lg md:text-xl text-muted-foreground max-w-xl leading-relaxed" style={{ ["--d" as string]: 520 }}>
+              {HERO.subheadline}
             </p>
+            <div className="hero-in mt-9 flex flex-col sm:flex-row gap-3" style={{ ["--d" as string]: 620 }}>
+              <Link
+                href="/tier-selection"
+                className="btn-depth btn-sheen nudge-arrow inline-flex h-12 items-center justify-center gap-1 rounded-md bg-rx px-7 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
+              >
+                Explore Restoration Services <span className="arrow" aria-hidden>→</span>
+              </Link>
+              <a
+                href="#founders"
+                className="inline-flex h-12 items-center justify-center rounded-md border border-ink/70 bg-white px-7 text-[15px] font-semibold text-ink hover:bg-paper transition-colors"
+              >
+                Meet the Founders
+              </a>
+            </div>
           </div>
-          <div className="border-t border-ink/80 border-b border-b-rule divide-y divide-rule">
-            {faqItems.map((item) => (
-              <details key={item.q} className="group relative">
-                <summary className="flex items-center justify-between gap-6 py-6 cursor-pointer list-none select-none font-heading text-lg md:text-xl font-bold tracking-[-0.01em] text-ink [&::-webkit-details-marker]:hidden">
-                  {item.q}
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full ring-1 ring-rule transition-[background-color,box-shadow] duration-300 group-hover:ring-rx group-open:bg-rx group-open:ring-rx">
-                    <Plus className="h-4 w-4 text-rx transition-transform duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:text-primary-foreground" strokeWidth={2} />
-                  </span>
-                </summary>
-                <div className="pb-7 pr-14 text-base text-muted-foreground leading-relaxed max-w-[62ch]">
-                  {item.a}
-                </div>
-                <span aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-px h-px origin-left scale-x-0 bg-rx transition-transform duration-500 ease-[var(--ease-out)] group-hover:scale-x-100 group-open:scale-x-100" />
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* Terms of Service summary */}
-      <section className="py-16 md:py-24">
-        <div className="max-w-6xl mx-auto px-4 md:px-10">
-          <h2 className="font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-ink mb-5">Terms of Service</h2>
-          <p className="text-muted-foreground mb-10">The key points — plain English. Read the full version before submitting.</p>
-          <div data-reveal="stagger" className="grid grid-cols-1 md:grid-cols-2 border-t border-ink/80">
-            {[
-              {
-                title: "You assume shipping risk",
-                body: "We're not responsible for loss, damage, or theft while cards are in transit to or from us. Use tracked, insured shipping and pack your cards properly.",
-              },
-              {
-                title: "No insurance while we have your cards",
-                body: "We do not currently insure customer cards while they are in our possession. Optional shipping insurance is available at checkout.",
-              },
-              {
-                title: "No guaranteed results",
-                body: "Results and grades are never guaranteed. There's always an inherent risk, low but not zero, that a grader detects restoration or returns a card as altered.",
-              },
-              {
-                title: "Results vary",
-                body: "Restoration involves subjective judgment. We'll contact you if we don't think we can improve your card. If damage occurs during the process, our liability is limited to the service fee paid.",
-              },
-              {
-                title: "Payment is upfront",
-                body: "Full payment is collected at checkout. Service fees are non-refundable once work has begun, except as our Terms provide (for example, when we can't improve a card).",
-              },
-              {
-                title: "Report problems within 5 days",
-                body: "Tell us about any problem with your returned cards within 5 days of delivery, with photos, and keep the packaging. Use Report a problem on your order page or email thecarddoc1@gmail.com.",
-              },
-              {
-                title: "Submit only authentic cards",
-                body: "By submitting a card you confirm it's genuine and unaltered. Submitting doctored, trimmed, or counterfeit cards is prohibited. Service fees are non-refundable on such submissions.",
-              },
-            ].map(({ title, body }, i) => (
-              <div key={title} className={`py-6 border-b border-rule md:pr-10 ${i % 2 === 1 ? "md:pl-10 md:border-l" : ""}`}>
-                <p className="font-heading text-lg font-bold text-ink mb-1.5">{title}</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
+          <figure className="relative mx-auto w-full max-w-[19rem] sm:max-w-[23rem] lg:max-w-[25rem] lg:col-span-5 lg:col-start-8 lg:justify-self-end">
+            <div className="specimen-land">
+              <div className="rotate-[2.5deg] rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_40px_80px_-40px_oklch(0.25_0.006_70/0.55)]">
+                <Image
+                  src={HERO.photo.src}
+                  alt={HERO.photo.alt}
+                  preload
+                  sizes="(min-width: 1024px) 400px, (min-width: 640px) 368px, 304px"
+                  className="block w-full h-auto rounded-[5px]"
+                />
+                <figcaption className="flex items-baseline justify-between gap-3 px-1 pt-3 pb-1">
+                  <span className="font-heading text-lg text-ink">Mickey Mantle</span>
+                  <span className="rx-label">After restoration</span>
+                </figcaption>
               </div>
+            </div>
+          </figure>
+        </div>
+      </section>
+
+      {/* ── B. How it all started ── */}
+      <section className="py-20 md:py-32">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-12 lg:grid-cols-12 lg:gap-16">
+          <div className="lg:col-span-5">
+            <div className="lg:sticky lg:top-32">
+              <h2 className={`${sectionTitle} text-ink`}>{STORY.title}</h2>
+              <p className="mt-6 text-lg text-muted-foreground leading-relaxed max-w-md">{STORY.lead}</p>
+            </div>
+          </div>
+          <ol data-reveal="stagger" className="lg:col-span-7 relative border-t border-ink/80">
+            {/* The thread through the chapters */}
+            <span aria-hidden className="absolute left-[4px] top-0 bottom-10 w-px bg-rule" />
+            {STORY.chapters.map((c, i) => (
+              <li key={c.title} className="relative grid grid-cols-[auto_1fr] gap-x-6 md:gap-x-9 py-8 md:py-10 border-b border-rule last:border-b-0">
+                <span
+                  aria-hidden
+                  className={`relative mt-[0.6rem] h-[9px] w-[9px] rounded-full ${i === STORY.chapters.length - 1 ? "bg-ink" : "bg-white ring-1 ring-ink/60"}`}
+                />
+                <div>
+                  <h3 className="font-heading text-2xl md:text-[1.75rem] leading-[1.15] tracking-[-0.01em] text-ink">{c.title}</h3>
+                  <p className="mt-3 text-base md:text-[17px] leading-relaxed text-muted-foreground max-w-[56ch]">{c.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {STORY.photos.some((s) => s.photo) && (
+            <div data-reveal="stagger" className="lg:col-span-12 grid gap-6 md:grid-cols-[3fr_2fr] md:items-end">
+              {STORY.photos.map((s, i) => (
+                <PhotoFigure key={i} photo={s.photo} aspect={i === 0 ? "aspect-[3/2]" : "aspect-[4/5]"} sizes="(min-width: 768px) 50vw, 92vw" />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── C. Meet the founders ── */}
+      <section id="founders" className="bg-paper border-y border-rule py-20 md:py-32 overflow-x-clip">
+        <div className="max-w-6xl mx-auto px-4 md:px-10">
+          <h2 data-reveal className={`${sectionTitle} text-ink`}>Meet the founders</h2>
+          <div data-reveal="stagger" className="mt-12 md:mt-16 grid sm:grid-cols-2 border-t border-ink/80 sm:divide-x divide-rule">
+            {FOUNDERS.map((f, i) => (
+              <article key={f.name} className={`pt-8 pb-10 sm:pb-2 md:pt-12 ${i === 0 ? "sm:pr-8 md:pr-12 border-b border-rule sm:border-b-0" : "sm:pl-8 md:pl-12"}`}>
+                <PhotoFigure photo={f.portrait} aspect="aspect-[4/5]" sizes="(min-width: 640px) 45vw, 92vw" className="mb-8" />
+                <h3 className="font-heading text-[clamp(4.5rem,24vw,8.5rem)] sm:text-[clamp(4.5rem,13vw,8.5rem)] leading-[0.82] tracking-[-0.025em] text-ink">
+                  {f.name}
+                </h3>
+                <p className="mt-6 rx-label">{f.facts.join(" · ")}</p>
+              </article>
             ))}
           </div>
-          <div className="mt-8">
-            <Link
-              href="/terms"
-              className="inline-flex items-center gap-2 text-sm font-semibold text-rx hover:underline"
-            >
-              Read the full Terms of Service →
-            </Link>
+          <p data-reveal className="mt-16 md:mt-24 lg:ml-[calc(100%/12*3)] font-heading text-[clamp(1.85rem,4.4vw,3.25rem)] leading-[1.08] tracking-[-0.015em] text-ink max-w-4xl [text-wrap:balance]">
+            {FOUNDERS_MESSAGE}
+          </p>
+        </div>
+      </section>
+
+      {/* ── D. Why collectors choose us: written up like the label on a prescription ── */}
+      <section className="py-20 md:py-32">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-12 lg:grid-cols-12 lg:gap-16">
+          <div className="lg:col-span-5">
+            <h2 className={`${sectionTitle} text-ink`}>{REASONS.title}</h2>
+            <p className="mt-6 text-lg text-muted-foreground leading-relaxed max-w-md">{REASONS.lead}</p>
+          </div>
+          <div data-reveal className="lg:col-span-7 overflow-hidden rounded-xl bg-white ring-1 ring-rule">
+            <div aria-hidden className="h-1.5 bg-rx" />
+            <div className="mx-5 md:mx-8 flex items-baseline justify-between gap-4 pt-5 pb-3 md:pt-6 border-b-2 border-ink">
+              <span className="font-heading text-xl text-ink">The Card Doc</span>
+              <span className="rx-label">{FOUNDERS.map((f) => f.name).join(" & ")}</span>
+            </div>
+            <dl className="mx-5 md:mx-8 divide-y divide-rule">
+              {REASONS.items.map((r) => (
+                <div key={r.title} className="py-6 md:py-7">
+                  <dt className="font-heading text-2xl leading-[1.15] tracking-[-0.01em] text-ink">{r.title}</dt>
+                  <dd className="mt-2 text-[15px] leading-relaxed text-muted-foreground max-w-[52ch]">{r.body}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="stage stage-light overflow-hidden py-24 md:py-36">
-        <div className="max-w-4xl mx-auto px-6 md:px-10 text-center">
-          <h2 data-reveal className="font-heading text-5xl md:text-7xl font-extrabold tracking-[-0.02em] leading-[0.92] text-stage-fg mb-6">Ready to restore your cards?</h2>
-          <p className="text-lg text-stage-muted mb-10">Book a restoration or grab a kit and get started today.</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link
-              href="/restoration"
-              className="btn-depth btn-sheen inline-flex h-12 items-center justify-center px-8 bg-rx text-primary-foreground font-semibold rounded-md hover:bg-rx/90 transition-colors"
-            >
-              Book Restoration
-            </Link>
-            <Link
-              href="/shop"
-              className="inline-flex h-12 items-center justify-center px-8 border border-white/25 text-stage-fg font-semibold rounded-md hover:border-white/60 hover:bg-white/5 transition-colors"
-            >
-              Browse Kits
-            </Link>
+      {/* ── E. Behind the restoration: the close-up leads; phones read title, photo, methods ── */}
+      <section className="bg-paper border-t border-rule pt-20 pb-24 md:pt-32 md:pb-36">
+        <div className="max-w-6xl mx-auto px-4 md:px-10 grid gap-y-10 md:gap-y-12 lg:grid-cols-12 lg:gap-x-16">
+          <div className="lg:col-span-6 lg:col-start-7 lg:row-start-1">
+            <h2 className={`${sectionTitle} text-ink`}>{PROCESS.title}</h2>
+            <p className="mt-6 text-lg text-muted-foreground leading-relaxed max-w-lg">{PROCESS.lead}</p>
+          </div>
+
+          <div className="lg:col-span-6 lg:col-start-1 lg:row-start-1 lg:row-span-2">
+            <div className="lg:sticky lg:top-28">
+              <PhotoFigure photo={PROCESS.photo} sizes="(min-width: 1152px) 520px, (min-width: 1024px) 45vw, 92vw" />
+            </div>
+          </div>
+
+          <div className="lg:col-span-6 lg:col-start-7 lg:row-start-2">
+            <ul data-reveal="stagger" className="border-t border-ink/80 divide-y divide-rule">
+              {PROCESS.methods.map((m) => (
+                <li key={m.id} className="py-5 md:py-6">
+                  <p className="font-heading text-xl md:text-2xl leading-[1.15] tracking-[-0.01em] text-ink">{m.name}</p>
+                  <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">{m.body}</p>
+                  <PhotoFigure photo={m.photo} aspect="aspect-[4/3]" sizes="(min-width: 1024px) 480px, 92vw" className="mt-4 max-w-sm" />
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-10 grid gap-8 sm:grid-cols-2 sm:gap-10">
+              <div>
+                <p className="rx-label text-ink">We never</p>
+                <ul className="mt-3 space-y-2">
+                  {PROCESS.never.map((n) => (
+                    <li key={n} className="flex items-center gap-2.5 text-[15px] text-ink">
+                      <X className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden />
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p className="text-[15px] leading-relaxed text-ink">{PROCESS.honesty}</p>
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                  Before you order, see{" "}
+                  <Link href="/what-we-can-fix" className="font-semibold text-rx hover:underline">what we can fix</Link>, the{" "}
+                  <Link href="/faq" className="font-semibold text-rx hover:underline">FAQ</Link> and our{" "}
+                  <Link href="/terms" className="font-semibold text-rx hover:underline">Terms of Service</Link>.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
+
+      {/* ── F to H on the ink stage: real results, what customers say, the close ── */}
+      <section className="bg-paper">
+        <ExpandingStage className="stage stage-light overflow-hidden">
+          {/* F. Real results */}
+          <div className="max-w-6xl mx-auto px-4 md:px-10 pt-20 pb-20 md:pt-32 md:pb-28">
+            <div data-reveal className="max-w-2xl">
+              <h2 className={`${sectionTitle} text-stage-fg`}>Real results</h2>
+              <p className="mt-6 text-lg text-stage-muted leading-relaxed [text-wrap:pretty]">
+                Genuine before and after photos of cards we restored. Nothing here is a mock-up.
+              </p>
+            </div>
+            <div className="mt-12 md:mt-16">
+              <ResultsGallery cases={RESULTS} />
+            </div>
+          </div>
+
+          {/* G. Trust: the customers' own words and a figure counted live */}
+          <div className="max-w-6xl mx-auto px-4 md:px-10">
+            <div className="border-t border-white/12 pt-20 md:pt-28 grid gap-10 lg:grid-cols-12 lg:items-end">
+              <h2 data-reveal className={`${sectionTitle} text-stage-fg lg:col-span-7`}>What our customers say</h2>
+              {cardsFinished && (
+                <div data-reveal className="lg:col-span-5 lg:justify-self-end lg:text-right">
+                  <p className="font-heading text-[clamp(3.5rem,9vw,5.5rem)] leading-[0.9] tracking-[-0.015em] text-stage-fg [font-feature-settings:'lnum'_1,'tnum'_1]">
+                    <CountUp value={cardsFinished} />
+                  </p>
+                  <p className="mt-3 rx-label text-stage-muted">Cards restored and prepped</p>
+                  <p className="mt-1 text-[13px] text-stage-muted">Counted live from finished website orders.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="max-w-6xl mx-auto px-4 md:px-10 pt-12 md:pt-16 pb-24 md:pb-32">
+            <CustomerReviews compact />
+          </div>
+
+          {/* H. The close */}
+          <div className="border-t border-white/12">
+            <div className="max-w-5xl mx-auto px-4 md:px-10 py-24 md:py-36 text-center">
+              <h2 data-reveal className="font-heading text-[clamp(2.15rem,9vw,5.75rem)] leading-[0.94] tracking-[-0.022em] text-stage-fg">
+                <span className="block">Your Collection Means Something.</span>
+                <span className="block">We Understand Why.</span>
+              </h2>
+              <p data-reveal className="mt-7 md:mt-9 text-lg md:text-xl text-stage-muted max-w-xl mx-auto leading-relaxed">
+                From childhood favorites to prized collectibles, every card deserves thoughtful care.
+              </p>
+              <div data-reveal className="mt-10 flex flex-col sm:flex-row gap-3 justify-center">
+                <Link
+                  href="/tier-selection"
+                  className="btn-depth btn-sheen nudge-arrow inline-flex h-12 items-center justify-center gap-1 rounded-md bg-rx px-8 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
+                >
+                  Explore Restoration Services <span className="arrow" aria-hidden>→</span>
+                </Link>
+                <a
+                  href={INSTAGRAM}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="nudge-arrow inline-flex h-12 items-center justify-center gap-1.5 rounded-md border border-white/25 px-8 text-[15px] font-semibold text-stage-fg hover:border-white/60 hover:bg-white/5 transition-colors"
+                >
+                  Contact Us
+                  <ArrowUpRight className="arrow h-4 w-4" strokeWidth={1.75} aria-hidden />
+                  <span className="sr-only">on Instagram (opens in a new tab)</span>
+                </a>
+              </div>
+              <p className="mt-8 text-sm text-stage-muted">
+                Questions first? Read the{" "}
+                <Link href="/faq" className="font-semibold text-rx-bright hover:underline">FAQ</Link>{" "}or DM{" "}
+                <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="font-semibold text-rx-bright hover:underline">@the_card_doc</a>.
+              </p>
+            </div>
+          </div>
+        </ExpandingStage>
+      </section>
+
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD).replace(/</g, "\\u003c") }} />
     </>
   );
 }
