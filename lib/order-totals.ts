@@ -54,7 +54,8 @@ export function computeOrderTotals(input: OrderTotalsInput) {
   const discountKind: "bulk" | "code" | null = discountCents === 0 ? null : bulkWins ? "bulk" : "code";
   const discountPercentApplied = bulkWins ? bulkPercent : input.discountPercent;
   const taxCents = Math.round((subtotal - discountCents) * TAX_RATE);
-  const shippingCents = input.shippingMethod === "buy_label" && input.selectedRate ? input.selectedRate.amount_cents : 0;
+  // The prepaid label (to us and back), or the trip back for self-ship
+  const shippingCents = input.shippingMethod && input.selectedRate ? input.selectedRate.amount_cents : 0;
   const signatureCents = input.addSignatureConfirmation && input.shippingMethod === "buy_label" ? SIGNATURE_FEE_CENTS : 0;
   const slabCrackCount = cards.filter((c) => c.needs_slab_crack).length;
   const slabCrackCents = slabCrackCount * SLAB_CRACK_CENTS;
