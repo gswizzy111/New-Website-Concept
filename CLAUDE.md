@@ -79,6 +79,19 @@ Rules for this repo:
   (the old site has its own page styling). Schema:
   `supabase/migrations/20261022_terms_v1.sql`. v1.0 was corrected once,
   before anyone signed it (`20261022_terms_v1_heading_fix.sql`).
+- **Dashboard numbers** come from the database (`supabase/migrations/
+  20261023_dashboard_metrics.sql`, read through `lib/dashboard-metrics.ts`), in
+  New York days, never from client-side bucketing or unpaged selects (the API
+  returns at most 1,000 rows; page with `lib/fetch-all.ts`). Refunds are the
+  `refunds` ledger, dated when the money went back (`lib/refund-ledger.ts`): the
+  admin refund routes record each refund, and `syncRefunds()` (dashboard load,
+  daily job) adds refunds made in the Stripe Dashboard and updates pending ones.
+  A partial refund keeps `payment_status` 'paid' (the column only allows
+  pending/paid/refunded/failed). The backlog counts unfinished cards, not orders;
+  triggers log every order status change and card tick in `backlog_events`
+  (exact history from October 23, 2026; earlier days are rebuilt from
+  `order_events` and flagged), and `backlog_daily` keeps each finished day. Tabs:
+  `/admin/backlog` and `/admin/services` (PSA Prep vs Full Restoration).
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 

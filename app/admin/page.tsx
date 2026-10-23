@@ -4,6 +4,7 @@ import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { RevenueChart } from "./revenue-chart";
+import { BacklogChart } from "./backlog-chart";
 import { CardSearch } from "./card-search";
 import { Suspense } from "react";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
@@ -13,6 +14,9 @@ import { SyncDeliveredButton } from "./sync-delivered-button";
 import { ResendConfirmationsButton } from "./resend-confirmations-button";
 import { requireAdmin } from "@/lib/admin-auth";
 import { INQUIRY_TYPE, OPEN_CASE_STATUSES, orderLabel } from "@/lib/card-inquiries";
+import { addDays, etToday, getBacklogDays, getBacklogNow, getRevenueSeries } from "@/lib/dashboard-metrics";
+import { syncRefundsQuietly } from "@/lib/refund-ledger";
+import { fetchAll } from "@/lib/fetch-all";
 
 // Whole days since a customer asked for an update (the page renders per request)
 function daysWaiting(askedAt: string) {
@@ -260,15 +264,19 @@ export default async function AdminPage({
     { data: videoOrders },
     { data: giftCards },
   ] = await Promise.all([
-    admin
+    // Every row: the API returns at most 1,000 per request
+    fetchAll((from, to) => admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, inbound_method, restoration_tier, admin_notes, payment_method, instagram_feature")
       .neq("status", "awaiting_payment")
-      .order("created_at", { ascending: false }),
-    admin
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to)).then((data) => ({ data })),
+    fetchAll((from, to) => admin
       .from("shop_orders")
-      .select("id, total_cents, created_at")
-      .order("created_at", { ascending: false }),
+      .select("id")
+      .order("id")
+      .range(from, to)).then((data) => ({ data })),
     admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, created_at, status, restoration_tier, total_cents, instagram_feature, inbound_method")
@@ -356,9 +364,14 @@ export default async function AdminPage({
   const filteredShippedOrders = filterByPeriod(shippedOrders, activePeriod);
 
   const orderIds = orders?.map((o) => o.id) ?? [];
-  const { data: allCards } = orderIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls").in("order_id", orderIds)
-    : { data: [] };
+  // The list covers nearly every order, so read all cards in pages and keep the listed
+  // orders' (a filter naming every order ID makes a URL too long for the API gateway)
+  const listedOrderIds = new Set(orderIds);
+  const allCards = orderIds.length > 0
+    ? (await fetchAll((from, to) => admin.from("cards").select("id, order_id, card_name, photo_urls").order("id").range(from, to))
+        .catch((e) => { console.error("[admin] cards:", e); return []; }))
+        .filter((c) => listedOrderIds.has(c.order_id))
+    : [];
 
   const cardsByOrder: Record<string, string[]> = {};
   const photosByOrder: Record<string, string[]> = {};
@@ -452,20 +465,31 @@ export default async function AdminPage({
   const activeOrders = (orders ?? []).filter((o) => !PAST_STATUSES.includes(o.status) && tierMatchFn(o.restoration_tier) && methodMatchFn(o as any) && notesMatchFn(o.status, (o as any).admin_notes));
   const pastOrders = (orders ?? []).filter((o) => PAST_STATUSES.includes(o.status) && tierMatchFn(o.restoration_tier) && methodMatchFn(o as any) && notesMatchFn(o.status, (o as any).admin_notes));
 
-  const allRevenue = [
-    ...(orders ?? []).map((o) => ({ total_cents: o.total_cents ?? 0, created_at: o.created_at })),
-    ...(shopOrders ?? []).map((o) => ({ total_cents: o.total_cents ?? 0, created_at: o.created_at })),
-  ];
-
-  const now = new Date();
-  const thisMonthRevenue = allRevenue.filter((o) => {
-    const d = new Date(o.created_at);
-    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  });
-  const monthRevenue = thisMonthRevenue.reduce((sum, o) => sum + o.total_cents, 0);
-  const thisMonthOrderCount = thisMonthRevenue.length;
-  const revenueEntries = allRevenue.map((o) => ({ cents: o.total_cents, createdAt: o.created_at }));
-  const kitRevenueEntries = (shopOrders ?? []).map((o) => ({ cents: o.total_cents ?? 0, createdAt: o.created_at }));
+  // Dashboard numbers (lib/dashboard-metrics.ts): sales by the day paid, refunds by
+  // the day refunded (from the refund ledger, synced with Stripe first), backlog in
+  // unfinished cards. All days are New York days.
+  const today = etToday();
+  const [backlogNow, metrics] = activeTab === "orders"
+    ? await Promise.all([
+        getBacklogNow(admin).catch((e) => { console.error("[admin] backlog_now:", e); return null; }),
+        (async () => {
+          await syncRefundsQuietly(admin);
+          const [series, backlogDays] = await Promise.all([
+            getRevenueSeries(admin),
+            getBacklogDays(admin, addDays(today, -29), today),
+          ]);
+          return { series, backlogDays };
+        })().catch((e) => { console.error("[admin] dashboard metrics:", e); return null; }),
+      ])
+    : [null, null];
+  const totalOrderCount = (orders?.length ?? 0) + (shopOrders?.length ?? 0);
+  const month = (() => {
+    if (!metrics) return null;
+    const days = metrics.series.daily.filter((d) => d.day.slice(0, 7) === today.slice(0, 7));
+    const sales = days.reduce((s, d) => s + d.sales_cents, 0);
+    const refunds = metrics.series.refunds_this_month;
+    return { orders: days.reduce((s, d) => s + d.orders, 0), sales, refunds, net: sales - refunds.cents };
+  })();
 
   const fulfillmentCount = fulfillmentOrders?.length ?? 0;
   const shippedCount = shippedRaw?.length ?? 0;
@@ -486,7 +510,7 @@ export default async function AdminPage({
             <p className="text-muted-foreground text-sm mt-1">
               {activeTab === "fulfillment"
                 ? "Cards in your hands — sorted oldest first"
-                : `${allRevenue.length} total`}
+                : `${totalOrderCount} total`}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -641,22 +665,49 @@ export default async function AdminPage({
         {activeTab === "orders" && (
           <>
             {/* Stats */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-xl border border-border p-5">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Orders This Month</p>
-                <p className="font-heading font-black text-3xl text-foreground">{thisMonthOrderCount}</p>
+                <p className="font-heading font-black text-3xl text-foreground">{month ? month.orders : "—"}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">paid restoration, prep and kit orders</p>
               </div>
               <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Revenue This Month</p>
-                <p className="font-heading font-black text-3xl text-primary">{formatCurrency(monthRevenue)}</p>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Net Revenue This Month</p>
+                <p className="font-heading font-black text-3xl text-primary">{month ? formatCurrency(month.net) : "—"}</p>
+                {month && <p className="text-xs text-muted-foreground mt-0.5">{formatCurrency(month.sales)} sales − {formatCurrency(month.refunds.cents)} refunds</p>}
               </div>
+              <div className="bg-white rounded-xl border border-red-100 p-5">
+                <p className="text-xs font-bold uppercase tracking-widest text-red-700 mb-1">Refunds This Month</p>
+                <p className="font-heading font-black text-3xl text-red-600">{month ? formatCurrency(month.refunds.cents) : "—"}</p>
+                {month && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {month.refunds.count} refund{month.refunds.count !== 1 ? "s" : ""}, partial included
+                    {month.refunds.pending_cents > 0 ? ` · ${formatCurrency(month.refunds.pending_cents)} still pending` : ""}
+                  </p>
+                )}
+              </div>
+              <Link href="/admin/backlog" className="bg-white rounded-xl border border-border p-5 hover:border-foreground/30 transition-colors">
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Active Backlog</p>
+                <p className="font-heading font-black text-3xl text-purple-600">{backlogNow ? backlogNow.total : "—"}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  unfinished cards{backlogNow ? ` · ${backlogNow.prep} PSA Prep` : ""}
+                  {backlogNow?.unknown_orders ? ` · ${backlogNow.unknown_orders} order${backlogNow.unknown_orders !== 1 ? "s" : ""} with no card count` : ""}
+                </p>
+              </Link>
             </div>
 
             {/* Charts */}
-            <div className="mb-8 flex flex-col gap-6">
-              <RevenueChart entries={revenueEntries} label="Total Revenue" />
-              <RevenueChart entries={kitRevenueEntries} label="Kit Sales" />
-            </div>
+            {metrics ? (
+              <div className="mb-8 flex flex-col gap-6">
+                <RevenueChart series={metrics.series} label="Total Revenue" />
+                <BacklogChart days={metrics.backlogDays} />
+                <RevenueChart series={metrics.series} label="Kit Sales" kitsOnly />
+              </div>
+            ) : (
+              <div className="mb-8 bg-white rounded-xl border border-border p-6 text-sm text-muted-foreground">
+                The charts couldn&apos;t load. Refresh the page to try again.
+              </div>
+            )}
 
             {/* Tier filter + Missing Notes toggle */}
             {(() => {
