@@ -73,10 +73,9 @@ function SectionLinks({ headings, otherVersions }: { headings: Heading[]; otherV
           </li>
         ))}
       </ol>
-      <p className="mt-6 text-sm text-muted-foreground">Signed separately when they apply:</p>
+      <p className="mt-6 text-sm text-muted-foreground">Signed separately when it applies:</p>
       <ul className="mt-2 flex flex-col gap-1.5 text-sm">
         <li><Link href="/agreements/slab-removal" className="font-semibold text-primary underline underline-offset-2 hover:opacity-80">Slab Removal Authorization</Link></li>
-        <li><Link href="/agreements/high-value" className="font-semibold text-primary underline underline-offset-2 hover:opacity-80">High-Value Agreement</Link></li>
       </ul>
       {otherVersions.length > 0 && (
         <>
