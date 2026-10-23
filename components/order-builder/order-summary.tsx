@@ -10,6 +10,8 @@ interface OrderSummaryProps {
   shippingMethod: "buy_label" | "self_ship" | null;
   selectedRate: ShippingRate | null;
   discountPercent?: number;
+  /** The customer's loyalty discount; when it's the one applied, the deduction says so */
+  loyaltyPercent?: number;
   isInternational?: boolean;
   selectedTier?: RestorationTierId;
   insurance?: InsuranceSelection;
@@ -18,7 +20,7 @@ interface OrderSummaryProps {
   giftCardAmountCents?: number;
 }
 
-export function OrderSummary({ cards, shippingMethod, selectedRate, discountPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0 }: OrderSummaryProps) {
+export function OrderSummary({ cards, shippingMethod, selectedRate, discountPercent = 0, loyaltyPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0 }: OrderSummaryProps) {
   // Build per-tier breakdown
   const tierCounts: Partial<Record<RestorationTierId, number>> = {};
   // What each tier's cards cost (Diamond is a percentage of each card's value)
@@ -94,7 +96,13 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
         </div>
         {discountCents > 0 && (
           <div className="flex justify-between text-green-600 font-semibold">
-            <span>{discountKind === "bulk" ? `Bulk discount (${discountPercentApplied}% off, ${cards.length} cards)` : `Discount (${discountPercentApplied}% off)`}</span>
+            <span>
+              {discountKind === "bulk"
+                ? `Bulk discount (${discountPercentApplied}% off, ${cards.length} cards)`
+                : loyaltyPercent > 0 && loyaltyPercent === discountPercent
+                ? `Loyalty discount (${discountPercentApplied}% off)`
+                : `Discount (${discountPercentApplied}% off)`}
+            </span>
             <span>−{formatCurrency(discountCents)}</span>
           </div>
         )}
