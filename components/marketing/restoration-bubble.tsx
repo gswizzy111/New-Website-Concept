@@ -6,7 +6,26 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
 
-const HIDE_ON = ["/restoration", "/tier-selection"];
+// Booking and checkout pages, where the dock would cover the form: the
+// restoration and prep order forms, the cart and its checkout, gift cards,
+// subscriptions, the slab agreement and the pages a payment returns to.
+const HIDE_ON = [
+  "/restoration",
+  "/tier-selection",
+  "/order",
+  "/prep/order",
+  "/cart",
+  "/checkout",
+  "/gift-cards",
+  "/subscribe",
+  "/agreements",
+  "/shop/order-confirmed",
+];
+
+/** True on a listed page or anything under it ("/cart" hides "/cart/checkout"). */
+export function hidesBookingButton(pathname: string) {
+  return HIDE_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
 
 /**
  * Phone booking dock: a frosted bar on the bottom edge. It slides up once the
@@ -18,7 +37,7 @@ export function RestorationBubble() {
   const reduce = usePrefersReducedMotion();
   const [pastHero, setPastHero] = useState(false);
   const [atFooter, setAtFooter] = useState(false);
-  const hidden = HIDE_ON.some((p) => pathname.startsWith(p));
+  const hidden = hidesBookingButton(pathname);
 
   useEffect(() => {
     if (hidden) return;
