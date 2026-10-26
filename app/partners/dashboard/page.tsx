@@ -1,26 +1,18 @@
-import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
+import { getPartner } from "@/lib/partner-portal";
 import { LogSaleButton } from "./log-sale-button";
 import { LogReferralButton } from "./log-referral-button";
-import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function PartnerDashboard() {
-  const jar = await cookies();
-  const partnerId = jar.get("partner_session")?.value;
-  if (!partnerId) redirect("/partners");
+  // Signed in through a partner session (lib/partner-portal.ts)
+  const partner = await getPartner();
+  if (!partner) redirect("/partners");
+  const partnerId = partner.id;
 
   const admin = createAdminClient();
-
-  const { data: partner } = await admin
-    .from("partners")
-    .select("*")
-    .eq("id", partnerId)
-    .single();
-
-  if (!partner) redirect("/partners");
 
   const [{ data: sales }, { data: referrals }] = await Promise.all([
     admin.from("partner_kit_sales").select("*").eq("partner_id", partnerId).order("created_at", { ascending: false }),

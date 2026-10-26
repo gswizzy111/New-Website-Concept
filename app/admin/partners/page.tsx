@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NewPartnerForm } from "./new-partner-form";
 import { AllocateForm } from "./allocate-form";
+import { PasscodeForm } from "./passcode-form";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -11,9 +12,10 @@ export default async function AdminPartnersPage() {
   await requireAdmin();
   const admin = createAdminClient();
 
+  // Never the passcode: it's stored hashed and only ever set, not shown
   const { data: partners } = await admin
     .from("partners")
-    .select("*")
+    .select("id, name, store_name, kits_allocated, polish_allocated, spray_allocated, created_at")
     .order("created_at", { ascending: false });
 
   const partnerIds = (partners ?? []).map((p) => p.id);
@@ -91,9 +93,7 @@ export default async function AdminPartnersPage() {
                     <div>
                       <h3 className="font-heading font-black text-xl text-foreground">{partner.store_name ?? partner.name}</h3>
                       {partner.store_name && <p className="text-sm text-muted-foreground">{partner.name}</p>}
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Passcode: <span className="font-mono font-bold text-foreground">{partner.passcode}</span>
-                      </p>
+                      <PasscodeForm partnerId={partner.id} />
                     </div>
                     <div className="flex flex-wrap gap-4 text-center">
                       <div>

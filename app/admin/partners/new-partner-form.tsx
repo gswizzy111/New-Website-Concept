@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { PARTNER_PASSCODE_MIN } from "@/lib/partner-portal-rules";
 
 export function NewPartnerForm() {
   const [name, setName] = useState("");
@@ -22,8 +23,8 @@ export function NewPartnerForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, store_name: storeName, passcode, kits_allocated: kitsAllocated }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed");
       setName(""); setStoreName(""); setPasscode(""); setKitsAllocated(0);
       router.refresh();
     } catch (err) {
@@ -61,8 +62,11 @@ export function NewPartnerForm() {
           onChange={(e) => setPasscode(e.target.value)}
           placeholder="e.g. cards2024"
           required
+          minLength={PARTNER_PASSCODE_MIN}
+          autoComplete="off"
           className="w-full border border-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
+        <p className="text-xs text-muted-foreground mt-1">At least {PARTNER_PASSCODE_MIN} characters. Note it down: it can&apos;t be shown again.</p>
       </div>
       <div>
         <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Kits to Allocate</label>

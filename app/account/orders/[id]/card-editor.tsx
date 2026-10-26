@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { X, Upload, ChevronDown, ChevronUp } from "lucide-react";
+import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 
 interface Card {
   id: string;
@@ -32,7 +33,8 @@ function PhotoEditor({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const MAX = 8;
+  const [uploadError, setUploadError] = useState("");
+  const MAX = MAX_CARD_PHOTOS;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0 || disabled) return;
@@ -40,16 +42,24 @@ function PhotoEditor({
     if (remaining <= 0) return;
     const toUpload = Array.from(files).slice(0, remaining);
     setUploading(true);
+    setUploadError("");
     const newUrls: string[] = [];
-    for (const file of toUpload) {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.url) newUrls.push(data.url);
+    try {
+      for (const file of toUpload) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && typeof data.url === "string") newUrls.push(data.url);
+        else setUploadError(data.error ?? (res.status === 413 ? "File too large." : "Upload failed. Please try again."));
+      }
+    } catch {
+      setUploadError("Upload failed. Please try again.");
+    } finally {
+      if (newUrls.length > 0) onChange([...urls, ...newUrls]);
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
     }
-    onChange([...urls, ...newUrls]);
-    setUploading(false);
   }
 
   return (
@@ -87,6 +97,7 @@ function PhotoEditor({
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
+      {uploadError && <p className="w-full text-xs font-semibold text-red-600">{uploadError}</p>}
     </div>
   );
 }
@@ -107,18 +118,23 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
     if (locked || saving) return;
     setSaving(true);
     setFlash(null);
-    const res = await fetch(`/api/account/orders/${orderId}/cards`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cards }),
-    });
-    setSaving(false);
-    if (res.ok) {
-      setFlash({ type: "success", msg: "Changes saved successfully." });
-      setDirty(false);
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setFlash({ type: "error", msg: data.error ?? "Save failed. Please try again." });
+    try {
+      const res = await fetch(`/api/account/orders/${orderId}/cards`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cards }),
+      });
+      if (res.ok) {
+        setFlash({ type: "success", msg: "Changes saved successfully." });
+        setDirty(false);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setFlash({ type: "error", msg: data.error ?? "Save failed. Please try again." });
+      }
+    } catch {
+      setFlash({ type: "error", msg: "Save failed. Please try again." });
+    } finally {
+      setSaving(false);
     }
   }
 

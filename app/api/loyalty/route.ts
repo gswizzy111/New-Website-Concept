@@ -2,24 +2,44 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { likeExact } from "@/lib/like-exact";
 import { z } from "zod";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const email = searchParams.get("email")?.toLowerCase().trim();
+/**
+ * The loyalty discount the order builder shows at checkout (the checkout
+ * route works it out again on the server, so this is for display only).
+ * Answers with the discount alone, never the number of orders behind it.
+ * POST takes the email in the body so it stays out of URLs and logs; GET is
+ * kept for the order builder until it moves to POST.
+ */
+async function loyalty(rawEmail: unknown) {
+  const email = typeof rawEmail === "string" ? rawEmail.toLowerCase().trim() : "";
   // Only a real address: anything else (a pattern, a fragment) counts nothing
-  if (!email || !z.string().email().safeParse(email).success) return Response.json({ discountPercent: 0, orderCount: 0 });
+  if (!email || email.length > 320 || !z.string().email().safeParse(email).success) return { discountPercent: 0 };
 
   const admin = createAdminClient();
-  const { count } = await admin
+  const { count, error } = await admin
     .from("orders")
     .select("id", { count: "exact", head: true })
     .ilike("customer_email", likeExact(email))
     .eq("payment_status", "paid")
     .neq("status", "awaiting_payment");
+  if (error) {
+    console.error("Loyalty lookup failed:", error.message);
+    return { discountPercent: 0 };
+  }
 
+  // Same rule as the checkout route: 5% on the second order, 10% after that
   const orderCount = count ?? 0;
-  let discountPercent = 0;
-  if (orderCount === 1) discountPercent = 5;
-  else if (orderCount >= 2) discountPercent = 10;
+  const discountPercent = orderCount >= 2 ? 10 : orderCount === 1 ? 5 : 0;
+  return { discountPercent };
+}
 
-  return Response.json({ discountPercent, orderCount });
+const noStore = { headers: { "Cache-Control": "no-store" } };
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  return Response.json(await loyalty(searchParams.get("email")), noStore);
+}
+
+export async function POST(req: Request) {
+  const body = await req.json().catch(() => null);
+  return Response.json(await loyalty(body?.email), noStore);
 }

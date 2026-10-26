@@ -3,7 +3,8 @@ import { Schibsted_Grotesk, Young_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
-import { PIXEL_ID } from "@/lib/pixel";
+import { trackingGuardScript } from "@/lib/tracking-guard";
+import { siteUrl } from "@/lib/site-url";
 
 // Headings: a soft, heavy old-style serif with the feel of vintage card print.
 // It ships in one weight; globals.css turns off faux bold for it.
@@ -32,7 +33,11 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   // Makes the share image's URL absolute; without it previews pointed at localhost
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com"),
+  metadataBase: new URL(siteUrl()),
+  // Links and requests from these pages pass on only the site's origin, never
+  // a page's address (which can hold an email or a one-time link). Also sent
+  // as a header (next.config.ts).
+  referrer: "strict-origin",
   title: "The Card Doc — Card Cleaning Kits & Restoration",
   description:
     "Professional card cleaning kits and PSA prep restoration service for trading card collectors.",
@@ -60,32 +65,12 @@ export default function RootLayout({
     <html lang="en" className={`${youngSerif.variable} ${schibsted.variable} h-full antialiased`}>
       <head>
         <meta name="facebook-domain-verification" content="ihjnpqbitwq29e5kx3x0dujilxh1n9" />
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-LSQXS277DY" />
-        {/* Pages whose address holds a one-time link (confirm email, reset
-            password, admin reset, creator and accountant setup) aren't
-            reported to analytics or the pixel: both record the full URL,
-            token included. They stay off for the rest of that tab: starting
-            them later would still report the token page as the referrer. */}
-        <script dangerouslySetInnerHTML={{ __html: `
-          window.__noTrackPath = /^\\/(account\\/(confirm|reset-password)|admin\\/reset-password|affiliates\\/setup|accountant\\/setup)(\\/|$)/;
-          window.__noTrack = window.__noTrackPath.test(location.pathname);
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          if (!window.__noTrack) gtag('config', 'G-LSQXS277DY');
-        `}} />
-        {/* Meta Pixel — init + initial PageView */}
-        <script dangerouslySetInnerHTML={{ __html: `
-          !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-          n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
-          n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-          t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
-          document,'script','https://connect.facebook.net/en_US/fbevents.js');
-          if (!window.__noTrack) {
-            fbq('init','${PIXEL_ID}');
-            fbq('track','PageView');
-          }
-        `}} />
+        {/* Runs before anything else on the page and loads Google Analytics
+            and the Meta pixel itself, after taking Stripe session IDs out of
+            the address and only on pages that may be reported: no email,
+            case link, one-time token or session ID ever reaches them, in
+            the page address or as the previous page (lib/tracking-guard.ts). */}
+        <script dangerouslySetInnerHTML={{ __html: trackingGuardScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
         <MetaPixelRouteTracker />
