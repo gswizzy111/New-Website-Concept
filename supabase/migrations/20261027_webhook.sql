@@ -9,6 +9,11 @@
 -- and stops. completed_at is set when the run ends; a claim that never finished
 -- (the function timed out part-way) is reported to the admin once, through the
 -- checkout error log, when Stripe sends the session again (alerted_at).
+-- A run that failed before doing anything (a read or save failed) lets the
+-- claim go (released_at, last_error) and answers non-2xx, so Stripe's next
+-- delivery takes it over (attempts counts the deliveries). A failure that
+-- lasts is reported to the admin once (retry_alerted_at). claim_token is
+-- written by the run that holds the claim, so a run only lets go of its own.
 create table if not exists public.stripe_webhook_claims (
   stripe_session_id text primary key,
   kind text not null,             -- restoration, prep, gift_card, shop, subscription, add_cards, tier_upgrade
@@ -16,8 +21,19 @@ create table if not exists public.stripe_webhook_claims (
   claimed_at timestamptz not null default now(),
   completed_at timestamptz,
   alerted_at timestamptz,
-  note text                       -- why a run stopped early, or what it found already done
+  note text,                      -- why a run stopped early, or what it found already done
+  claim_token uuid,
+  attempts integer not null default 1,
+  released_at timestamptz,
+  last_error text,
+  retry_alerted_at timestamptz
 );
+
+alter table public.stripe_webhook_claims add column if not exists claim_token uuid;
+alter table public.stripe_webhook_claims add column if not exists attempts integer not null default 1;
+alter table public.stripe_webhook_claims add column if not exists released_at timestamptz;
+alter table public.stripe_webhook_claims add column if not exists last_error text;
+alter table public.stripe_webhook_claims add column if not exists retry_alerted_at timestamptz;
 
 alter table public.stripe_webhook_claims enable row level security;
 revoke all on table public.stripe_webhook_claims from anon, authenticated;

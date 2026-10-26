@@ -809,7 +809,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         let stage = "read the added cards";
         let cardsSaved = false;
         try {
-          // Steps after the cards are in keep going if one fails; the admin gets the list
+          // What went wrong along the way (steps after the cards are in keep
+          // going if one fails); the admin gets the list
           const problems: string[] = [];
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let newCardRows: Record<string, any>[] = [];

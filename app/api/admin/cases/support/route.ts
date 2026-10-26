@@ -16,6 +16,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
+import { escapeHtml } from "@/lib/card-inquiries";
 
 async function checkAuth() {
   return isAdmin();
@@ -46,7 +47,7 @@ async function sendCaseEmail(opts: {
     : `Update on your support case`;
   const statusBadge = statusLabel(opts.status);
 
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: fromEmail,
     to: opts.to,
     subject: `[${caseRef}] ${opts.subject} — ${businessName} Support`,
@@ -56,13 +57,13 @@ async function sendCaseEmail(opts: {
           <h1 style="font-family:Georgia,'Times New Roman',serif;color:#fff;margin:0;font-size:20px;">${businessName} Support</h1>
         </div>
         <div style="padding:32px;">
-          <p style="font-size:15px;margin-top:0;">Hi ${opts.customerName},</p>
+          <p style="font-size:15px;margin-top:0;">Hi ${escapeHtml(opts.customerName)},</p>
           <p style="font-size:15px;">${headline}.</p>
 
           <div style="background:#f5f5f5;border-radius:8px;padding:20px;margin:20px 0;">
             <p style="margin:0 0 8px;font-size:13px;color:#666;text-transform:uppercase;letter-spacing:.08em;">Case Reference</p>
             <p style="margin:0;font-size:18px;font-weight:700;">${caseRef}</p>
-            <p style="margin:8px 0 0;font-size:14px;color:#444;">${opts.subject}</p>
+            <p style="margin:8px 0 0;font-size:14px;color:#444;">${escapeHtml(opts.subject)}</p>
           </div>
 
           <div style="background:#fff5f0;border-left:4px solid #c34104;padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0;">
@@ -72,7 +73,7 @@ async function sendCaseEmail(opts: {
           ${opts.notes ? `
           <div style="margin:20px 0;">
             <p style="font-size:13px;color:#666;margin:0 0 8px;text-transform:uppercase;letter-spacing:.08em;">Notes from our team</p>
-            <p style="font-size:14px;color:#333;margin:0;white-space:pre-wrap;">${opts.notes}</p>
+            <p style="font-size:14px;color:#333;margin:0;white-space:pre-wrap;">${escapeHtml(opts.notes)}</p>
           </div>` : ""}
 
           <p style="font-size:14px;color:#555;">We'll send you an update whenever there's new activity on your case. If you have questions, just reply to this email.</p>
@@ -81,6 +82,8 @@ async function sendCaseEmail(opts: {
       </div>
     `,
   });
+  // Resend reports failures here instead of throwing; the callers log it
+  if (error) throw new Error(error.message);
 }
 
 export async function GET() {
