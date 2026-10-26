@@ -70,30 +70,36 @@ export async function mintAccountToken(kind: LinkKind, email: string): Promise<{
 /**
  * Whether `password` is this unconfirmed account's password, checked on a
  * throwaway client so no session is kept: Supabase answers "Email not
- * confirmed" only when the password is right.
+ * confirmed" only when the password is right. "error" when Supabase couldn't
+ * say (rate limit, outage): callers must not treat that as either answer.
  */
-export async function passwordMatches(email: string, password: string): Promise<boolean> {
+export async function checkPassword(email: string, password: string): Promise<"match" | "mismatch" | "error"> {
   const check = createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const { data, error } = await check.auth.signInWithPassword({ email, password });
   if (!error) {
     if (data.session) await check.auth.signOut({ scope: "local" });
-    return true;
+    return "match";
   }
-  return error.code === "email_not_confirmed" || /not confirmed/i.test(error.message);
+  if (error.code === "email_not_confirmed" || /not confirmed/i.test(error.message)) return "match";
+  if (error.code === "invalid_credentials" || /invalid login credentials/i.test(error.message)) return "mismatch";
+  console.error("Password check failed:", error.message);
+  return "error";
 }
 
 /**
  * Emails the link for a token from mintAccountToken. False when the send failed.
- * `check`: the account was signed up more than once with different passwords,
- * so the confirm page asks for its password (or a new one) before confirming.
+ * `checkUserId`: the account was signed up more than once with different
+ * passwords, so the link carries its id and check=1, and the confirm page asks
+ * for its password (or a new one) before confirming. (The id, not the email,
+ * so no address ends up in the link.)
  */
-export async function emailAccountLink(kind: LinkKind, email: string, tokenHash: string, name?: string | null, check = false): Promise<boolean> {
+export async function emailAccountLink(kind: LinkKind, email: string, tokenHash: string, name?: string | null, checkUserId?: string): Promise<boolean> {
   const copy = COPY[kind];
   const params = new URLSearchParams({ token_hash: tokenHash });
-  if (check) {
-    params.set("email", email);
+  if (checkUserId) {
+    params.set("uid", checkUserId);
     params.set("check", "1");
   }
   const link = `${appUrl()}${copy.path}?${params.toString()}`;
@@ -137,6 +143,6 @@ export async function emailAccountLink(kind: LinkKind, email: string, tokenHash:
 export async function sendAccountLink(kind: LinkKind, email: string, name?: string | null): Promise<boolean> {
   const minted = await mintAccountToken(kind, email);
   if (!minted) return false;
-  const check = kind === "confirm" && !!minted.user.app_metadata?.signup_conflict;
-  return emailAccountLink(kind, email, minted.tokenHash, name ?? (minted.user.user_metadata?.name as string | undefined), check);
+  const checkUserId = kind === "confirm" && minted.user.app_metadata?.signup_conflict ? minted.user.id : undefined;
+  return emailAccountLink(kind, email, minted.tokenHash, name ?? (minted.user.user_metadata?.name as string | undefined), checkUserId);
 }

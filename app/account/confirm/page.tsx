@@ -10,12 +10,14 @@ import { AuthCard, BUTTON_CN, FIELD_CN, LABEL_CN } from "../auth-card";
 // Links for an email that was signed up more than once with different
 // passwords (check=1) ask for the account's password, or a new password,
 // first, so nobody else's password keeps working once the owner confirms.
+// If the route says the email is confirmed but a password still has to be
+// chosen (choosePassword, or a refused new password), the page asks for one.
 function Confirm() {
   const router = useRouter();
   const params = useSearchParams();
   const tokenHash = params.get("token_hash") ?? "";
-  const email = params.get("email") ?? "";
-  const check = params.get("check") === "1" && !!email;
+  const uid = params.get("uid") ?? "";
+  const check = params.get("check") === "1" && !!uid;
 
   const [mode, setMode] = useState<"password" | "new">("password");
   const [password, setPassword] = useState("");
@@ -36,6 +38,11 @@ function Confirm() {
         body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.choosePassword) {
+        setConfirmed(true);
+        setMode("new");
+        return;
+      }
       if (res.ok) {
         router.push("/account");
         router.refresh();
@@ -59,13 +66,13 @@ function Confirm() {
 
   function confirmWithPassword(e: React.FormEvent) {
     e.preventDefault();
-    submit({ token_hash: tokenHash, email, password });
+    submit({ token_hash: tokenHash, uid, password });
   }
 
   function confirmWithNew(e: React.FormEvent) {
     e.preventDefault();
     if (newPassword !== again) return setError("The two passwords don't match.");
-    submit(confirmed ? { finish: true, new_password: newPassword } : { token_hash: tokenHash, email, new_password: newPassword });
+    submit(confirmed ? { finish: true, new_password: newPassword } : { token_hash: tokenHash, uid, new_password: newPassword });
   }
 
   const errorLine = error && (
@@ -83,7 +90,7 @@ function Confirm() {
     );
   }
 
-  if (!check) {
+  if (!check && !confirmed) {
     return (
       <AuthCard title="Confirm your email">
         <p className="text-sm text-muted-foreground mb-6">One tap and your account is ready, with every order placed under this email.</p>
@@ -100,8 +107,7 @@ function Confirm() {
       {mode === "password" ? (
         <form onSubmit={confirmWithPassword} className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground [overflow-wrap:anywhere]">{email}</span> was used to sign up more than once.
-            To keep the account yours, enter its password to confirm.
+            This email address was used to sign up more than once. To keep the account yours, enter its password to confirm.
           </p>
           <div>
             <label htmlFor="confirm-password" className={LABEL_CN}>Password</label>
@@ -120,7 +126,7 @@ function Confirm() {
           <p className="text-sm text-muted-foreground leading-relaxed">
             {confirmed
               ? "Your email is confirmed. Choose a password to finish."
-              : <>Choose a new password for <span className="font-semibold text-foreground [overflow-wrap:anywhere]">{email}</span>. It replaces any password chosen before, and signs out anyone else.</>}
+              : "Choose a new password for this account. It replaces any password chosen before, and signs out anyone else."}
           </p>
           <div>
             <label htmlFor="new-password" className={LABEL_CN}>New password</label>
