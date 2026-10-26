@@ -1,4 +1,4 @@
-import type { User } from "@supabase/supabase-js";
+import { createClient as createSupabase, type User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { escapeHtml } from "@/lib/card-inquiries";
@@ -42,7 +42,7 @@ const INSTAGRAM_URL = "https://www.instagram.com/the_card_doc";
  */
 function safeFirstName(name?: string | null): string {
   const first = (name ?? "").trim().split(/\s+/)[0] ?? "";
-  return /^[\p{L}\p{M}'’.-]{1,30}$/u.test(first) ? first : "";
+  return /^[\p{L}\p{M}'’-]{1,30}$/u.test(first) ? first : "";
 }
 
 function appUrl() {
@@ -67,10 +67,36 @@ export async function mintAccountToken(kind: LinkKind, email: string): Promise<{
   return { tokenHash, user: data.user };
 }
 
-/** Emails the link for a token from mintAccountToken. False when the send failed. */
-export async function emailAccountLink(kind: LinkKind, email: string, tokenHash: string, name?: string | null): Promise<boolean> {
+/**
+ * Whether `password` is this unconfirmed account's password, checked on a
+ * throwaway client so no session is kept: Supabase answers "Email not
+ * confirmed" only when the password is right.
+ */
+export async function passwordMatches(email: string, password: string): Promise<boolean> {
+  const check = createSupabase(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await check.auth.signInWithPassword({ email, password });
+  if (!error) {
+    if (data.session) await check.auth.signOut({ scope: "local" });
+    return true;
+  }
+  return error.code === "email_not_confirmed" || /not confirmed/i.test(error.message);
+}
+
+/**
+ * Emails the link for a token from mintAccountToken. False when the send failed.
+ * `check`: the account was signed up more than once with different passwords,
+ * so the confirm page asks for its password (or a new one) before confirming.
+ */
+export async function emailAccountLink(kind: LinkKind, email: string, tokenHash: string, name?: string | null, check = false): Promise<boolean> {
   const copy = COPY[kind];
-  const link = `${appUrl()}${copy.path}?token_hash=${encodeURIComponent(tokenHash)}`;
+  const params = new URLSearchParams({ token_hash: tokenHash });
+  if (check) {
+    params.set("email", email);
+    params.set("check", "1");
+  }
+  const link = `${appUrl()}${copy.path}?${params.toString()}`;
   const first = safeFirstName(name);
   const lead = first ? `Hi ${first}, ${copy.body.charAt(0).toLowerCase()}${copy.body.slice(1)}` : copy.body;
   const expiry = "This link works once and expires in 1 hour. Didn't ask for this? Ignore this email.";
@@ -111,5 +137,6 @@ export async function emailAccountLink(kind: LinkKind, email: string, tokenHash:
 export async function sendAccountLink(kind: LinkKind, email: string, name?: string | null): Promise<boolean> {
   const minted = await mintAccountToken(kind, email);
   if (!minted) return false;
-  return emailAccountLink(kind, email, minted.tokenHash, name ?? (minted.user.user_metadata?.name as string | undefined));
+  const check = kind === "confirm" && !!minted.user.app_metadata?.signup_conflict;
+  return emailAccountLink(kind, email, minted.tokenHash, name ?? (minted.user.user_metadata?.name as string | undefined), check);
 }
