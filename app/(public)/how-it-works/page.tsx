@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Clock, Hammer, Microscope, MessageCircle, Package, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Clock, MessageCircle, Package, ShieldCheck } from "lucide-react";
 import { PageHero } from "@/components/marketing/page-hero";
 import { StepWalkthrough } from "@/components/motion/step-walkthrough";
 
@@ -9,8 +9,6 @@ export const metadata: Metadata = {
   description:
     "The Card Doc is a trading card restoration and grading-prep shop in Ridgewood, New Jersey. Mail us your cards from anywhere in the US, we do the work by hand in our shop, and we ship them back ready for grading or your personal collection.",
 };
-
-const INSTAGRAM = "https://www.instagram.com/the_card_doc";
 
 function List({ items }: { items: React.ReactNode[] }) {
   return (
@@ -143,72 +141,8 @@ export default function HowItWorksPage() {
           lead="The Card Doc is a trading card restoration and grading-prep shop in Ridgewood, New Jersey. Mail us your cards from anywhere in the US, we do the work by hand in our shop, and we ship them back ready for grading or your personal collection."
         />
 
-        <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start hero-in" style={{ ["--d" as string]: 120 }}>
-          {/* Services at a glance */}
-          <div className="lit-border relative bg-white border border-ink/70 rounded-xl shadow-[0_40px_70px_-50px_oklch(0.25_0.006_70/0.6)]">
-            <div className="px-6 md:px-7 py-5 border-b border-ink/70 border-t-[6px] border-t-rx rounded-t-xl">
-              <h2 className="font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.01em] text-ink">Our Services at a Glance</h2>
-            </div>
-            <div className="divide-y divide-rule">
-              <div className="flex items-start gap-4 px-6 md:px-7 py-6">
-                <Hammer className="h-6 w-6 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
-                <div>
-                  <h3 className="font-heading text-lg font-bold text-ink">Restoration (includes Prep):</h3>
-                  <p className="text-[15px] text-muted-foreground mt-1 leading-relaxed">
-                    Hands-on work to fix dents, creases, edge/corner lifts, and surface grime using humidity, specialized tools, and clamps—never harsh chemicals or added materials.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-4 px-6 md:px-7 py-6">
-                <Microscope className="h-6 w-6 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
-                <div>
-                  <h3 className="font-heading text-lg font-bold text-ink">Prep Only:</h3>
-                  <p className="text-[15px] text-muted-foreground mt-1 leading-relaxed">
-                    A gentle surface clean, inspection under bright light, and fresh sleeving into a Card Saver. Nothing restorative, and no grade is guaranteed.
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 md:px-7 py-5 bg-paper border-t border-rule rounded-b-xl grid grid-cols-2 gap-3">
-              <Link
-                href="/tier-selection"
-                className="btn-depth btn-sheen h-12 rounded-md font-semibold text-[15px] flex items-center justify-center bg-rx text-primary-foreground hover:bg-rx/90 transition-colors"
-              >
-                Restoration →
-              </Link>
-              <Link
-                href="/prep"
-                className="h-12 rounded-md font-semibold text-[15px] flex items-center justify-center border border-ink/70 text-ink hover:bg-white transition-colors"
-              >
-                Prep →
-              </Link>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-8">
-            {/* The one rule */}
-            <div className="border border-rx/40 bg-rx-soft rounded-xl px-6 py-5">
-              <p className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.06em] text-rx mb-3">
-                <ShieldAlert className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                One rule up front:
-              </p>
-              <p className="text-[15px] text-ink leading-relaxed">
-                We never submit cards to grading companies for you. Repeated submissions from one shop address can trigger flags with graders—returning cards directly to you protects everyone.
-              </p>
-            </div>
-
-            <div className="text-sm text-muted-foreground">
-              Not sure what your card needs? DM photos to{" "}
-              <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="text-rx font-semibold hover:underline">
-                @the_card_doc
-              </a>{" "}
-              on Instagram.
-            </div>
-          </div>
-        </div>
-
         {/* The step-by-step process: sticky scroll walkthrough */}
-        <section className="mt-20 md:mt-32 border-t border-ink/80 pt-12 md:pt-20">
+        <section className="border-t border-ink/80 pt-12 md:pt-20">
           <StepWalkthrough title="The Step-by-Step Process" steps={STEPS} />
         </section>
 
