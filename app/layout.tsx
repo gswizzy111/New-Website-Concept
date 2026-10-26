@@ -31,6 +31,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  // Makes the share image's URL absolute; without it previews pointed at localhost
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com"),
   title: "The Card Doc — Card Cleaning Kits & Restoration",
   description:
     "Professional card cleaning kits and PSA prep restoration service for trading card collectors.",

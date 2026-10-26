@@ -107,8 +107,10 @@ function Confirm() {
 
   return (
     <AuthCard title={mode === "new" ? "Choose your password" : "Confirm your email"}>
+      {/* Each mode is its own form (keyed), so React never turns the button
+          that switches modes into the other form's submit button mid-click */}
       {mode === "password" ? (
-        <form onSubmit={confirmWithPassword} className="flex flex-col gap-4">
+        <form key="password" onSubmit={confirmWithPassword} className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
             This email address was used to sign up more than once. To keep the account yours, enter its password to confirm.
           </p>
@@ -120,12 +122,12 @@ function Confirm() {
           <button type="submit" disabled={working} className={BUTTON_CN}>
             {working ? "Confirming…" : "Confirm my email"}
           </button>
-          <button type="button" onClick={() => { setMode("new"); setError(""); }} className="text-center text-sm font-semibold text-primary hover:underline">
+          <button type="button" onClick={(e) => { e.preventDefault(); setMode("new"); setError(""); }} className="text-center text-sm font-semibold text-primary hover:underline">
             Don&apos;t know it, or didn&apos;t sign up? Choose a new password
           </button>
         </form>
       ) : (
-        <form onSubmit={confirmWithNew} className="flex flex-col gap-4">
+        <form key="new" onSubmit={confirmWithNew} className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground leading-relaxed">
             {confirmed
               ? "Your email is confirmed. Choose a password to finish."
@@ -144,7 +146,7 @@ function Confirm() {
             {working ? "Saving…" : confirmed ? "Save password" : "Confirm and save password"}
           </button>
           {!confirmed && (
-            <button type="button" onClick={() => { setMode("password"); setError(""); }} className="text-center text-sm font-semibold text-primary hover:underline">
+            <button type="button" onClick={(e) => { e.preventDefault(); setMode("password"); setError(""); }} className="text-center text-sm font-semibold text-primary hover:underline">
               I know the password
             </button>
           )}
