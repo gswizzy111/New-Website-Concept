@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CONFIRM_SUBJECT, checkPassword, emailAccountLink, mintAccountToken } from "@/lib/account-links";
 import { fromAddress } from "@/lib/resend";
-import { attemptWait, recordAttempt } from "@/lib/attempt-limit";
+import { recordAttempt, takeAttempt, type AttemptTicket } from "@/lib/attempt-limit";
 import { z } from "zod";
 
 const Body = z.object({
@@ -11,7 +11,8 @@ const Body = z.object({
 });
 
 // A few confirmation emails per address per hour, so the form can't be used
-// to flood someone's inbox (counted per address, never per IP)
+// to flood someone's inbox (counted per address, never per IP). Shared with
+// the sign-in page's "Send it again" (the same confirm link).
 const EMAIL_RULE = { max: 3, windowMinutes: 60 };
 const EXISTS = "An account with that email already exists. Sign in, or reset your password.";
 const NOT_SENT = "We couldn't send the confirmation email. Please try again.";
@@ -34,7 +35,6 @@ export async function POST(request: Request) {
   const email = parsed.data.email.trim().toLowerCase();
   const { password, name } = parsed.data;
   const adminSupabase = createAdminClient();
-  const wait = await attemptWait("account-signup-email", email, EMAIL_RULE);
 
   const { error: createError } = await adminSupabase.auth.admin.createUser({
     email,
@@ -50,22 +50,32 @@ export async function POST(request: Request) {
     existingAccount = true;
   }
 
-  // Too many emails to this address lately: answer as if one was sent. (A
-  // brand-new account always gets its first email: only an existing account
-  // can have had several.)
-  if (wait > 0 && existingAccount) {
-    const limited = await limitedSignup(email, password);
-    if (limited) return limited;
-    // Couldn't read the account: carry on as usual rather than block sign-up
+  // A brand-new account always gets its first email (it can't have had any
+  // yet). For an existing one, the email's place is taken before minting, so
+  // requests sent at once can't all get through, and it's given back whenever
+  // nothing goes out. Too many emails to this address lately: answer as if
+  // one was sent.
+  let attempt: AttemptTicket | null = null;
+  if (existingAccount) {
+    attempt = await takeAttempt("account-confirm-email", email, EMAIL_RULE);
+    if (attempt.wait > 0) {
+      const limited = await limitedSignup(email, password);
+      if (limited) return limited;
+      // Couldn't read the account: carry on as usual rather than block
+      // sign-up (the email is counted once it goes out)
+      attempt = null;
+    }
   }
+  const notSent = async (error: string, status: number) => {
+    await attempt?.release();
+    return Response.json({ error }, { status });
+  };
 
   // One token per request: minting another would cancel the link we email.
   const minted = await mintAccountToken("confirm", email);
-  if (!minted) return Response.json({ error: NOT_SENT }, { status: 500 });
+  if (!minted) return notSent(NOT_SENT, 500);
   // Already signed up and confirmed: sign in instead.
-  if (minted.user.email_confirmed_at) {
-    return Response.json({ error: EXISTS }, { status: 400 });
-  }
+  if (minted.user.email_confirmed_at) return notSent(EXISTS, 400);
   // Signed up before but never confirmed. The password stays the one chosen
   // first. If this sign-up used a different password, someone else may know
   // the first one (anyone can type any email), so the account is flagged and
@@ -79,15 +89,16 @@ export async function POST(request: Request) {
     });
     if (flagError) {
       console.error("Flagging a repeat sign-up failed:", flagError.message);
-      return Response.json({ error: NOT_SENT }, { status: 500 });
+      return notSent(NOT_SENT, 500);
     }
     check = true;
   }
 
   const greet = existingAccount ? (minted.user.user_metadata?.name as string | undefined) : name;
   const sent = await emailAccountLink("confirm", email, minted.tokenHash, greet, check ? minted.user.id : undefined);
-  if (!sent) return Response.json({ error: NOT_SENT }, { status: 500 });
-  await recordAttempt("account-signup-email", email);
+  if (!sent) return notSent(NOT_SENT, 500);
+  // Already counted when its place was taken
+  if (!attempt) await recordAttempt("account-confirm-email", email);
   return sentReply();
 }
 

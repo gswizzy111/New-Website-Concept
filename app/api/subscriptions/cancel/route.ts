@@ -54,5 +54,7 @@ export async function POST(request: Request) {
 
   const result = await cancelKitClubSubscription(sub);
   if ("error" in result) return refuse(result.error, 500);
+  // The cancellation stands even when its email didn't go out
+  // (cancelKitClubSubscription logs that)
   return Response.json({ ok: true });
 }

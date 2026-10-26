@@ -160,3 +160,17 @@ export function formatMaxValue(cents: number | null): string {
   if (cents === null) return "Unlimited";
   return `Max $${(cents / 100).toFixed(0)}`;
 }
+
+/** The tiers an order can upgrade along, cheapest first (Diamond and Fast Pass sit outside it). */
+export const UPGRADE_LADDER: RestorationTierId[] = ["regular", "expedited", "premium", "ultra_premium"];
+
+/**
+ * The tiers an order on `current` can upgrade to: higher on the ladder and
+ * dearer per card. Pass tiers with the admin's prices (lib/live-tiers.ts);
+ * the upgrade route charges the per-card difference for every card.
+ */
+export function upgradeTargets(current: RestorationTier, tiers: RestorationTier[]): RestorationTier[] {
+  const from = UPGRADE_LADDER.indexOf(current.id);
+  if (from === -1) return [];
+  return tiers.filter((t) => UPGRADE_LADDER.indexOf(t.id) > from && t.price_cents > current.price_cents);
+}

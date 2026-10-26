@@ -21,8 +21,8 @@ export function RefundButton({ orderId, totalCents, alreadyRefundedCents, custom
   const [customerMessage, setCustomerMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
-  // One ID per refund attempt: a request retried after a dropped connection
-  // reuses it, so Stripe returns the same refund instead of making another
+  // One ID per refund attempt: a retry after a dropped connection or a server
+  // error reuses it, so the server finishes the same refund instead of making another
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
 
   const maxRefundable = totalCents - alreadyRefundedCents;
@@ -79,8 +79,12 @@ export function RefundButton({ orderId, totalCents, alreadyRefundedCents, custom
       return;
     }
 
-    const data = await res.json().catch(() => ({}));
-    setRequestId(crypto.randomUUID());
+    const json = await res.json().catch(() => null);
+    const data = json ?? {};
+    // A success, or a refusal made before anything was refunded, ends this attempt. A server
+    // error or timeout may have refunded some of it: keep the ID, so trying again finishes
+    // that same refund instead of making another
+    if (res.ok || (res.status < 500 && json)) setRequestId(crypto.randomUUID());
 
     if (!res.ok) {
       setStatus("error");

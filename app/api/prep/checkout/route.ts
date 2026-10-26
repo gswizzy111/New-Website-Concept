@@ -10,6 +10,8 @@ import { recordConsents, recordSignatures, signingContext, type SignatureInput }
 import { ensureTermsVersion, type TermsVersionRow } from "@/lib/terms-versions";
 import { shippingRate } from "@/lib/inbound-rate";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { US_STATES } from "@/lib/constants";
+import { siteUrl } from "@/lib/site-url";
 
 const CardSchema = z.object({
   card_name: z.string().trim().min(1).max(200),
@@ -105,11 +107,17 @@ export async function POST(request: Request) {
   const slabCrackCount = slabSigned.filter(Boolean).length;
   const droppedSlabs = d.cards.filter((c, i) => c.needs_slab_crack && !slabSigned[i]).map((c) => c.card_name.trim());
 
-  const isInternational = (d.country ?? "US") !== "US";
+  // Prep takes orders from the United States and Puerto Rico only (Puerto Rico
+  // is a US state code here, as at the restoration checkout)
+  if ((d.country ?? "US").toUpperCase() !== "US") {
+    return Response.json(
+      { error: "We currently only accept orders from within the United States and Puerto Rico.", code: "INTERNATIONAL_NOT_ACCEPTED" },
+      { status: 400 }
+    );
+  }
 
   // Server-side address validation: the prepaid label ships from it, and the
-  // cards come back to it either way. State is required for US, optional for
-  // international.
+  // cards come back to it either way.
   if (!d.street1?.trim() || !d.city?.trim() || !d.zip?.trim()) {
     return Response.json({
       error: d.shipping_method === "buy_label"
@@ -117,8 +125,11 @@ export async function POST(request: Request) {
         : "Full address is required so we can ship your cards back.",
     }, { status: 400 });
   }
-  if (!isInternational && !d.state?.trim()) {
+  if (!d.state?.trim()) {
     return Response.json({ error: "State is required for US addresses." }, { status: 400 });
+  }
+  if (!US_STATES.some((s) => s.value === d.state!.trim().toUpperCase())) {
+    return Response.json({ error: "Choose your state." }, { status: 400 });
   }
 
   const admin = createAdminClient();
@@ -140,15 +151,14 @@ export async function POST(request: Request) {
   const preGradeSubtotal = d.add_pre_grade ? d.cards.length * prices.preGradePriceCents : 0;
   const slabCrackSubtotal = slabCrackCount * prices.slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
-  // NJ sales tax only applies to US domestic orders
-  const taxCents = isInternational ? 0 : Math.round(serviceSubtotal * NJ_TAX_RATE);
+  const taxCents = Math.round(serviceSubtotal * NJ_TAX_RATE);
 
   // Shipping is priced from the Shippo rate quoted for this address (never the
   // browser's price). The prepaid label's rate (to us) is paid twice, to us and
   // back; sending the cards in your own way still pays for the trip back, once,
   // at the rate quoted from us to you.
   const rate = d.shipping_rate_object_id
-    ? await shippingRate(d.shipping_rate_object_id, d.zip ?? "", d.shipping_method === "buy_label" ? "in" : "back", d.country ?? "US")
+    ? await shippingRate(d.shipping_rate_object_id, d.zip ?? "", d.shipping_method === "buy_label" ? "in" : "back", "US")
     : null;
   if (!rate) {
     return Response.json(
@@ -172,7 +182,7 @@ export async function POST(request: Request) {
     city: d.city,
     state: d.state ?? null,
     zip: d.zip,
-    country: d.country ?? "US",
+    country: "US",
   } : {};
 
   // Create draft order in DB
@@ -237,7 +247,7 @@ export async function POST(request: Request) {
         status: "active",
         service_price_cents: price,
         discount_cents: 0,
-        tax_cents: isInternational ? 0 : Math.round(price * NJ_TAX_RATE),
+        tax_cents: Math.round(price * NJ_TAX_RATE),
       };
     })
   );
@@ -308,7 +318,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
 
   // Build Stripe line items
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -404,7 +414,7 @@ export async function POST(request: Request) {
         order_id: order.id,
         slab_crack_count: String(slabCrackCount),
         add_pre_grade: d.add_pre_grade ? "true" : "false",
-        is_international: isInternational ? "true" : "false",
+        is_international: "false",
         ...(shippingRateObjectId ? { shipping_rate_object_id: shippingRateObjectId } : {}),
         ...(hasInsurance ? {
           insurance_declared_value_cents: String(d.insurance_amount_cents),

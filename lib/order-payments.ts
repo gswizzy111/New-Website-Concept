@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { stripe } from "@/lib/stripe";
+import { recordRefund, upsertStripeRefund, type RefundKind } from "@/lib/refund-ledger";
 
 /**
  * The Stripe payments behind a restoration order: the original checkout, plus
@@ -79,8 +80,21 @@ async function addOnPaymentIntents(order: OrderPaymentRef): Promise<Map<string, 
   return found;
 }
 
+/** Add-on payments the webhook noted in the order's history ("cards_added" / "tier_upgraded" events). */
+async function addOnsFromHistory(admin: SupabaseClient, orderId: string): Promise<Map<string, OrderPaymentKind>> {
+  const found = new Map<string, OrderPaymentKind>();
+  const { data, error } = await admin.from("order_events").select("event_type, metadata")
+    .eq("order_id", orderId).in("event_type", ["cards_added", "tier_upgraded"]);
+  if (error) console.error("[order payments] could not read the order history:", error.message);
+  for (const e of data ?? []) {
+    const pi = (e.metadata as { stripe_payment_intent_id?: unknown } | null)?.stripe_payment_intent_id;
+    if (typeof pi === "string" && pi.startsWith("pi_")) found.set(pi, e.event_type === "cards_added" ? "add_cards" : "tier_upgrade");
+  }
+  return found;
+}
+
 /** Every successful Stripe payment for the order, the original first, then add-ons oldest first. */
-export async function orderPayments(order: OrderPaymentRef): Promise<OrderPayment[]> {
+export async function orderPayments(order: OrderPaymentRef, admin?: SupabaseClient): Promise<OrderPayment[]> {
   let originalPi = order.stripe_payment_intent_id ?? null;
   if (!originalPi && order.stripe_session_id) {
     const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
@@ -91,6 +105,8 @@ export async function orderPayments(order: OrderPaymentRef): Promise<OrderPaymen
     console.error("[order payments] add-on lookup failed:", e instanceof Error ? e.message : e);
     return new Map<string, OrderPaymentKind>();
   });
+  // The order's own history names add-on payments even after its email changed
+  if (admin) for (const [pi, kind] of await addOnsFromHistory(admin, order.id)) addOns.set(pi, kind);
   const list: OrderPayment[] = [];
   if (originalPi) {
     const p = await payment(originalPi, "order");
@@ -128,18 +144,20 @@ export function planRefund(payments: OrderPayment[], amountCents: number): { pay
 /**
  * Refund an amount across an order's payments. Stops at the first Stripe
  * error and returns the refunds already made with it, so the caller records
- * them. `requestKey` (one per admin click) makes a retried request reuse the
- * same Stripe refunds instead of making new ones.
+ * them. `requestKey` (one per admin click) goes on each refund as its
+ * request_id, so a retry finds them (refundHistory), and makes the Stripe
+ * idempotency key, so two sends of the same request make one refund.
  */
 export async function refundAcrossPayments(
   plan: { paymentIntentId: string; amountCents: number }[],
   { metadata, requestKey }: { metadata: Record<string, string>; requestKey?: string | null },
 ): Promise<{ refunds: Stripe.Refund[]; error: string | null }> {
   const refunds: Stripe.Refund[] = [];
+  const meta = requestKey ? { ...metadata, request_id: requestKey } : metadata;
   for (const step of plan) {
     try {
       const refund = await stripe.refunds.create(
-        { payment_intent: step.paymentIntentId, amount: step.amountCents, reason: "requested_by_customer", metadata },
+        { payment_intent: step.paymentIntentId, amount: step.amountCents, reason: "requested_by_customer", metadata: meta },
         requestKey ? { idempotencyKey: `admin-refund:${requestKey}:${step.paymentIntentId}:${step.amountCents}` } : undefined,
       );
       refunds.push(refund);
@@ -150,9 +168,138 @@ export async function refundAcrossPayments(
   return { refunds, error: null };
 }
 
-/** Refund IDs already in the ledger (a retried request gets the same refund back from Stripe). */
-export async function knownRefundIds(admin: SupabaseClient, ids: string[]): Promise<Set<string>> {
-  if (!ids.length) return new Set();
-  const { data } = await admin.from("refunds").select("stripe_refund_id").in("stripe_refund_id", ids);
-  return new Set((data ?? []).map((r) => r.stripe_refund_id as string));
+const LIVE = ["succeeded", "pending", "requires_action"];
+/** A refund that is (or may still be) money back: not failed or canceled. */
+const live = (r: Stripe.Refund) => LIVE.includes(r.status ?? "pending");
+const sum = (refunds: Stripe.Refund[]) => refunds.reduce((s, r) => s + r.amount, 0);
+
+export type RefundHistory = {
+  /** Refunds this same request made on an earlier try (found by request_id), counted once. */
+  prior: Stripe.Refund[];
+  priorCents: number;
+  /** Refunded on the order before this request. */
+  orderRefundedBefore: number;
+  /** Refunded on the card before this request (card refunds). */
+  cardRefundedBefore: number;
+  /** Refunds Stripe holds on these payments that the ledger doesn't link to any order. */
+  unrecorded: Stripe.Refund[];
+  /** The ledger holds more for the order than its refunded_cents (what the admin page shows). */
+  ledgerAhead: boolean;
+};
+
+/** What the ledger holds for an order or a card (live refunds), checked for errors. */
+async function ledgerCents(admin: SupabaseClient, column: "order_id" | "card_id", value: string): Promise<number> {
+  const { data, error } = await admin.from("refunds").select("amount_cents").eq(column, value).in("status", LIVE);
+  if (error) throw new Error(`refund ledger: ${error.message}`);
+  return (data ?? []).reduce((s, r) => s + ((r.amount_cents as number | null) ?? 0), 0);
+}
+
+/**
+ * Before refunding: what was refunded before this request, and which refunds
+ * this request already made. A retry after a timeout or a dropped connection
+ * (same requestId) finds its earlier refunds on Stripe by request_id, so it
+ * finishes the same refund rather than making a second one, even when they
+ * never reached the ledger. `unrecorded` lists refunds on Stripe the site
+ * never saved (another request that timed out before saving, or one made in
+ * the Stripe Dashboard), and `ledgerAhead` says the order's own refunded
+ * figure, which the admin page shows, is behind the ledger. Either way, bring
+ * the records up to date with catchUpRefunds and stop, so the admin sees the
+ * real balance before refunding more.
+ */
+export async function refundHistory(
+  admin: SupabaseClient,
+  { orderId, orderRecordedCents, cardId, cardRecordedCents }: { orderId: string; orderRecordedCents: number | null; cardId?: string; cardRecordedCents?: number | null },
+  payments: OrderPayment[],
+  requestId: string | null | undefined,
+): Promise<RefundHistory> {
+  // Only payments with something refunded can hold earlier refunds
+  const onStripe = (await Promise.all(payments.filter((p) => p.refundedCents > 0).map(async (p) => {
+    const list: Stripe.Refund[] = [];
+    for await (const r of stripe.refunds.list({ payment_intent: p.paymentIntentId, limit: 100 })) list.push(r);
+    return list;
+  }))).flat();
+
+  const ledger = new Map<string, { order_id: string | null; shop_order_id: string | null; card_id: string | null }>();
+  if (onStripe.length) {
+    const { data, error } = await admin.from("refunds").select("stripe_refund_id, order_id, shop_order_id, card_id")
+      .in("stripe_refund_id", onStripe.map((r) => r.id));
+    if (error) throw new Error(`refund ledger: ${error.message}`);
+    for (const row of data ?? []) ledger.set(row.stripe_refund_id as string, { order_id: row.order_id, shop_order_id: row.shop_order_id, card_id: row.card_id });
+  }
+
+  const prior = requestId ? onStripe.filter((r) => r.metadata?.request_id === requestId && live(r)) : [];
+  const priorIds = new Set(prior.map((r) => r.id));
+  const linked = (id: string) => !!(ledger.get(id)?.order_id || ledger.get(id)?.shop_order_id);
+  const unrecorded = onStripe.filter((r) => live(r) && !linked(r.id) && !priorIds.has(r.id));
+
+  // The earlier try's refunds may already be in the totals: take them out, they're counted with this request
+  const orderLedger = await ledgerCents(admin, "order_id", orderId);
+  const orderBefore = Math.max(orderRecordedCents ?? 0, orderLedger);
+  const priorInOrder = sum(prior.filter((r) => ledger.get(r.id)?.order_id === orderId));
+  let cardRefundedBefore = 0;
+  if (cardId) {
+    const cardBefore = Math.max(cardRecordedCents ?? 0, await ledgerCents(admin, "card_id", cardId));
+    cardRefundedBefore = Math.max(0, cardBefore - sum(prior.filter((r) => ledger.get(r.id)?.card_id === cardId)));
+  }
+  return {
+    prior,
+    priorCents: sum(prior),
+    orderRefundedBefore: Math.max(0, orderBefore - priorInOrder),
+    cardRefundedBefore,
+    unrecorded,
+    ledgerAhead: orderLedger - priorInOrder > (orderRecordedCents ?? 0),
+  };
+}
+
+/**
+ * Save refunds Stripe made that the site never recorded, bring the order's
+ * refunded figure up to the ledger, and note it in the order's history.
+ * Returns what the order has had refunded in all.
+ */
+export async function catchUpRefunds(
+  admin: SupabaseClient,
+  { orderId, orderRecordedCents, kind }: { orderId: string; orderRecordedCents: number | null; kind: RefundKind },
+  refunds: Stripe.Refund[],
+): Promise<number> {
+  for (const r of refunds) {
+    try {
+      await upsertStripeRefund(admin, r);
+    } catch (e) {
+      console.error("[order payments] could not match", r.id, e instanceof Error ? e.message : e);
+    }
+    // They were taken from this order's payments: save or link any the matcher couldn't
+    const { data: row, error: readErr } = await admin.from("refunds").select("order_id, shop_order_id").eq("stripe_refund_id", r.id).maybeSingle();
+    if (readErr) console.error("[order payments] could not read", r.id, readErr.message);
+    else if (!row) await recordRefund(admin, r, { orderId, kind });
+    else if (!row.order_id && !row.shop_order_id) {
+      const { error } = await admin.from("refunds").update({ order_id: orderId, kind, match_method: "payment_intent" }).eq("stripe_refund_id", r.id);
+      if (error) console.error("[order payments] could not link", r.id, error.message);
+    }
+  }
+  const recorded = orderRecordedCents ?? 0;
+  const total = Math.max(recorded, await ledgerCents(admin, "order_id", orderId).catch(() => 0));
+  if (total > recorded) {
+    const { error } = await admin.from("orders").update({ refunded_cents: total }).eq("id", orderId);
+    if (error) console.error("[order payments] order refunded figure not updated:", error.message, "order:", orderId);
+  }
+  const { error: eventErr } = await admin.from("order_events").insert({
+    order_id: orderId,
+    event_type: "refund_recorded",
+    description: refunds.length
+      ? `Refund of $${(sum(refunds) / 100).toFixed(2)} found on Stripe and recorded (it wasn't saved here before). Stripe refund ID${refunds.length > 1 ? "s" : ""}: ${refunds.map((r) => r.id).join(", ")}`
+      : `Refunded total brought up to $${(total / 100).toFixed(2)} from the refund records (it showed $${(recorded / 100).toFixed(2)}).`,
+    is_customer_visible: false,
+  });
+  if (eventErr) console.error("[order payments] event insert failed:", eventErr.message, "order:", orderId);
+  return total;
+}
+
+/** Refunds not yet named in a "refund_issued" entry of the order's history (a retry logs and emails only those). */
+export async function unloggedRefunds(admin: SupabaseClient, orderId: string, prior: Stripe.Refund[], made: Stripe.Refund[]): Promise<Stripe.Refund[]> {
+  if (!prior.length) return made;
+  const { data, error } = await admin.from("order_events").select("description").eq("order_id", orderId).eq("event_type", "refund_issued");
+  // Can't tell: treat the earlier try's refunds as logged rather than email the customer twice
+  if (error) return made;
+  const logged = (data ?? []).map((e) => (e.description as string | null) ?? "").join("\n");
+  return [...prior.filter((r) => !logged.includes(r.id)), ...made];
 }

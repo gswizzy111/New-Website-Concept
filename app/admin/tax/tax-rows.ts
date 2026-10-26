@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { etToday } from "@/lib/dashboard-metrics";
-import { etDateOf, etDayStart, loadReport, refundShare, type ReportRefund } from "@/lib/sales-report";
+import { etDateOf, etDayStart, isPrepKey, loadReport, refundShare, type ReportRefund } from "@/lib/sales-report";
 
 /**
  * Rows for the Tax Reports page and its CSV export (the same rows in both).
@@ -37,8 +37,6 @@ export type TxRow = {
 
 type Address = Record<string, string | null> | null;
 
-const PREP_TIERS = ["prep", "prep_standard"];
-
 function place(addr: Address) {
   const state = addr?.state ?? "";
   return { city: addr?.city ?? "", state, country: addr?.country || "US", is_nj: state === "NJ" };
@@ -61,7 +59,7 @@ function refundRow(r: ReportRefund): TxRow {
   if (r.order) {
     const o = r.order;
     const p = place(o.ship_from_address);
-    const isPrep = PREP_TIERS.includes(o.restoration_tier ?? "");
+    const isPrep = isPrepKey(o.tier_key);
     const subtotal = refundShare(r.amount_cents, o.subtotal_cents, o.total_cents);
     return {
       ...base, ...p, order_id: o.id, order_number: o.order_number,
@@ -102,7 +100,7 @@ export async function taxRowsForYear(admin: SupabaseClient, year: number): Promi
   for (const s of data.sales) {
     const o = s.order;
     const p = place(o.ship_from_address);
-    const isPrep = PREP_TIERS.includes(o.restoration_tier ?? "");
+    const isPrep = isPrepKey(o.tier_key);
     rows.push({
       date: s.at, day: etDateOf(s.at), kind: "sale", is_order: s.type === "order",
       note: s.type === "cards_added" ? "Added cards" : s.type === "tier_upgraded" ? "Tier upgrade" : null,

@@ -8,6 +8,8 @@ export type ConfirmSent = {
   /** The password just typed: "Send it again" signs in with it, which sends a new link */
   password: string;
   sent: boolean;
+  /** None sent now, but one went out in the last hour (too many lately) */
+  alreadySent?: boolean;
   sentFrom?: string;
   subject?: string;
   message?: string;
@@ -27,7 +29,8 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
   onStartOver: () => void;
   onBack: () => void;
 }) {
-  const [state, setState] = useState(info);
+  // A link from the last hour counts as sent: the page says to check the inbox
+  const [state, setState] = useState({ ...info, sent: info.sent || !!info.alreadySent });
   const [wait, setWait] = useState(info.sent ? COOLDOWN : 0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -59,7 +62,7 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
       const data = await res.json().catch(() => ({}));
       if (res.ok) return onConfirmed(); // confirmed in the meantime: signed in
       if (data.code === "EMAIL_NOT_CONFIRMED") {
-        setState((s) => ({ ...s, sent: !!data.confirmationSent, sentFrom: data.sentFrom ?? s.sentFrom, subject: data.subject ?? s.subject }));
+        setState((s) => ({ ...s, sent: !!data.confirmationSent || !!data.alreadySent, sentFrom: data.sentFrom ?? s.sentFrom, subject: data.subject ?? s.subject }));
         if (data.confirmationSent) {
           setNote("Sent. Only this newest email's button will work.");
           setWait(COOLDOWN);

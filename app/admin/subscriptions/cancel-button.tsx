@@ -22,6 +22,9 @@ export function CancelSubscriptionButton({
       const res = await fetch(`/api/admin/subscriptions/${subscriptionId}/cancel`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Failed"); return; }
+      if (data.emailFailed) {
+        alert("The subscription is cancelled, but the dated confirmation email to the customer was not sent. Please email them the cancellation date.");
+      }
       router.refresh();
     } catch {
       setError("Network error");

@@ -6,6 +6,7 @@ import { getAdminSession } from "@/lib/admin-auth";
 import { recordRefund } from "@/lib/refund-ledger";
 import { findKitPayment, type KitPaymentRef } from "@/lib/kit-payment";
 import { escapeHtml } from "@/lib/card-inquiries";
+import type Stripe from "stripe";
 
 // Cancel kit order (Ship Queue): refunds what is left in full, records the
 // refund in the ledger, marks the order cancelled and emails the customer.
@@ -23,7 +24,7 @@ export async function POST(
 
   const { data: order } = await admin
     .from("shop_orders")
-    .select("id, order_number, total_cents, refunded_cents, stripe_session_id, customer_name, customer_email, status")
+    .select("id, order_number, total_cents, refunded_cents, stripe_session_id, customer_name, customer_email, status, labels, return_label_url")
     .eq("id", id)
     .maybeSingle();
 
@@ -48,13 +49,17 @@ export async function POST(
 
   const totalCents = (claimed.total_cents as number | null) ?? 0;
   const alreadyRefunded = (claimed.refunded_cents as number | null) ?? 0;
-  const refundAmount = totalCents - alreadyRefunded;
+  // What the order still shows as paid. Refunds made in the Stripe Dashboard
+  // don't lower it, so Stripe is asked for whatever is left, not this amount.
+  const outstanding = totalCents - alreadyRefunded;
   const orderLabel = order.order_number ? `K${order.order_number}` : id.slice(0, 8);
   const warnings: string[] = [];
 
   let refundId: string | null = null;
+  let refundAmount = 0;
+  const paidThroughStripe = /^(cs_|in_)/.test((order.stripe_session_id as string | null) ?? "");
 
-  if (refundAmount > 0 && order.stripe_session_id) {
+  if (outstanding > 0 && paidThroughStripe) {
     let payment: KitPaymentRef | null = null;
     try {
       payment = await findKitPayment(order.stripe_session_id as string);
@@ -63,33 +68,45 @@ export async function POST(
       await restore();
       return Response.json({ error: "Could not retrieve the Stripe payment for this order." }, { status: 502 });
     }
+    if (!payment) {
+      await restore();
+      return Response.json({ error: "No Stripe payment was found for this order, so nothing was refunded." }, { status: 400 });
+    }
 
-    if (payment) {
-      let stripeRefund;
-      try {
-        stripeRefund = await stripe.refunds.create({
-          ...payment,
-          amount: refundAmount,
-          reason: "requested_by_customer",
-          metadata: { shop_order_id: id, order_number: orderLabel, admin_reason: "Order cancelled by admin" },
-        });
-      } catch (e: unknown) {
+    let stripeRefund: Stripe.Refund | null = null;
+    try {
+      // No amount: Stripe refunds everything still left on the payment
+      stripeRefund = await stripe.refunds.create({
+        ...payment,
+        reason: "requested_by_customer",
+        metadata: { shop_order_id: id, order_number: orderLabel, admin_reason: "Order cancelled by admin" },
+      });
+    } catch (e: unknown) {
+      if ((e as { code?: string } | null)?.code !== "charge_already_refunded") {
         await restore();
         const msg = e instanceof Error ? e.message : "Stripe refund failed";
         return Response.json({ error: msg }, { status: 502 });
       }
-      // The money has gone back: from here on the order stays cancelled
-      refundId = stripeRefund.id;
-      await recordRefund(admin, stripeRefund, { shopOrderId: id, kind: "kit" }, adminSession.username);
+      // Already refunded in full (in the Stripe Dashboard, or by an earlier try
+      // whose answer never arrived): the money is back, so the order stays
+      // cancelled. syncRefunds() adds those refunds to the ledger.
+      warnings.push("Stripe shows this payment as already refunded in full, so no new refund was made.");
     }
-  }
-
-  // No Stripe payment to refund (an order entered by hand): the money goes back
-  // another way, so the ledger gets a refund paid outside Stripe
-  if (refundAmount > 0 && !refundId) {
+    // The money has gone back: from here on the order stays cancelled
+    if (stripeRefund) {
+      refundId = stripeRefund.id;
+      refundAmount = stripeRefund.amount;
+      await recordRefund(admin, stripeRefund, { shopOrderId: id, kind: "kit" }, adminSession.username);
+    } else {
+      refundAmount = outstanding;
+    }
+  } else if (outstanding > 0) {
+    // No Stripe payment (an order entered by hand): the money goes back another
+    // way, so the ledger gets a refund paid outside Stripe
+    refundAmount = outstanding;
     const { error: ledgerErr } = await admin.from("refunds").insert({
       source: "manual",
-      amount_cents: refundAmount,
+      amount_cents: outstanding,
       status: "succeeded",
       refunded_at: new Date().toISOString(),
       shop_order_id: id,
@@ -112,6 +129,11 @@ export async function POST(
   if (updateErr) {
     console.error("[cancel kit order] order update failed:", updateErr.message, "order:", id);
     warnings.push(`The refunded amount could not be saved on the order: ${updateErr.message}`);
+  }
+
+  // A label bought at checkout (or later) isn't voided here
+  if ((Array.isArray(order.labels) && order.labels.length > 0) || order.return_label_url) {
+    warnings.push("This order has a shipping label. Void it in Shippo to get the postage back.");
   }
 
   // Send cancellation email

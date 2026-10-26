@@ -4,10 +4,13 @@ import { recordConsents, recordSignatures, signingContext } from "@/lib/signatur
 import { ensureTermsVersion } from "@/lib/terms-versions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { RESTORATION_TIERS, getCardPriceCents } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { siteUrl } from "@/lib/site-url";
+import { getSlotsOpenedAt } from "@/lib/store-config";
+import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
 
 const TAX_RATE = 0.06625;
 
@@ -54,12 +57,29 @@ export async function POST(
     .single();
 
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
-  if (order.customer_email.toLowerCase() !== email.toLowerCase())
+  if ((order.customer_email ?? "").toLowerCase() !== email.toLowerCase())
     return Response.json({ error: "Email does not match this order" }, { status: 403 });
   if (order.status !== "awaiting_cards")
     return Response.json({ error: "Cards can only be added before they are received" }, { status: 409 });
 
-  const tier = RESTORATION_TIERS[order.restoration_tier as RestorationTierId] ?? RESTORATION_TIERS["regular"];
+  // Added cards take the order's tier (an order with cards on several tiers:
+  // Bronze). Orders that aren't restorations (prep) can't add cards here.
+  const tierId = (order.restoration_tier ?? "regular") as RestorationTierId;
+  if (!RESTORATION_TIERS[tierId]) {
+    return Response.json({ error: "Cards can't be added to this order online." }, { status: 409 });
+  }
+
+  // Priced as the admin set the tier (restoration_settings), like checkout
+  const { data: tierSetting, error: tierSettingError } = await admin
+    .from("restoration_settings")
+    .select("tier, max_slots, display_name, price_cents, pricing_rate, min_card_value_cents")
+    .eq("tier", tierId)
+    .maybeSingle();
+  if (tierSettingError) {
+    console.error("Tier settings unavailable:", tierSettingError.message);
+    return Response.json({ error: "We couldn't load our prices. Please try again in a moment." }, { status: 503 });
+  }
+  const tier = applyDbOverride(RESTORATION_TIERS[tierId], tierSetting);
 
   // A tier's card-value cap is an eligibility condition (Terms 9.2)
   const overCap = tier.max_card_value_cents === null ? undefined : cards.find((c) => c.declaredValueCents > tier.max_card_value_cents!);
@@ -79,6 +99,22 @@ export async function POST(
     .from("cards")
     .select("id", { count: "exact", head: true })
     .eq("order_id", order.id);
+
+  // Slots are counted in cards: the added cards take slots in the order's tier
+  const maxSlots = tierMaxSlots(tier.id, tierSetting?.max_slots);
+  if (maxSlots !== null) {
+    let usage: Record<string, number>;
+    try {
+      usage = await tierSlotUsage(admin, await getSlotsOpenedAt());
+    } catch (err) {
+      console.error("Tier slot count failed:", err);
+      return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });
+    }
+    if ((usage[tier.id] ?? 0) + cards.length > maxSlots) {
+      return Response.json({ error: `Sorry, the ${tier.name} tier is sold out, so cards can't be added right now.`, code: "TIER_SOLD_OUT" }, { status: 409 });
+    }
+  }
+
   const bulkPercent = addedCardsBulkPercent(tier.id, cardsOnOrder ?? 0, cards.length);
   const bulkDiscountCents = Math.round(listSubtotalCents * bulkPercent / 100);
   const subtotalCents = listSubtotalCents - bulkDiscountCents;
@@ -120,11 +156,11 @@ export async function POST(
     event_type: "add_cards_pending",
     description: `Terms of Service v${terms.version} signed by ${parsed.data.terms!.signer_name.trim()} to add ${cards.length} card${cards.length !== 1 ? "s" : ""} (awaiting payment)`,
     is_customer_visible: false,
-    metadata: { cards, terms_version_id: terms.id },
+    // prices: what each card is charged (the admin's tier price), for the webhook
+    metadata: { cards, terms_version_id: terms.id, prices: cardPrices },
   }).select("id").single();
 
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
 
   // Encode each card as a separate metadata key (max 500 chars, stays well under for typical cards)
   const cardMetadata: Record<string, string> = {};
@@ -138,47 +174,55 @@ export async function POST(
     });
   });
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    customer_email: order.customer_email,
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}`,
-          },
-          unit_amount: subtotalCents,
-        },
-        quantity: 1,
-      },
-      ...(taxCents > 0
-        ? [
-            {
-              price_data: {
-                currency: "usd",
-                product_data: { name: "Sales Tax (6.625%)" },
-                unit_amount: taxCents,
-              },
-              quantity: 1,
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: order.customer_email,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}`,
             },
-          ]
-        : []),
-    ],
-    success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&added=1`,
-    cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
-    metadata: {
-      type: "add_cards",
-      order_id: order.id,
-      order_number: String(orderNumber),
-      tier: tier.id,
-      card_count: String(cards.length),
-      ...(pending ? { pending_event_id: pending.id } : {}),
-      subtotal_cents: String(subtotalCents),
-      ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
-      ...cardMetadata,
-    },
-  });
+            unit_amount: subtotalCents,
+          },
+          quantity: 1,
+        },
+        ...(taxCents > 0
+          ? [
+              {
+                price_data: {
+                  currency: "usd",
+                  product_data: { name: "Sales Tax (6.625%)" },
+                  unit_amount: taxCents,
+                },
+                quantity: 1,
+              },
+            ]
+          : []),
+      ],
+      // The payment itself names its order, so admin refunds can find it
+      payment_intent_data: { metadata: { order_id: order.id, type: "add_cards" } },
+      success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&added=1`,
+      cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
+      metadata: {
+        type: "add_cards",
+        order_id: order.id,
+        order_number: String(orderNumber),
+        tier: tier.id,
+        card_count: String(cards.length),
+        ...(pending ? { pending_event_id: pending.id } : {}),
+        subtotal_cents: String(subtotalCents),
+        ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
+        ...cardMetadata,
+      },
+    });
+  } catch (err) {
+    console.error("Add-cards session creation failed:", err);
+    return Response.json({ error: "Payment setup failed. Please try again." }, { status: 500 });
+  }
 
   return Response.json({ url: session.url });
 }

@@ -1,9 +1,9 @@
 import { formatCurrency } from "@/lib/utils";
-import { getTierById, getCardPriceCents, formatCents, RESTORATION_TIERS } from "@/lib/restoration-tiers";
+import { getCardPriceCents, formatCents } from "@/lib/restoration-tiers";
 import type { CardEntry, ShippingRate, InsuranceSelection } from "@/lib/types";
 import { INSURANCE_ENABLED } from "@/lib/site-config";
-import { computeOrderTotals } from "@/lib/order-totals";
-import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { computeOrderTotals, tierFor } from "@/lib/order-totals";
+import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 
 interface OrderSummaryProps {
   cards: CardEntry[];
@@ -18,19 +18,25 @@ interface OrderSummaryProps {
   addSignatureConfirmation?: boolean;
   instagramFeature?: boolean;
   giftCardAmountCents?: number;
+  /** The optional tip chosen on the review step */
+  tipCents?: number;
+  /** The tiers with the admin's names and prices (lib/live-tiers.ts) */
+  tiers?: RestorationTier[];
 }
 
-export function OrderSummary({ cards, shippingMethod, selectedRate, discountPercent = 0, loyaltyPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0 }: OrderSummaryProps) {
+export function OrderSummary({ cards, shippingMethod, selectedRate, discountPercent = 0, loyaltyPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0, tipCents: tip = 0, tiers }: OrderSummaryProps) {
+  // Only tiers that exist reach the breakdown below (cards without one are skipped)
+  const tierOf = (id: RestorationTierId) => tierFor(id, tiers) as RestorationTier;
   // Build per-tier breakdown
   const tierCounts: Partial<Record<RestorationTierId, number>> = {};
   // What each tier's cards cost (Diamond is a percentage of each card's value)
   const tierCents: Partial<Record<RestorationTierId, number>> = {};
   for (const card of cards) {
     const tierId = card.tier ?? selectedTier;
-    if (!tierId) continue;
+    if (!tierId || !tierFor(tierId, tiers)) continue;
     tierCounts[tierId] = (tierCounts[tierId] ?? 0) + 1;
     const value = Math.round((parseFloat((card.estimated_value ?? "").replace(/[$,]/g, "")) || 0) * 100);
-    tierCents[tierId] = (tierCents[tierId] ?? 0) + getCardPriceCents(getTierById(tierId), value);
+    tierCents[tierId] = (tierCents[tierId] ?? 0) + getCardPriceCents(tierOf(tierId), value);
   }
 
   const tierEntries = Object.entries(tierCounts) as [RestorationTierId, number][];
@@ -38,10 +44,11 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
 
   const {
     subtotal, discountCents, discountKind, discountPercentApplied, taxCents, signatureCents, insuranceCents,
-    slabCrackCount, slabCrackCents, pregradeCount, pregradeCents, instagramCents, giftCardCents, total,
+    slabCrackCount, slabCrackCents, pregradeCount, pregradeCents, instagramCents, tipCents, giftCardCents, total,
   } = computeOrderTotals({
     cards,
     selectedTier,
+    tiers,
     shippingMethod,
     selectedRate,
     discountPercent,
@@ -49,12 +56,13 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
     addSignatureConfirmation: addSignatureConfirmation && !isInternational,
     instagramFeature,
     giftCardAmountCents,
+    tipCents: tip,
   });
 
   const turnaroundText = isMixed
     ? "Turnaround varies by tier"
     : tierEntries[0]
-    ? `Est. turnaround: ${getTierById(tierEntries[0][0]).turnaround_min_days}–${getTierById(tierEntries[0][0]).turnaround_max_days} days from receipt`
+    ? `Est. turnaround: ${tierOf(tierEntries[0][0]).turnaround_min_days}–${tierOf(tierEntries[0][0]).turnaround_max_days} days from receipt`
     : "Est. turnaround: 15–20 days from receipt";
 
   return (
@@ -64,7 +72,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
       <div className="flex flex-col gap-1 text-sm border-b border-border pb-3">
         {isMixed ? (
           tierEntries.map(([tierId, count]) => {
-            const tier = getTierById(tierId);
+            const tier = tierOf(tierId);
             return (
               <div key={tierId} className="flex justify-between text-muted-foreground">
                 <span>{tier.name} × {count}</span>
@@ -75,14 +83,14 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
         ) : (
           <>
             <div className="flex justify-between text-muted-foreground">
-              <span>{tierEntries[0] ? getTierById(tierEntries[0][0]).name : "Full Restoration & PSA Prep"}</span>
+              <span>{tierEntries[0] ? tierOf(tierEntries[0][0]).name : "Full Restoration & PSA Prep"}</span>
               <span>{cards.length} card{cards.length !== 1 ? "s" : ""}</span>
             </div>
             {tierEntries[0] && (
               <p className="text-xs text-muted-foreground">
-                {getTierById(tierEntries[0][0]).pricing_type === "percentage"
-                  ? `${((getTierById(tierEntries[0][0]).pricing_rate ?? 0) * 100).toFixed(0)}% of each card's value: ${formatCents(tierCents[tierEntries[0][0]] ?? 0)}`
-                  : `${formatCents(getTierById(tierEntries[0][0]).price_cents)} each`}
+                {tierOf(tierEntries[0][0]).pricing_type === "percentage"
+                  ? `${((tierOf(tierEntries[0][0]).pricing_rate ?? 0) * 100).toFixed(0)}% of each card's value: ${formatCents(tierCents[tierEntries[0][0]] ?? 0)}`
+                  : `${formatCents(tierOf(tierEntries[0][0]).price_cents)} each`}
               </p>
             )}
           </>
@@ -148,6 +156,12 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           <div className="flex justify-between text-green-600 font-semibold">
             <span>Gift Card</span>
             <span>−{formatCurrency(giftCardCents)}</span>
+          </div>
+        )}
+        {tipCents > 0 && (
+          <div className="flex justify-between text-muted-foreground">
+            <span>Tip</span>
+            <span>{formatCurrency(tipCents)}</span>
           </div>
         )}
         <div className="flex justify-between font-bold text-foreground pt-1 border-t border-border text-base">

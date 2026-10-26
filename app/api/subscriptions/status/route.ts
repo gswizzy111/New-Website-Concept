@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { emailForKitClubToken, publicView, signedInEmail, subscriptionForEmail } from "@/lib/kit-club-link";
+import { emailForKitClubToken, monthlyPriceCents, publicView, signedInEmail, subscriptionForEmail } from "@/lib/kit-club-link";
 
 const Body = z.object({ token: z.string().max(200).optional() });
 
@@ -23,5 +23,5 @@ export async function POST(request: Request) {
   const sub = await subscriptionForEmail(email);
   if (sub === undefined) return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   if (!sub) return Response.json({ found: false });
-  return Response.json(publicView(sub));
+  return Response.json(publicView(sub, await monthlyPriceCents(sub)));
 }

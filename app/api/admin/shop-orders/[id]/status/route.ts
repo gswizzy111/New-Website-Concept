@@ -23,9 +23,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const admin = createAdminClient();
-  const { data: updated, error } = await admin.from("shop_orders").update({ status }).eq("id", id).select("id");
+  // A cancelled order has been refunded: it can't be moved back into the queue
+  const { data: updated, error } = await admin
+    .from("shop_orders")
+    .update({ status })
+    .eq("id", id)
+    .or("status.is.null,status.neq.cancelled")
+    .select("id");
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  if (!updated?.length) return Response.json({ error: "Order not found" }, { status: 404 });
+  if (!updated?.length) {
+    const { data: row } = await admin.from("shop_orders").select("status").eq("id", id).maybeSingle();
+    if (row?.status === "cancelled") return Response.json({ error: "This order was cancelled." }, { status: 409 });
+    return Response.json({ error: "Order not found" }, { status: 404 });
+  }
 
   return Response.json({ ok: true });
 }

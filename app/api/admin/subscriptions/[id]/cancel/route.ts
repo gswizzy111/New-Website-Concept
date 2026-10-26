@@ -32,7 +32,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .from("subscriptions")
     .update({ status: "cancelled", cancelled_at: cancelledAt.toISOString() })
     .eq("id", id);
-  await sendCancellationEmail(sub.customer_email, sub.customer_name, cancelledAt);
+  // The customer is owed a dated confirmation (Terms Section 26.3): tell the
+  // admin when it didn't go out, so they can send one themselves
+  const emailSent = await sendCancellationEmail(sub.customer_email, sub.customer_name, cancelledAt);
+  if (!emailSent) {
+    console.error(`Admin cancel: subscription ${id} was cancelled, but its dated confirmation email wasn't sent.`);
+    return Response.json({ ok: true, emailFailed: true });
+  }
 
   return Response.json({ ok: true });
 }

@@ -51,3 +51,17 @@ export function trackingLink(tracking: string, savedCarrier?: string | null, sav
   }
   return trackingCarrier(tracking, savedCarrier).url(tracking);
 }
+
+/** The carrier and service of a Shippo rate (server only), so a bought label's tracking uses the right carrier. */
+export async function shippoRateCarrier(rateId: string): Promise<{ provider: string | null; service: string | null }> {
+  try {
+    const res = await fetch(`https://api.goshippo.com/rates/${encodeURIComponent(rateId)}`, {
+      headers: { "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}` },
+    });
+    if (!res.ok) return { provider: null, service: null };
+    const rate = await res.json() as { provider?: string; servicelevel?: { name?: string; token?: string } };
+    return { provider: rate.provider ?? null, service: rate.servicelevel?.name ?? rate.servicelevel?.token ?? null };
+  } catch {
+    return { provider: null, service: null };
+  }
+}

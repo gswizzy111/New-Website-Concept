@@ -8,8 +8,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
-  const notes = typeof body?.notes === "string" ? body.notes : "";
+  const body = await request.json().catch(() => null);
+  // A missing or malformed body must not wipe the notes
+  if (typeof body?.notes !== "string") return Response.json({ error: "Invalid notes" }, { status: 400 });
+  const notes: string = body.notes;
 
   const admin = createAdminClient();
 
@@ -17,7 +19,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .from("orders")
     .select("id")
     .eq("id", id)
-    .single();
+    .maybeSingle();
   if (fetchError || !order) return Response.json({ error: fetchError?.message ?? "Order not found" }, { status: fetchError ? 500 : 404 });
 
   const { error } = await admin.from("orders").update({ admin_notes: notes }).eq("id", id);
@@ -25,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Saving doesn't email the customer by itself: the notes go out once, when
   // the order is Completed (or now, if it already is)
-  const emailed = notes.trim() ? await emailCompletionNotesOnce(admin, id) : "no_notes";
+  const emailed = notes.trim() ? await emailCompletionNotesOnce(admin, id, { savedNow: true }) : "no_notes";
 
   return Response.json({ ok: true, emailed });
 }

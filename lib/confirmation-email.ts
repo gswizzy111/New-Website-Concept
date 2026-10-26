@@ -1,4 +1,5 @@
 import { resend, fromEmail, businessName } from "@/lib/resend";
+import { siteUrl } from "@/lib/site-url";
 
 export type ConfirmationOrder = {
   order_number: string;
@@ -14,7 +15,7 @@ export type ConfirmationOrder = {
  * refuses the email.
  */
 export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Promise<void> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   const firstName = (order.customer_name ?? "").split(" ")[0] || "there";
   const trackingUrl = `${appUrl}/orders/${order.order_number}`;
   const labelUrl = order.shipping_label_url as string | null;

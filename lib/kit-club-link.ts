@@ -6,6 +6,7 @@ import { siteUrl } from "@/lib/site-url";
 import { likeExact } from "@/lib/like-exact";
 import { stripe } from "@/lib/stripe";
 import { sendCancellationEmail } from "@/lib/subscription-emails";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 /**
  * Managing a Monthly Kit Club subscription (/subscribe/manage) takes proof of
@@ -32,8 +33,37 @@ export type KitClubSubscription = {
 };
 
 /** What the manage page may show (to the verified owner only). */
-export function publicView(sub: KitClubSubscription) {
-  return { found: true, id: sub.id, status: sub.status, created_at: sub.created_at, cancelled_at: sub.cancelled_at };
+export function publicView(sub: KitClubSubscription, priceCents: number) {
+  return {
+    found: true,
+    id: sub.id,
+    status: sub.status,
+    created_at: sub.created_at,
+    cancelled_at: sub.cancelled_at,
+    price_cents: priceCents,
+  };
+}
+
+/**
+ * What this subscriber pays a month. A subscription keeps the price it was
+ * started at, so it's what Stripe last billed them for a kit (as on the admin
+ * Subscriptions page; kits an admin made by hand use the setting, so they
+ * don't count), else the current setting.
+ */
+export async function monthlyPriceCents(sub: KitClubSubscription): Promise<number> {
+  const { data, error } = await createAdminClient()
+    .from("shop_orders")
+    .select("stripe_session_id, items")
+    .ilike("customer_email", likeExact(sub.customer_email.trim()))
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) console.error("Reading a Kit Club price failed:", error.message);
+  for (const order of (data ?? []) as { stripe_session_id: string | null; items: unknown }[]) {
+    if ((order.stripe_session_id ?? "").startsWith("manual_sub_") || !Array.isArray(order.items)) continue;
+    const kit = (order.items as { product_id?: string; price_cents?: unknown }[]).find((i) => i?.product_id === "subscription");
+    if (kit && typeof kit.price_cents === "number" && kit.price_cents > 0) return kit.price_cents;
+  }
+  return getSubscriptionPriceCents();
 }
 
 /**
@@ -164,9 +194,11 @@ export async function releaseKitClubToken(token: string): Promise<void> {
  * Cancels the subscription in Stripe and records it. The cancellation email
  * goes out only from the request whose Stripe cancel went through, so a
  * second click (or a subscription already cancelled in Stripe) never sends a
- * second one.
+ * second one. emailFailed: Resend refused the dated confirmation email.
  */
-export async function cancelKitClubSubscription(sub: KitClubSubscription): Promise<{ ok: true } | { error: string }> {
+export async function cancelKitClubSubscription(
+  sub: KitClubSubscription
+): Promise<{ ok: true; emailFailed: boolean } | { error: string }> {
   let cancelledNow = true;
   try {
     await stripe.subscriptions.cancel(sub.stripe_subscription_id);
@@ -184,6 +216,7 @@ export async function cancelKitClubSubscription(sub: KitClubSubscription): Promi
     .or("status.is.null,status.neq.cancelled");
   // Stripe has stopped billing either way; its webhook records it too
   if (error) console.error("Recording a Kit Club cancellation failed:", error.message);
-  if (cancelledNow) await sendCancellationEmail(sub.customer_email, sub.customer_name, cancelledAt);
-  return { ok: true };
+  const emailFailed = cancelledNow && !(await sendCancellationEmail(sub.customer_email, sub.customer_name, cancelledAt));
+  if (emailFailed) console.error(`Kit Club subscription ${sub.id} was cancelled, but its dated confirmation email wasn't sent.`);
+  return { ok: true, emailFailed };
 }

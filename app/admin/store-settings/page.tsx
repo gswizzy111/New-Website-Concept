@@ -7,6 +7,7 @@ import { RestorationsToggle } from "./restorations-toggle";
 import { WaitlistNotifier } from "./waitlist-notifier";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin-auth";
+import { tierSlotUsage } from "@/lib/tier-slots";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +59,6 @@ export default async function StoreSettingsPage() {
     getSlotsOpenedAt(),
   ]);
 
-  let paidOrdersQuery = admin.from("orders").select("restoration_tier").eq("payment_status", "paid").not("restoration_tier", "is", null);
-  if (slotsOpenedAt) paidOrdersQuery = paidOrdersQuery.gte("created_at", slotsOpenedAt);
-  const { data: paidOrders } = await paidOrdersQuery;
-
   const waitlistPeople = (waitlistRows ?? []).map((w) => ({
     id: w.id as string,
     name: (w.name as string) ?? "",
@@ -75,9 +72,13 @@ export default async function StoreSettingsPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settingsMap = Object.fromEntries((tierSettings ?? []).map((s: any) => [s.tier, s]));
 
-  const slotsUsed: Record<string, number> = {};
-  for (const o of paidOrders ?? []) {
-    if (o.restoration_tier) slotsUsed[o.restoration_tier] = (slotsUsed[o.restoration_tier] ?? 0) + 1;
+  // Slots used, in cards, as checkout counts them: paid orders plus checkouts
+  // in progress (under 30 minutes old), each card in its own tier
+  let slotsUsed: Record<string, number> = {};
+  try {
+    slotsUsed = await tierSlotUsage(admin, slotsOpenedAt);
+  } catch (err) {
+    console.error("Tier slot count failed:", err);
   }
 
   const tiers = getAllTiers();

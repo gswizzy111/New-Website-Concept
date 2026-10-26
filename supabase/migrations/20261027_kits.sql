@@ -2,11 +2,14 @@
 --
 -- The Ship Queue's "Recently Shipped (last 48h)" list filtered on
 -- shop_orders.updated_at, a column that doesn't exist, so it never showed.
--- shipped_at is stamped by a trigger whenever an order's status becomes
--- 'shipped', whichever site or route makes the change (the old site keeps
--- working unchanged: it never writes this column). Moving the order back to
--- processing and shipping it again stamps it again. Orders shipped before this
--- migration keep shipped_at empty.
+-- shipped_at is stamped by a trigger whenever an order moves forward to
+-- 'shipped' (from paid, processing or no status), whichever site or route makes
+-- the change (the old site keeps working unchanged: it never writes this
+-- column). Moving the order back to processing and shipping it again stamps it
+-- again. A move back to 'shipped' from delivered or cancelled (a correction, or
+-- a cancel whose refund failed) keeps the time it had, so an old order doesn't
+-- show as recently shipped. Orders shipped before this migration keep
+-- shipped_at empty.
 --
 -- Additive and safe to run more than once.
 
@@ -21,7 +24,7 @@ begin
   if new.status = 'shipped' then
     if tg_op = 'INSERT' then
       new.shipped_at := coalesce(new.shipped_at, now());
-    elsif old.status is distinct from 'shipped' then
+    elsif old.status is null or old.status not in ('shipped', 'delivered', 'cancelled') then
       new.shipped_at := now();
     end if;
   end if;

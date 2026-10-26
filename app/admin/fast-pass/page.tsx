@@ -52,6 +52,18 @@ function addBusinessDays(dateStr: string, days: number): string {
   return d;
 }
 
+type Rows<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+/** Every row a query returns for these orders: 100 order ids at a time, each read in pages. */
+async function forOrders<T>(orderIds: string[], read: (ids: string[], from: number, to: number) => Rows<T>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const ids = orderIds.slice(i, i + 100);
+    rows.push(...(await fetchAll<T>((from, to) => read(ids, from, to))));
+  }
+  return rows;
+}
+
 function businessDaysUntil(target: string): number {
   const today = etToday();
   if (today === target) return 0;
@@ -81,25 +93,32 @@ export default async function FastPassPage({
     .range(from, to));
 
   const orderIds = orders.map((o) => o.id);
-  const { data: allCards } = orderIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls, completed").in("order_id", orderIds)
-    : { data: [] };
-
-  // Find received-at for in-progress orders
-  const { data: receivedEvents } = orderIds.length > 0
-    ? await admin.from("order_events")
-        .select("order_id, created_at")
-        .in("order_id", orderIds)
-        .like("description", "%Cards Received%")
-        .order("created_at", { ascending: true })
-    : { data: [] };
+  // A failed read shows the error page rather than a page that is quietly missing rows
+  type CardRow = { order_id: string; card_name: string; photo_urls: string[] | null; completed: boolean | null };
+  type EventRow = { order_id: string; created_at: string };
+  type RefundRow = { order_id: string; amount_cents: number | null };
+  const [allCards, receivedEvents, ledgerRefunds] = await Promise.all([
+    forOrders<CardRow>(orderIds, (ids, from, to) => admin.from("cards")
+      .select("order_id, card_name, photo_urls, completed").in("order_id", ids)
+      .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    // Find received-at for in-progress orders
+    forOrders<EventRow>(orderIds, (ids, from, to) => admin.from("order_events")
+      .select("order_id, created_at")
+      .in("order_id", ids)
+      .like("description", "%Cards Received%")
+      .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    forOrders<RefundRow>(orderIds, (ids, from, to) => admin.from("refunds")
+      .select("order_id, amount_cents")
+      .in("order_id", ids).in("status", ["succeeded", "pending", "requires_action"])
+      .order("id", { ascending: true }).range(from, to)),
+  ]);
   const receivedAtByOrder: Record<string, string> = {};
-  for (const ev of receivedEvents ?? []) {
+  for (const ev of receivedEvents) {
     if (!receivedAtByOrder[ev.order_id]) receivedAtByOrder[ev.order_id] = ev.created_at;
   }
 
   const cardsByOrder: Record<string, { name: string; photo: string | null; completed: boolean }[]> = {};
-  for (const card of allCards ?? []) {
+  for (const card of allCards) {
     if (!cardsByOrder[card.order_id]) cardsByOrder[card.order_id] = [];
     const photos: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
     cardsByOrder[card.order_id].push({ name: card.card_name, photo: photos[0] ?? null, completed: card.completed ?? false });
@@ -128,12 +147,8 @@ export default async function FastPassPage({
 
   // Revenue as the dashboard counts it: paid orders only, less what was refunded
   // (the refund ledger, or the order's own figure if larger, as lib/refund-ledger.ts refundedSoFar does)
-  const { data: ledgerRefunds } = orderIds.length > 0
-    ? await admin.from("refunds").select("order_id, amount_cents")
-        .in("order_id", orderIds).in("status", ["succeeded", "pending", "requires_action"])
-    : { data: [] };
   const ledgerByOrder = new Map<string, number>();
-  for (const r of ledgerRefunds ?? []) ledgerByOrder.set(r.order_id, (ledgerByOrder.get(r.order_id) ?? 0) + (r.amount_cents ?? 0));
+  for (const r of ledgerRefunds) ledgerByOrder.set(r.order_id, (ledgerByOrder.get(r.order_id) ?? 0) + (r.amount_cents ?? 0));
   const totalRevenue = all
     .filter((o) => (o.payment_status === "paid" || o.payment_status === "refunded") && o.status !== "awaiting_payment")
     .reduce((s, o) => s + Math.max(0, (o.total_cents ?? 0) - Math.max(o.refunded_cents ?? 0, ledgerByOrder.get(o.id) ?? 0)), 0);

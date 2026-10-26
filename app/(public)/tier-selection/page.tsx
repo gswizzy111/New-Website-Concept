@@ -3,6 +3,7 @@ import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restor
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
 import { TIER_MAX_SLOTS } from "@/lib/site-config";
+import { tierSlotUsage } from "@/lib/tier-slots";
 import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocket } from "lucide-react";
 import { WaitlistModal } from "./waitlist-modal";
 import { DiamondCard } from "./diamond-card";
@@ -195,21 +196,6 @@ export default async function TierSelectionPage() {
   const defaultTiers = getAllTiers();
   const admin = createAdminClient();
 
-  // Count paid orders + recent in-progress checkouts (pending, < 30 min old = active reservation)
-  // This matches the same logic enforced at checkout so the display is accurate.
-  // Note: stripe_session_id filter removed — that column may not exist yet in the DB.
-  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  let paidQuery = admin.from("orders").select("restoration_tier").eq("payment_status", "paid").not("restoration_tier", "is", null);
-  if (slotsOpenedAt) paidQuery = paidQuery.gte("created_at", slotsOpenedAt);
-
-  let pendingQuery = admin.from("orders").select("restoration_tier")
-    .eq("payment_status", "pending")
-    .not("restoration_tier", "is", null)
-    .gte("created_at", thirtyMinAgo);
-  if (slotsOpenedAt) pendingQuery = pendingQuery.gte("created_at", slotsOpenedAt);
-
-  const [{ data: paidOrders }, { data: pendingOrders }] = await Promise.all([paidQuery, pendingQuery]);
-
   const { data: extSettings, error: extErr } = await admin
     .from("restoration_settings")
     .select("tier, is_open, max_slots, display_slots_remaining, display_name, price_cents, pricing_rate, min_card_value_cents, turnaround_min_days, turnaround_max_days, description, includes_notes, includes_video, badge");
@@ -221,13 +207,14 @@ export default async function TierSelectionPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settingsMap = Object.fromEntries((settingsRaw as any[]).map((s) => [s.tier, s]));
 
-  const slotCounts: Record<string, number> = {};
+  // Slots taken, in cards: paid orders plus checkouts in progress (under 30
+  // minutes old), counted the way checkout enforces them (lib/tier-slots.ts)
+  let slotCounts: Record<string, number> = {};
   if (restorationsOpen) {
-    for (const row of paidOrders ?? []) {
-      if (row.restoration_tier) slotCounts[row.restoration_tier] = (slotCounts[row.restoration_tier] ?? 0) + 1;
-    }
-    for (const row of pendingOrders ?? []) {
-      if (row.restoration_tier) slotCounts[row.restoration_tier] = (slotCounts[row.restoration_tier] ?? 0) + 1;
+    try {
+      slotCounts = await tierSlotUsage(admin, slotsOpenedAt);
+    } catch (err) {
+      console.error("Tier slot count failed:", err);
     }
   }
 

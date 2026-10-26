@@ -132,7 +132,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     event_type: "order_edited",
     description: reprice
       ? `Order updated by admin — ${d.cards.length} card${d.cards.length !== 1 ? "s" : ""} @ $${(d.price_per_card_cents! / 100).toFixed(2)}/card — new total $${(totalCents! / 100).toFixed(2)}`
-      : `Order updated by admin — ${d.cards.length} card${d.cards.length !== 1 ? "s" : ""}, total unchanged`,
+      : `Order updated by admin: ${d.cards.length} card${d.cards.length !== 1 ? "s" : ""}, total unchanged`,
     is_customer_visible: false,
   });
 

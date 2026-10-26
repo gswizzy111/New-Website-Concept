@@ -137,7 +137,7 @@ export function TierRow({
             <span className="text-sm text-muted-foreground">{minDays}–{maxDays} days</span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap mt-0.5">
-            <span>{slotsUsed} paid order{slotsUsed !== 1 ? "s" : ""}</span>
+            <span>{slotsUsed} card{slotsUsed !== 1 ? "s" : ""}</span>
             {slotsLeft !== null && (
               <span className={slotsLeft <= 2 ? "text-red-600 font-bold" : "text-orange-600 font-semibold"}>
                 {slotsLeft} slot{slotsLeft !== 1 ? "s" : ""} remaining

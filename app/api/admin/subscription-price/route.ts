@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 async function requireAdmin() {
   return isAdmin();
@@ -8,9 +9,8 @@ async function requireAdmin() {
 
 export async function GET() {
   if (!(await requireAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const admin = createAdminClient();
-  const { data } = await admin.from("store_config").select("value").eq("key", "subscription_price_cents").single();
-  return Response.json({ price_cents: data?.value ? parseInt(data.value, 10) : 6299 });
+  // The price Kit Club checkout charges (store_config, else $89.99)
+  return Response.json({ price_cents: await getSubscriptionPriceCents() });
 }
 
 export async function PATCH(request: Request) {

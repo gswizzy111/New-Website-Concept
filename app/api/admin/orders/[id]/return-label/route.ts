@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/admin-auth";
 import { siteUrl } from "@/lib/site-url";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { DONE_STATUSES, emailCompletionNotesOnce } from "@/lib/completion-notes-email";
+import { shippoRateCarrier } from "@/lib/tracking-carrier";
 
 async function authed() {
   return isAdmin();
@@ -82,20 +83,6 @@ async function buildCustomsDeclaration(orderId: string) {
   };
 }
 
-/** The carrier and service of a Shippo rate, so tracking can be looked up with the right carrier. */
-async function rateInfo(rateId: string): Promise<{ provider: string | null; service: string | null }> {
-  try {
-    const res = await fetch(`https://api.goshippo.com/rates/${encodeURIComponent(rateId)}`, {
-      headers: { "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}` },
-    });
-    if (!res.ok) return { provider: null, service: null };
-    const rate = await res.json() as { provider?: string; servicelevel?: { name?: string; token?: string } };
-    return { provider: rate.provider ?? null, service: rate.servicelevel?.name ?? rate.servicelevel?.token ?? null };
-  } catch {
-    return { provider: null, service: null };
-  }
-}
-
 const PARCEL = {
   massUnit: "lb" as const,
   weight: "1",
@@ -170,13 +157,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const addr = order.ship_from_address as Record<string, string> | null;
     const isInternational = addr?.country && addr.country !== "US";
 
-    // Admin-supplied insurance takes priority; fall back to customer's round-trip insurance
-    const insuranceCents: number =
-      (typeof adminInsuranceCents === "number" && adminInsuranceCents > 0)
-        ? adminInsuranceCents
-        : ((order.insurance_type === "round_trip" || order.insurance_type === "return") && (order.insurance_declared_value_cents ?? 0) > 0)
-          ? (order.insurance_declared_value_cents as number)
-          : 0;
+    // The customer's paid return insurance (round trip, or return only) is the floor:
+    // an admin amount can raise it, never lower it
+    const paidInsuranceCents =
+      (order.insurance_type === "round_trip" || order.insurance_type === "return") && (order.insurance_declared_value_cents ?? 0) > 0
+        ? (order.insurance_declared_value_cents as number)
+        : 0;
+    const adminCents = typeof adminInsuranceCents === "number" && Number.isFinite(adminInsuranceCents) && adminInsuranceCents > 0
+      ? Math.round(adminInsuranceCents)
+      : 0;
+    const insuranceCents = Math.max(adminCents, paidInsuranceCents);
     const hasInsurance = insuranceCents > 0;
     const hasRoundTripInsurance = hasInsurance; // keep legacy var name for the payload below
 
@@ -263,7 +253,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       labelUrl = transaction.label_url as string;
       trackingNumber = (transaction.tracking_number as string) ?? null;
       trackingUrl = (transaction.tracking_url_provider as string) ?? null;
-      carrier = await rateInfo(rateObjectId);
+      carrier = await shippoRateCarrier(rateObjectId);
     }
 
     const admin = createAdminClient();
@@ -340,11 +330,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
 
     // Shipping it back means the work is done: the customer gets the restoration notes (once)
-    if (!DONE_STATUSES.includes(order.status as string)) {
-      await emailCompletionNotesOnce(admin, id);
-    }
+    const notesEmailed = DONE_STATUSES.includes(order.status as string) ? null : await emailCompletionNotesOnce(admin, id);
 
-    return Response.json({ labelUrl, trackingNumber });
+    return Response.json({ labelUrl, trackingNumber, ...(notesEmailed ? { notesEmailed } : {}) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[restoration return-label POST]", msg);

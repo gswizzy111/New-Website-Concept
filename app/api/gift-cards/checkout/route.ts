@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { stripe } from "@/lib/stripe";
+import { siteUrl } from "@/lib/site-url";
 
 const Schema = z.object({
   amount_cents: z.number().int().min(1000).max(100000),
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
   }
 
   const data = parsed.data;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = siteUrl();
   const amountDollars = (data.amount_cents / 100).toFixed(2);
 
   const session = await stripe.checkout.sessions.create({

@@ -18,6 +18,7 @@ import { addDays, etToday, getBacklogDays, getBacklogNow, getRevenueSeries } fro
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { fetchAll } from "@/lib/fetch-all";
 import { INSTAGRAM_FEATURE_CENTS } from "@/lib/order-totals";
+import { trackingCarrier } from "@/lib/tracking-carrier";
 
 // Whole days since a customer asked for an update (the page renders per request)
 function daysWaiting(askedAt: string) {
@@ -105,10 +106,18 @@ function businessDaysUntil(target: string, today: string): number {
   return target > today ? businessDaysBetween(today, target) : -businessDaysBetween(target, today);
 }
 
-/** A LIKE pattern that finds `text` anywhere, matching %, _ and \ literally. */
-function containsPattern(text: string): string {
-  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+/**
+ * A case-insensitive regex (PostgREST imatch, Postgres ~*) that finds `text`
+ * anywhere, every character taken literally: the ***= prefix makes Postgres
+ * read the rest as plain text. Not ilike: PostgREST turns every * in a like
+ * pattern into %, and that can't be escaped.
+ */
+function literalPattern(text: string): string {
+  return `***=${text}`;
 }
+
+// Paid orders in these statuses make up the Fulfillment Queue
+const FULFILLMENT_STATUSES = ["received", "in_progress", "awaiting_restoration"];
 
 // Columns the search results list shows
 const SEARCH_COLUMNS = "id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, restoration_tier";
@@ -153,10 +162,10 @@ export default async function AdminPage({
 
   // ── Card/name search mode ─────────────────────────────────────────────────
   if (query) {
-    // One plain ilike filter per column (no .or() string, so commas, dots and
+    // One plain filter per column (no .or() string, so commas, dots and
     // parentheses in the search are just text), every match read in pages, and
     // card matches joined through the cards table instead of a long list of IDs
-    const pattern = containsPattern(query);
+    const pattern = literalPattern(query);
     const settle = <T,>(what: string, rows: Promise<T[]>) => rows.then(
       (r) => ({ rows: r, ok: true }),
       (e: unknown) => { console.error(`[admin] search ${what}:`, e); return { rows: [] as T[], ok: false }; },
@@ -165,21 +174,21 @@ export default async function AdminPage({
       settle("names", fetchAll<SearchRow>((from, to) => admin
         .from("orders")
         .select(SEARCH_COLUMNS)
-        .ilike("customer_name", pattern)
+        .regexIMatch("customer_name", pattern)
         .order("created_at", { ascending: false })
         .order("id")
         .range(from, to))),
       settle("emails", fetchAll<SearchRow>((from, to) => admin
         .from("orders")
         .select(SEARCH_COLUMNS)
-        .ilike("customer_email", pattern)
+        .regexIMatch("customer_email", pattern)
         .order("created_at", { ascending: false })
         .order("id")
         .range(from, to))),
       settle("cards", fetchAll<SearchRow & { cards: { card_name: string }[] | null }>((from, to) => admin
         .from("orders")
         .select(`${SEARCH_COLUMNS}, cards!inner(card_name)`)
-        .ilike("cards.card_name", pattern)
+        .regexIMatch("cards.card_name", pattern)
         .order("created_at", { ascending: false })
         .order("id")
         .range(from, to))),
@@ -321,12 +330,12 @@ export default async function AdminPage({
     admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, created_at, status, restoration_tier, total_cents, instagram_feature, inbound_method")
-      .in("status", ["received", "in_progress", "awaiting_restoration"])
+      .in("status", FULFILLMENT_STATUSES)
       .eq("payment_status", "paid")
       .order("created_at", { ascending: true }),
     admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes")
+      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes, outbound_tracking_number, outbound_carrier")
       .eq("status", "shipped_back")
       .order("updated_at", { ascending: false }),
     admin
@@ -377,7 +386,9 @@ export default async function AdminPage({
         let track: Track | null = null;
         if (o.tracking_number) {
           try {
-            track = await shippo.trackingStatus.get(o.tracking_number, "usps");
+            // The label's saved carrier while it goes with this number, else told from the number
+            const carrier = trackingCarrier(o.tracking_number, o.outbound_tracking_number === o.tracking_number ? o.outbound_carrier : null);
+            track = await shippo.trackingStatus.get(o.tracking_number, carrier.token);
           } catch { /* fail silently per order */ }
         }
         return { ...o, track };
@@ -424,14 +435,23 @@ export default async function AdminPage({
     }
   }
 
-  // Cards for awaiting queue (names + photos)
-  const awaitingIds = (awaitingOrders ?? []).map((o) => o.id);
-  const { data: awaitingCards } = awaitingIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls").in("order_id", awaitingIds)
-    : { data: [] };
+  // Cards for awaiting queue (names + photos). Found by joining their order with
+  // the queue's own filter, not a list of order IDs: a few hundred IDs make the
+  // request URL too long for the API gateway. Every row, read in pages.
+  const awaitingCards: { order_id: string; card_name: string; photo_urls: unknown }[] = (awaitingOrders ?? []).length > 0
+    ? await fetchAll<{ order_id: string; card_name: string; photo_urls: unknown }>((from, to) => admin
+        .from("cards")
+        .select("id, order_id, card_name, photo_urls, orders!inner(status, payment_status)")
+        .eq("orders.status", "awaiting_cards")
+        .eq("orders.payment_status", "paid")
+        .order("created_at")
+        .order("id")
+        .range(from, to))
+        .catch((e) => { console.error("[admin] awaiting cards:", e); return []; })
+    : [];
 
   const awaitingCardsByOrder: Record<string, { name: string; photos: string[] }[]> = {};
-  for (const card of awaitingCards ?? []) {
+  for (const card of awaitingCards) {
     if (!awaitingCardsByOrder[card.order_id]) awaitingCardsByOrder[card.order_id] = [];
     awaitingCardsByOrder[card.order_id].push({
       name: card.card_name,
@@ -439,13 +459,16 @@ export default async function AdminPage({
     });
   }
 
-  // Card counts + completion for fulfillment queue (every row: the queue is counted in cards)
-  const fulfillmentIds = (fulfillmentOrders ?? []).map((o) => o.id);
-  const fulfillmentCards: { order_id: string; completed: boolean | null }[] = fulfillmentIds.length > 0
+  // Card counts + completion for fulfillment queue (every row: the queue is counted
+  // in cards). Found by joining their order with the queue's own filter, not a list
+  // of order IDs: a few hundred IDs make the request URL too long for the API gateway.
+  const hasFulfillmentOrders = (fulfillmentOrders ?? []).length > 0;
+  const fulfillmentCards: { order_id: string; completed: boolean | null }[] = hasFulfillmentOrders
     ? await fetchAll<{ order_id: string; completed: boolean | null }>((from, to) => admin
         .from("cards")
-        .select("id, order_id, completed")
-        .in("order_id", fulfillmentIds)
+        .select("id, order_id, completed, orders!inner(status, payment_status)")
+        .in("orders.status", FULFILLMENT_STATUSES)
+        .eq("orders.payment_status", "paid")
         .order("id")
         .range(from, to))
         .catch((e) => { console.error("[admin] fulfillment cards:", e); return []; })
@@ -458,17 +481,23 @@ export default async function AdminPage({
     if (row.completed) completedCountByOrder[row.order_id] = (completedCountByOrder[row.order_id] ?? 0) + 1;
   }
 
-  // Find when each fulfillment order was marked received (for accurate "days since received")
-  const { data: receivedEvents } = fulfillmentIds.length > 0
-    ? await admin.from("order_events")
-        .select("order_id, created_at")
-        .in("order_id", fulfillmentIds)
+  // Find when each fulfillment order was marked received (for accurate "days since
+  // received"), joined to the queue's orders the same way
+  const receivedEvents: { order_id: string; created_at: string }[] = hasFulfillmentOrders
+    ? await fetchAll<{ order_id: string; created_at: string }>((from, to) => admin
+        .from("order_events")
+        .select("id, order_id, created_at, orders!inner(status, payment_status)")
+        .in("orders.status", FULFILLMENT_STATUSES)
+        .eq("orders.payment_status", "paid")
         .like("description", "%Cards Received%")
         .order("created_at", { ascending: true })
-    : { data: [] };
+        .order("id")
+        .range(from, to))
+        .catch((e) => { console.error("[admin] received events:", e); return []; })
+    : [];
 
   const receivedAtByOrder: Record<string, string> = {};
-  for (const ev of receivedEvents ?? []) {
+  for (const ev of receivedEvents) {
     if (!receivedAtByOrder[ev.order_id]) receivedAtByOrder[ev.order_id] = ev.created_at;
   }
 

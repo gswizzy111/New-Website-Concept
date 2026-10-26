@@ -6,9 +6,13 @@ import { isAdmin } from "@/lib/admin-auth";
 
 // Sessions newer than this are left to the Stripe webhook. It creates the kit
 // order and also buys the label, takes stock and gift-card balance and sends the
-// emails, and Stripe keeps retrying it for up to 3 days. A row made here first
+// emails, and Stripe keeps retrying it for up to 3 days after payment, which can
+// come up to 24 hours after the session was created. A row made here first
 // would make it skip all of that (it treats an existing row as already handled).
-const WEBHOOK_WINDOW_SECONDS = 3 * 86_400;
+const WEBHOOK_WINDOW_SECONDS = 4 * 86_400;
+// How far back the sync looks, so a press stays quick as Stripe's history grows
+// (an older gap has to be filled by hand)
+const LOOKBACK_SECONDS = 60 * 86_400;
 
 type MetaItem = { id: string; qty: number };
 
@@ -28,17 +32,21 @@ export async function POST() {
   }
 
   const admin = createAdminClient();
-  const createdBefore = Math.floor(Date.now() / 1000) - WEBHOOK_WINDOW_SECONDS;
+  const now = Math.floor(Date.now() / 1000);
+  const createdBefore = now - WEBHOOK_WINDOW_SECONDS;
+  const createdAfter = now - LOOKBACK_SECONDS;
 
-  // Page through completed Stripe sessions older than the webhook window
-  const toInsert: Record<string, unknown>[] = [];
+  // Page through completed Stripe sessions between the lookback and the webhook
+  // window. Each page's missing orders are saved before the next page is read,
+  // so a press that runs out of time keeps what it already added.
+  let synced = 0;
   let startingAfter: string | undefined;
 
   while (true) {
     const sessions = await stripe.checkout.sessions.list({
       limit: 100,
       status: "complete",
-      created: { lt: createdBefore },
+      created: { gte: createdAfter, lt: createdBefore },
       ...(startingAfter ? { starting_after: startingAfter } : {}),
     });
 
@@ -66,6 +74,7 @@ export async function POST() {
         : { data: [] };
       const productMap = Object.fromEntries((products ?? []).map((p) => [p.id, p]));
 
+      const toInsert: Record<string, unknown>[] = [];
       for (const session of missing) {
         const itemsForDb = metaItems(session).map((i) => ({
           product_id: i.id,
@@ -102,26 +111,25 @@ export async function POST() {
           affiliate_code: session.metadata?.affiliate_code || null,
         });
       }
+
+      if (toInsert.length > 0) {
+        // If the webhook saves one of these meanwhile (an event resent from the
+        // Stripe Dashboard), its row wins and this one is skipped
+        const { data: inserted, error } = await admin
+          .from("shop_orders")
+          .upsert(toInsert, { onConflict: "stripe_session_id", ignoreDuplicates: true })
+          .select("id");
+        if (error) {
+          console.error("Sync insert error:", error);
+          return Response.json({ error: error.message, synced }, { status: 500 });
+        }
+        synced += inserted?.length ?? 0;
+      }
     }
 
     if (!sessions.has_more) break;
     startingAfter = sessions.data[sessions.data.length - 1]?.id;
-    if (toInsert.length >= 500) break; // safety cap
-  }
-
-  let synced = 0;
-  if (toInsert.length > 0) {
-    // If the webhook saves one of these meanwhile (an event resent from the
-    // Stripe Dashboard), its row wins and this one is skipped
-    const { data: inserted, error } = await admin
-      .from("shop_orders")
-      .upsert(toInsert, { onConflict: "stripe_session_id", ignoreDuplicates: true })
-      .select("id");
-    if (error) {
-      console.error("Sync insert error:", error);
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-    synced = inserted?.length ?? 0;
+    if (synced >= 500) break; // safety cap
   }
 
   return Response.json({ synced });

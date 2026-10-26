@@ -4,8 +4,11 @@ import { refundEmailHtml } from "@/lib/refund-email";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin-auth";
-import { recordRefund, refundedSoFar } from "@/lib/refund-ledger";
-import { knownRefundIds, orderPayments, planRefund, refundAcrossPayments, refundableCents, type OrderPayment } from "@/lib/order-payments";
+import { recordRefund } from "@/lib/refund-ledger";
+import {
+  catchUpRefunds, orderPayments, planRefund, refundAcrossPayments, refundableCents, refundHistory, unloggedRefunds,
+  type OrderPayment, type RefundHistory,
+} from "@/lib/order-payments";
 
 const Body = z.object({
   amountCents: z.number().int().min(1).optional(),
@@ -49,20 +52,10 @@ export async function POST(
   }
   if (!order.stripe_session_id) return Response.json({ error: "No Stripe session on this order" }, { status: 400 });
 
-  // Partial refunds made before the ledger existed may be missing from refunded_cents
-  const alreadyRefunded = await refundedSoFar(admin, id, order.refunded_cents as number | null);
-  const maxRefundable = (order.total_cents as number) - alreadyRefunded;
-  if (maxRefundable <= 0) return Response.json({ error: "Order is already fully refunded" }, { status: 400 });
-
-  const refundAmount = parsed.data.amountCents ?? maxRefundable;
-  if (refundAmount > maxRefundable) {
-    return Response.json({ error: `Cannot refund more than ${maxRefundable / 100} (remaining balance)` }, { status: 400 });
-  }
-
   // The original checkout and any add-cards or upgrade payments (separate Stripe payments)
   let payments: OrderPayment[];
   try {
-    payments = await orderPayments(order);
+    payments = await orderPayments(order, admin);
   } catch (e) {
     console.error("Stripe payment lookup failed:", e);
     return Response.json({ error: "Could not retrieve Stripe payment. Check the session ID." }, { status: 502 });
@@ -71,50 +64,82 @@ export async function POST(
     return Response.json({ error: "No payment intent found on this Stripe session (subscription orders use a different flow)" }, { status: 400 });
   }
 
-  const plan = planRefund(payments, refundAmount);
+  const kind = order.restoration_tier === "prep" || order.restoration_tier === "prep_standard" ? "prep" : "restoration";
+
+  // What was refunded before, and what this same request already refunded on an earlier try
+  const requestId = parsed.data.requestId ?? null;
+  let history: RefundHistory;
+  try {
+    history = await refundHistory(admin, { orderId: id, orderRecordedCents: order.refunded_cents as number | null }, payments, requestId);
+  } catch (e) {
+    console.error("[refund] refund history lookup failed:", e instanceof Error ? e.message : e, "order:", id);
+    return Response.json({ error: "Could not check the refunds already made. Nothing was refunded. Try again." }, { status: 502 });
+  }
+  // Refunds the records missed (a request that timed out before saving, the Stripe Dashboard): catch up, then stop
+  if (history.unrecorded.length || history.ledgerAhead) {
+    const total = await catchUpRefunds(admin, { orderId: id, orderRecordedCents: order.refunded_cents as number | null, kind }, history.unrecorded);
+    return Response.json({
+      error: `This order has ${dollars(total)} refunded in all, more than was recorded here. It's recorded now. Reload the page and check the balance before refunding again.`,
+    }, { status: 409 });
+  }
+
+  // Partial refunds made before the ledger existed may be missing from refunded_cents
+  const alreadyRefunded = history.orderRefundedBefore;
+  const maxRefundable = (order.total_cents as number) - alreadyRefunded;
+  if (maxRefundable <= 0) return Response.json({ error: "Order is already fully refunded" }, { status: 400 });
+
+  const refundAmount = parsed.data.amountCents ?? maxRefundable;
+  if (refundAmount > maxRefundable) {
+    return Response.json({ error: `Cannot refund more than ${maxRefundable / 100} (remaining balance)` }, { status: 400 });
+  }
+
+  // A retried request refunds only what its earlier try didn't
+  const toRefund = Math.max(0, refundAmount - history.priorCents);
+  const plan = toRefund > 0 ? planRefund(payments, toRefund) : [];
   if (!plan) {
     return Response.json({
       error: `Stripe can refund only ${dollars(refundableCents(payments))} more through the payments found for this order. Refund up to that here, and anything else from the Stripe Dashboard.`,
     }, { status: 400 });
   }
 
-  const { refunds, error: stripeError } = await refundAcrossPayments(plan, {
-    metadata: {
-      order_id: id,
-      order_number: String(order.order_number),
-      admin_reason: parsed.data.reason ?? "",
-    },
-    requestKey: parsed.data.requestId ?? null,
-  });
+  const { refunds: made, error: stripeError } = plan.length
+    ? await refundAcrossPayments(plan, {
+      metadata: {
+        order_id: id,
+        order_number: String(order.order_number),
+        admin_reason: parsed.data.reason ?? "",
+      },
+      requestKey: requestId,
+    })
+    : { refunds: [], error: null };
+  const refunds = [...history.prior, ...made];
   if (refunds.length === 0) {
     return Response.json({ error: stripeError ?? "Stripe refund failed" }, { status: 502 });
   }
 
-  // A retried request gets the refunds it already made back from Stripe: count those once
-  const known = await knownRefundIds(admin, refunds.map((r) => r.id));
-  const fresh = refunds.filter((r) => !known.has(r.id));
-  const refundedNow = fresh.reduce((s, r) => s + r.amount, 0);
-  const totalThisRequest = refunds.reduce((s, r) => s + r.amount, 0);
-
-  const kind = order.restoration_tier === "prep" || order.restoration_tier === "prep_standard" ? "prep" : "restoration";
-  for (const r of fresh) {
+  // Saving is idempotent (one ledger row per Stripe refund), so a retry saves anything its earlier try didn't
+  for (const r of refunds) {
     await recordRefund(admin, r, { orderId: id, kind }, adminSession.username);
   }
 
-  const newRefundedCents = alreadyRefunded + refundedNow;
+  const totalThisRequest = refunds.reduce((s, r) => s + r.amount, 0);
+  const newRefundedCents = alreadyRefunded + totalThisRequest;
   const isFullRefund = newRefundedCents >= (order.total_cents as number);
 
-  if (fresh.length) {
-    // A partial refund leaves the order paid (payment_status allows only pending/paid/refunded/failed)
-    const { error: updateErr } = await admin
-      .from("orders")
-      .update({
-        refunded_cents: newRefundedCents,
-        ...(isFullRefund ? { status: "cancelled", payment_status: "refunded" } : {}),
-      })
-      .eq("id", id);
-    if (updateErr) console.error("[refund] order update failed:", updateErr.message, "order:", id);
+  // A partial refund leaves the order paid (payment_status allows only pending/paid/refunded/failed)
+  const { error: updateErr } = await admin
+    .from("orders")
+    .update({
+      refunded_cents: newRefundedCents,
+      ...(isFullRefund ? { status: "cancelled", payment_status: "refunded" } : {}),
+    })
+    .eq("id", id);
+  if (updateErr) console.error("[refund] order update failed:", updateErr.message, "order:", id);
 
+  // Logged and emailed once: a retry adds only refunds its earlier try didn't log
+  const fresh = await unloggedRefunds(admin, id, history.prior, made);
+  const refundedNow = fresh.reduce((s, r) => s + r.amount, 0);
+  if (fresh.length) {
     const { error: eventErr } = await admin.from("order_events").insert({
       order_id: id,
       event_type: "refund_issued",
@@ -129,7 +154,7 @@ export async function POST(
   if (parsed.data.sendEmail && order.customer_email && refundedNow > 0) {
     const amountFormatted = `$${(refundedNow / 100).toFixed(2)}`;
     const orderNum = order.order_number;
-    const name = (order.customer_name as string | null)?.split(" ")[0] ?? "there";
+    const name = (order.customer_name as string | null)?.split(" ")[0] || "there";
     const customNote = parsed.data.customerMessage?.trim();
 
     const html = refundEmailHtml({ orderNumber: String(orderNum), firstName: escapeHtml(name), amountFormatted, isFullRefund, customNote: customNote ? escapeHtml(customNote) : undefined });

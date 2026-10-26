@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPassword } from "@/lib/crypto";
 import { ADMIN_SESSION_COOKIE, LEGACY_ADMIN_COOKIE, createAdminSession } from "@/lib/admin-session";
-import { attemptWait, clearAttempts, recordAttempt, waitMessage } from "@/lib/attempt-limit";
+import { clearAttempts, takeAttempt, waitMessage } from "@/lib/attempt-limit";
 
 const Body = z.object({
   username: z.string().trim().max(100).optional(),
@@ -16,8 +16,9 @@ const Body = z.object({
 const NO_MATCH_HASH = "AAAAAAAAAAAAAAAAAAAAAA==:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 // Failed sign-ins allowed per username (or accountant email) before it has to
-// wait. Counted per name, never per IP. Each try is counted before the
-// password is checked (so a burst of tries at once can't slip past) and a
+// wait. Counted per name, never per IP. Each try reserves its place before the
+// password is checked, and is counted together with the others (its own
+// included), so a burst of tries at once can't slip past (takeAttempt). A
 // successful sign-in clears the count.
 const LOGIN_RULE = { max: 10, windowMinutes: 15 };
 
@@ -45,9 +46,8 @@ export async function POST(request: Request) {
   // ── Accountant login (email + password) ──────────────────────────────────
   if (email) {
     const login = email.toLowerCase();
-    const wait = await attemptWait("accountant-login", login, LOGIN_RULE);
+    const { wait } = await takeAttempt("accountant-login", login, LOGIN_RULE);
     if (wait > 0) return tooMany(wait);
-    await recordAttempt("accountant-login", login);
     const { data: accountant } = await admin
       .from("accountant_access")
       .select("id, password_hash")
@@ -67,9 +67,8 @@ export async function POST(request: Request) {
   // ── Admin login (username + password) ────────────────────────────────────
   if (!username) return Response.json({ error: "Enter your username and password." }, { status: 400 });
   const login = username.toLowerCase();
-  const wait = await attemptWait("admin-login", login, LOGIN_RULE);
+  const { wait } = await takeAttempt("admin-login", login, LOGIN_RULE);
   if (wait > 0) return tooMany(wait);
-  await recordAttempt("admin-login", login);
   const { data: user } = await admin
     .from("admin_users")
     .select("id, password_hash")

@@ -85,12 +85,22 @@ export function OrderEditor({ orderId, paidThroughStripe, totalCents, dueDate, c
     }
   }
 
-  function handleCancel() {
+  // Start from the saved order each time (after a save, the refreshed props hold the new cards' real IDs)
+  function resetFromProps() {
     setCardRows(cards.map((c) => ({ id: c.id, name: c.card_name })));
     setPricePerCard((initialPricePerCard / 100).toFixed(2));
     setDue(dueDate ?? "");
     setNotes(customerNotes ?? "");
     setError("");
+  }
+
+  function handleOpen() {
+    resetFromProps();
+    setOpen(true);
+  }
+
+  function handleCancel() {
+    resetFromProps();
     setOpen(false);
   }
 
@@ -99,7 +109,7 @@ export function OrderEditor({ orderId, paidThroughStripe, totalCents, dueDate, c
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
       >
         Edit Order

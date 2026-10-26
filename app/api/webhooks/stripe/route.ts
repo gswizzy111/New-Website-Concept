@@ -9,6 +9,8 @@ import { signedPdfAttachments } from "@/lib/signed-pdfs";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { siteUrl } from "@/lib/site-url";
 import { logCheckoutError } from "@/lib/checkout-error-log";
+import { markGiftCardHoldsPaid } from "@/lib/gift-card-holds";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 /** A card added to a paid order, as the add-cards route saved it. */
 type AddedCard = {
@@ -184,7 +186,9 @@ async function sendEmail(what: string, payload: Parameters<typeof resend.emails.
 /**
  * Takes a gift card's balance for one paid session: a single atomic database
  * step that never goes below zero and runs once per session (redeem_gift_card).
- * Anything short of the full amount is reported to the admin.
+ * Anything short of the full amount is reported to the admin. Once the balance
+ * is taken, the checkout's hold on it (lib/gift-card-holds.ts) has done its
+ * job and is closed; if it couldn't be taken, the hold stays until it expires.
  */
 async function redeemGiftCard(admin: Admin, session: Stripe.Checkout.Session, giftCardId: string, cents: number, what: string) {
   let applied = 0;
@@ -193,13 +197,17 @@ async function redeemGiftCard(admin: Admin, session: Stripe.Checkout.Session, gi
   const { data, error } = await admin.rpc("redeem_gift_card", { p_gift_card_id: giftCardId, p_cents: cents, p_reference: session.id });
   if (!error) {
     const row = (Array.isArray(data) ? data[0] : data) as { applied: number | null; remaining: number | null; repeated: boolean } | null;
+    await markGiftCardHoldsPaid(admin, session.id);
     if (row?.repeated) return; // this session already took its share
     applied = row?.applied ?? 0;
     remaining = row?.remaining ?? null;
   } else if (missingSchema(error)) {
     const result = await deductWithoutRpc(admin, giftCardId, cents);
     if ("error" in result) failure = result.error;
-    else ({ applied, remaining } = result);
+    else {
+      ({ applied, remaining } = result);
+      await markGiftCardHoldsPaid(admin, session.id);
+    }
   } else {
     failure = error.message;
   }
@@ -468,13 +476,19 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         let kitLabelError = "";
         const kitRateId = session.metadata.kit_rate_object_id;
         if (kitRateId && savedKitOrder) {
-          const bought = await buyKitLabel(kitRateId, isInternationalShop);
+          // The rate's carrier: sent by the kit checkout (older sessions: the
+          // first word of the service name, e.g. "UPS Ground")
+          const kitCarrier = session.metadata.kit_carrier || shippingService.split(" ")[0] || null;
+          const bought = await buyKitLabel(kitRateId, isInternationalShop, kitCarrier);
           if ("label" in bought) {
             kitLabel = bought.label;
             const { error: labelSaveError } = await admin.from("shop_orders").update({
               labels: [{
                 labelUrl: kitLabel.labelUrl,
                 trackingNumber: kitLabel.trackingNumber,
+                // Read by the order page's tracking link (lib/tracking-carrier.ts)
+                ...(kitLabel.trackingUrl ? { trackingUrl: kitLabel.trackingUrl } : {}),
+                ...(kitLabel.carrier ? { carrier: kitLabel.carrier } : {}),
                 createdAt: new Date().toISOString(),
                 ...(kitLabel.customsUrl ? { customsUrl: kitLabel.customsUrl } : {}),
               }],
@@ -613,7 +627,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       let stage = "first kit order";
       try {
         // Create the first kit order immediately — don't rely on invoice.paid which can race
-        const subFirstPriceCents = session.amount_total ?? 6299;
+        const subFirstPriceCents = session.amount_total ?? (await getSubscriptionPriceCents());
         const { error: firstKitError } = await admin2.from("shop_orders").insert({
           stripe_session_id: session.id,
           customer_name: session.metadata.customer_name ?? "",
@@ -691,10 +705,19 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           const { data: pending } = pendingId
             ? await admin.from("order_events").select("metadata").eq("id", pendingId).maybeSingle()
             : { data: null };
-          const pendingCards = (pending?.metadata as { cards?: AddedCard[] } | null)?.cards;
+          const pendingMeta = pending?.metadata as { cards?: AddedCard[]; prices?: unknown } | null;
+          const pendingCards = pendingMeta?.cards;
+          const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
+          // What each card was charged: the admin's tier price the add-cards
+          // route saved with the cards (older sessions: the default price)
+          const savedPrices = Array.isArray(pendingMeta?.prices) && pendingMeta.prices.length === pendingCards?.length
+            && pendingMeta.prices.every((p) => Number.isInteger(p) && (p as number) >= 0)
+            ? (pendingMeta.prices as number[])
+            : null;
+          const priceOf = (i: number, declaredValueCents: number | null | undefined) =>
+            savedPrices?.[i] ?? getCardPriceCents(addTier, declaredValueCents ?? 0);
           if (pendingCards?.length) {
-            const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
-            const prices = pendingCards.map((c) => getCardPriceCents(addTier, c.declaredValueCents));
+            const prices = pendingCards.map((c, i) => priceOf(i, c.declaredValueCents));
             const amounts = itemAmounts(prices, parseInt(session.metadata.bulk_discount_cents ?? "0", 10) || 0);
             newCardRows = pendingCards.map((c, i) => ({
               id: randomUUID(),
@@ -748,12 +771,11 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
 
             // Service lines for the added cards, priced the way the add-cards route charged them
             stage = "add the service lines";
-            const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
             const priceCounts = new Map<number, number>();
-            for (const row of newCardRows) {
-              const price = getCardPriceCents(addTier, row.estimated_value_cents);
+            newCardRows.forEach((row, i) => {
+              const price = priceOf(i, row.estimated_value_cents);
               priceCounts.set(price, (priceCounts.get(price) ?? 0) + 1);
-            }
+            });
             const { error: servicesError } = await admin.from("order_services").insert(
               [...priceCounts].map(([price, count]) => ({
                 order_id: addOrderId,
@@ -873,20 +895,31 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         let stage = "move the service line";
         try {
           const problems: string[] = [];
-          // Move the order's service line to the new tier
+          // Move the order's service line to the new tier, at the per-card
+          // price the upgrade route charged from (older sessions: the default)
           const oldTier = upgradeOrder?.restoration_tier as RestorationTierId | null | undefined;
           if (oldTier && oldTier !== newTier) {
             const tier = getTierById(newTier as RestorationTierId);
+            const chargedPrice = parseInt(session.metadata.new_price_cents ?? "", 10);
             const { error: serviceError } = await admin
               .from("order_services")
               .update({
                 service_id: newTier,
                 service_name: `${tier.name} - Full Restoration & PSA Prep`,
-                price_cents: tier.price_cents,
+                price_cents: Number.isFinite(chargedPrice) && chargedPrice > 0 ? chargedPrice : tier.price_cents,
               })
               .eq("order_id", upgradeOrderId)
               .eq("service_id", oldTier);
             if (serviceError) problems.push(`the service line was not moved to the new tier (${serviceError.message})`);
+
+            // The cards move too, so each takes its slot in the new tier (lib/tier-slots.ts)
+            stage = "move the cards";
+            const { error: cardsTierError } = await admin
+              .from("cards")
+              .update({ tier: newTier })
+              .eq("order_id", upgradeOrderId)
+              .eq("tier", oldTier);
+            if (cardsTierError) problems.push(`the cards were not moved to the new tier (${cardsTierError.message})`);
           }
 
           stage = "order history";
@@ -1250,7 +1283,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         .maybeSingle();
 
       if (subRecord) {
-        const invPriceCents = typeof invoice.amount_paid === "number" ? invoice.amount_paid : 6299;
+        const invPriceCents = typeof invoice.amount_paid === "number" ? invoice.amount_paid : await getSubscriptionPriceCents();
         // One kit order per invoice: a repeat (or the daily safety-net job getting
         // there first) leaves the saved order alone, so a shipped kit stays shipped
         const { error: invoiceOrderError } = await adminInv.from("shop_orders").upsert(

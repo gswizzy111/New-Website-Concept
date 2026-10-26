@@ -148,6 +148,8 @@ export type KitLabel = {
   labelUrl: string;
   trackingNumber: string | null;
   trackingUrl: string | null;
+  /** The rate's carrier (Shippo provider, e.g. "USPS", "UPS"), when the caller knows it. */
+  carrier: string | null;
   /** Commercial invoice for customs, when the carrier makes one (international). */
   customsUrl: string | null;
 };
@@ -157,7 +159,7 @@ export type KitLabel = {
  * Called once per paid order by the Stripe webhook. REST rather than the SDK
  * so the response's messages come back whole for the admin email.
  */
-export async function buyKitLabel(rateId: string, international: boolean): Promise<{ label: KitLabel } | { error: string }> {
+export async function buyKitLabel(rateId: string, international: boolean, carrier: string | null = null): Promise<{ label: KitLabel } | { error: string }> {
   try {
     const res = await fetch("https://api.goshippo.com/transactions/", {
       method: "POST",
@@ -179,6 +181,7 @@ export async function buyKitLabel(rateId: string, international: boolean): Promi
         labelUrl: tx.label_url as string,
         trackingNumber: (tx.tracking_number as string | undefined) || null,
         trackingUrl: (tx.tracking_url_provider as string | undefined) || null,
+        carrier: carrier?.trim() || null,
         customsUrl: (tx.commercial_invoice_url as string | undefined) || null,
       },
     };

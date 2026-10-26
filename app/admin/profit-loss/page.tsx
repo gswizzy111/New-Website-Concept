@@ -1,13 +1,13 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getProductCosts } from "@/lib/product-costs";
+import { getProductCosts, type ProductCostsConfig } from "@/lib/product-costs";
 import { formatCurrency } from "@/lib/utils";
 import { PeriodTabs } from "./period-tabs";
 import { CostSettings } from "./cost-settings";
 import { RevenueChart } from "../revenue-chart";
 import { addDays, etToday, getRevenueSeries } from "@/lib/dashboard-metrics";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
-import { etDayStart, loadReport, refundShare, tierNames, type Range } from "@/lib/sales-report";
+import { etDayStart, isPrepKey, loadReport, refundShare, tierNames, type Range } from "@/lib/sales-report";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -37,13 +37,22 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   await syncRefundsQuietly(admin);
 
   // Sales on the New York day paid and refunds on the day the money went back, as the
-  // dashboard counts them (lib/sales-report.ts); product list and cost config alongside
-  const [report, productResult, costConfig, tierName] = await Promise.all([
+  // dashboard counts them (lib/sales-report.ts); product list and cost config alongside.
+  // Revenue doesn't need costs: if they can't be read, the page shows it without them.
+  const [report, productResult, savedCosts, tierName] = await Promise.all([
     loadReport(admin, periodRange(period)),
     admin.from("products").select("id, name, price_cents"),
-    getProductCosts(),
+    getProductCosts().catch((e) => {
+      console.error("[p&l] product costs:", e instanceof Error ? e.message : e);
+      return null;
+    }),
     tierNames(),
   ]);
+  const costsMissing = !savedCosts;
+  const costConfig: ProductCostsConfig = savedCosts ?? {
+    products: {}, presets: [],
+    restoration: { regular_cents: 0, expedited_cents: 0, premium_cents: 0, ultra_premium_cents: 0 },
+  };
 
   const shopOrders = report.kits;
   const products = productResult.data ?? [];
@@ -94,11 +103,12 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   const tierStat = (key: string, label: string) => (tierStats[key] ??= { label, orders: 0, revenue_cents: 0, cogs_cents: 0 });
 
   for (const sale of report.sales) {
-    const tier = sale.order.restoration_tier;
+    const tier = sale.order.tier_key;
     const ownPayment = sale.type === "order";
-    // Supply cost per order by tier; an order without one tier uses the Bronze cost
-    const costKey = `${tier ?? "regular"}_cents`;
-    const cogs = ownPayment && sale.order.status !== "cancelled"
+    // Supply cost per order by tier: mixed-tier orders and orders without a tier use
+    // the Bronze cost; PSA Prep has no restoration supply cost
+    const costKey = isPrepKey(tier) ? null : tier === "mixed" || tier === "no_tier" ? "regular_cents" : `${tier}_cents`;
+    const cogs = ownPayment && costKey && sale.order.status !== "cancelled"
       ? (costConfig.restoration as unknown as Record<string, number>)[costKey] ?? 0
       : 0;
 
@@ -106,7 +116,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
     restCogs += cogs;
     if (ownPayment) restorationOrders += 1;
 
-    const t = tierStat(tier ?? "mixed", tierName(tier));
+    const t = tierStat(tier, tierName(tier));
     if (ownPayment) t.orders += 1;
     t.revenue_cents += sale.total_cents;
     t.cogs_cents += cogs;
@@ -124,7 +134,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
     totalRefundedCents += r.amount_cents;
     restRevenue -= r.amount_cents;
     const t = r.order
-      ? tierStat(r.order.restoration_tier ?? "mixed", tierName(r.order.restoration_tier))
+      ? tierStat(r.order.tier_key, tierName(r.order.tier_key))
       : tierStat("unmatched", "No order found");
     t.revenue_cents -= r.amount_cents;
   }
@@ -156,7 +166,13 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
         <PeriodTabs current={period} />
       </div>
 
-      {!hasCosts && (
+      {costsMissing && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+          <strong>Costs couldn&apos;t be loaded.</strong> Profit below leaves them out. Refresh the page to try again.
+        </div>
+      )}
+
+      {!costsMissing && !hasCosts && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
           <strong>Set your costs to see real profit numbers.</strong> Go to each{" "}
           <Link href="/admin/products" className="underline font-semibold">product page</Link>{" "}
@@ -308,16 +324,18 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
         </div>
       )}
 
-      {/* Cost Settings */}
-      <CostSettings
-        initial={costConfig}
-        names={{
-          regular_cents: tierName("regular"),
-          expedited_cents: tierName("expedited"),
-          premium_cents: tierName("premium"),
-          ultra_premium_cents: tierName("ultra_premium"),
-        }}
-      />
+      {/* Cost Settings (hidden when the saved costs couldn't be read, so nothing is saved over them) */}
+      {!costsMissing && (
+        <CostSettings
+          initial={costConfig}
+          names={{
+            regular_cents: tierName("regular"),
+            expedited_cents: tierName("expedited"),
+            premium_cents: tierName("premium"),
+            ultra_premium_cents: tierName("ultra_premium"),
+          }}
+        />
+      )}
     </div>
   );
 }

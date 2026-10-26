@@ -38,12 +38,21 @@ const Components = z.array(z.object({
   cost_cents: z.number().int().min(0).max(100_000_000),
 })).max(100);
 
-// One change, applied to the saved config on the server (product page):
-// a product's components, or one preset added or removed
+const Cents = z.number().int().min(0).max(100_000_000);
+// Products are keyed by their id (a uuid)
+const PRODUCT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// One change, applied to the saved config on the server: a product's
+// components, one preset added or removed (product page), or the
+// restoration supply costs (P&L)
 const Change = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("set_product"), product_id: z.string().min(1).max(100), components: Components }),
+  z.object({ action: z.literal("set_product"), product_id: z.string().regex(PRODUCT_ID), components: Components }),
   z.object({ action: z.literal("add_preset"), name: z.string().trim().min(1).max(200), components: Components.min(1) }),
   z.object({ action: z.literal("delete_preset"), id: z.string().min(1).max(100) }),
+  z.object({
+    action: z.literal("set_restoration"),
+    restoration: z.object({ regular_cents: Cents, expedited_cents: Cents, premium_cents: Cents, ultra_premium_cents: Cents }),
+  }),
 ]);
 
 export async function PATCH(req: Request) {
@@ -60,8 +69,10 @@ export async function PATCH(req: Request) {
         };
       } else if (change.action === "add_preset") {
         c.presets = [...c.presets, { id: crypto.randomUUID(), name: change.name, components: change.components }];
-      } else {
+      } else if (change.action === "delete_preset") {
         c.presets = c.presets.filter((p) => p.id !== change.id);
+      } else {
+        c.restoration = change.restoration;
       }
     });
     return Response.json({ ok: true, presets: config.presets });

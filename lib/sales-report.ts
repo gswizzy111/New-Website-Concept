@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
 import { BUSINESS_TIME_ZONE, addDays, etToday } from "@/lib/dashboard-metrics";
 import { getLiveTiers } from "@/lib/live-tiers";
+import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 
 /**
  * What the Tax, Sales Statement and P&L reports read, counted the way the
@@ -99,6 +100,11 @@ export type ReportOrder = {
   status: string;
   affiliate_code: string | null;
   loyalty_discount_percent: number | null;
+  /**
+   * Set by loadReport: the order's tier, "prep" for PSA Prep, and for an order
+   * without a tier, what its service lines show (see untieredService).
+   */
+  tier_key: string;
 };
 
 export type ReportKit = {
@@ -159,6 +165,37 @@ async function byIds<T extends { id: string }>(admin: SupabaseClient, table: str
     for (const row of (data ?? []) as unknown as T[]) map.set(row.id, row);
   }
   return map;
+}
+
+/** Rows for these order ids, 100 ids at a time, every page read. */
+async function byOrderIds<T>(admin: SupabaseClient, table: string, columns: string, orderIds: string[]): Promise<T[]> {
+  const rows: T[] = [];
+  const unique = [...new Set(orderIds)];
+  for (let i = 0; i < unique.length; i += 100) {
+    const chunk = unique.slice(i, i + 100);
+    rows.push(...(await fetchAll<T>((a, b) => admin.from(table).select(columns).in("order_id", chunk)
+      .order("id", { ascending: true }).range(a, b) as unknown as Page<T>)));
+  }
+  return rows;
+}
+
+const ADD_ON_SERVICES = ["pregrade", "pre_grade_assessment", "slab_crack", "instagram_feature"];
+const TIER_IDS = new Set<string>(Object.keys(RESTORATION_TIERS));
+
+/**
+ * What an order without a tier was, from its service lines. "prep" exactly as the
+ * dashboard's order_service() decides it (supabase/migrations/20261023_dashboard_metrics.sql):
+ * a "PSA Prep" line and nothing else but add-ons. "mixed": cards in more than one
+ * tier (older orders have one "Gold + Silver - ..." line, newer ones a line per tier).
+ * "no_tier": anything else, such as single-service orders from before tiers and
+ * orders entered by hand without one.
+ */
+function untieredService(lines: { service_id: string | null; service_name: string | null }[]): "prep" | "mixed" | "no_tier" {
+  const main = lines.filter((l) => !ADD_ON_SERVICES.includes(l.service_id ?? ""));
+  if (lines.some((l) => l.service_name === "PSA Prep") && main.every((l) => l.service_name == null || l.service_name === "PSA Prep")) return "prep";
+  const tiers = new Set(main.map((l) => l.service_id).filter((t): t is string => !!t && TIER_IDS.has(t)));
+  if (tiers.size > 1 || main.some((l) => l.service_name?.includes(" + "))) return "mixed";
+  return "no_tier";
 }
 
 /** The amount in an add-on event ("... additional payment of $12.34 received"), as the dashboard reads it. */
@@ -239,6 +276,21 @@ export async function loadReport(admin: SupabaseClient, range: Range, { kits: wi
   for (const [id, o] of extraOrders) orderById.set(id, o);
   for (const [id, k] of extraKits) kitById.set(id, k);
 
+  // Each order's tier key; orders without a tier are told apart by their service lines
+  const untiered = [...orderById.values()].filter((o) => !o.restoration_tier).map((o) => o.id);
+  type Line = { order_id: string; service_id: string | null; service_name: string | null };
+  const lines = untiered.length ? await byOrderIds<Line>(admin, "order_services", "id, order_id, service_id, service_name", untiered) : [];
+  const linesByOrder = new Map<string, Line[]>();
+  for (const l of lines) {
+    const list = linesByOrder.get(l.order_id);
+    if (list) list.push(l);
+    else linesByOrder.set(l.order_id, [l]);
+  }
+  for (const o of orderById.values()) {
+    o.tier_key = o.restoration_tier === "prep_standard" ? "prep"
+      : o.restoration_tier || untieredService(linesByOrder.get(o.id) ?? []);
+  }
+
   const sales: ServiceSale[] = [];
   for (const o of orders) {
     const at = paidAt.get(o.id) ?? o.created_at;
@@ -292,14 +344,19 @@ export function refundShare(amountCents: number, partCents: number | null | unde
 
 // ── Tier names ───────────────────────────────────────────────────────────────
 
+/** An order's tier key (ReportOrder.tier_key) says PSA Prep. */
+export const isPrepKey = (key: string | null | undefined) => key === "prep" || key === "prep_standard";
+
 /**
- * Tier names as the admin has set them (restoration_settings, via getLiveTiers),
- * plus PSA Prep. An order without one tier had cards in several tiers, or was
- * entered by hand with custom prices.
+ * Names for tier keys (ReportOrder.tier_key): tiers as the admin has named them
+ * (restoration_settings, via getLiveTiers), plus PSA Prep, "Mixed tiers" and
+ * "Restoration (no tier)" for orders without one tier.
  */
-export async function tierNames(): Promise<(tier: string | null | undefined) => string> {
+export async function tierNames(): Promise<(key: string | null | undefined) => string> {
   const names = new Map<string, string>((await getLiveTiers()).map((t) => [t.id, t.name]));
   names.set("prep", "PSA Prep");
   names.set("prep_standard", "PSA Prep");
-  return (tier) => (tier ? names.get(tier) ?? tier : "Mixed or custom");
+  names.set("mixed", "Mixed tiers");
+  names.set("no_tier", "Restoration (no tier)");
+  return (key) => (key ? names.get(key) ?? key : "Restoration (no tier)");
 }

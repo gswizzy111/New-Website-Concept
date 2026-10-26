@@ -13,7 +13,7 @@ import type { Service, CardEntry } from "@/lib/types";
 import { getAllTiers, formatCents } from "@/lib/restoration-tiers";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 
-const ALL_TIERS = getAllTiers();
+const DEFAULT_TIERS = getAllTiers();
 
 // One selection style for every tier (clinic theme)
 const TIER_STYLES: Record<string, { selected: string; normal: string }> = {
@@ -42,6 +42,8 @@ interface StepCardsProps {
   selectedServiceIds: string[];
   onChange: (cards: CardEntry[]) => void;
   defaultTier?: RestorationTierId;
+  /** The tiers with the admin's names and prices (lib/live-tiers.ts) */
+  tiers?: RestorationTier[];
   /** Open the card's slab authorization pop-up */
   onOpenSlab?: (cardId: string) => void;
   /** The customer pressed Continue with something missing: outline it in red */
@@ -61,19 +63,19 @@ function identityOf(c: CardEntry): CardIdentity {
   };
 }
 
-/** A card is ready when it has a name, photos and a value within its tier's cap. */
-export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId): string[] {
+/** A card is ready when it has a name, photos, a tier and a value within that tier's cap. */
+export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tiers: RestorationTier[] = DEFAULT_TIERS): string[] {
   const problems: string[] = [];
   const value = parseCents(c.estimated_value ?? "");
-  const tier = ALL_TIERS.find((t) => t.id === (c.tier ?? defaultTier));
+  const tier = tiers.find((t) => t.id === (c.tier ?? defaultTier));
   if (!c.card_name.trim()) problems.push("name");
   if (c.photo_urls.length === 0) problems.push("photos");
   if (value <= 0) problems.push("value");
-  if (tier && tier.max_card_value_cents !== null && value > tier.max_card_value_cents) problems.push("tier");
+  if (!tier || (tier.max_card_value_cents !== null && value > tier.max_card_value_cents)) problems.push("tier");
   return problems;
 }
 
-export function StepCards({ cards, services, selectedServiceIds, onChange, defaultTier, onOpenSlab, showMissing = false }: StepCardsProps) {
+export function StepCards({ cards, services, selectedServiceIds, onChange, defaultTier, tiers = DEFAULT_TIERS, onOpenSlab, showMissing = false }: StepCardsProps) {
   const availableServices = services.filter((s) => selectedServiceIds.includes(s.id));
 
   function updateCard(id: string, patch: Partial<CardEntry>) {
@@ -124,8 +126,8 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
         {cards.map((card, i) => {
           const estimatedValueCents = parseCents(card.estimated_value ?? "");
           const activeTierId = card.tier ?? defaultTier;
-          const activeTier = activeTierId ? ALL_TIERS.find((t) => t.id === activeTierId) : null;
-          const missing = new Set(showMissing ? cardProblems(card, defaultTier) : []);
+          const activeTier = activeTierId ? tiers.find((t) => t.id === activeTierId) : null;
+          const missing = new Set(showMissing ? cardProblems(card, defaultTier, tiers) : []);
 
           return (
             <div key={card.id} className="border border-border rounded-lg p-5 flex flex-col gap-4 bg-card">
@@ -200,10 +202,10 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               </div>
 
               {/* Per-card tier selector */}
-              <Need missing={missing.has("tier")} note="Pick a tier that allows this card's value." className="flex flex-col gap-2">
+              <Need missing={missing.has("tier")} note={activeTier ? "Pick a tier that allows this card's value." : "Pick a service level."} className="flex flex-col gap-2">
                 <Label>Service Level<Req /></Label>
                 <div className="grid grid-cols-2 gap-2">
-                  {ALL_TIERS.map((t) => {
+                  {tiers.map((t) => {
                     const selected = (card.tier ?? defaultTier) === t.id;
                     const available = tierAvailable(t, estimatedValueCents);
                     const styles = TIER_STYLES[t.id] ?? TIER_STYLES.regular;
@@ -319,7 +321,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                 <label htmlFor={`pregrade-${card.id}`} className="text-sm cursor-pointer">
                   <span className="font-semibold text-ink">Add Pregrade? +$25</span>
                   <span className="block text-muted-foreground text-xs mt-0.5">
-                    We'll pregrade your card before submitting so you know what grade to expect — helping you decide whether to send it off.
+                    We&apos;ll pregrade your card before submitting so you know what grade to expect — helping you decide whether to send it off.
                   </span>
                 </label>
               </div>

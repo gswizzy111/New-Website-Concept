@@ -59,7 +59,11 @@ export function StatusUpdater({
       if (tracking) setTrackingNumber(tracking);
       setPendingStatus(null);
       setPendingTracking("");
-      if (data.emailFailed) setNotice("Status saved, but the email to the customer failed.");
+      const notices = [
+        data.emailFailed ? "Status saved, but the email to the customer failed." : "",
+        data.notesEmailed === "failed" ? "The notes email to the customer failed. Click Save Notes to send it again." : "",
+      ].filter(Boolean);
+      if (notices.length) setNotice(notices.join(" "));
       router.refresh();
     } catch {
       setError("Network error. The status may not have saved: reload to check.");

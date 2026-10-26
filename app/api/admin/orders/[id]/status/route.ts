@@ -66,8 +66,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const statusLabel = ORDER_STATUSES[status as keyof typeof ORDER_STATUSES].label;
   const customerMessage = CUSTOMER_MESSAGES[status];
 
-  // Email customer on meaningful status changes
-  if (order && customerMessage) {
+  // Email customer on meaningful status changes (walk-in and manual orders can have no email)
+  if (customerMessage && order.customer_email?.trim()) {
     const firstName = escapeHtml(order.customer_name?.split(" ")[0] || "there");
     const trackingUrl = `${appUrl}/orders/${order.order_number}`;
 

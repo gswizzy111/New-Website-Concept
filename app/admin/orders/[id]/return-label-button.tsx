@@ -24,6 +24,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
   const [selectedRate, setSelectedRate] = useState<Rate | null>(null);
   const [labelUrl, setLabelUrl] = useState<string | null>(existingLabelUrl ?? null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [notice, setNotice] = useState("");
   const [printing, setPrinting] = useState(false);
   const [needsRepurchase, setNeedsRepurchase] = useState(false);
   const [qzConnected, setQzConnected] = useState(false);
@@ -119,6 +120,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Purchase failed");
       setLabelUrl(data.labelUrl);
+      if (data.notesEmailed === "failed") setNotice("The notes email to the customer failed. Click Save Notes on the order page to send it again.");
       setState("idle");
       router.refresh();
       // Auto-print after purchase
@@ -192,6 +194,8 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
           )}
         </div>
       )}
+
+      {notice && <p role="status" className="text-xs font-medium text-amber-700">{notice}</p>}
 
       {/* Rate confirmation */}
       {state === "confirm" && selectedRate && (
