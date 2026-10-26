@@ -125,8 +125,11 @@ export async function PATCH(
   const byId = new Map(cards.map((c) => [c.id, c]));
   const position = new Map(cards.map((c, i) => [c.id, i + 1]));
 
-  // New photos must be ones our uploader stored (the public card-photos bucket)
+  // New photos must be ones our uploader stored (/api/upload: a random name at
+  // the top of the public card-photos bucket)
   const photoPrefix = admin.storage.from("card-photos").getPublicUrl("x").data.publicUrl.replace(/x$/, "");
+  const isOurUpload = (u: string) =>
+    u.startsWith(photoPrefix) && /^[A-Za-z0-9-]{1,100}\.[a-z]{3,4}$/.test(u.slice(photoPrefix.length));
 
   // Price overrides for value-priced tiers (Diamond's rate is set in admin),
   // read only when a declared value changes
@@ -145,9 +148,12 @@ export async function PATCH(
   type Change = { field: string; from: unknown; to: unknown };
   const planned: { card: ExistingCard; update: Record<string, unknown>; changes: Change[] }[] = [];
 
+  const seen = new Set<string>();
   for (const { id: cardId, ...fields } of parsed.data.cards) {
     const card = byId.get(cardId);
-    if (!card) continue;
+    // Only this order's cards, each once
+    if (!card || seen.has(cardId)) continue;
+    seen.add(cardId);
     const label = card.card_name?.trim() || `Card ${position.get(cardId)}`;
 
     const next = {
@@ -157,7 +163,7 @@ export async function PATCH(
       card_number: fields.card_number ?? null,
       estimated_value_cents: fields.estimated_value_cents ?? null,
       notes: fields.notes ?? null,
-      photo_urls: fields.photo_urls ?? [],
+      photo_urls: [...new Set(fields.photo_urls ?? [])],
     };
     const before = {
       card_name: card.card_name,
@@ -185,7 +191,7 @@ export async function PATCH(
 
     // Photos: only our own uploads, and no more than MAX_CARD_PHOTOS once any are added
     const added = next.photo_urls.filter((u) => !before.photo_urls.includes(u));
-    if (added.some((u) => !u.startsWith(photoPrefix))) {
+    if (!added.every(isOurUpload)) {
       return Response.json({ error: "Please upload photos with the upload button." }, { status: 400 });
     }
     if (added.length > 0 && next.photo_urls.length > MAX_CARD_PHOTOS) {
@@ -230,19 +236,25 @@ export async function PATCH(
 
   if (planned.length === 0) return Response.json({ ok: true });
 
+  // Saved only while work on the card still hasn't started (checked again in
+  // the update itself, in case it started a moment ago)
   const results = await Promise.all(
     planned.map(({ card, update }) =>
-      admin.from("cards").update(update).eq("id", card.id).eq("order_id", id)
+      admin.from("cards").update(update)
+        .eq("id", card.id).eq("order_id", id)
+        .is("cleaning_started_at", null).is("slab_opening_started_at", null).neq("status", "refunded")
+        .select("id")
     )
   );
-  const failed = results.filter((r) => r.error);
-  if (failed.length > 0) {
-    console.error("Card editor: saving cards failed:", failed.map((r) => r.error?.message).join("; "));
+  const failed = results.filter((r) => r.error || !r.data?.length);
+  const dbErrors = results.filter((r) => r.error);
+  if (dbErrors.length > 0) {
+    console.error("Card editor: saving cards failed:", dbErrors.map((r) => r.error?.message).join("; "));
   }
 
   // Each customer edit goes in the order's history so the admin sees it (not
   // shown to the customer). The full before/after is in the event's metadata.
-  const saved = planned.filter((_, i) => !results[i].error);
+  const saved = planned.filter((_, i) => !results[i].error && results[i].data?.length);
   if (saved.length > 0) {
     const describe = (c: Change, withText: boolean) => {
       const quoted = (v: unknown) => (withText ? ` "${v ?? ""}"` : "");

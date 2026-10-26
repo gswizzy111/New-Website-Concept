@@ -10,15 +10,20 @@ import { itemAmounts } from "@/lib/item-pricing";
 import { bulkDiscountPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { getPriceCents, getRatePerCard } from "@/lib/pricing";
 import { getTierById, getCardPriceCents, applyDbOverride } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import Stripe from "stripe";
-import { isSoldOut, INSURANCE_ENABLED, SIGNATURE_FEE_CENTS, TIER_MAX_SLOTS, MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { isSoldOut, INSURANCE_ENABLED, SIGNATURE_FEE_CENTS, MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { getSlotsOpenedAt, getRestorationsOpen } from "@/lib/store-config";
 import { logCheckoutError } from "@/lib/checkout-error-log";
 import { shippingRate } from "@/lib/inbound-rate";
 import { likeExact } from "@/lib/like-exact";
+import { siteUrl } from "@/lib/site-url";
+import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
+import { MAX_TIP_CENTS } from "@/lib/order-totals";
+import {
+  GIFT_CARD_IN_USE_MESSAGE, attachGiftCardHold, giftCardExpiry, holdGiftCard, releaseGiftCardHold,
+} from "@/lib/gift-card-holds";
 
 const AddressSchema = z.object({
   street1: z.string().min(1),
@@ -70,6 +75,8 @@ const BodySchema = z.object({
   slab_crack_count: z.number().int().min(0).max(100).optional(),
   pregrade_count: z.number().int().min(0).max(100).optional(),
   add_signature_confirmation: z.boolean().optional(),
+  // The optional tip (review step), as on the old site
+  tip_cents: z.number().int().min(0).max(MAX_TIP_CENTS).optional(),
 }).extend(SigningSchema.shape);
 
 export async function POST(request: Request) {
@@ -136,8 +143,20 @@ export async function POST(request: Request) {
     return Response.json({ error: "We couldn't load the Terms of Service. Please try again in a moment.", code: "TERMS_UNAVAILABLE" }, { status: 500 });
   }
 
+  // Every card needs a tier: its own, or the order's. Nothing is priced
+  // without one (an older, untiered price list is no longer offered).
+  const cardTiers = data.cards.map((c) =>
+    (c.tier ?? data.restoration_tier ?? null) as RestorationTierId | null
+  );
+  if (cardTiers.some((t) => !t)) {
+    return Response.json({ error: "Please choose a service level for every card.", code: "TIER_REQUIRED" }, { status: 400 });
+  }
+  const tierOf = (i: number) => cardTiers[i] as RestorationTierId;
+  const uniqueTiers = [...new Set(cardTiers)] as RestorationTierId[];
+  const isMixed = uniqueTiers.length > 1;
+
   // Diamond (elite) tier: enforce $5,000 minimum total declared value
-  const isEliteOrder = data.restoration_tier === "elite" || data.cards.some((c) => c.tier === "elite");
+  const isEliteOrder = uniqueTiers.includes("elite");
   if (isEliteOrder) {
     const totalValueCents = data.cards.reduce((s, c) => s + (c.estimated_value_cents ?? 0), 0);
     if (totalValueCents < 500_000) {
@@ -145,126 +164,67 @@ export async function POST(request: Request) {
     }
   }
 
-  // Determine tiers — either a single order-level tier, or per-card tiers
-  let subtotalCents: number;
-  let serviceName: string;
-  let serviceId: string | null = null;
-  let restorationTier: RestorationTierId | null = null;
-
-  // Resolve effective tier per card: card-level tier > order-level tier
-  const cardTiers = data.cards.map((c) =>
-    (c.tier ?? data.restoration_tier ?? null) as RestorationTierId | null
-  );
-  const uniqueTiers = [...new Set(cardTiers.filter(Boolean))] as RestorationTierId[];
-  const isMixed = uniqueTiers.length > 1;
-
-  // Tier DB settings — hoisted so line-item building can also use price overrides
-  let settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; price_cents?: number | null; pricing_rate?: number | null; min_card_value_cents?: number | null }> = {};
-
-  if (uniqueTiers.length > 0) {
-    // Enforce availability and load price overrides from DB
-    const { data: tierSettings } = await admin
-      .from("restoration_settings")
-      .select("tier, is_open, max_slots, price_cents, pricing_rate, min_card_value_cents")
-      .in("tier", uniqueTiers);
-
-    settingsMap = Object.fromEntries((tierSettings ?? []).map((s) => [s.tier, s]));
-
-    // A tier's card-value cap is an eligibility condition (Terms 9.2): block, never upgrade silently
-    for (const [i, card] of data.cards.entries()) {
-      const tierId = cardTiers[i];
-      const max = tierId ? getTierById(tierId).max_card_value_cents : null;
-      if (tierId && max !== null && card.estimated_value_cents > max) {
-        return Response.json({
-          error: `${card.card_name.trim()} is declared at $${(card.estimated_value_cents / 100).toLocaleString()}, above the ${getTierById(tierId).name} tier's $${(max / 100).toLocaleString()} cap. Choose a higher tier for it.`,
-          code: "TIER_CAP",
-        }, { status: 400 });
-      }
-    }
-
-    // Fetch once — used by every tier's slot check below
-    const slotsOpenedAt = await getSlotsOpenedAt();
-    // Any order pending in Stripe for > 30 min is considered abandoned
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-
-    for (const tierId of uniqueTiers) {
-      const s = settingsMap[tierId];
-      if (s && s.is_open === false) {
-        return Response.json({ error: `The ${getTierById(tierId).name} tier is currently closed.`, code: "TIER_CLOSED" }, { status: 409 });
-      }
-
-      // Use DB max_slots if set, otherwise fall back to site-config TIER_MAX_SLOTS constant
-      const effectiveMaxSlots: number | null = (s?.max_slots ?? null) ?? (TIER_MAX_SLOTS[tierId] ?? null);
-
-      if (effectiveMaxSlots !== null) {
-        const cardCount = cardTiers.filter((t) => t === tierId).length;
-
-        // Count paid orders (confirmed) — the real usage
-        let paidQuery = admin
-          .from("orders")
-          .select("id", { count: "exact", head: true })
-          .eq("restoration_tier", tierId)
-          .eq("payment_status", "paid");
-        if (slotsOpenedAt) paidQuery = paidQuery.gte("created_at", slotsOpenedAt);
-        const { count: paidCount } = await paidQuery;
-
-        // Count recent in-progress checkouts (pending, < 30 min old = active reservation)
-        // stripe_session_id filter removed — that column may not exist yet in the DB.
-        let pendingQuery = admin
-          .from("orders")
-          .select("id", { count: "exact", head: true })
-          .eq("restoration_tier", tierId)
-          .eq("payment_status", "pending")
-          .gte("created_at", thirtyMinAgo);
-        if (slotsOpenedAt) pendingQuery = pendingQuery.gte("created_at", slotsOpenedAt);
-        const { count: pendingCount } = await pendingQuery;
-
-        const occupied = (paidCount ?? 0) + (pendingCount ?? 0);
-        if (occupied + cardCount > effectiveMaxSlots) {
-          return Response.json({
-            error: `Sorry, the ${getTierById(tierId).name} tier is sold out. Please choose a different tier or join the waitlist.`,
-            code: "TIER_SOLD_OUT",
-          }, { status: 409 });
-        }
-      }
-    }
-
-    // Calculate subtotal using DB price overrides when set, otherwise hardcoded defaults
-    subtotalCents = data.cards.reduce((sum, card, i) => {
-      const tierId = cardTiers[i];
-      if (!tierId) return sum;
-      const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
-      return sum + getCardPriceCents(tier, card.estimated_value_cents);
-    }, 0);
-
-    if (isMixed) {
-      restorationTier = null;
-      serviceName = uniqueTiers.map((t) => getTierById(t).name).join(" + ") + " - Full Restoration & PSA Prep";
-    } else {
-      restorationTier = uniqueTiers[0];
-      serviceName = `${getTierById(restorationTier).name} - Full Restoration & PSA Prep`;
-    }
-  } else {
-    // Fallback: volume-based pricing (legacy, no tier selected)
-    if (!data.services || data.services.length === 0) {
-      return Response.json({ error: "Invalid order data. Please select a service.", code: "VALIDATION_ERROR" }, { status: 400 });
-    }
-
-    const serviceIds = data.services.map((s) => s.id);
-    const { data: dbServices, error: svcErr } = await admin
-      .from("services")
-      .select("id, name, price_cents, turnaround_days")
-      .in("id", serviceIds);
-    if (svcErr || !dbServices) {
-      console.error("Failed to load services:", svcErr);
-      return Response.json({ error: "Failed to load services. Please try again.", code: "SERVICE_LOAD_FAILED" }, { status: 500 });
-    }
-
-    const firstService = dbServices[0];
-    serviceId = firstService.id;
-    serviceName = firstService.name;
-    subtotalCents = getPriceCents(data.cards.length);
+  // The admin's tier settings: open or closed, slots, and the prices charged
+  // (restoration_settings over the defaults). Never priced without them.
+  const { data: tierSettings, error: tierSettingsError } = await admin
+    .from("restoration_settings")
+    .select("tier, is_open, max_slots, price_cents, pricing_rate, min_card_value_cents")
+    .in("tier", uniqueTiers);
+  if (tierSettingsError) {
+    console.error("Tier settings unavailable:", tierSettingsError.message);
+    return Response.json({ error: "We couldn't load our prices. Please try again in a moment.", code: "TIER_SETTINGS_UNAVAILABLE" }, { status: 503 });
   }
+  const settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; price_cents?: number | null; pricing_rate?: number | null; min_card_value_cents?: number | null }> =
+    Object.fromEntries((tierSettings ?? []).map((s) => [s.tier, s]));
+  const liveTier = (tierId: RestorationTierId) => applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
+  const cardPriceOf = (i: number) => getCardPriceCents(liveTier(tierOf(i)), data.cards[i].estimated_value_cents);
+
+  // A tier's card-value cap is an eligibility condition (Terms 9.2): block, never upgrade silently
+  for (const [i, card] of data.cards.entries()) {
+    const tierId = tierOf(i);
+    const max = getTierById(tierId).max_card_value_cents;
+    if (max !== null && card.estimated_value_cents > max) {
+      return Response.json({
+        error: `${card.card_name.trim()} is declared at $${(card.estimated_value_cents / 100).toLocaleString()}, above the ${getTierById(tierId).name} tier's $${(max / 100).toLocaleString()} cap. Choose a higher tier for it.`,
+        code: "TIER_CAP",
+      }, { status: 400 });
+    }
+  }
+
+  for (const tierId of uniqueTiers) {
+    if (settingsMap[tierId]?.is_open === false) {
+      return Response.json({ error: `The ${getTierById(tierId).name} tier is currently closed.`, code: "TIER_CLOSED" }, { status: 409 });
+    }
+  }
+
+  // Slots are counted in cards: each card takes one in its own tier, on paid
+  // orders and on checkouts started in the last 30 minutes (lib/tier-slots.ts)
+  const limitedTiers = uniqueTiers.filter((t) => tierMaxSlots(t, settingsMap[t]?.max_slots) !== null);
+  if (limitedTiers.length > 0) {
+    let usage: Record<string, number>;
+    try {
+      usage = await tierSlotUsage(admin, await getSlotsOpenedAt());
+    } catch (err) {
+      console.error("Tier slot count failed:", err);
+      return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment.", code: "SLOTS_UNAVAILABLE" }, { status: 503 });
+    }
+    for (const tierId of limitedTiers) {
+      const maxSlots = tierMaxSlots(tierId, settingsMap[tierId]?.max_slots)!;
+      const cardCount = cardTiers.filter((t) => t === tierId).length;
+      if ((usage[tierId] ?? 0) + cardCount > maxSlots) {
+        return Response.json({
+          error: `Sorry, the ${getTierById(tierId).name} tier is sold out. Please choose a different tier or join the waitlist.`,
+          code: "TIER_SOLD_OUT",
+        }, { status: 409 });
+      }
+    }
+  }
+
+  // Each card at its tier's price (Diamond: a share of its declared value)
+  const cardPrices = data.cards.map((_, i) => cardPriceOf(i));
+  const subtotalCents = cardPrices.reduce((sum, price) => sum + price, 0);
+  const restorationTier: RestorationTierId | null = isMixed ? null : uniqueTiers[0];
+  const serviceNameOf = (tierId: RestorationTierId) => `${getTierById(tierId).name} - Full Restoration & PSA Prep`;
 
   // Look up discount from DB using the affiliate code (never trust client-sent discount)
   let discountPercent = 0;
@@ -308,12 +268,7 @@ export async function POST(request: Request) {
   const bulkPercent = bulkDiscountPercent(data.cards.length);
   let bulkDiscountCents = 0;
   if (bulkPercent > 0) {
-    const bulkBaseCents = data.cards.reduce((sum, card, i) => {
-      const tierId = cardTiers[i];
-      if (!tierId || !isBulkEligible(tierId)) return sum;
-      const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
-      return sum + getCardPriceCents(tier, card.estimated_value_cents);
-    }, 0);
+    const bulkBaseCents = cardPrices.reduce((sum, price, i) => (isBulkEligible(tierOf(i)) ? sum + price : sum), 0);
     bulkDiscountCents = Math.round(bulkBaseCents * bulkPercent / 100);
     if (bulkDiscountCents > discountCents) {
       discountPercent = bulkPercent;
@@ -380,24 +335,35 @@ export async function POST(request: Request) {
   // Instagram feature add-on — $250 flat
   const instagramFeeCents = data.instagram_feature ? 25000 : 0;
 
-  // Gift card — look up and apply up to order total
-  let giftCardDiscountCents = 0;
-  let giftCardId: string | null = null;
-  if (data.gift_card_code) {
-    const gcCode = data.gift_card_code.trim().toUpperCase();
-    const { data: gc } = await admin
-      .from("gift_cards")
-      .select("id, remaining_cents, status")
-      .eq("code", gcCode)
-      .maybeSingle();
-    if (gc && gc.status === "active" && gc.remaining_cents > 0) {
-      giftCardId = gc.id;
-      const preTaxTotal = subtotalCents - discountCents + taxCents + shippingCents + insuranceChargeCents + slabCrackCents + pregradeCents;
-      giftCardDiscountCents = Math.min(gc.remaining_cents, preTaxTotal);
-    }
-  }
+  // Optional tip, as on the old site: added to the total, never covered by a gift card
+  const tipCents = data.tip_cents ?? 0;
 
-  const totalCents = Math.max(0, subtotalCents - discountCents + taxCents + shippingCents + insuranceChargeCents + slabCrackCents + pregradeCents + instagramFeeCents + signatureFeeCents - giftCardDiscountCents);
+  // Gift card: covers the order up to the total before the Instagram feature,
+  // the signature fee and the tip. The amount is held for this checkout so the
+  // same balance can't discount another open one (lib/gift-card-holds.ts), and
+  // Stripe is always left $0 or at least 50 cents to charge.
+  const giftCardCapCents = subtotalCents - discountCents + taxCents + shippingCents + insuranceChargeCents + slabCrackCents + pregradeCents;
+  const beforeGiftCardCents = giftCardCapCents + instagramFeeCents + signatureFeeCents + tipCents;
+  const expiry = giftCardExpiry();
+  const hold = await holdGiftCard(admin, {
+    code: data.gift_card_code,
+    maxCents: giftCardCapCents,
+    dueCents: beforeGiftCardCents,
+    kind: "restoration",
+    customerEmail: data.customer.email,
+    expiresAt: expiry.holdExpiresAt,
+  });
+  if (hold.status === "in_use") {
+    return Response.json({ error: GIFT_CARD_IN_USE_MESSAGE, code: "GIFT_CARD_IN_USE" }, { status: 409 });
+  }
+  if (hold.status === "error") {
+    return Response.json({ error: "We couldn't apply your gift card. Please try again in a moment.", code: "GIFT_CARD_UNAVAILABLE" }, { status: 503 });
+  }
+  const giftCardDiscountCents = hold.status === "held" ? hold.cents : 0;
+  const giftCardId: string | null = hold.status === "held" ? hold.giftCardId : null;
+  const holdId = hold.status === "held" ? hold.holdId : null;
+
+  const totalCents = Math.max(0, beforeGiftCardCents - giftCardDiscountCents);
 
   const shipFromAddress = {
     name: data.customer.name,
@@ -466,7 +432,8 @@ export async function POST(request: Request) {
     const actualError = orderErr
       ? `${orderErr.message}${orderErr.details ? ` | ${orderErr.details}` : ""}${orderErr.hint ? ` | Hint: ${orderErr.hint}` : ""} | Code: ${orderErr.code ?? "unknown"}`
       : "No order returned from insert";
-    logCheckoutError({
+    await releaseGiftCardHold(admin, holdId, "checkout_failed");
+    await logCheckoutError({
       ref,
       timestamp: new Date().toISOString(),
       code: "ORDER_SAVE_FAILED",
@@ -474,11 +441,11 @@ export async function POST(request: Request) {
       customer_name: data.customer.name,
       customer_email: data.customer.email,
       customer_phone: data.customer.phone,
-      tier: restorationTier ?? uniqueTiers.join("+") ?? undefined,
+      tier: restorationTier ?? uniqueTiers.join("+"),
       card_count: data.cards.length,
       shipping_method: data.shipping_method,
       user_agent: userAgent,
-    }).catch(() => {});
+    });
     return Response.json({
       error: "Failed to save your order. Please try again or DM @the_card_doc on Instagram.",
       code: "ORDER_SAVE_FAILED",
@@ -486,38 +453,34 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
+  await attachGiftCardHold(admin, holdId, { orderId: order.id });
+
+  // Nothing can be paid for now: the order is kept (signed records are
+  // permanent), marked cancelled, and its gift card hold let go
+  const stopCheckout = async (note: string) => {
+    await releaseGiftCardHold(admin, holdId, "checkout_failed");
+    await admin.from("orders").update({ status: "cancelled", internal_notes: note }).eq("id", order.id);
+  };
+
   // Insert order_services: price_cents is the per-card price and quantity the
   // card count, so price_cents × quantity adds up to the subtotal. Cards are
   // grouped by tier and price (percentage tiers can price each card differently).
   const orderServices: { order_id: string; service_id: string; service_name: string; price_cents: number; quantity: number }[] = [];
-  if (uniqueTiers.length > 0) {
-    const groups = new Map<string, { tierId: RestorationTierId; price: number; count: number }>();
-    data.cards.forEach((card, i) => {
-      const tierId = cardTiers[i];
-      if (!tierId) return;
-      const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
-      const price = getCardPriceCents(tier, card.estimated_value_cents);
-      const key = `${tierId}:${price}`;
-      const group = groups.get(key);
-      if (group) group.count += 1;
-      else groups.set(key, { tierId, price, count: 1 });
-    });
-    for (const { tierId, price, count } of groups.values()) {
-      orderServices.push({
-        order_id: order.id,
-        service_id: tierId,
-        service_name: `${getTierById(tierId).name} - Full Restoration & PSA Prep`,
-        price_cents: price,
-        quantity: count,
-      });
-    }
-  } else {
+  const groups = new Map<string, { tierId: RestorationTierId; price: number; count: number }>();
+  cardPrices.forEach((price, i) => {
+    const tierId = tierOf(i);
+    const key = `${tierId}:${price}`;
+    const group = groups.get(key);
+    if (group) group.count += 1;
+    else groups.set(key, { tierId, price, count: 1 });
+  });
+  for (const { tierId, price, count } of groups.values()) {
     orderServices.push({
       order_id: order.id,
-      service_id: serviceId ?? "",
-      service_name: serviceName,
-      price_cents: getRatePerCard(data.cards.length),
-      quantity: data.cards.length,
+      service_id: tierId,
+      service_name: serviceNameOf(tierId),
+      price_cents: price,
+      quantity: count,
     });
   }
   if (slabCrackCount > 0) {
@@ -547,17 +510,12 @@ export async function POST(request: Request) {
       quantity: 1,
     });
   }
-  await admin.from("order_services").insert(orderServices);
+  const { error: servicesErr } = await admin.from("order_services").insert(orderServices);
 
   // Insert cards (the order's items), each with what it cost: its service
   // price and its share of the discount and tax, for per-card refunds
-  const cardPrices = data.cards.map((card, i) => {
-    const tierId = cardTiers[i];
-    if (!tierId) return getRatePerCard(data.cards.length);
-    return getCardPriceCents(applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null), card.estimated_value_cents);
-  });
   const bulkWon = bulkDiscountCents > 0 && discountCents === bulkDiscountCents;
-  const amounts = itemAmounts(cardPrices, discountCents, bulkWon ? cardTiers.map((t) => !!t && isBulkEligible(t)) : undefined);
+  const amounts = itemAmounts(cardPrices, discountCents, bulkWon ? cardTiers.map((t) => isBulkEligible(t)) : undefined);
   const cardIds = data.cards.map(() => randomUUID());
   const cardRows = data.cards.map((c, i) => ({
     id: cardIds[i],
@@ -603,7 +561,7 @@ export async function POST(request: Request) {
     cards: data.cards.map((c, i) => ({
       ...cardDetails(c, c.estimated_value_cents),
       services: [
-        { name: cardTiers[i] ? `${getTierById(cardTiers[i]!).name} - Full Restoration & PSA Prep` : serviceName, cents: cardPrices[i] },
+        { name: serviceNameOf(tierOf(i)), cents: cardPrices[i] },
         ...(slabSigned[i] ? [{ name: "Slab removal (signed authorization)", cents: 700 }] : []),
         ...(perCardPregrade && c.needs_pregrade ? [{ name: "Pregrade", cents: 2500 }] : []),
       ],
@@ -624,6 +582,7 @@ export async function POST(request: Request) {
         : { name: "Shipping insurance: declined" },
       { name: "Sales tax", cents: taxCents },
       ...(giftCardDiscountCents > 0 ? [{ name: "Gift card", cents: -giftCardDiscountCents }] : []),
+      ...(tipCents > 0 ? [{ name: "Tip", cents: tipCents }] : []),
     ],
     total_cents: totalCents,
     choices: signingChoices(data),
@@ -638,11 +597,12 @@ export async function POST(request: Request) {
       return sig ? [slabSignatureInput(order.id, terms, cardIds[i], { ...c, declared_value_cents: c.estimated_value_cents }, sig.signer_name)] : [];
     }),
   ];
-  const signed = cardsErr ? { error: cardsErr.message } : await recordSignatures(admin, signatureInputs, ctx);
+  const recordsErr = cardsErr ?? servicesErr;
+  const signed = recordsErr ? { error: recordsErr.message } : await recordSignatures(admin, signatureInputs, ctx);
   const consentError = "error" in signed ? null : await recordConsents(admin, checkoutConsents(order.id, data), ctx);
   if ("error" in signed || consentError) {
     console.error("Checkout records failed:", "error" in signed ? signed.error : consentError);
-    await admin.from("orders").update({ status: "cancelled", internal_notes: "Checkout stopped: the signed records could not be saved." }).eq("id", order.id);
+    await stopCheckout("Checkout stopped: the signed records could not be saved.");
     return Response.json({
       error: "We couldn't save your signed order. Please try again or DM @the_card_doc on Instagram.",
       code: "SIGNATURE_SAVE_FAILED",
@@ -661,44 +621,32 @@ export async function POST(request: Request) {
     is_customer_visible: false,
   });
 
-  // Build Stripe line items — one per tier (or one flat line for legacy/volume pricing)
+  // Build Stripe line items — one per tier
   const lineItems: { price_data: { currency: string; product_data: { name: string }; unit_amount: number }; quantity: number }[] = [];
 
-  if (uniqueTiers.length > 0) {
-    // For percentage-based tiers (Elite), each card may have a different price — one line item per card.
-    // For fixed tiers, group by tier so Stripe shows a cleaner receipt.
-    const hasPercentageTier = uniqueTiers.some((t) => getTierById(t).pricing_type === "percentage");
-    if (hasPercentageTier) {
-      data.cards.forEach((card, i) => {
-        const tierId = cardTiers[i];
-        if (!tierId) return;
-        const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
-        const price = getCardPriceCents(tier, card.estimated_value_cents);
-        if (price > 0) {
-          lineItems.push({
-            price_data: { currency: "usd", product_data: { name: `${tier.name} - ${card.card_name}` }, unit_amount: price },
-            quantity: 1,
-          });
-        }
-      });
-    } else {
-      const tierCardCounts: Partial<Record<RestorationTierId, number>> = {};
-      for (const tierId of cardTiers) {
-        if (tierId) tierCardCounts[tierId] = (tierCardCounts[tierId] ?? 0) + 1;
-      }
-      for (const [tierId, count] of Object.entries(tierCardCounts) as [RestorationTierId, number][]) {
-        const tier = applyDbOverride(getTierById(tierId), settingsMap[tierId] ?? null);
+  // For percentage-based tiers (Elite), each card may have a different price — one line item per card.
+  // For fixed tiers, group by tier so Stripe shows a cleaner receipt.
+  const hasPercentageTier = uniqueTiers.some((t) => getTierById(t).pricing_type === "percentage");
+  if (hasPercentageTier) {
+    data.cards.forEach((card, i) => {
+      const price = cardPrices[i];
+      if (price > 0) {
         lineItems.push({
-          price_data: { currency: "usd", product_data: { name: `${tier.name} - Full Restoration & PSA Prep` }, unit_amount: tier.price_cents },
-          quantity: count,
+          price_data: { currency: "usd", product_data: { name: `${liveTier(tierOf(i)).name} - ${card.card_name}` }, unit_amount: price },
+          quantity: 1,
         });
       }
-    }
-  } else {
-    lineItems.push({
-      price_data: { currency: "usd", product_data: { name: "Full Restoration & PSA Prep" }, unit_amount: getRatePerCard(data.cards.length) },
-      quantity: data.cards.length,
     });
+  } else {
+    const tierCardCounts: Partial<Record<RestorationTierId, number>> = {};
+    for (const tierId of uniqueTiers) tierCardCounts[tierId] = cardTiers.filter((t) => t === tierId).length;
+    for (const [tierId, count] of Object.entries(tierCardCounts) as [RestorationTierId, number][]) {
+      const tier = liveTier(tierId);
+      lineItems.push({
+        price_data: { currency: "usd", product_data: { name: `${tier.name} - Full Restoration & PSA Prep` }, unit_amount: tier.price_cents },
+        quantity: count,
+      });
+    }
   }
   lineItems.push({
     price_data: { currency: "usd", product_data: { name: "Sales Tax (6.625%)" }, unit_amount: taxCents },
@@ -754,6 +702,13 @@ export async function POST(request: Request) {
     });
   }
 
+  if (tipCents > 0) {
+    lineItems.push({
+      price_data: { currency: "usd", product_data: { name: "Tip — Thank you!" }, unit_amount: tipCents },
+      quantity: 1,
+    });
+  }
+
   // Discount and gift card go to Stripe as one fixed-amount coupon. Stripe refuses
   // negative line items, and a percent coupon would also take the percentage off
   // tax and add-ons, so the charge would not match totalCents.
@@ -774,6 +729,7 @@ export async function POST(request: Request) {
       stripeDiscounts = [{ coupon: coupon.id }];
     } catch (err) {
       console.error("Failed to create Stripe coupon:", err);
+      await stopCheckout("Payment session could not be created.");
       return Response.json({
         error: "Payment setup failed. Please try again. If this keeps happening, DM @the_card_doc on Instagram.",
         code: "PAYMENT_SETUP_FAILED",
@@ -781,7 +737,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = siteUrl();
   let session;
   try {
     session = await stripe.checkout.sessions.create({
@@ -789,6 +745,9 @@ export async function POST(request: Request) {
       customer_email: data.customer.email,
       line_items: lineItems,
       discounts: stripeDiscounts,
+      // A held gift card balance comes back after its hold ends, so these
+      // sessions close after an hour (others keep Stripe's 24 hours)
+      ...(giftCardDiscountCents > 0 ? { expires_at: expiry.stripeExpiresAt } : {}),
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/checkout/cancel`,
       metadata: {
@@ -820,7 +779,8 @@ export async function POST(request: Request) {
     console.error("Stripe session creation failed:", err);
     const ref = `PAYMENT_SETUP_FAILED-${Date.now().toString(36).toUpperCase()}`;
     const stripeMsg = err instanceof Error ? err.message : String(err);
-    logCheckoutError({
+    await stopCheckout("Payment session could not be created.");
+    await logCheckoutError({
       ref,
       timestamp: new Date().toISOString(),
       code: "PAYMENT_SETUP_FAILED",
@@ -828,11 +788,11 @@ export async function POST(request: Request) {
       customer_name: data.customer.name,
       customer_email: data.customer.email,
       customer_phone: data.customer.phone,
-      tier: restorationTier ?? uniqueTiers.join("+") ?? undefined,
+      tier: restorationTier ?? uniqueTiers.join("+"),
       card_count: data.cards.length,
       shipping_method: data.shipping_method,
       user_agent: userAgent,
-    }).catch(() => {});
+    });
     return Response.json({
       error: "Payment setup failed. Please try again. If this keeps happening, DM @the_card_doc on Instagram.",
       code: "PAYMENT_SETUP_FAILED",
@@ -840,8 +800,9 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
-  // Save Stripe session ID
+  // Save Stripe session ID (on the order, and on the gift card hold)
   await admin.from("orders").update({ stripe_session_id: session.id }).eq("id", order.id);
+  await attachGiftCardHold(admin, holdId, { sessionId: session.id });
 
   return Response.json({ url: session.url });
 }

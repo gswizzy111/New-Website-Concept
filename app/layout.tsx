@@ -69,7 +69,10 @@ export default function RootLayout({
             and the Meta pixel itself, after taking Stripe session IDs out of
             the address and only on pages that may be reported: no email,
             case link, one-time token or session ID ever reaches them, in
-            the page address or as the previous page (lib/tracking-guard.ts). */}
+            the page address or as the previous page. It sets window.__gpc
+            first: with Global Privacy Control on, the Meta pixel (the
+            fbevents.js loader, init and PageView) is never loaded
+            (lib/tracking-guard.ts). */}
         <script dangerouslySetInnerHTML={{ __html: trackingGuardScript() }} />
       </head>
       <body className="min-h-full flex flex-col">

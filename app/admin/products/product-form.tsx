@@ -56,19 +56,45 @@ export function ProductForm({ initial }: ProductFormProps) {
   const [showPresetInput, setShowPresetInput] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
 
+  // This product's saved costs must be read before they can be saved:
+  // saving the form's empty list over costs that failed to load would wipe them
+  const [costsLoaded, setCostsLoaded] = useState(!initial?.id);
+
   useEffect(() => {
     if (!initial?.id) return;
     fetch("/api/admin/product-costs")
-      .then((r) => r.json())
-      .then((config: ProductCostsConfig) => {
-        setPresets(config.presets ?? []);
+      .then(async (r) => {
+        const config = (await r.json()) as ProductCostsConfig;
+        if (!r.ok || !config?.products || typeof config.products !== "object") throw new Error();
+        setPresets(Array.isArray(config.presets) ? config.presets : []);
         const entry = config.products[initial.id];
         if (entry?.components?.length) {
           setComponents(entry.components.map((c) => ({ name: c.name, cost_str: (c.cost_cents / 100).toFixed(2) })));
         }
+        setCostsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => toast.error("Couldn't load this product's costs. Reload the page to edit them."));
   }, [initial?.id]);
+
+  /** One change to the saved costs, made on the server; the presets after it, or null if it failed. */
+  async function changeCosts(change: Record<string, unknown>): Promise<ComponentPreset[] | null> {
+    try {
+      const res = await fetch("/api/admin/product-costs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(change),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !Array.isArray(data.presets)) {
+        toast.error(data.error ?? "Product costs couldn't be saved. Please try again.");
+        return null;
+      }
+      return data.presets as ComponentPreset[];
+    } catch {
+      toast.error("Product costs couldn't be saved. Please try again.");
+      return null;
+    }
+  }
 
   // Upsell toggle — stored separately in storage config, not in DB column
   const [isUpsell, setIsUpsell] = useState(false);
@@ -146,61 +172,70 @@ export function ProductForm({ initial }: ProductFormProps) {
     };
 
     const url = initial ? `/api/admin/products/${initial.id}` : "/api/admin/products";
-    const [res] = await Promise.all([
-      fetch(url, {
-        method: initial ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }),
-      initial?.id ? saveCosts(initial.id) : Promise.resolve(),
-    ]);
-    const data = await res.json();
-    setSaving(false);
-    if (data.ok) {
+    try {
+      const [res, costsSaved] = await Promise.all([
+        fetch(url, {
+          method: initial ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }),
+        initial?.id && costsLoaded ? saveCosts(initial.id) : Promise.resolve(true),
+      ]);
+      const data = await res.json().catch(() => ({}));
+      if (!data.ok) {
+        toast.error(data.error ?? "Failed to save.");
+        return;
+      }
+      // The product saved but its costs didn't: stay here so they can be saved again
+      if (!costsSaved) return;
       toast.success(initial ? "Product updated!" : "Product created!");
       router.push("/admin/products");
       router.refresh();
-    } else {
-      toast.error(data.error ?? "Failed to save.");
+    } catch {
+      toast.error("Failed to save.");
+    } finally {
+      setSaving(false);
     }
   }
 
-  async function saveCosts(productId: string) {
+  /** Saves this product's components; true if they were saved. */
+  async function saveCosts(productId: string): Promise<boolean> {
+    if (!costsLoaded) {
+      toast.error("Couldn't load this product's costs. Reload the page to edit them.");
+      return false;
+    }
     const validComponents = components
       .filter((c) => c.name.trim())
-      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) }));
-    const cost_cents = validComponents.reduce((s, c) => s + c.cost_cents, 0);
+      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) || 0 }));
 
     setCostsSaving(true);
-    const config: ProductCostsConfig = await fetch("/api/admin/product-costs").then((r) => r.json()).catch(() => ({ products: {}, restoration: { regular_cents: 0, expedited_cents: 0, premium_cents: 0, ultra_premium_cents: 0 } }));
-    config.products[productId] = { components: validComponents, cost_cents };
-    await fetch("/api/admin/product-costs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
+    const saved = await changeCosts({ action: "set_product", product_id: productId, components: validComponents });
+    if (saved) setPresets(saved);
     setCostsSaving(false);
+    return saved !== null;
   }
 
   async function saveAsPreset() {
     if (!presetName.trim()) return;
     const validComponents = components
       .filter((c) => c.name.trim())
-      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) }));
+      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) || 0 }));
     if (!validComponents.length) { toast.error("Add at least one component first."); return; }
+    const name = presetName.trim();
     setPresetSaving(true);
-    const config: ProductCostsConfig = await fetch("/api/admin/product-costs").then((r) => r.json()).catch(() => ({ products: {}, restoration: { regular_cents: 0, expedited_cents: 0, premium_cents: 0, ultra_premium_cents: 0 }, presets: [] }));
-    const newPreset: ComponentPreset = { id: crypto.randomUUID(), name: presetName.trim(), components: validComponents };
-    config.presets = [...(config.presets ?? []), newPreset];
-    await fetch("/api/admin/product-costs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
-    setPresets(config.presets);
+    const saved = await changeCosts({ action: "add_preset", name, components: validComponents });
+    setPresetSaving(false);
+    if (!saved) return;
+    setPresets(saved);
     setPresetName("");
     setShowPresetInput(false);
-    setPresetSaving(false);
-    toast.success(`Preset "${newPreset.name}" saved`);
+    toast.success(`Preset "${name}" saved`);
   }
 
   async function deletePreset(id: string) {
-    const config: ProductCostsConfig = await fetch("/api/admin/product-costs").then((r) => r.json()).catch(() => ({ products: {}, restoration: { regular_cents: 0, expedited_cents: 0, premium_cents: 0, ultra_premium_cents: 0 }, presets: [] }));
-    config.presets = (config.presets ?? []).filter((p) => p.id !== id);
-    await fetch("/api/admin/product-costs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
-    setPresets(config.presets);
+    const saved = await changeCosts({ action: "delete_preset", id });
+    if (!saved) return;
+    setPresets(saved);
     toast.success("Preset deleted");
   }
 
@@ -214,13 +249,12 @@ export function ProductForm({ initial }: ProductFormProps) {
 
   async function saveComponentAsPreset(comp: { name: string; cost_str: string }) {
     if (!comp.name.trim()) { toast.error("Name the component first."); return; }
-    const cost_cents = Math.round(parseFloat(comp.cost_str || "0") * 100);
-    const config: ProductCostsConfig = await fetch("/api/admin/product-costs").then((r) => r.json()).catch(() => ({ products: {}, restoration: { regular_cents: 0, expedited_cents: 0, premium_cents: 0, ultra_premium_cents: 0 }, presets: [] }));
-    const newPreset: ComponentPreset = { id: crypto.randomUUID(), name: comp.name.trim(), components: [{ name: comp.name.trim(), cost_cents }] };
-    config.presets = [...(config.presets ?? []), newPreset];
-    await fetch("/api/admin/product-costs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
-    setPresets(config.presets);
-    toast.success(`Saved "${comp.name.trim()}" as preset`);
+    const name = comp.name.trim();
+    const cost_cents = Math.round(parseFloat(comp.cost_str || "0") * 100) || 0;
+    const saved = await changeCosts({ action: "add_preset", name, components: [{ name, cost_cents }] });
+    if (!saved) return;
+    setPresets(saved);
+    toast.success(`Saved "${name}" as preset`);
   }
 
   const totalCogs = components.reduce((s, c) => s + (parseFloat(c.cost_str || "0") || 0), 0);
@@ -441,7 +475,12 @@ export function ProductForm({ initial }: ProductFormProps) {
                 {" "}({Math.round(((parseFloat(form.price) - totalCogs) / parseFloat(form.price)) * 100)}%)
               </div>
             )}
-            <Button variant="outline" size="sm" onClick={() => saveCosts(initial.id)} disabled={costsSaving}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => { if (await saveCosts(initial.id)) toast.success("Costs saved"); }}
+              disabled={costsSaving || !costsLoaded}
+            >
               {costsSaving ? "Saving..." : "Save Costs"}
             </Button>
           </div>

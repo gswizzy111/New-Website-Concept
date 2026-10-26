@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
 import { newToken, sha256 } from "@/lib/admin-session";
 import { SETUP_LINK_DAYS } from "@/lib/creator-portal";
+import { siteUrl } from "@/lib/site-url";
 
 // A one-time link for the creator to choose their portal password (first
 // time, or when they forget it). A new link replaces the last one; their
@@ -19,7 +20,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     .select("id");
   if (error) return Response.json({ error: "Could not make a link. Please try again." }, { status: 500 });
   if (!data?.length) return Response.json({ error: "Code not found." }, { status: 404 });
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
+  const appUrl = siteUrl();
   return Response.json({ ok: true, url: `${appUrl}/affiliates/setup?token=${token}`, expires_at: expiresAt });
 }
 

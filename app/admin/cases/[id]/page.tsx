@@ -1,11 +1,12 @@
-import { cookies, headers } from "next/headers";
 import { redirect, notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { StatusUpdater, AddNoteForm, CopyLinkButton } from "./case-actions";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { INQUIRY_TYPE, orderLabel } from "@/lib/card-inquiries";
+import { PROBLEM_TYPE } from "@/lib/problem-reports";
 import { isAdmin } from "@/lib/admin-auth";
+import { siteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +30,8 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
   const admin = createAdminClient();
 
-  const hdrs = await headers();
-  const host = hdrs.get("host") ?? "thecarddoc1.com";
-  const proto = host.startsWith("localhost") ? "http" : "https";
-  const appUrl = `${proto}://${host}`;
+  // The complaint link goes to the customer: the site's public address
+  const appUrl = siteUrl();
 
   const [{ data: c }, { data: notes }] = await Promise.all([
     admin.from("cases").select("*").eq("id", id).single(),
@@ -43,13 +42,18 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
   const isSupport = c.type === "support";
   const isInquiry = c.type === INQUIRY_TYPE;
-  // Support cases and card inquiries both have a customer to write back to.
-  const hasCustomer = isSupport || isInquiry;
+  // "Report a problem" from an order page (lib/problem-reports.ts)
+  const isProblem = c.type === PROBLEM_TYPE;
+  // Support cases, card inquiries and problem reports all have a customer to
+  // write back to.
+  const hasCustomer = isSupport || isInquiry || isProblem;
+  // Update requests and problem reports are filed against an order
+  const hasOrder = isInquiry || isProblem;
 
-  // Update requests: the order as it stands now, to answer from. Kit orders
-  // are filed as K<order number>.
-  const kitNumber = isInquiry && c.order_ref && /^K\d+$/.test(c.order_ref) ? Number(c.order_ref.slice(1)) : null;
-  const { data: order } = isInquiry && c.order_ref && kitNumber === null
+  // The order as it stands now, to answer from. Kit orders are filed as
+  // K<order number>.
+  const kitNumber = hasOrder && c.order_ref && /^K\d+$/.test(c.order_ref) ? Number(c.order_ref.slice(1)) : null;
+  const { data: order } = hasOrder && c.order_ref && kitNumber === null
     ? await admin
         .from("orders")
         .select("id, order_number, status, created_at")
@@ -75,8 +79,8 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         {/* Header card */}
         <div className="bg-white rounded-xl border border-border p-6 mb-5">
           <div className="flex flex-wrap items-start gap-2 mb-3">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isInquiry ? "bg-rx text-white" : isSupport ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
-              {isInquiry ? "Update Request" : isSupport ? "Support" : "Internal"}
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isInquiry ? "bg-rx text-white" : isProblem ? "bg-red-100 text-red-800" : isSupport ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+              {isInquiry ? "Update Request" : isProblem ? "Problem Report" : isSupport ? "Support" : "Internal"}
             </span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[c.status] ?? "bg-gray-100 text-gray-500"}`}>
               {c.status.replace("_", " ").replace(/\b\w/g, (l: string) => l.toUpperCase())}
@@ -109,7 +113,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           <StatusUpdater caseId={c.id} currentStatus={c.status} />
         </div>
 
-        {/* Customer info + complaint link — support cases and card inquiries */}
+        {/* Customer info + complaint link — support cases, card inquiries and problem reports */}
         {hasCustomer && (
           <div className="bg-white rounded-xl border border-border p-6 mb-5 flex flex-col gap-4">
             {(c.customer_name || c.customer_email || c.customer_phone) && (
@@ -123,7 +127,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
               </div>
             )}
 
-            {isInquiry && (
+            {hasOrder && (
               <div>
                 <h2 className="font-heading font-black text-base mb-2">Order</h2>
                 {order ? (

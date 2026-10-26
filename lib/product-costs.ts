@@ -44,15 +44,39 @@ async function ensureBucket(admin: ReturnType<typeof createAdminClient>) {
 
 /** Supabase Storage's answer when the file has never been saved. */
 function isMissingFile(error: { message?: string; status?: number; statusCode?: string }): boolean {
-  return error.status === 404 || error.statusCode === "404" || /not.?found|NoSuchKey/i.test(`${error.statusCode ?? ""} ${error.message ?? ""}`);
+  return error.status === 404 || error.statusCode === "404" || /object not found|NoSuchKey/i.test(`${error.statusCode ?? ""} ${error.message ?? ""}`);
+}
+
+const RESTORATION_KEYS = ["regular_cents", "expedited_cents", "premium_cents", "ultra_premium_cents"] as const;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const isCents = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * A whole config sent to be saved, or null unless it has the config's shape:
+ * products an object of product entries, presets a list, and restoration
+ * all four costs. Every product's costs and presets live in this one file,
+ * so a partial or empty config is never saved over it.
+ */
+export function parseProductCostsConfig(value: unknown): ProductCostsConfig | null {
+  if (!isRecord(value) || !isRecord(value.products) || !Array.isArray(value.presets) || !isRecord(value.restoration)) return null;
+  if (!Object.values(value.products).every(isRecord)) return null;
+  if (!value.presets.every((p) => isRecord(p) && typeof p.id === "string")) return null;
+  const r = value.restoration;
+  if (!RESTORATION_KEYS.every((k) => isCents(r[k]))) return null;
+  return {
+    products: value.products as ProductCostsConfig["products"],
+    restoration: Object.fromEntries(RESTORATION_KEYS.map((k) => [k, r[k]])) as unknown as RestorationCosts,
+    presets: value.presets as ComponentPreset[],
+  };
 }
 
 /**
- * The saved config, or the empty default when it has never been saved.
- * Throws when it can't be read, so nothing is ever saved over a config that
- * wasn't read (every product's costs and presets live in this one file).
+ * The saved config, or the empty default only when it has never been saved.
+ * Throws when it can't be read or parsed, so nothing is ever saved over a
+ * config that wasn't read (GET /api/admin/product-costs answers 500).
  */
-export async function readProductCosts(): Promise<ProductCostsConfig> {
+export async function getProductCosts(): Promise<ProductCostsConfig> {
   const admin = createAdminClient();
   await ensureBucket(admin);
   const { data, error } = await admin.storage.from(BUCKET).download(FILE);
@@ -61,22 +85,13 @@ export async function readProductCosts(): Promise<ProductCostsConfig> {
     throw new Error(`Product costs could not be read: ${error.message}`);
   }
   if (!data) throw new Error("Product costs could not be read: empty answer");
-  const parsed = JSON.parse(await data.text());
+  const parsed: unknown = JSON.parse(await data.text());
+  if (!isRecord(parsed)) throw new Error("Product costs could not be read: the saved file is not a config");
   return {
-    products: parsed.products ?? {},
-    restoration: { ...DEFAULT.restoration, ...(parsed.restoration ?? {}) },
-    presets: parsed.presets ?? [],
+    products: isRecord(parsed.products) ? (parsed.products as ProductCostsConfig["products"]) : {},
+    restoration: { ...DEFAULT.restoration, ...(isRecord(parsed.restoration) ? parsed.restoration : {}) },
+    presets: Array.isArray(parsed.presets) ? (parsed.presets as ComponentPreset[]) : [],
   };
-}
-
-/** For display: the saved config, or the empty default if it can't be read. */
-export async function getProductCosts(): Promise<ProductCostsConfig> {
-  try {
-    return await readProductCosts();
-  } catch (err) {
-    console.error(err instanceof Error ? err.message : err);
-    return structuredClone(DEFAULT);
-  }
 }
 
 /** Saves the whole config. Throws if the save fails. */
@@ -94,7 +109,7 @@ export async function saveProductCosts(config: ProductCostsConfig): Promise<void
  * what a browser happened to have. Throws if the read or the save fails.
  */
 export async function updateProductCosts(change: (config: ProductCostsConfig) => void): Promise<ProductCostsConfig> {
-  const config = await readProductCosts();
+  const config = await getProductCosts();
   change(config);
   await saveProductCosts(config);
   return config;

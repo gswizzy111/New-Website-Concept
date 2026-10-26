@@ -1,10 +1,19 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/fetch-all";
+import { TIER_MAX_SLOTS } from "@/lib/site-config";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
 /** A checkout still pending in Stripe this long holds its cards' slots; older ones are abandoned. */
 export const SLOT_HOLD_MINUTES = 30;
+
+/**
+ * A tier's slot limit in cards: the admin's max_slots (restoration_settings),
+ * else the site-config fallback, else none (null).
+ */
+export function tierMaxSlots(tierId: string, dbMaxSlots: number | null | undefined): number | null {
+  return dbMaxSlots ?? TIER_MAX_SLOTS[tierId] ?? null;
+}
 
 /**
  * The slots each restoration tier has taken, in cards: every card on a paid
@@ -20,11 +29,7 @@ export async function tierSlotUsage(admin: Admin, slotsOpenedAt: string | null):
   const pendingSince = new Date(pendingSinceMs).toISOString();
 
   // One grouped count in the database (supabase/migrations/20261027_checkout.sql)
-  const { data, error } = await admin.rpc(
-    "tier_slot_usage",
-    { p_since: slotsOpenedAt, p_pending_since: pendingSince },
-    { get: true },
-  );
+  const { data, error } = await admin.rpc("tier_slot_usage", { p_since: slotsOpenedAt, p_pending_since: pendingSince });
   if (!error) {
     const usage: Record<string, number> = {};
     for (const row of (data ?? []) as { tier: string; cards: number }[]) usage[row.tier] = Number(row.cards) || 0;

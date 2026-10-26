@@ -10,13 +10,14 @@ import { PhotoFigure } from "@/components/about/photo-figure";
 import { ResultsGallery } from "@/components/about/results-gallery";
 import { getCardsFinishedStat } from "@/lib/site-stats";
 import { FOUNDERS, FOUNDERS_MESSAGE, HERO, PROCESS, REASONS, RESULTS, STORY } from "@/lib/about";
+import { siteUrl } from "@/lib/site-url";
 
 // The finished-cards figure is read from the database; refresh it hourly.
 export const revalidate = 3600;
 
 // The site's own address (set in Netlify), so the share image and structured
 // data point at the domain the page is served from.
-const SITE = process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
+const SITE = siteUrl();
 // The root layout has no metadataBase, so the share image needs a full URL.
 const OG_IMAGE = { url: `${SITE}/og-image.png`, width: 1254, height: 1254 };
 const INSTAGRAM = "https://www.instagram.com/the_card_doc";

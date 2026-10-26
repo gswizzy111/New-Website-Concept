@@ -10,6 +10,7 @@ import { LogoutButton } from "../../logout-button";
 import { CardEditor } from "./card-editor";
 import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
+import { trackingLink } from "@/lib/tracking-carrier";
 
 export const dynamic = "force-dynamic";
 
@@ -232,7 +233,9 @@ export default async function AccountOrderPage({
                 <p className="rx-label text-rx mb-1">Return Tracking</p>
                 <p className="font-mono font-black text-base text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
                 <a
-                  href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
+                  href={order.outbound_tracking_number === order.tracking_number
+                    ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
+                    : trackingLink(order.tracking_number)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors inline-block"
@@ -246,7 +249,7 @@ export default async function AccountOrderPage({
             <div className="bg-white rounded-xl border border-border p-5">
               <h2 className="font-heading font-black text-sm uppercase tracking-wide text-muted-foreground mb-3">Order Summary</h2>
               <div className="flex flex-col gap-2 text-sm">
-                {services.map((s: any) => (
+                {(services as { id: string; service_name: string; quantity: number; price_cents: number }[]).map((s) => (
                   <div key={s.id} className="flex justify-between">
                     <span className="text-muted-foreground">{s.service_name} × {s.quantity}</span>
                     <span className="font-medium">{formatCurrency(s.price_cents * s.quantity)}</span>

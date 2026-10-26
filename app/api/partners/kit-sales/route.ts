@@ -15,7 +15,8 @@ export async function POST(request: Request) {
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];
-    return Response.json({ error: field === "product_type" ? "Invalid product type" : "Invalid quantity" }, { status: 400 });
+    const error = field === "product_type" ? "Invalid product type" : field === "notes" ? "Notes are too long." : "Invalid quantity";
+    return Response.json({ error }, { status: 400 });
   }
   const { quantity, notes, product_type } = parsed.data;
 

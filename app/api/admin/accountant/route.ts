@@ -4,6 +4,7 @@ import { generateToken } from "@/lib/crypto";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { z } from "zod";
+import { siteUrl } from "@/lib/site-url";
 
 const InviteBody = z.object({
   name: z.string().min(1),
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Failed to create invite." }, { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   const setupUrl = `${appUrl}/accountant/setup?token=${token}`;
 
   try {

@@ -3,6 +3,7 @@ import { hashPassword } from "@/lib/crypto";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { endSessionsFor, newToken, sha256, TOKEN_PATTERN } from "@/lib/admin-session";
+import { siteUrl } from "@/lib/site-url";
 
 /**
  * Admin and accountant passwords: change (from the admin profile) and
@@ -25,7 +26,7 @@ export function passwordProblem(password: string): string | null {
 }
 
 function appUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
+  return siteUrl();
 }
 
 /** A short admin email: heading, a paragraph, and an optional button. */

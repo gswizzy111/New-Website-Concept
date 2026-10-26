@@ -1,6 +1,7 @@
 import { CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { ClearCartAfterPayment } from "@/components/clear-cart-after-payment";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { stripe } from "@/lib/stripe";
 import { CHECKOUT_SESSION_ID } from "@/lib/tracking-guard";
@@ -12,16 +13,20 @@ export default async function ShopOrderConfirmedPage({
 }) {
   // Stripe adds ?session_id=; the first script on the page takes it out of
   // the address before analytics run (lib/tracking-guard.ts). It is read here
-  // only for the purchase amount.
+  // for the purchase amount and to empty the cart; a reload has none, so
+  // neither happens twice.
   const raw = (await searchParams).session_id;
   const sessionId = raw && CHECKOUT_SESSION_ID.test(raw) ? raw : undefined;
   let amountCents: number | null = null;
   let currency = "usd";
+  // Stripe only returns here after a payment; null when the lookup failed
+  let complete: boolean | null = null;
   if (sessionId) {
     try {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
+      complete = session.status === "complete";
       // Only a completed checkout is a purchase
-      if (session.status === "complete" && session.amount_total != null) {
+      if (complete && session.amount_total != null) {
         amountCents = session.amount_total;
         currency = session.currency ?? "usd";
       }
@@ -33,6 +38,7 @@ export default async function ShopOrderConfirmedPage({
   return (
     <section className="flex-1 flex items-center justify-center min-h-[70vh] px-6">
       <PurchasePixel sessionId={sessionId} amountCents={amountCents} currency={currency} />
+      <ClearCartAfterPayment paid={!!sessionId && complete !== false} />
       <div className="max-w-sm w-full text-center flex flex-col items-center gap-6">
         <CheckCircle className="h-16 w-16 text-primary" />
         <div>

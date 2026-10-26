@@ -7,6 +7,10 @@ import { addressProblem, normalizeAddress } from "@/lib/shipping-address";
 import { usAddressRejection } from "@/lib/verify-address";
 import { verifyKitRate } from "@/lib/kit-shipping";
 import { likeExact } from "@/lib/like-exact";
+import { siteUrl } from "@/lib/site-url";
+import {
+  GIFT_CARD_IN_USE_MESSAGE, attachGiftCardHold, giftCardExpiry, holdGiftCard, releaseGiftCardHold,
+} from "@/lib/gift-card-holds";
 
 const BodySchema = z.object({
   items: z.array(z.object({ id: z.string(), quantity: z.number().int().positive(), slug: z.string(), size: z.string().optional() })).min(1),
@@ -138,22 +142,25 @@ export async function POST(request: Request) {
     quantity: 1,
   });
 
-  // Gift card
-  let giftCardDiscountCents = 0;
-  let giftCardId: string | null = null;
-  if (data.gift_card_code) {
-    const gcCode = data.gift_card_code.trim().toUpperCase();
-    const { data: gc } = await admin
-      .from("gift_cards")
-      .select("id, remaining_cents, status")
-      .eq("code", gcCode)
-      .maybeSingle();
-    if (gc && gc.status === "active" && gc.remaining_cents > 0) {
-      giftCardId = gc.id;
-      const preTaxTotal = productSubtotalCents - discountCents + taxCents + shippingCents;
-      giftCardDiscountCents = Math.min(gc.remaining_cents, preTaxTotal);
-    }
-  }
+  // Gift card: covers up to the whole order. The amount is held for this
+  // checkout so the same balance can't discount another open one
+  // (lib/gift-card-holds.ts), and Stripe is always left $0 or at least 50
+  // cents to charge.
+  const orderTotalCents = productSubtotalCents - discountCents + taxCents + shippingCents;
+  const expiry = giftCardExpiry();
+  const hold = await holdGiftCard(admin, {
+    code: data.gift_card_code,
+    maxCents: orderTotalCents,
+    dueCents: orderTotalCents,
+    kind: "shop",
+    customerEmail: data.customer.email,
+    expiresAt: expiry.holdExpiresAt,
+  });
+  if (hold.status === "in_use") return Response.json({ error: GIFT_CARD_IN_USE_MESSAGE }, { status: 409 });
+  if (hold.status === "error") return Response.json({ error: "We couldn't apply your gift card. Please try again in a moment." }, { status: 503 });
+  const giftCardDiscountCents = hold.status === "held" ? hold.cents : 0;
+  const giftCardId: string | null = hold.status === "held" ? hold.giftCardId : null;
+  const holdId = hold.status === "held" ? hold.holdId : null;
 
   // Discount and gift card go to Stripe as one fixed-amount coupon (Stripe
   // refuses negative line items)
@@ -174,11 +181,12 @@ export async function POST(request: Request) {
       stripeDiscounts = [{ coupon: coupon.id }];
     } catch (err) {
       console.error("Failed to create Stripe coupon:", err);
+      await releaseGiftCardHold(admin, holdId, "checkout_failed");
       return Response.json({ error: "Payment provider error. Please try again." }, { status: 500 });
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
 
   const metadata: Record<string, string> = {
     type: "shop",
@@ -198,6 +206,8 @@ export async function POST(request: Request) {
     // The webhook buys this rate as the outbound label once the order is paid
     metadata.kit_rate_object_id = kitRate.id;
     metadata.kit_shipping_service = `${kitRate.provider} ${kitRate.service}`.trim().slice(0, 100);
+    // Saved with the label, so tracking links go to the right carrier
+    if (kitRate.provider) metadata.kit_carrier = kitRate.provider.slice(0, 50);
   }
 
   let session;
@@ -207,14 +217,19 @@ export async function POST(request: Request) {
       customer_email: data.customer.email,
       line_items: lineItems,
       discounts: stripeDiscounts,
+      // A held gift card balance comes back after its hold ends, so these
+      // sessions close after an hour (others keep Stripe's 24 hours)
+      ...(giftCardDiscountCents > 0 ? { expires_at: expiry.stripeExpiresAt } : {}),
       success_url: `${appUrl}/shop/order-confirmed?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/cart`,
       metadata,
     });
   } catch (err) {
     console.error("Stripe shop session error:", err);
+    await releaseGiftCardHold(admin, holdId, "checkout_failed");
     return Response.json({ error: "Payment provider error. Please try again." }, { status: 500 });
   }
 
+  await attachGiftCardHold(admin, holdId, { sessionId: session.id });
   return Response.json({ url: session.url });
 }

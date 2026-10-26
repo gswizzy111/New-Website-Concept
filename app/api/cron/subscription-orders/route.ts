@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe, invoiceSubscriptionId } from "@/lib/stripe";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 // Runs daily at 8am UTC via netlify/functions/cron-subscription-orders.mjs.
 // Finds any subscription invoices paid in the last 48 hours that don't yet
@@ -63,7 +64,8 @@ export async function GET(request: Request) {
       }
       if (!sub) continue;
 
-      const cronPriceCents = typeof invoice.amount_paid === "number" ? invoice.amount_paid : 6299;
+      // What Stripe charged; the Kit Club price is only a fallback
+      const cronPriceCents = typeof invoice.amount_paid === "number" ? invoice.amount_paid : await getSubscriptionPriceCents();
       // One kit order per invoice: if the invoice.paid webhook saves it at the
       // same moment, theirs stands and nothing is added here
       const { data: inserted, error: insertError } = await admin.from("shop_orders").upsert(

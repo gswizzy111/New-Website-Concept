@@ -2,6 +2,7 @@ import { createClient as createSupabase, type User } from "@supabase/supabase-js
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { escapeHtml } from "@/lib/card-inquiries";
+import { siteUrl } from "@/lib/site-url";
 
 /**
  * Account emails with one-time links: confirm the email address, or reset the
@@ -46,7 +47,7 @@ function safeFirstName(name?: string | null): string {
 }
 
 function appUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
+  return siteUrl();
 }
 
 /**
