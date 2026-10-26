@@ -94,6 +94,15 @@ Rules for this repo:
   `/admin/backlog` and `/admin/services` (PSA Prep vs Full Restoration).
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
+- **Email** goes through Resend from `FROM_EMAIL` (orders@thecarddoc1.com, no
+  mailbox), so `lib/resend.ts` gives every email a reply-to (`CONTACT_EMAIL`,
+  else thecarddoc1@gmail.com) unless it sets its own. Account links (confirm,
+  reset) are minted with `generateLink` and sent by us (`lib/account-links.ts`),
+  never by Supabase's mailer. Resend's webhook (`/api/webhooks/resend`, this
+  site only, `RESEND_WEBHOOK_SECRET`) records bounced, spam-complaint,
+  suppressed and failed emails in `email_problems`; both sites' admins show
+  them on `/admin/email-problems`, as a nav badge and on the order page
+  (`lib/email-problems.ts`).
 
 ## Design skills: who owns what
 

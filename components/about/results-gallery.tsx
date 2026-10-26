@@ -123,19 +123,12 @@ export function ResultsGallery({ cases }: { cases: ResultCase[] }) {
               <h3 className="font-heading text-[1.75rem] md:text-4xl leading-[1.05] tracking-[-0.015em] text-stage-fg">{c.card}</h3>
               {c.detail && <p className="mt-3 rx-label text-stage-muted">{c.detail}</p>}
               <p className="mt-4 text-base md:text-[17px] leading-relaxed text-stage-muted max-w-[42ch]">{c.caption}</p>
-              <p className="mt-6 flex items-center gap-2.5 text-sm text-stage-muted">
-                {c.kind === "slider" ? (
-                  <>
-                    <ChevronsLeftRight className="h-4 w-4 text-rx-bright" strokeWidth={1.75} aria-hidden />
-                    Drag the handle, or use the arrow keys, to compare.
-                  </>
-                ) : (
-                  <>
-                    <span aria-hidden className="h-px w-6 bg-white/30" />
-                    Before and after, side by side.
-                  </>
-                )}
-              </p>
+              {c.kind === "slider" && (
+                <p className="mt-6 flex items-center gap-2.5 text-sm text-stage-muted">
+                  <ChevronsLeftRight className="h-4 w-4 text-rx-bright" strokeWidth={1.75} aria-hidden />
+                  Drag the handle, or use the arrow keys, to compare.
+                </p>
+              )}
             </div>
           </article>
         ))}
