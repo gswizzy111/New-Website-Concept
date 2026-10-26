@@ -3,7 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/fetch-all";
 import { newToken, sha256, TOKEN_PATTERN } from "@/lib/admin-session";
 import { bareAddress } from "@/lib/email-problem-labels";
-import { resend } from "@/lib/resend";
 import { siteUrl } from "@/lib/site-url";
 
 /**
@@ -26,7 +25,7 @@ export function normalizeEmail(email: string | null | undefined): string {
 
 // A plain user@domain.tld. Anything else is left out of a batch up front, so
 // Resend never refuses a batch over it.
-const ADDRESS = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:".]{2,}$/;
+const ADDRESS = /^(?!.*\.\.)[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:".]{2,}$/;
 
 export function isSendableAddress(email: string): boolean {
   return email.length <= 254 && ADDRESS.test(email);
@@ -152,8 +151,8 @@ export type BatchOutcome = {
   sent: string[];
   /** Addresses Resend refused one at a time, with its reason */
   failed: { email: string; reason: string }[];
-  /** Set when Resend refused the whole batch (even after waiting out a rate
-   * limit): nothing in it was sent */
+  /** Set when Resend didn't take the batch (even after waiting out a rate
+   * limit). Treat it as not sent; only a dropped connection leaves that in doubt. */
   batchError: string | null;
 };
 
@@ -195,6 +194,9 @@ export async function sendBatch(messages: BatchMessage[]): Promise<BatchOutcome>
   return { sent: [], failed: [], batchError };
 }
 
-function sendOnce(messages: BatchMessage[]) {
+async function sendOnce(messages: BatchMessage[]) {
+  // Loaded here, not at the top: the public unsubscribe page uses this file
+  // and must render even where no Resend key is set
+  const { resend } = await import("@/lib/resend");
   return resend.batch.send(messages, { batchValidation: "permissive" });
 }

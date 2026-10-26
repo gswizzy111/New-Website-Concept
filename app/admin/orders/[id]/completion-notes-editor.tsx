@@ -26,6 +26,7 @@ export function CompletionNotesEditor({
 }) {
   const [notes, setNotes] = useState(existingNotes);
   const [saved, setSaved] = useState(false);
+  const [emailNote, setEmailNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -35,6 +36,7 @@ export function CompletionNotesEditor({
   async function save() {
     setSaving(true);
     setSaved(false);
+    setEmailNote("");
     setError("");
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/notes`, {
@@ -42,11 +44,13 @@ export function CompletionNotesEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error ?? "Failed to save");
       }
       setSaved(true);
+      if (data.emailed === "sent") setEmailNote("Emailed to the customer.");
+      else if (data.emailed === "failed") setError("Saved, but the email to the customer failed.");
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error saving");
@@ -127,9 +131,11 @@ export function CompletionNotesEditor({
           )}
         </button>
         {saved && <span className="text-xs text-green-600 font-semibold">Saved ✓</span>}
+        {emailNote && <span className="text-xs text-green-600 font-semibold">{emailNote}</span>}
         {error && <span className="text-xs text-red-600">{error}</span>}
         {genError && <span className="text-xs text-red-600">{genError}</span>}
       </div>
+      <p className="text-xs text-muted-foreground">The customer gets these notes by email once, when the order is Completed.</p>
       {generating && (
         <p className="text-xs text-muted-foreground">Claude is writing restorer notes based on the customer's card info…</p>
       )}

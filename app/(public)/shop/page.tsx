@@ -1,4 +1,3 @@
-import { Star } from "lucide-react";
 import { PageHero } from "@/components/marketing/page-hero";
 import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,36 +6,6 @@ import { AddToCartButton } from "./add-to-cart-button";
 import { isSoldOut } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
-
-const RATINGS: { keywords: string[]; stars: number; count: number }[] = [
-  { keywords: ["official"],   stars: 4.97, count: 89 },
-  { keywords: ["essential"],  stars: 4.8,  count: 24 },
-  { keywords: ["starter"],    stars: 4.7,  count: 51 },
-  { keywords: ["clamp"],      stars: 4.9,  count: 17 },
-  { keywords: ["wrinkle"],    stars: 4.85, count: 9  },
-  { keywords: ["tools"],      stars: 4.75, count: 13 },
-  { keywords: ["polish"],     stars: 4.8,  count: 22 },
-  { keywords: ["spray"],      stars: 4.9,  count: 16 },
-];
-
-function getRating(name: string) {
-  const lower = name.toLowerCase();
-  return RATINGS.find((r) => r.keywords.some((k) => lower.includes(k)));
-}
-
-function StarRating({ stars, count }: { stars: number; count: number }) {
-  return (
-    <div className="flex items-center gap-1.5 mt-1">
-      <span className="flex gap-0.5" aria-label="5 star rating">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Star key={i} className="h-3 w-3 fill-amber-500 text-amber-500" strokeWidth={1.5} />
-        ))}
-      </span>
-      <span className="font-mono text-[11px] text-muted-foreground">{stars} ({count})</span>
-    </div>
-  );
-}
-
 
 type Product = {
   id: string;
@@ -50,7 +19,6 @@ type Product = {
 };
 
 function ProductCard({ product }: { product: Product }) {
-  const rating = getRating(product.name);
   const isKit = product.name.toLowerCase().includes("official");
   return (
     <div className="bg-card flex flex-col group relative">
@@ -83,7 +51,6 @@ function ProductCard({ product }: { product: Product }) {
       <div className="p-4 flex flex-col flex-1 gap-3">
         <a href={`/shop/${product.slug}`} className="block flex-1">
           <p className="font-heading font-bold text-ink text-[15px] leading-tight group-hover:text-rx transition-colors">{product.name}</p>
-          {rating && <StarRating stars={rating.stars} count={rating.count} />}
         </a>
         <div className="flex items-center justify-between">
           <span className="font-semibold text-ink text-sm tabular-nums">{formatCurrency(product.price_cents)}</span>

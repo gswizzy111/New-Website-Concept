@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CreateKitOrderButton } from "./create-kit-order-button";
 import { CancelSubscriptionButton } from "./cancel-button";
 import { isAdmin } from "@/lib/admin-auth";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ type SubShopOrder = {
   customer_email: string;
   status: string;
   created_at: string;
+  stripe_session_id: string | null;
   items: SubOrderItem[] | null;
 };
 
@@ -45,10 +47,12 @@ export default async function AdminSubscriptionsPage() {
 
   const admin = createAdminClient();
 
-  const [{ data }, { data: allShopOrders }] = await Promise.all([
+  const [{ data }, { data: allShopOrders }, subscriptionPriceCents] = await Promise.all([
     admin.from("subscriptions").select("*").order("created_at", { ascending: false }),
-    admin.from("shop_orders").select("id, customer_email, status, created_at, items").order("created_at", { ascending: false }),
+    admin.from("shop_orders").select("id, customer_email, status, created_at, stripe_session_id, items").order("created_at", { ascending: false }),
+    getSubscriptionPriceCents(),
   ]);
+  const subscriptionPrice = formatCurrency(subscriptionPriceCents);
 
   const subscriptions: Subscription[] = (data ?? []) as Subscription[];
   const activeCount = subscriptions.filter((s) => s.status === "active").length;
@@ -126,7 +130,7 @@ export default async function AdminSubscriptionsPage() {
         <div>
           <p className="font-bold text-purple-900 text-sm">Monthly Kit Club</p>
           <p className="text-xs text-purple-700 mt-0.5">
-            Every active subscriber receives one full kit per month — billed at $62.99/mo recurring via Stripe.
+            Every active subscriber receives one full kit per month — billed at {subscriptionPrice}/mo recurring via Stripe.
             Monthly kits appear in the <Link href="/admin/ship-queue" className="underline font-semibold">Ship Queue</Link> and <Link href="/admin/shop-orders" className="underline font-semibold">Kit Orders</Link> automatically when Stripe bills them.
           </p>
         </div>
@@ -144,6 +148,13 @@ export default async function AdminSubscriptionsPage() {
             const pendingOrders = myOrders.filter((o) => ["paid", "processing"].includes(o.status));
             const shippedCount = myOrders.filter((o) => ["shipped", "delivered"].includes(o.status)).length;
             const lastOrder = myOrders[0];
+            // A subscription keeps the price it was started at, so show what
+            // Stripe last billed this subscriber (kits made by hand on this
+            // page use the current setting, so they don't count)
+            const lastBilledCents = myOrders
+              .find((o) => !(o.stripe_session_id ?? "").startsWith("manual_sub_"))
+              ?.items?.find((i) => i.product_id === "subscription")?.price_cents;
+            const planPrice = typeof lastBilledCents === "number" ? formatCurrency(lastBilledCents) : subscriptionPrice;
 
             return (
               <div
@@ -175,7 +186,7 @@ export default async function AdminSubscriptionsPage() {
                   </div>
 
                   {/* Plan */}
-                  <p className="text-xs font-bold text-purple-700 mt-0.5">Monthly Kit Club — $62.99/mo</p>
+                  <p className="text-xs font-bold text-purple-700 mt-0.5">Monthly Kit Club — {planPrice}/mo</p>
 
                   <p className="text-sm text-muted-foreground">{sub.customer_email}</p>
                   {sub.customer_phone && (

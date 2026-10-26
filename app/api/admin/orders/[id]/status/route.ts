@@ -1,7 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ORDER_STATUSES } from "@/lib/constants";
-import { resend, fromEmail, businessName } from "@/lib/resend";
+import { resend, fromEmail, businessName, replyToAddress } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
+import { siteUrl } from "@/lib/site-url";
+import { escapeHtml } from "@/lib/card-inquiries";
+import { DONE_STATUSES, emailCompletionNotesOnce, type NotesEmailResult } from "@/lib/completion-notes-email";
 
 const CUSTOMER_MESSAGES: Partial<Record<string, string>> = {
   received: "Great news — we've received your cards and they're checked in!",
@@ -18,20 +21,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const body = await request.json();
-  const { status, tracking_number } = body;
+  const body = await request.json().catch(() => ({}));
+  const { status } = body;
+  const tracking_number = typeof body.tracking_number === "string" ? body.tracking_number.trim() : "";
 
-  if (!status || !(status in ORDER_STATUSES)) {
+  if (typeof status !== "string" || !Object.prototype.hasOwnProperty.call(ORDER_STATUSES, status)) {
     return Response.json({ error: "Invalid status" }, { status: 400 });
   }
 
   const admin = createAdminClient();
 
-  const { data: order } = await admin
+  const { data: order, error: readErr } = await admin
     .from("orders")
-    .select("customer_email, customer_name, order_number")
+    .select("customer_email, customer_name, order_number, status")
     .eq("id", id)
     .single();
+  if (readErr || !order) {
+    return Response.json({ error: readErr?.code === "PGRST116" ? "Order not found" : "Couldn't read the order. Nothing was changed." }, { status: readErr?.code === "PGRST116" ? 404 : 500 });
+  }
+  const previousStatus = order.status as string;
 
   // Build update payload — only include tracking_number if provided
   const updatePayload: Record<string, unknown> = { status };
@@ -44,34 +52,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     ? `Status updated to: Shipped Back — Tracking: ${tracking_number}`
     : `Status updated to: ${ORDER_STATUSES[status as keyof typeof ORDER_STATUSES].label}`;
 
-  await admin.from("order_events").insert({
+  const { error: eventErr } = await admin.from("order_events").insert({
     order_id: id,
     event_type: "status_updated",
     description: eventDescription,
     is_customer_visible: true,
   });
+  if (eventErr) console.error("Failed to log status change:", eventErr.message);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
+  const contact = escapeHtml(replyToAddress);
+  let emailFailed = false;
   const statusLabel = ORDER_STATUSES[status as keyof typeof ORDER_STATUSES].label;
   const customerMessage = CUSTOMER_MESSAGES[status];
 
   // Email customer on meaningful status changes
   if (order && customerMessage) {
-    const firstName = order.customer_name?.split(" ")[0] ?? "there";
+    const firstName = escapeHtml(order.customer_name?.split(" ")[0] || "there");
     const trackingUrl = `${appUrl}/orders/${order.order_number}`;
 
     const trackingBlock = (status === "shipped_back" && tracking_number)
       ? `
         <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
           <p style="margin:0 0 6px;font-size:13px;color:#2d2b29;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Tracking Number</p>
-          <p style="margin:0;font-family:monospace;font-size:20px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${tracking_number}</p>
+          <p style="margin:0;font-family:monospace;font-size:20px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${escapeHtml(tracking_number)}</p>
           <p style="margin:8px 0 0;font-size:13px;color:#2d2b29">Copy this number and paste it on your carrier's website to track your package.</p>
         </div>
       `
       : "";
 
     try {
-      await resend.emails.send({
+      const { error: sendErr } = await resend.emails.send({
         from: fromEmail,
         to: order.customer_email,
         subject: status === "shipped_back"
@@ -89,36 +100,48 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
               <p style="margin:4px 0 0;font-weight:700;font-size:16px">${statusLabel}</p>
             </div>
             <a href="${trackingUrl}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Track Your Order</a>
-            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}" style="color:#c34104">${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}</a></p>
+            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${contact}" style="color:#c34104">${contact}</a></p>
             <p style="font-size:13px;color:#999">${businessName}</p>
           </div>
         `,
       });
+      if (sendErr) {
+        emailFailed = true;
+        console.error("Failed to send status email:", sendErr.message);
+      }
     } catch (err) {
+      emailFailed = true;
       console.error("Failed to send status email:", err);
     }
   }
 
   // Notify admin when cards arrive
-  if (status === "received" && order) {
-    const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL ?? "";
+  const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL ?? "";
+  if (status === "received" && adminEmail) {
     try {
-      await resend.emails.send({
+      const { error: adminSendErr } = await resend.emails.send({
         from: fromEmail,
         to: adminEmail,
-        subject: `📦 Cards Arrived — Order #${order.order_number} from ${order.customer_name}`,
+        subject: `📦 Cards Arrived — Order #${order.order_number} from ${order.customer_name ?? ""}`,
         html: `
           <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
             <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">Cards have arrived!</h1>
-            <p>Order <strong>#${order.order_number}</strong> from <strong>${order.customer_name}</strong> has been marked as received.</p>
+            <p>Order <strong>#${order.order_number}</strong> from <strong>${escapeHtml(order.customer_name ?? "")}</strong> has been marked as received.</p>
             <a href="${appUrl}/admin/orders/${id}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View Order</a>
           </div>
         `,
       });
+      if (adminSendErr) console.error("Failed to send admin received email:", adminSendErr.message);
     } catch (err) {
       console.error("Failed to send admin received email:", err);
     }
   }
 
-  return Response.json({ ok: true });
+  // The work is done: the customer gets the restoration notes (once)
+  let notesEmailed: NotesEmailResult | null = null;
+  if (DONE_STATUSES.includes(status) && !DONE_STATUSES.includes(previousStatus)) {
+    notesEmailed = await emailCompletionNotesOnce(admin, id);
+  }
+
+  return Response.json({ ok: true, ...(emailFailed ? { emailFailed: true } : {}), ...(notesEmailed ? { notesEmailed } : {}) });
 }

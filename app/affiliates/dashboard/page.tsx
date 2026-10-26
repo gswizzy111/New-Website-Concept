@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
-import { commissionRatesFor, creatorSales, currentRate, formatPercent, getCreator, summarizeSales, type CreatorTotals } from "@/lib/creator-portal";
+import { commissionRatesFor, creatorSales, currentRate, formatPercent, getCreator, saleDate, summarizeSales, type CreatorTotals } from "@/lib/creator-portal";
 import { CopyCode } from "./copy-code";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export default async function AffiliateDashboard() {
   const s = summarizeSales(sales);
   // Every sale so far earned today's rate (the usual case), or the rate changed along the way
   const oneRate = sales.every((sale) => sale.percent === rate);
-  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const fmtDate = (iso: string) => saleDate(iso);
 
   return (
     <div className="min-h-screen bg-secondary/30">

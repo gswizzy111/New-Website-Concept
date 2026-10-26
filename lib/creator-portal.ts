@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { newToken, sha256, TOKEN_PATTERN } from "@/lib/admin-session";
 import { DEFAULT_COMMISSION_PERCENT } from "@/lib/commission";
 import { likeExact } from "@/lib/like-exact";
+import { fetchAll } from "@/lib/fetch-all";
+import { BUSINESS_TIME_ZONE, etToday } from "@/lib/dashboard-metrics";
 
 /**
  * The creator portal (/affiliates): creators sign in with their code and a
@@ -90,6 +92,31 @@ export function netCents(totalCents: number | null, refundedCents: number | null
   return Math.max(0, (totalCents ?? 0) - (refundedCents ?? 0));
 }
 
+/**
+ * What an order with a creator code counts for: its amount after refunds, or
+ * null when it doesn't count (unpaid, cancelled or fully refunded). The creator
+ * dashboard and the admin Affiliates page both count sales with this.
+ */
+export function saleCents(kind: "kit" | "restoration", o: { status: string | null; total_cents: number | null; refunded_cents: number | null }) {
+  if (!countsForCommission(kind, o.status)) return null;
+  const cents = netCents(o.total_cents, o.refunded_cents);
+  return cents > 0 ? cents : null;
+}
+
+/** What a kit order held, for the sales lists ("Restoration Kit ×2"). */
+export function kitSummary(items: unknown) {
+  const list = Array.isArray(items) ? (items as { product_name?: string; quantity?: number }[]) : [];
+  return list.map((i) => `${i.product_name ?? "Item"} ×${i.quantity ?? 1}`).join(", ") || "Kit order";
+}
+
+/** A sale's date as creators and the admin see it (New York time). */
+export function saleDate(iso: string, opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", year: "numeric" }) {
+  return new Date(iso).toLocaleDateString("en-US", { ...opts, timeZone: BUSINESS_TIME_ZONE });
+}
+
+/** The New York month of a date, as "YYYY-MM". */
+export const saleMonth = (iso: string) => etToday(new Date(iso)).slice(0, 7);
+
 export function commissionCents(cents: number, percent: number) {
   return Math.round((cents * percent) / 100);
 }
@@ -107,12 +134,21 @@ export type CommissionRate = { percent: number; effective_from: string };
 export async function commissionRatesFor(affiliateIds: string[]): Promise<Map<string, CommissionRate[]>> {
   const map = new Map<string, CommissionRate[]>();
   if (!affiliateIds.length) return map;
-  const { data } = await createAdminClient()
-    .from("affiliate_commission_rates")
-    .select("affiliate_id, percent, effective_from")
-    .in("affiliate_id", affiliateIds)
-    .order("effective_from", { ascending: true });
-  for (const r of data ?? []) {
+  const admin = createAdminClient();
+  const data: { affiliate_id: string; percent: number | string; effective_from: string }[] = [];
+  // In chunks of ids, each read in pages
+  for (let i = 0; i < affiliateIds.length; i += 100) {
+    const ids = affiliateIds.slice(i, i + 100);
+    data.push(...await fetchAll<{ affiliate_id: string; percent: number | string; effective_from: string }>((from, to) => admin
+      .from("affiliate_commission_rates")
+      .select("affiliate_id, percent, effective_from")
+      .in("affiliate_id", ids)
+      .order("effective_from", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)));
+  }
+  data.sort((a, b) => new Date(a.effective_from).getTime() - new Date(b.effective_from).getTime());
+  for (const r of data) {
     const list = map.get(r.affiliate_id) ?? [];
     list.push({ percent: Number(r.percent), effective_from: r.effective_from });
     map.set(r.affiliate_id, list);
@@ -155,24 +191,24 @@ export type CreatorSale = {
 export async function creatorSales(code: string, rates: CommissionRate[] | undefined): Promise<CreatorSale[]> {
   const admin = createAdminClient();
   const match = literalCode(code);
-  const [{ data: kits }, { data: restorations }] = await Promise.all([
-    admin.from("shop_orders").select("items, total_cents, refunded_cents, status, created_at").ilike("affiliate_code", match),
-    admin.from("orders").select("total_cents, refunded_cents, status, created_at").ilike("affiliate_code", match),
+  type Row = { items?: unknown; total_cents: number | null; refunded_cents: number | null; status: string | null; created_at: string };
+  // Every order with the code, read in pages (the API returns at most 1,000 rows a request)
+  const [kits, restorations] = await Promise.all([
+    fetchAll<Row>((from, to) => admin.from("shop_orders").select("items, total_cents, refunded_cents, status, created_at")
+      .ilike("affiliate_code", match).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    fetchAll<Row>((from, to) => admin.from("orders").select("total_cents, refunded_cents, status, created_at")
+      .ilike("affiliate_code", match).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
   ]);
   const sales: CreatorSale[] = [];
-  for (const o of kits ?? []) {
-    if (!countsForCommission("kit", o.status)) continue;
-    const cents = netCents(o.total_cents, o.refunded_cents);
-    if (cents <= 0) continue;
-    const items = Array.isArray(o.items) ? (o.items as { product_name?: string; quantity?: number }[]) : [];
-    const summary = items.map((i) => `${i.product_name ?? "Item"} ×${i.quantity ?? 1}`).join(", ") || "Kit order";
+  for (const o of kits) {
+    const cents = saleCents("kit", o);
+    if (cents === null) continue;
     const percent = rateAt(rates, o.created_at);
-    sales.push({ date: o.created_at, type: "kit", cents, percent, commissionCents: commissionCents(cents, percent), summary });
+    sales.push({ date: o.created_at, type: "kit", cents, percent, commissionCents: commissionCents(cents, percent), summary: kitSummary(o.items) });
   }
-  for (const o of restorations ?? []) {
-    if (!countsForCommission("restoration", o.status)) continue;
-    const cents = netCents(o.total_cents, o.refunded_cents);
-    if (cents <= 0) continue;
+  for (const o of restorations) {
+    const cents = saleCents("restoration", o);
+    if (cents === null) continue;
     const percent = rateAt(rates, o.created_at);
     sales.push({ date: o.created_at, type: "restoration", cents, percent, commissionCents: commissionCents(cents, percent), summary: "Restoration service" });
   }
@@ -190,17 +226,19 @@ function total(sales: CreatorSale[]): CreatorTotals {
   };
 }
 
-/** Totals overall, by type, for this month, and for each of the last `months` months. */
+/** Totals overall, by type, for this month, and for each of the last `months` months (New York months). */
 export function summarizeSales(sales: CreatorSale[], months = 6, now = new Date()) {
-  const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const today = etToday(now);
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7)) - 1;
   const byMonth: { key: string; label: string; totals: CreatorTotals }[] = [];
   for (let i = 0; i < months; i++) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    const key = monthKey(d);
+    const d = new Date(Date.UTC(year, month - i, 1));
+    const key = d.toISOString().slice(0, 7);
     byMonth.push({
       key,
       label: d.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }),
-      totals: total(sales.filter((s) => monthKey(new Date(s.date)) === key)),
+      totals: total(sales.filter((s) => saleMonth(s.date) === key)),
     });
   }
   return {

@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resend, fromEmail, fromAddress, businessName } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
+import { emailCompletionNotesOnce } from "@/lib/completion-notes-email";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdmin())) {
@@ -8,51 +8,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const { notes } = await request.json();
+  const body = await request.json().catch(() => ({}));
+  const notes = typeof body?.notes === "string" ? body.notes : "";
 
   const admin = createAdminClient();
 
   const { data: order, error: fetchError } = await admin
     .from("orders")
-    .select("customer_name, customer_email, order_number")
+    .select("id")
     .eq("id", id)
     .single();
-  if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+  if (fetchError || !order) return Response.json({ error: fetchError?.message ?? "Order not found" }, { status: fetchError ? 500 : 404 });
 
-  const { error } = await admin.from("orders").update({ admin_notes: notes ?? "" }).eq("id", id);
+  const { error } = await admin.from("orders").update({ admin_notes: notes }).eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  if (order?.customer_email && notes?.trim()) {
-    const firstName = (order.customer_name as string)?.split(" ")[0] ?? "there";
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
-    const orderTrackingUrl = `${appUrl}/orders/${order.order_number}`;
+  // Saving doesn't email the customer by itself: the notes go out once, when
+  // the order is Completed (or now, if it already is)
+  const emailed = notes.trim() ? await emailCompletionNotesOnce(admin, id) : "no_notes";
 
-    try {
-      await resend.emails.send({
-        from: fromEmail,
-        to: order.customer_email as string,
-        subject: `Restoration complete — notes from The Card Doc`,
-        html: `
-          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">Your restoration is complete!</h1>
-            <p>Hi ${firstName}, we finished working on your cards and wanted to share our notes.</p>
-
-            <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
-              <p style="margin:0 0 8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#74716e">Restoration Notes</p>
-              <p style="margin:0;font-size:15px;color:#111;white-space:pre-wrap;">${notes.trim()}</p>
-            </div>
-
-            <a href="${orderTrackingUrl}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin-bottom:24px">View Your Order →</a>
-
-            <p style="font-size:14px;color:#666;">Questions? Reply to this email or reach out at <a href="mailto:${fromAddress}" style="color:#c34104">${fromAddress}</a>.</p>
-            <p style="font-size:13px;color:#999">${businessName}</p>
-          </div>
-        `,
-      });
-    } catch (err) {
-      console.error("Failed to send notes email:", err);
-    }
-  }
-
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, emailed });
 }

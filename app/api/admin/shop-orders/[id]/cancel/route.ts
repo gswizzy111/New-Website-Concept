@@ -65,20 +65,22 @@ export async function POST(
     }
 
     if (payment) {
+      let stripeRefund;
       try {
-        const stripeRefund = await stripe.refunds.create({
+        stripeRefund = await stripe.refunds.create({
           ...payment,
           amount: refundAmount,
           reason: "requested_by_customer",
           metadata: { shop_order_id: id, order_number: orderLabel, admin_reason: "Order cancelled by admin" },
         });
-        refundId = stripeRefund.id;
-        await recordRefund(admin, stripeRefund, { shopOrderId: id, kind: "kit" }, adminSession.username);
       } catch (e: unknown) {
         await restore();
         const msg = e instanceof Error ? e.message : "Stripe refund failed";
         return Response.json({ error: msg }, { status: 502 });
       }
+      // The money has gone back: from here on the order stays cancelled
+      refundId = stripeRefund.id;
+      await recordRefund(admin, stripeRefund, { shopOrderId: id, kind: "kit" }, adminSession.username);
     }
   }
 

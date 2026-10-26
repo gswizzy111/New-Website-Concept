@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { RESTORATION_TIERS, getAllTiers } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 
+/** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
+function newYorkToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
 const TIERS = getAllTiers();
 
 type TierOrCustom = RestorationTierId | "custom" | "";
@@ -133,7 +138,7 @@ export function ManualOrderForm() {
   const [zip, setZip] = useState("");
 
   // Order details
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [orderDate, setOrderDate] = useState(newYorkToday);
   const [defaultTier, setDefaultTier] = useState<TierOrCustom>("");
   const [customPricePerCard, setCustomPricePerCard] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -391,7 +396,7 @@ export function ManualOrderForm() {
         <h2 className="font-heading font-black text-base text-foreground">Order Date</h2>
         <div>
           <label className={label}>Date Taken <span className="text-muted-foreground font-normal">(for backdating)</span></label>
-          <input className={input} type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} max={new Date().toISOString().split("T")[0]} />
+          <input className={input} type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} max={newYorkToday()} />
         </div>
       </div>
 

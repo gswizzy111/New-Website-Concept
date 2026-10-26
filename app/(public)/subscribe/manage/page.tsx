@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type SubResult = {
@@ -11,27 +12,65 @@ type SubResult = {
   cancelled_at?: string;
 };
 
-export default function ManageSubscriptionPage() {
+const LINK_EXPIRED = "This link has expired or was already used. Enter your email to get a new one.";
+
+/**
+ * Shows a Kit Club subscription and cancels it, only for someone who proved
+ * the inbox: the one-time link this page emails (?token=...), or a signed-in
+ * account with the same email. Typing an email only sends that link.
+ */
+function ManageSubscription() {
+  const token = useSearchParams().get("token") ?? "";
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [result, setResult] = useState<SubResult | null>(null);
+  const [sentTo, setSentTo] = useState("");
   const [lookupError, setLookupError] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [cancelled, setCancelled] = useState(false);
   const [cancelError, setCancelError] = useState("");
+
+  // Opened from the emailed link, or signed in: show the subscription
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/subscriptions/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(token ? { token } : {}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!live) return;
+        if (data.code === "LINK_EXPIRED") setLookupError(LINK_EXPIRED);
+        else if (!res.ok) { if (token) setLookupError("Something went wrong. Please try again."); }
+        else if (data.found) setResult(data);
+        else if (token) setLookupError("No subscription found for that email address.");
+      } catch {
+        if (live && token) setLookupError("Something went wrong. Please try again.");
+      } finally {
+        if (live) setChecking(false);
+      }
+    })();
+    return () => { live = false; };
+  }, [token]);
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
     setLoading(true);
     setLookupError("");
-    setResult(null);
-    setCancelled(false);
+    setSentTo("");
     try {
-      const res = await fetch(`/api/subscriptions/lookup?email=${encodeURIComponent(email.trim())}`);
-      const data = await res.json();
-      setResult(data);
-      if (!data.found) setLookupError("No subscription found for that email address.");
+      const res = await fetch("/api/subscriptions/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setLookupError(data.error ?? "Something went wrong. Please try again."); return; }
+      setSentTo(email.trim());
     } catch {
       setLookupError("Something went wrong. Please try again.");
     } finally {
@@ -48,9 +87,9 @@ export default function ManageSubscriptionPage() {
       const res = await fetch("/api/subscriptions/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), subscriptionId: result.id }),
+        body: JSON.stringify({ ...(token ? { token } : {}), subscriptionId: result.id }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setCancelError(data.error ?? "Failed to cancel."); return; }
       setCancelled(true);
       setResult({ ...result, status: "cancelled" });
@@ -71,28 +110,41 @@ export default function ManageSubscriptionPage() {
         <Link href="/" className="text-sm text-muted-foreground hover:text-primary block mb-6">← Back to home</Link>
 
         <h1 className="font-heading font-extrabold text-2xl text-foreground mb-1">Manage Your Subscription</h1>
-        <p className="text-sm text-muted-foreground mb-6">Enter the email you used to subscribe.</p>
+        <p className="text-sm text-muted-foreground mb-6">Enter the email you used to subscribe. We&apos;ll email you a link to manage it.</p>
 
         <form onSubmit={handleLookup} className="flex gap-2 mb-6">
+          <label htmlFor="manage-email" className="sr-only">Email</label>
           <input
+            id="manage-email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
             required
-            className="flex-1 px-3 py-2 rounded-lg border border-border text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-border text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
           />
           <button
             type="submit"
             disabled={loading}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity"
           >
-            {loading ? "…" : "Look up"}
+            {loading ? "…" : "Send link"}
           </button>
         </form>
 
+        {sentTo && (
+          <div role="status" className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 leading-relaxed">
+            If there&apos;s a subscription for <span className="font-semibold [overflow-wrap:anywhere]">{sentTo}</span>, we just emailed it a link to manage it. The link expires in 1 hour. Not there in a minute? Check your Spam, Junk and Promotions folders.
+          </div>
+        )}
+
         {lookupError && (
-          <p className="text-sm text-red-600 mb-4">{lookupError}</p>
+          <p role="alert" className="text-sm text-red-600 mb-4">{lookupError}</p>
+        )}
+
+        {checking && token && (
+          <p className="text-sm text-muted-foreground">Loading…</p>
         )}
 
         {result?.found && (
@@ -148,5 +200,13 @@ export default function ManageSubscriptionPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ManageSubscriptionPage() {
+  return (
+    <Suspense>
+      <ManageSubscription />
+    </Suspense>
   );
 }

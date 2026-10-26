@@ -21,21 +21,36 @@ export function PaymentMethodEditor({ orderId, current }: { orderId: string; cur
   const [value, setValue] = useState(current ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
   const router = useRouter();
 
   async function save(next: string) {
+    const previous = value;
     setValue(next);
     setSaving(true);
     setSaved(false);
-    await fetch(`/api/admin/orders/${orderId}/payment-method`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ paymentMethod: next || null }),
-    });
-    setSaving(false);
-    setSaved(true);
-    router.refresh();
-    setTimeout(() => setSaved(false), 2000);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: next || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setValue(previous);
+        setError(data.error ?? "Not saved");
+        return;
+      }
+      setSaved(true);
+      router.refresh();
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setValue(previous);
+      setError("Not saved: network error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -53,6 +68,7 @@ export function PaymentMethodEditor({ orderId, current }: { orderId: string; cur
         ))}
       </select>
       {saved && <span className="text-xs text-green-600 shrink-0">Saved</span>}
+      {error && <span role="alert" className="text-xs text-red-600 shrink-0">{error}</span>}
     </div>
   );
 }

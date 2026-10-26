@@ -5,7 +5,6 @@ import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
 import { TIER_MAX_SLOTS } from "@/lib/site-config";
 import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocket } from "lucide-react";
 import { WaitlistModal } from "./waitlist-modal";
-import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
 import { FACT_ROW } from "./fact-row";
 import { BulkSwitch } from "./bulk-switch";
@@ -252,14 +251,12 @@ export default async function TierSelectionPage() {
   return (
     <div className="min-h-screen page-glow">
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
-      {/* Countdown — shown when shop is closed */}
-      {!restorationsOpen && <CountdownBanner />}
-
       {/* Closed text banner */}
       {!restorationsOpen && (
         <div className="bg-amber-50 border-b border-amber-200">
           <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 text-center">
-            <p className="text-sm font-semibold text-amber-900">
+            <p className="text-sm font-bold text-amber-900">Restorations are currently closed.</p>
+            <p className="mt-0.5 text-sm font-semibold text-amber-900">
               We&apos;re not accepting new restoration orders right now — but you can still browse our pricing below.
             </p>
           </div>

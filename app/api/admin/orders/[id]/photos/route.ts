@@ -7,7 +7,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const { photos } = await request.json();
+  const { photos } = await request.json().catch(() => ({}));
+  if (!Array.isArray(photos) || !photos.every((p) => typeof p === "string")) {
+    return Response.json({ error: "Invalid photo list" }, { status: 400 });
+  }
 
   const admin = createAdminClient();
   const { error } = await admin.from("orders").update({ restoration_photos: photos }).eq("id", id);

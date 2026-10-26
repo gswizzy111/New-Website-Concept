@@ -283,7 +283,36 @@ export default function PrivacyPage() {
             </p>
             <p>
               We use session cookies necessary for authentication (for example, to keep you logged
-              in to your account). We do not use cookies for cross-site advertising tracking.
+              in to your account).
+            </p>
+            <p>
+              We also use the Meta Pixel, a tool from Meta Platforms, Inc., to measure our Facebook
+              and Instagram ads and to show our ads to people who have visited our site. When you
+              visit our site, the pixel tells Meta which pages you viewed and actions such as
+              starting a checkout or completing a purchase (with the order amount), along with your
+              IP address, browser details and Meta cookies that Meta uses to recognize you. We do
+              not send Meta your name, email address, mailing address or payment details. Meta uses
+              this information under{" "}
+              <a
+                href="https://www.facebook.com/privacy/policy/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                Meta&rsquo;s Privacy Policy
+              </a>
+              . To opt out, turn on{" "}
+              <a
+                href="https://globalprivacycontrol.org/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2"
+              >
+                Global Privacy Control
+              </a>{" "}
+              in your browser (when it is on, our site does not load the pixel), adjust your ad
+              preferences in your Facebook or Instagram settings, or block third-party cookies in
+              your browser.
             </p>
           </section>
 

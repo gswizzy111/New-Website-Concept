@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { refundEmailHtml } from "@/lib/refund-email";
+import { escapeHtml } from "@/lib/card-inquiries";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin-auth";
 import { recordRefund, refundedSoFar } from "@/lib/refund-ledger";
@@ -131,7 +132,7 @@ export async function POST(
     const name = (order.customer_name as string | null)?.split(" ")[0] ?? "there";
     const customNote = parsed.data.customerMessage?.trim();
 
-    const html = refundEmailHtml({ orderNumber: String(orderNum), firstName: name, amountFormatted, isFullRefund, customNote });
+    const html = refundEmailHtml({ orderNumber: String(orderNum), firstName: escapeHtml(name), amountFormatted, isFullRefund, customNote: customNote ? escapeHtml(customNote) : undefined });
 
     try {
       const { error: emailErr } = await resend.emails.send({

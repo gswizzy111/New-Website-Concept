@@ -7,7 +7,8 @@ import { PortalAccess } from "./portal-access";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/admin-auth";
-import { commissionCents, commissionRatesFor, countsForCommission, currentRate, formatPercent, netCents, rateAt } from "@/lib/creator-portal";
+import { commissionCents, commissionRatesFor, currentRate, formatPercent, kitSummary, rateAt, saleCents, saleDate } from "@/lib/creator-portal";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -59,39 +60,46 @@ export default async function AdminAffiliatesPage({
     commission_percent: currentRate(rates.get(a.id)),
   }));
 
-  // Fetch kit orders with affiliate codes
-  const { data: kitOrders } = await admin
-    .from("shop_orders")
-    .select("id, items, total_cents, refunded_cents, created_at, status, customer_name, affiliate_code")
-    .not("affiliate_code", "is", null)
-    .order("created_at", { ascending: false });
-
-  // Fetch restoration orders with affiliate codes
-  const { data: restorationOrders } = await admin
-    .from("orders")
-    .select("id, total_cents, refunded_cents, created_at, customer_name, affiliate_code, status")
-    .not("affiliate_code", "is", null)
-    .order("created_at", { ascending: false });
+  // Every order with a code, read in pages (the API returns at most 1,000 rows a request)
+  type CodeOrder = { id: string; items?: unknown; total_cents: number | null; refunded_cents: number | null; created_at: string; status: string | null; customer_name: string; affiliate_code: string };
+  const [kitOrders, restorationOrders] = await Promise.all([
+    fetchAll<CodeOrder>((from, to) => admin
+      .from("shop_orders")
+      .select("id, items, total_cents, refunded_cents, created_at, status, customer_name, affiliate_code")
+      .not("affiliate_code", "is", null)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)),
+    fetchAll<CodeOrder>((from, to) => admin
+      .from("orders")
+      .select("id, total_cents, refunded_cents, created_at, customer_name, affiliate_code, status")
+      .not("affiliate_code", "is", null)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to)),
+  ]);
 
   // Build sales map by code
   const salesByCode: Record<string, Sale[]> = {};
 
-  // Counted the same way as on the creator's own dashboard (lib/creator-portal.ts)
-  for (const o of kitOrders ?? []) {
-    if (!countsForCommission("kit", o.status) || netCents(o.total_cents, o.refunded_cents) <= 0) continue;
-    const code = (o.affiliate_code as string).toUpperCase();
+  // Counted the same way as on the creator's own dashboard (saleCents in lib/creator-portal.ts)
+  for (const o of kitOrders) {
+    const cents = saleCents("kit", o);
+    if (cents === null) continue;
+    const code = o.affiliate_code.toUpperCase();
     if (!salesByCode[code]) salesByCode[code] = [];
-    const items = Array.isArray(o.items) ? o.items : [];
-    const summary = items.map((i: { product_name: string; quantity: number }) => `${i.product_name} ×${i.quantity}`).join(", ") || "Kit order";
-    salesByCode[code].push({ id: o.id, total_cents: netCents(o.total_cents, o.refunded_cents), created_at: o.created_at, customer_name: o.customer_name, type: "kit", summary });
+    salesByCode[code].push({ id: o.id, total_cents: cents, created_at: o.created_at, customer_name: o.customer_name, type: "kit", summary: kitSummary(o.items) });
   }
 
-  for (const o of restorationOrders ?? []) {
-    if (!countsForCommission("restoration", o.status) || netCents(o.total_cents, o.refunded_cents) <= 0) continue;
-    const code = (o.affiliate_code as string).toUpperCase();
+  for (const o of restorationOrders) {
+    const cents = saleCents("restoration", o);
+    if (cents === null) continue;
+    const code = o.affiliate_code.toUpperCase();
     if (!salesByCode[code]) salesByCode[code] = [];
-    salesByCode[code].push({ id: o.id, total_cents: netCents(o.total_cents, o.refunded_cents), created_at: o.created_at, customer_name: o.customer_name, type: "restoration", summary: "Restoration service" });
+    salesByCode[code].push({ id: o.id, total_cents: cents, created_at: o.created_at, customer_name: o.customer_name, type: "restoration", summary: "Restoration service" });
   }
+  // Newest first across both kinds, as on the creator's dashboard
+  for (const list of Object.values(salesByCode)) list.sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10">
@@ -128,7 +136,7 @@ export default async function AdminAffiliatesPage({
                   <div>
                     <h2 className="font-heading font-black text-xl text-foreground">{affiliate.name}</h2>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Created {new Date(affiliate.created_at).toLocaleDateString()}
+                      Created {saleDate(affiliate.created_at, { month: "numeric", day: "numeric", year: "numeric" })}
                     </p>
                     {editingId !== affiliate.id && (
                       <Link
@@ -189,7 +197,7 @@ export default async function AdminAffiliatesPage({
                             <span className="text-muted-foreground text-xs truncate hidden sm:block">{sale.summary}</span>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            <span className="text-xs text-muted-foreground">{new Date(sale.created_at).toLocaleDateString()}</span>
+                            <span className="text-xs text-muted-foreground">{saleDate(sale.created_at, { month: "numeric", day: "numeric", year: "numeric" })}</span>
                             <span className="font-semibold text-foreground">{formatCurrency(sale.total_cents)}</span>
                             <span className="text-xs text-green-700 font-semibold">+{formatCurrency(saleCommission(sale))}</span>
                           </div>

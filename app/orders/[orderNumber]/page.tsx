@@ -11,6 +11,7 @@ import { AddCardsSection } from "./add-cards-section";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { ReportProblem } from "@/components/orders/report-problem";
 import { FileDown } from "lucide-react";
+import { trackingCarrier, trackingLink } from "@/lib/tracking-carrier";
 
 function EmailMismatch() {
   return (
@@ -78,11 +79,17 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
     return <EmailMismatch />;
   }
 
+  // The kit label's carrier: the one saved with it, else told from the number
+  const kitLabels = Array.isArray(order.labels) ? (order.labels as { trackingNumber?: string | null; trackingUrl?: string | null; carrier?: string | null }[]) : [];
+  const kitLabel = kitLabels.find((l) => l?.trackingNumber === order.tracking_number) ?? null;
+  const kitCarrier = order.tracking_number ? trackingCarrier(order.tracking_number, order.carrier ?? kitLabel?.carrier ?? null) : null;
+  const kitTrackUrl = order.tracking_number ? trackingLink(order.tracking_number, order.carrier ?? kitLabel?.carrier ?? null, kitLabel?.trackingUrl ?? null) : null;
+
   // Check Shippo for live tracking and opportunistically update DB status
   let liveShippoStatus: string | null = null;
-  if (order.tracking_number && order.status !== "delivered") {
+  if (order.tracking_number && order.status !== "delivered" && kitCarrier) {
     try {
-      const track = await shippo.trackingStatus.get(order.tracking_number, "usps");
+      const track = await shippo.trackingStatus.get(order.tracking_number, kitCarrier.token);
       liveShippoStatus = track.trackingStatus?.status ?? null;
 
       // Update DB status if Shippo reports a further-along state
@@ -141,7 +148,7 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
           <p className="rx-label text-rx mb-1">Shipment Tracking</p>
           <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
           <a
-            href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
+            href={kitTrackUrl ?? undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -364,7 +371,9 @@ export default async function OrderDetailPage({
           <p className="rx-label text-rx mb-1">Return Tracking</p>
           <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
           <a
-            href={`https://tools.usps.com/go/TrackConfirmAction?tLabels=${order.tracking_number}`}
+            href={order.outbound_tracking_number === order.tracking_number
+              ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
+              : trackingLink(order.tracking_number)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"

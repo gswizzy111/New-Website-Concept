@@ -1,7 +1,12 @@
 import { PartyPopper } from "lucide-react";
 import Link from "next/link";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
+import { formatCurrency } from "@/lib/utils";
 
-export default function SubscribeSuccessPage() {
+export const dynamic = "force-dynamic";
+
+export default async function SubscribeSuccessPage() {
+  const priceCents = await getSubscriptionPriceCents();
   return (
     <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4">
       <div className="bg-white rounded-lg border border-border p-10 max-w-md w-full text-center">
@@ -10,7 +15,7 @@ export default function SubscribeSuccessPage() {
           You&rsquo;re subscribed!
         </h1>
         <p className="text-muted-foreground text-base mb-8">
-          Your first kit will ship within 1-2 business days. You&rsquo;ll be billed $62.99 on the
+          Your first kit will ship within 1-2 business days. You&rsquo;ll be billed {formatCurrency(priceCents)} on the
           same day each month.
         </p>
         <Link

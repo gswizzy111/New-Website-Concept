@@ -5,21 +5,24 @@ import { formatCurrency } from "@/lib/utils";
 import { PeriodTabs } from "./period-tabs";
 import { CostSettings } from "./cost-settings";
 import { RevenueChart } from "../revenue-chart";
-import { getRevenueSeries } from "@/lib/dashboard-metrics";
+import { addDays, etToday, getRevenueSeries } from "@/lib/dashboard-metrics";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
+import { etDayStart, loadReport, refundShare, tierNames, type Range } from "@/lib/sales-report";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 type Period = "today" | "week" | "month" | "all";
 
-function periodStart(period: Period): string | null {
-  const now = new Date();
+/** The period in New York calendar days ("This Week" is the last 7 days, today included). */
+function periodRange(period: Period): Range {
+  const today = etToday();
+  const tomorrow = etDayStart(addDays(today, 1));
   switch (period) {
-    case "today": return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-    case "week":  return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    case "month": return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    case "all":   return null;
+    case "today": return { start: etDayStart(today), end: tomorrow };
+    case "week":  return { start: etDayStart(addDays(today, -6)), end: tomorrow };
+    case "month": return { start: etDayStart(`${today.slice(0, 8)}01`), end: tomorrow };
+    case "all":   return { start: null, end: null };
   }
 }
 
@@ -28,39 +31,21 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
 
   const sp = await searchParams;
   const period = (["today", "week", "month", "all"].includes(sp.period ?? "") ? sp.period : "month") as Period;
-  const start = periodStart(period);
 
   const admin = createAdminClient();
+  // Bring the refund ledger up to date with Stripe first (gives up after a few seconds)
+  await syncRefundsQuietly(admin);
 
-  // Fetch kit orders + product list + cost config in parallel
-  const [shopResult, productResult, costConfig] = await Promise.all([
-    (() => {
-      let q = admin.from("shop_orders").select("total_cents, subtotal_cents, shipping_cents, items, created_at").neq("status", "cancelled");
-      if (start) q = q.gte("created_at", start);
-      return q;
-    })(),
+  // Sales on the New York day paid and refunds on the day the money went back, as the
+  // dashboard counts them (lib/sales-report.ts); product list and cost config alongside
+  const [report, productResult, costConfig, tierName] = await Promise.all([
+    loadReport(admin, periodRange(period)),
     admin.from("products").select("id, name, price_cents"),
     getProductCosts(),
+    tierNames(),
   ]);
 
-  // Restoration orders — try with refunded_cents first; fall back if column doesn't exist yet
-  let restorationOrders: Array<{ total_cents: number | null; refunded_cents?: number | null; restoration_tier: string | null; created_at: string }> = [];
-  {
-    let q = admin.from("orders").select("total_cents, refunded_cents, restoration_tier, created_at").not("status", "in", '("cancelled","awaiting_payment")');
-    if (start) q = q.gte("created_at", start);
-    const { data, error } = await q;
-    if (error) {
-      // refunded_cents column may not exist yet — retry without it
-      let q2 = admin.from("orders").select("total_cents, restoration_tier, created_at").not("status", "in", '("cancelled","awaiting_payment")');
-      if (start) q2 = q2.gte("created_at", start);
-      const { data: data2 } = await q2;
-      restorationOrders = (data2 ?? []) as typeof restorationOrders;
-    } else {
-      restorationOrders = (data ?? []) as typeof restorationOrders;
-    }
-  }
-
-  const shopOrders = shopResult.data ?? [];
+  const shopOrders = report.kits;
   const products = productResult.data ?? [];
   const productMap = new Map(products.map((p) => [p.id, p.name]));
 
@@ -73,10 +58,13 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   let kitRevenue = 0;
   let kitShipping = 0;
   let kitCogs = 0;
+  let kitRefundedCents = 0;
 
   for (const order of shopOrders) {
     kitRevenue += order.total_cents ?? 0;
     kitShipping += order.shipping_cents ?? 0;
+    // A cancelled kit wasn't sent: its refund comes off below, and it has no product cost
+    if (order.status === "cancelled") continue;
 
     const items: Array<{ product_id?: string; product_name?: string; quantity?: number; price_cents?: number }> =
       Array.isArray(order.items) ? order.items : [];
@@ -102,34 +90,43 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   const tierStats: Record<string, TierStat> = {};
   let restRevenue = 0;
   let restCogs = 0;
+  let restorationOrders = 0;
+  const tierStat = (key: string, label: string) => (tierStats[key] ??= { label, orders: 0, revenue_cents: 0, cogs_cents: 0 });
 
-  const TIER_LABELS: Record<string, string> = {
-    regular: "Bronze",
-    expedited: "Silver",
-    premium: "Gold",
-    ultra_premium: "Platinum",
-    elite: "Diamond",
-    fast_pass: "Fast Pass",
-  };
+  for (const sale of report.sales) {
+    const tier = sale.order.restoration_tier;
+    const ownPayment = sale.type === "order";
+    // Supply cost per order by tier; an order without one tier uses the Bronze cost
+    const costKey = `${tier ?? "regular"}_cents`;
+    const cogs = ownPayment && sale.order.status !== "cancelled"
+      ? (costConfig.restoration as unknown as Record<string, number>)[costKey] ?? 0
+      : 0;
 
-  let totalRefundedCents = 0;
-
-  for (const order of restorationOrders) {
-    const tier = order.restoration_tier ?? "regular";
-    const gross = order.total_cents ?? 0;
-    const refunded = (order.refunded_cents as number | null | undefined) ?? 0;
-    const revenue = Math.max(0, gross - refunded);
-    const costKey = `${tier}_cents` as keyof typeof costConfig.restoration;
-    const cogs = (costConfig.restoration as unknown as Record<string, number>)[costKey] ?? 0;
-
-    restRevenue += revenue;
+    restRevenue += sale.total_cents;
     restCogs += cogs;
-    totalRefundedCents += refunded;
+    if (ownPayment) restorationOrders += 1;
 
-    if (!tierStats[tier]) tierStats[tier] = { label: TIER_LABELS[tier] ?? tier, orders: 0, revenue_cents: 0, cogs_cents: 0 };
-    tierStats[tier].orders += 1;
-    tierStats[tier].revenue_cents += revenue;
-    tierStats[tier].cogs_cents += cogs;
+    const t = tierStat(tier ?? "mixed", tierName(tier));
+    if (ownPayment) t.orders += 1;
+    t.revenue_cents += sale.total_cents;
+    t.cogs_cents += cogs;
+  }
+
+  // Refunds in the period, whenever the order was paid
+  let totalRefundedCents = 0;
+  for (const r of report.refunds) {
+    if (r.kind === "kit") {
+      kitRefundedCents += r.amount_cents;
+      kitRevenue -= r.amount_cents;
+      if (r.kit) kitShipping -= refundShare(r.amount_cents, r.kit.shipping_cents, r.kit.total_cents);
+      continue;
+    }
+    totalRefundedCents += r.amount_cents;
+    restRevenue -= r.amount_cents;
+    const t = r.order
+      ? tierStat(r.order.restoration_tier ?? "mixed", tierName(r.order.restoration_tier))
+      : tierStat("unmatched", "No order found");
+    t.revenue_cents -= r.amount_cents;
   }
 
   // ── Totals ───────────────────────────────────────────
@@ -144,7 +141,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
     Object.values(costConfig.restoration).some((v) => v > 0);
 
   // Revenue chart (kit + restoration): sales by the day paid, refunds by the day refunded
-  const revenueSeries = await syncRefundsQuietly(admin).then(() => getRevenueSeries(admin)).catch((e) => {
+  const revenueSeries = await getRevenueSeries(admin).catch((e) => {
     console.error("[p&l] revenue_series:", e);
     return null;
   });
@@ -190,7 +187,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
         </div>
         <div className="bg-white rounded-xl border border-border p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Restoration Orders</p>
-          <p className="font-heading font-black text-xl text-foreground">{restorationOrders.length}</p>
+          <p className="font-heading font-black text-xl text-foreground">{restorationOrders}</p>
           <p className="text-sm text-primary font-semibold mt-0.5">{formatCurrency(restRevenue)}</p>
         </div>
       </div>
@@ -202,6 +199,9 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
           <div className="flex flex-col gap-2.5 text-sm">
             <Row label="Kit Sales" value={formatCurrency(kitRevenue)} />
             <Row label="  Shipping collected" value={formatCurrency(kitShipping)} muted />
+            {kitRefundedCents > 0 && (
+              <Row label="  Refunds issued" value={`−${formatCurrency(kitRefundedCents)}`} muted />
+            )}
             <Row label="  Tax owed (6.625%)" value={formatCurrency(taxOwed)} muted />
             <Row label="Restoration Services" value={formatCurrency(restRevenue)} />
             {totalRefundedCents > 0 && (
@@ -282,10 +282,10 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {Object.values(tierStats).map((t) => {
+                {Object.entries(tierStats).map(([key, t]) => {
                   const profit = t.revenue_cents - t.cogs_cents;
                   return (
-                    <tr key={t.label} className="hover:bg-muted/20">
+                    <tr key={key} className="hover:bg-muted/20">
                       <td className="px-6 py-3 font-medium">{t.label}</td>
                       <td className="px-4 py-3 text-right">{t.orders}</td>
                       <td className="px-4 py-3 text-right">{formatCurrency(t.revenue_cents)}</td>
@@ -302,14 +302,22 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
         </div>
       )}
 
-      {shopOrders.length === 0 && restorationOrders.length === 0 && (
+      {shopOrders.length === 0 && report.sales.length === 0 && report.refunds.length === 0 && (
         <div className="bg-muted/30 rounded-xl p-12 text-center text-muted-foreground">
           No completed orders in this period.
         </div>
       )}
 
       {/* Cost Settings */}
-      <CostSettings initial={costConfig} />
+      <CostSettings
+        initial={costConfig}
+        names={{
+          regular_cents: tierName("regular"),
+          expedited_cents: tierName("expedited"),
+          premium_cents: tierName("premium"),
+          ultra_premium_cents: tierName("ultra_premium"),
+        }}
+      />
     </div>
   );
 }

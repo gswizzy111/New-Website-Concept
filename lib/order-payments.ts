@@ -86,14 +86,21 @@ export async function orderPayments(order: OrderPaymentRef): Promise<OrderPaymen
     const session = await stripe.checkout.sessions.retrieve(order.stripe_session_id);
     originalPi = idOf(session.payment_intent);
   }
-  const addOns = await addOnPaymentIntents(order);
+  // A failed add-on lookup leaves the original payment refundable, as before
+  const addOns = await addOnPaymentIntents(order).catch((e) => {
+    console.error("[order payments] add-on lookup failed:", e instanceof Error ? e.message : e);
+    return new Map<string, OrderPaymentKind>();
+  });
   const list: OrderPayment[] = [];
   if (originalPi) {
     const p = await payment(originalPi, "order");
     if (p) list.push(p);
     addOns.delete(originalPi);
   }
-  const extras = await Promise.all([...addOns].map(([pi, kind]) => payment(pi, kind)));
+  const extras = await Promise.all([...addOns].map(([pi, kind]) => payment(pi, kind).catch((e) => {
+    console.error("[order payments] could not read add-on payment", pi, e instanceof Error ? e.message : e);
+    return null;
+  })));
   list.push(...extras.filter((p): p is OrderPayment => !!p).sort((a, b) => a.created - b.created));
   return list;
 }

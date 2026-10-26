@@ -1,7 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shippo, businessAddress } from "@/lib/shippo";
-import { resend, fromEmail, fromAddress, businessName } from "@/lib/resend";
+import { resend, fromEmail, businessName, replyToAddress } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
+import { siteUrl } from "@/lib/site-url";
+import { escapeHtml } from "@/lib/card-inquiries";
+import { DONE_STATUSES, emailCompletionNotesOnce } from "@/lib/completion-notes-email";
 
 async function authed() {
   return isAdmin();
@@ -77,6 +80,20 @@ async function buildCustomsDeclaration(orderId: string) {
     eelPfc: "NOEEI_30_37_a",
     items,
   };
+}
+
+/** The carrier and service of a Shippo rate, so tracking can be looked up with the right carrier. */
+async function rateInfo(rateId: string): Promise<{ provider: string | null; service: string | null }> {
+  try {
+    const res = await fetch(`https://api.goshippo.com/rates/${encodeURIComponent(rateId)}`, {
+      headers: { "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}` },
+    });
+    if (!res.ok) return { provider: null, service: null };
+    const rate = await res.json() as { provider?: string; servicelevel?: { name?: string; token?: string } };
+    return { provider: rate.provider ?? null, service: rate.servicelevel?.name ?? rate.servicelevel?.token ?? null };
+  } catch {
+    return { provider: null, service: null };
+  }
 }
 
 const PARCEL = {
@@ -168,6 +185,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let labelUrl: string;
     let trackingNumber: string | null;
     let trackingUrl: string | null;
+    let carrier: { provider: string | null; service: string | null } = { provider: null, service: null };
 
     if (isInternational && addr) {
       const customsDeclaration = await buildCustomsDeclaration(id);
@@ -209,6 +227,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       labelUrl = transaction.label_url as string;
       trackingNumber = (transaction.tracking_number as string) ?? null;
       trackingUrl = (transaction.tracking_url_provider as string) ?? null;
+      carrier = { provider: selectedRateObj.provider ?? null, service: selectedRateObj.servicelevel?.name ?? null };
     } else {
       // Domestic — use direct REST API so `extra` (insurance, signature) isn't stripped by the SDK
       const txBody: Record<string, unknown> = {
@@ -244,17 +263,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       labelUrl = transaction.label_url as string;
       trackingNumber = (transaction.tracking_number as string) ?? null;
       trackingUrl = (transaction.tracking_url_provider as string) ?? null;
+      carrier = await rateInfo(rateObjectId);
     }
 
     const admin = createAdminClient();
-    await admin
+    const labelFields = {
+      return_label_url: labelUrl,
+      tracking_number: trackingNumber ?? null,
+      status: "shipped_back",
+    };
+    // The carrier goes with the label (and the tracking number it belongs to),
+    // so tracking is looked up with the right one, not always USPS
+    let { error: saveErr } = await admin
       .from("orders")
       .update({
-        return_label_url: labelUrl,
-        tracking_number: trackingNumber ?? null,
-        status: "shipped_back",
+        ...labelFields,
+        outbound_tracking_number: trackingNumber ?? null,
+        outbound_carrier: carrier.provider,
+        outbound_service_level: carrier.service,
+        outbound_tracking_url: trackingUrl,
       })
       .eq("id", id);
+    if (saveErr) {
+      console.error("[restoration return-label] saving with carrier failed, retrying without:", saveErr.message);
+      ({ error: saveErr } = await admin.from("orders").update(labelFields).eq("id", id));
+    }
+    if (saveErr) {
+      console.error("[restoration return-label] label bought but not saved:", saveErr.message, labelUrl);
+      return Response.json({ error: `The label was bought but couldn't be saved on the order (${saveErr.message}). Don't buy another: open it here and keep the link: ${labelUrl}` }, { status: 500 });
+    }
 
     await admin.from("order_events").insert({
       order_id: id,
@@ -266,12 +303,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (order.customer_email && trackingNumber) {
-      const firstName = (order.customer_name as string)?.split(" ")[0] ?? "there";
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+      const firstName = escapeHtml((order.customer_name as string)?.split(" ")[0] || "there");
+      const appUrl = siteUrl();
       const orderTrackingUrl = `${appUrl}/orders/${order.order_number}`;
+      const contact = escapeHtml(replyToAddress);
 
       try {
-        await resend.emails.send({
+        const { error: sendErr } = await resend.emails.send({
           from: fromEmail,
           to: order.customer_email as string,
           subject: `Your restored cards are on the way! — ${businessName}`,
@@ -282,22 +320,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
               <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
                 <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Tracking Number</p>
-                <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${trackingNumber}</p>
+                <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${escapeHtml(trackingNumber)}</p>
                 ${trackingUrl
-                  ? `<a href="${trackingUrl}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
+                  ? `<a href="${escapeHtml(trackingUrl)}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
                   : ""}
               </div>
 
               <a href="${orderTrackingUrl}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin-bottom:24px">View Your Order →</a>
 
-              <p style="font-size:14px;color:#666;">If you have any questions, reply to this email or reach out at <a href="mailto:${fromAddress}" style="color:#c34104">${fromAddress}</a>.</p>
+              <p style="font-size:14px;color:#666;">If you have any questions, reply to this email or reach out at <a href="mailto:${contact}" style="color:#c34104">${contact}</a>.</p>
               <p style="font-size:13px;color:#999">${businessName}</p>
             </div>
           `,
         });
+        if (sendErr) console.error("Failed to send shipping email:", sendErr.message);
       } catch (err) {
         console.error("Failed to send shipping email:", err);
       }
+    }
+
+    // Shipping it back means the work is done: the customer gets the restoration notes (once)
+    if (!DONE_STATUSES.includes(order.status as string)) {
+      await emailCompletionNotesOnce(admin, id);
     }
 
     return Response.json({ labelUrl, trackingNumber });

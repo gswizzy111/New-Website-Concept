@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { siteUrl } from "@/lib/site-url";
 
 type WaitlistPerson = {
   id: string;
@@ -17,12 +19,16 @@ Great news — The Card Doc is now accepting restoration orders again.
 
 You signed up to be notified, so we wanted to reach out right away. Spots fill up fast!
 
-Book your restoration here: https://thecarddoc1.com/tier-selection
+Book your restoration here: ${siteUrl()}/tier-selection
 
 Thanks,
 The Card Doc`;
 
-const DEFAULT_SMS = `Hi [first name]! The Card Doc is now accepting restoration orders. Book your spot: https://thecarddoc1.com/tier-selection`;
+const DEFAULT_SMS = `Hi [first name]! The Card Doc is now accepting restoration orders. Book your spot: ${siteUrl()}/tier-selection`;
+
+// People per request: the route sends one email batch and the texts for each
+// part well inside the function time limit
+const PART_SIZE = 20;
 
 export function WaitlistNotifier({ people }: { people: WaitlistPerson[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -31,7 +37,10 @@ export function WaitlistNotifier({ people }: { people: WaitlistPerson[] }) {
   const [smsMessage, setSmsMessage] = useState(DEFAULT_SMS);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ sent: number; texts: number } | null>(null);
+  const [failed, setFailed] = useState<{ email: string; reason: string }[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
+  const router = useRouter();
   const [tab, setTab] = useState<"contacts" | "compose">("contacts");
 
   const unnotified = people.filter((p) => !p.notified_at);
@@ -64,25 +73,56 @@ export function WaitlistNotifier({ people }: { people: WaitlistPerson[] }) {
     setSending(true);
     setError("");
     setResult(null);
+    setFailed([]);
+
+    // Sent in parts. Everyone reached is marked notified as soon as their part
+    // is sent and taken off the selection, so after a stop, sending again
+    // carries on with the rest. `since` lets the route skip anyone this send
+    // already reached if a part has to go again.
+    const ids = Array.from(selected);
+    const since = new Date().toISOString();
+    let sent = 0;
+    let texts = 0;
+    const failures: { email: string; reason: string }[] = [];
+    const remaining = new Set(ids);
+    let stopped = false;
+    setProgress({ done: 0, total: ids.length });
 
     try {
-      const res = await fetch("/api/admin/notify-restoration-waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ids: Array.from(selected),
-          emailSubject,
-          emailBody,
-          smsMessage,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Failed to send."); return; }
-      setResult({ sent: data.sent, texts: data.texts ?? 0 });
-    } catch {
-      setError("Network error.");
+      for (let i = 0; i < ids.length; i += PART_SIZE) {
+        const part = ids.slice(i, i + PART_SIZE);
+        let res: Response;
+        let data: { error?: string; sent?: number; texts?: number; notified?: string[]; failed?: { email: string; reason: string }[] };
+        try {
+          res = await fetch("/api/admin/notify-restoration-waitlist", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: part, emailSubject, emailBody, smsMessage, since }),
+          });
+          data = await res.json().catch(() => ({}));
+        } catch {
+          setError(`Network error. ${sent} email${sent !== 1 ? "s" : ""} went out before it stopped; send again to reach the rest.`);
+          stopped = true;
+          break;
+        }
+        sent += data.sent ?? 0;
+        texts += data.texts ?? 0;
+        failures.push(...(data.failed ?? []));
+        for (const id of data.notified ?? []) remaining.delete(id);
+        setProgress({ done: Math.min(i + part.length, ids.length), total: ids.length });
+        if (!res.ok) {
+          setError(data.error ?? "Failed to send.");
+          stopped = true;
+          break;
+        }
+      }
     } finally {
+      if (!stopped || sent > 0 || texts > 0) setResult({ sent, texts });
+      setFailed(failures);
+      setSelected(new Set(remaining));
+      setProgress(null);
       setSending(false);
+      router.refresh();
     }
   }
 
@@ -196,14 +236,33 @@ export function WaitlistNotifier({ people }: { people: WaitlistPerson[] }) {
         <p className="text-sm text-green-600 font-semibold">
           ✓ Sent {result.sent} email{result.sent !== 1 ? "s" : ""}
           {result.texts > 0 ? ` + ${result.texts} text${result.texts !== 1 ? "s" : ""}` : ""}
+          {failed.length > 0 && <span className="text-red-600"> · {failed.length} failed</span>}
         </p>
+      )}
+      {failed.length > 0 && (
+        <details className="border border-border rounded-lg px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-semibold text-foreground">
+            {failed.length} email{failed.length !== 1 ? "s" : ""} not sent
+          </summary>
+          <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+            {failed.map((f, i) => (
+              <li key={`${f.email}-${i}`} className="text-muted-foreground break-all">
+                <span className="text-foreground">{f.email}</span>: {f.reason}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       <button
         onClick={handleSend}
         disabled={sending || selected.size === 0}
         className="h-9 px-5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40"
       >
-        {sending ? "Sending…" : `Send to ${selected.size || "…"} selected`}
+        {sending
+          ? progress && progress.done > 0
+            ? `Sending… ${progress.done} of ${progress.total}`
+            : "Sending…"
+          : `Send to ${selected.size || "…"} selected`}
       </button>
     </div>
   );

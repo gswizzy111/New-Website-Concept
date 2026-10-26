@@ -12,7 +12,8 @@ const TIERS = [
   { key: "ultra_premium_cents" as const, label: "Platinum" },
 ];
 
-export function CostSettings({ initial }: { initial: ProductCostsConfig }) {
+// `names`: the tiers' names as the admin has set them (restoration_settings), by cost key
+export function CostSettings({ initial, names = {} }: { initial: ProductCostsConfig; names?: Partial<Record<(typeof TIERS)[number]["key"], string>> }) {
   const [costs, setCosts] = useState(() =>
     Object.fromEntries(TIERS.map((t) => [t.key, ((initial.restoration[t.key] ?? 0) / 100).toFixed(2)]))
   );
@@ -21,7 +22,11 @@ export function CostSettings({ initial }: { initial: ProductCostsConfig }) {
   async function save() {
     setSaving(true);
     try {
-      const config: ProductCostsConfig = await fetch("/api/admin/product-costs").then((r) => r.json());
+      // Saved together with every product's costs: never save over them unless they were read
+      const current = await fetch("/api/admin/product-costs");
+      if (!current.ok) throw new Error();
+      const config: ProductCostsConfig = await current.json();
+      if (!config?.products || typeof config.products !== "object" || !Array.isArray(config.presets)) throw new Error();
       config.restoration = Object.fromEntries(
         TIERS.map((t) => [t.key, Math.round(parseFloat(costs[t.key] || "0") * 100)])
       ) as unknown as ProductCostsConfig["restoration"];
@@ -30,7 +35,7 @@ export function CostSettings({ initial }: { initial: ProductCostsConfig }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(config),
       });
-      if (!(await res.json()).ok) throw new Error();
+      if (!res.ok || !(await res.json()).ok) throw new Error();
       toast.success("Restoration costs saved");
     } catch {
       toast.error("Failed to save");
@@ -47,7 +52,7 @@ export function CostSettings({ initial }: { initial: ProductCostsConfig }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
         {TIERS.map((t) => (
           <div key={t.key} className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-foreground">{t.label}</label>
+            <label className="text-sm font-medium text-foreground">{names[t.key] ?? t.label}</label>
             <div className="relative">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
               <Input
