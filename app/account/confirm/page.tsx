@@ -71,6 +71,7 @@ function Confirm() {
 
   function confirmWithNew(e: React.FormEvent) {
     e.preventDefault();
+    if (newPassword.length > 72) return setError("Your new password must be at most 72 characters.");
     if (newPassword !== again) return setError("The two passwords don't match.");
     submit(confirmed ? { finish: true, new_password: newPassword } : { token_hash: tokenHash, uid, new_password: newPassword });
   }
@@ -78,7 +79,9 @@ function Confirm() {
   const errorLine = error && (
     <p role="alert" className="text-sm text-red-700">
       {error}
-      {/expired|already used|incomplete|doesn't match/i.test(error) && <> <Link href="/account/login" className="font-semibold underline">Sign in</Link></>}
+      {/forgot password/i.test(error)
+        ? <> <Link href="/account/forgot-password" className="font-semibold underline">Forgot password</Link></>
+        : /expired|already used|incomplete|doesn't match/i.test(error) && <> <Link href="/account/login" className="font-semibold underline">Sign in</Link></>}
     </p>
   );
 
