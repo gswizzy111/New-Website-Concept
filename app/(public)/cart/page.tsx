@@ -47,7 +47,7 @@ export default function CartPage() {
                 <p className="font-mono text-xs text-muted-foreground mt-1">{formatCurrency(item.price_cents)}</p>
               </div>
               {/* Phones: quantity and total share a line under the name; from sm the row is one line */}
-              <div className="col-start-2 flex items-center justify-between gap-4 sm:contents">
+              <div className="col-start-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:contents">
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => updateQty(item.id, item.quantity - 1)}
@@ -65,7 +65,7 @@ export default function CartPage() {
                     <Plus className="h-3 w-3" />
                   </button>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="ml-auto flex items-center gap-4">
                   <span className="font-bold text-foreground text-sm w-16 text-right">
                     {formatCurrency(item.price_cents * item.quantity)}
                   </span>

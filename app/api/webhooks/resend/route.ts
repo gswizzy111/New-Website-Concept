@@ -74,11 +74,13 @@ export async function POST(request: Request) {
 
   const data = event.data;
   const to: unknown[] = Array.isArray(data.to) ? data.to : typeof data.to === "string" ? [data.to] : [];
-  const recipients = [...new Set(to.filter((t): t is string => typeof t === "string").map(bareAddress).filter(Boolean))];
+  const recipients = [...new Set(
+    to.filter((t): t is string => typeof t === "string").map(bareAddress).filter((a) => /^[^\s@<>]+@[^\s@<>]+$/.test(a)),
+  )];
   if (recipients.length === 0) return Response.json({ ok: true, ignored: "no recipients" });
-  const sentAt = typeof data.created_at === "string" && !Number.isNaN(Date.parse(data.created_at))
-    ? new Date(data.created_at).toISOString()
-    : null;
+  // Only a date Postgres can store (anything else would fail the whole save)
+  const sentMs = typeof data.created_at === "string" ? Date.parse(data.created_at) : NaN;
+  const sentAt = sentMs >= 0 && sentMs < Date.UTC(10000, 0, 1) ? new Date(sentMs).toISOString() : null;
 
   const { error } = await createAdminClient()
     .from("email_problems")
