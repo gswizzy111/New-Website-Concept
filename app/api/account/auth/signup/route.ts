@@ -1,15 +1,18 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendAccountLink } from "@/lib/account-links";
+import { CONFIRM_SUBJECT, checkPassword, emailAccountLink, mintAccountToken } from "@/lib/account-links";
+import { fromAddress } from "@/lib/resend";
 import { z } from "zod";
 
 const Body = z.object({
   email: z.string().email(),
-  password: z.string().min(8, "Password must be at least 8 characters."),
+  password: z.string().min(8, "Password must be at least 8 characters.").max(72, "Password must be at most 72 characters."),
   name: z.string().trim().min(1).max(100),
 });
 
 // Creates the account unconfirmed and emails a confirm link. Orders are matched
 // to accounts by email, so nobody can see orders until they prove they own it.
+// The reply says who the email comes from, so the page can tell people what to
+// look for (and to check Spam).
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = Body.safeParse(body);
@@ -19,26 +22,49 @@ export async function POST(request: Request) {
 
   const email = parsed.data.email.trim().toLowerCase();
   const { password, name } = parsed.data;
-  const admin = createAdminClient();
+  const adminSupabase = createAdminClient();
 
-  const { error: createError } = await admin.auth.admin.createUser({
+  const { error: createError } = await adminSupabase.auth.admin.createUser({
     email,
     password,
     email_confirm: false,
     user_metadata: { name },
   });
 
+  let existingAccount = false;
   if (createError) {
     const exists = /already|exists|registered/i.test(createError.message);
     if (!exists) return Response.json({ error: createError.message }, { status: 400 });
-    // Already signed up: a confirmed account signs in; an unconfirmed one gets a new link
-    const { data: existing } = await admin.auth.admin.generateLink({ type: "magiclink", email });
-    if (existing?.user?.email_confirmed_at) {
-      return Response.json({ error: "An account with that email already exists. Sign in, or reset your password." }, { status: 400 });
-    }
+    existingAccount = true;
   }
 
-  const sent = await sendAccountLink("confirm", email, name);
+  // One token per request: minting another would cancel the link we email.
+  const minted = await mintAccountToken("confirm", email);
+  if (!minted) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
+  // Already signed up and confirmed: sign in instead.
+  if (minted.user.email_confirmed_at) {
+    return Response.json({ error: "An account with that email already exists. Sign in, or reset your password." }, { status: 400 });
+  }
+  // Signed up before but never confirmed. The password stays the one chosen
+  // first. If this sign-up used a different password, someone else may know
+  // the first one (anyone can type any email), so the account is flagged and
+  // its confirm links ask for the account's password, or a new one, before
+  // confirming. Checked before sending, and nothing is sent if flagging fails.
+  // When Supabase can't say whether the password matched, it's flagged too.
+  let check = !!minted.user.app_metadata?.signup_conflict;
+  if (existingAccount && !check && (await checkPassword(email, password)) !== "match") {
+    const { error: flagError } = await adminSupabase.auth.admin.updateUserById(minted.user.id, {
+      app_metadata: { ...minted.user.app_metadata, signup_conflict: true },
+    });
+    if (flagError) {
+      console.error("Flagging a repeat sign-up failed:", flagError.message);
+      return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
+    }
+    check = true;
+  }
+
+  const greet = existingAccount ? (minted.user.user_metadata?.name as string | undefined) : name;
+  const sent = await emailAccountLink("confirm", email, minted.tokenHash, greet, check ? minted.user.id : undefined);
   if (!sent) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
-  return Response.json({ ok: true, confirmationSent: true });
+  return Response.json({ ok: true, confirmationSent: true, sentFrom: fromAddress, subject: CONFIRM_SUBJECT });
 }

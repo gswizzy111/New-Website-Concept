@@ -4,21 +4,26 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense } from "react";
+import { CheckEmail, type ConfirmSent } from "./check-email";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/account";
+  // Only paths on this site after signing in: a single leading slash, and no
+  // backslashes or control characters (browsers drop tabs and newlines, so
+  // "/<tab>/evil.example" would otherwise become "//evil.example")
+  const rawNext = searchParams.get("next");
+  const next = rawNext && /^\/(?!\/)/.test(rawNext) && !/[\\\u0000-\u001f\u007f]/.test(rawNext) ? rawNext : "/account";
   const unconfirmed = searchParams.get("unconfirmed") === "1";
 
-  const [tab, setTab] = useState<"login" | "signup">("login");
+  const [tab, setTab] = useState<"login" | "signup">(searchParams.get("tab") === "signup" ? "signup" : "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  // After signing up: the confirm email is on its way
-  const [sentTo, setSentTo] = useState("");
+  // The confirm email is on its way (after signing up, or signing in unconfirmed)
+  const [confirm, setConfirm] = useState<ConfirmSent | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,12 +46,19 @@ function LoginForm() {
     const data = await res.json().catch(() => ({}));
     setLoading(false);
 
-    if (!res.ok) {
-      setError(data.error ?? "Something went wrong. Please try again.");
+    if (data.confirmationSent || data.code === "EMAIL_NOT_CONFIRMED") {
+      setConfirm({
+        email: email.trim(),
+        password,
+        sent: !!data.confirmationSent,
+        sentFrom: data.sentFrom,
+        subject: data.subject,
+        message: data.error,
+      });
       return;
     }
-    if (data.confirmationSent) {
-      setSentTo(email.trim());
+    if (!res.ok) {
+      setError(data.error ?? "Something went wrong. Please try again.");
       return;
     }
 
@@ -64,27 +76,19 @@ function LoginForm() {
           <p className="text-muted-foreground text-sm mt-2">Customer portal</p>
         </div>
 
-        {unconfirmed && !sentTo && (
+        {unconfirmed && !confirm && (
           <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             Please confirm your email to open your account. Sign in and we&apos;ll send you a new confirmation link.
           </div>
         )}
 
-        {sentTo ? (
-          <div role="status" className="bg-white rounded-2xl border border-border shadow-sm p-8 text-center">
-            <h1 className="font-heading font-black text-2xl text-foreground">Check your email</h1>
-            <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
-              We sent a confirmation link to <span className="font-semibold text-foreground [overflow-wrap:anywhere]">{sentTo}</span>.
-              Open it to confirm your email and see your orders. The link expires in 1 hour.
-            </p>
-            <button
-              type="button"
-              onClick={() => { setSentTo(""); setTab("login"); }}
-              className="mt-6 text-sm font-semibold text-primary hover:underline"
-            >
-              Back to sign in
-            </button>
-          </div>
+        {confirm ? (
+          <CheckEmail
+            info={confirm}
+            onConfirmed={() => { router.push(next); router.refresh(); }}
+            onStartOver={() => { setConfirm(null); setTab("signup"); setEmail(""); setPassword(""); setError(""); }}
+            onBack={() => { setConfirm(null); setTab("login"); setPassword(""); setError(""); }}
+          />
         ) : (
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
           {/* Tabs */}

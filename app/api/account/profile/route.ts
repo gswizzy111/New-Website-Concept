@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import type { AccountProfile } from "@/lib/account-profile";
+import { likeExact } from "@/lib/like-exact";
 
 
 type Addr = Partial<{ street1: string; street2: string | null; city: string; state: string; zip: string; phone: string }>;
@@ -28,10 +29,10 @@ export async function GET() {
     const admin = createAdminClient();
     const [{ data: lastOrder }, { data: lastKit }] = await Promise.all([
       admin.from("orders").select("customer_phone, ship_from_address, created_at")
-        .ilike("customer_email", user.email).neq("status", "awaiting_payment")
+        .ilike("customer_email", likeExact(user.email)).neq("status", "awaiting_payment")
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       admin.from("shop_orders").select("customer_phone, shipping_address, created_at")
-        .ilike("customer_email", user.email)
+        .ilike("customer_email", likeExact(user.email))
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     const newest = [lastOrder && { phone: lastOrder.customer_phone, addr: lastOrder.ship_from_address as Addr, at: lastOrder.created_at },
