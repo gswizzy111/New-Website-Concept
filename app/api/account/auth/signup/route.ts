@@ -22,9 +22,9 @@ export async function POST(request: Request) {
 
   const email = parsed.data.email.trim().toLowerCase();
   const { password, name } = parsed.data;
-  const admin = createAdminClient();
+  const adminSupabase = createAdminClient();
 
-  const { error: createError } = await admin.auth.admin.createUser({
+  const { error: createError } = await adminSupabase.auth.admin.createUser({
     email,
     password,
     email_confirm: false,
@@ -41,14 +41,22 @@ export async function POST(request: Request) {
   // One token per request: minting another would cancel the link we email.
   const minted = await mintAccountToken("confirm", email);
   if (!minted) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
-  // Already signed up and confirmed: sign in instead. Unconfirmed: a new link, but
-  // the password stays the one chosen first (a stranger mustn't be able to set it).
+  // Already signed up and confirmed: sign in instead.
   if (minted.user.email_confirmed_at) {
     return Response.json({ error: "An account with that email already exists. Sign in, or reset your password." }, { status: 400 });
   }
+  // Signed up before but never confirmed: the password stays the one chosen
+  // first, and the account is flagged so whoever confirms it (the owner of the
+  // inbox) chooses a new password then. That stops someone who signs up with a
+  // stranger's email from keeping a way in once the stranger confirms.
+  if (existingAccount) {
+    await adminSupabase.auth.admin.updateUserById(minted.user.id, {
+      app_metadata: { ...minted.user.app_metadata, signup_conflict: true },
+    });
+  }
 
-  const greet = existingAccount ? (minted.user.user_metadata?.name as string | undefined) ?? name : name;
+  const greet = existingAccount ? (minted.user.user_metadata?.name as string | undefined) : name;
   const sent = await emailAccountLink("confirm", email, minted.tokenHash, greet);
   if (!sent) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
-  return Response.json({ ok: true, confirmationSent: true, existingAccount, sentFrom: fromAddress, subject: CONFIRM_SUBJECT });
+  return Response.json({ ok: true, confirmationSent: true, sentFrom: fromAddress, subject: CONFIRM_SUBJECT });
 }

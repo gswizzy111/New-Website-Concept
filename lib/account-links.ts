@@ -35,6 +35,16 @@ export const CONFIRM_SUBJECT = COPY.confirm.subject;
 const INSTAGRAM_HANDLE = "@the_card_doc";
 const INSTAGRAM_URL = "https://www.instagram.com/the_card_doc";
 
+/**
+ * The first word of a name, only when it looks like a name. Anyone can sign
+ * up any address with any name, so free text (links, sentences) never makes it
+ * into an email that comes from us.
+ */
+function safeFirstName(name?: string | null): string {
+  const first = (name ?? "").trim().split(/\s+/)[0] ?? "";
+  return /^[\p{L}\p{M}'’.-]{1,30}$/u.test(first) ? first : "";
+}
+
 function appUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "https://theonethatsaveditall.com";
 }
@@ -61,7 +71,7 @@ export async function mintAccountToken(kind: LinkKind, email: string): Promise<{
 export async function emailAccountLink(kind: LinkKind, email: string, tokenHash: string, name?: string | null): Promise<boolean> {
   const copy = COPY[kind];
   const link = `${appUrl()}${copy.path}?token_hash=${encodeURIComponent(tokenHash)}`;
-  const first = (name ?? "").split(" ")[0];
+  const first = safeFirstName(name);
   const lead = first ? `Hi ${first}, ${copy.body.charAt(0).toLowerCase()}${copy.body.slice(1)}` : copy.body;
   const expiry = "This link works once and expires in 1 hour. Didn't ask for this? Ignore this email.";
   const text = [copy.heading, "", lead, "", `${copy.button}: ${link}`, "", expiry, `Questions? DM us on Instagram at ${INSTAGRAM_HANDLE}.`].join("\n");
