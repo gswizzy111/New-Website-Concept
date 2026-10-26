@@ -177,10 +177,6 @@ grant execute on function public.hold_gift_card(text, integer, integer, text, te
 -- p_since (store_config slots_opened_at; null: all time). Read by the
 -- restoration checkout, upgrades, the Restorations page and Store Settings
 -- (lib/tier-slots.ts).
--- An earlier draft of this file counted cards under another name; it was never
--- used, so it goes.
-drop function if exists public.tier_slot_usage(timestamptz, timestamptz);
-
 create or replace function public.tier_slot_orders(p_since timestamptz, p_pending_since timestamptz)
 returns table (tier text, orders integer)
 language sql
