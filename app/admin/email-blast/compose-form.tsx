@@ -1,59 +1,75 @@
 "use client";
 
 import { useState } from "react";
+import type { UnfinishedBlast } from "./blasts";
 
-type Status = "idle" | "sending" | "done" | "stopped" | "error";
+type Status = "idle" | "sending" | "done" | "stopped";
 
 type Failure = { email: string; reason: string };
-type Progress = { sent: number; failed: Failure[]; next: string; total: number };
+type Progress = { sent: number; failed: Failure[]; total: number };
 
-export function ComposeForm({ totalEmails, blocked = false }: { totalEmails: number; blocked?: boolean }) {
-  const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [status, setStatus] = useState<Status>("idle");
+export function ComposeForm({
+  totalEmails,
+  blocked = false,
+  unfinished = null,
+}: {
+  totalEmails: number;
+  blocked?: boolean;
+  /** A send that stopped part way (a closed tab, a lost connection) */
+  unfinished?: UnfinishedBlast | null;
+}) {
+  const [subject, setSubject] = useState(unfinished?.subject ?? "");
+  const [body, setBody] = useState(unfinished?.body ?? "");
+  const [status, setStatus] = useState<Status>(unfinished ? "stopped" : "idle");
   const [result, setResult] = useState<{ sent: number; failed: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  // How far the current send got: contacts go out a few hundred at a time,
-  // so a send that stops part way can continue where it left off
-  const [progress, setProgress] = useState<Progress | null>(null);
+  // The current send: its id, made when Send is pressed and kept for every
+  // part, and how far it got as the server reports it. The server keeps that
+  // record, so Continue picks up where the send really stopped, even after a
+  // lost reply or a closed tab, and never sends a part twice.
+  const [blastId, setBlastId] = useState<string | null>(unfinished?.id ?? null);
+  const [progress, setProgress] = useState<Progress | null>(
+    unfinished ? { sent: unfinished.sent, failed: unfinished.failed, total: totalEmails } : null
+  );
+  const [discarding, setDiscarding] = useState(false);
 
-  async function send(from: Progress) {
+  async function send(id: string) {
     setStatus("sending");
     setError(null);
     setResult(null);
-    setProgress(from);
-    let { sent, next, total } = from;
-    const failed = [...from.failed];
+    let lastNext: string | null = null;
 
     try {
       for (;;) {
         const res = await fetch("/api/admin/email-blast", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subject, body, after: next }),
+          body: JSON.stringify({ blastId: id, subject, body }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error ?? "Send failed");
-        const moved = data.next !== next;
-        sent += data.sent ?? 0;
-        failed.push(...((data.failedEmails ?? []) as Failure[]));
-        next = data.next ?? next;
-        total = data.total ?? total;
-        setProgress({ sent, failed: [...failed], next, total });
+        const now: Progress = {
+          sent: data.sent ?? 0,
+          failed: (data.failedEmails ?? []) as Failure[],
+          total: data.total ?? totalEmails,
+        };
+        setProgress(now);
         if (data.stopped) throw new Error(data.stopped);
-        if (data.done) break;
-        if (!moved) throw new Error("Sending stopped without getting further.");
+        if (data.done) {
+          setResult({ sent: now.sent, failed: now.failed.length });
+          break;
+        }
+        if (data.next === lastNext) throw new Error("Sending stopped without getting further.");
+        lastNext = data.next ?? null;
       }
-      setResult({ sent, failed: failed.length });
       setStatus("done");
       setConfirmed(false);
-      setProgress({ sent, failed, next, total });
+      setBlastId(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Something went wrong");
-      // Nothing handled yet: the message can still be edited and sent again
-      const nothingYet = sent === 0 && failed.length === 0 && next === "";
-      setStatus(nothingYet ? "error" : "stopped");
+      // Continue picks up from what the server saved
+      setStatus("stopped");
     }
   }
 
@@ -66,12 +82,36 @@ export function ComposeForm({ totalEmails, blocked = false }: { totalEmails: num
       setError(`Please confirm you want to send to all ${totalEmails} contacts.`);
       return;
     }
-    await send({ sent: 0, failed: [], next: "", total: totalEmails });
+    const id = crypto.randomUUID();
+    setBlastId(id);
+    setProgress({ sent: 0, failed: [], total: totalEmails });
+    await send(id);
   }
 
-  // Leaves the stopped send behind. The text is cleared too, so the same
-  // message isn't sent again from the start by mistake.
-  function discard() {
+  // Sets the stopped send aside. The text is cleared too, so the same message
+  // isn't sent again from the start by mistake.
+  async function discard() {
+    if (blastId) {
+      setDiscarding(true);
+      try {
+        const res = await fetch("/api/admin/email-blast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ blastId, discard: true }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? "Couldn't set this send aside. Try again.");
+          return;
+        }
+      } catch {
+        setError("Couldn't reach the server. Try again.");
+        return;
+      } finally {
+        setDiscarding(false);
+      }
+    }
+    setBlastId(null);
     setStatus("idle");
     setProgress(null);
     setError(null);
@@ -112,12 +152,18 @@ export function ComposeForm({ totalEmails, blocked = false }: { totalEmails: num
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={() => send(progress)}
-              className="h-9 px-4 rounded-full bg-primary text-primary-foreground font-bold text-sm hover:opacity-90"
+              onClick={() => blastId && send(blastId)}
+              disabled={blocked || discarding || !blastId}
+              className="h-9 px-4 rounded-full bg-primary text-primary-foreground font-bold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Continue sending
             </button>
-            <button type="button" onClick={discard} className="text-sm font-semibold text-amber-900 underline">
+            <button
+              type="button"
+              onClick={discard}
+              disabled={discarding}
+              className="text-sm font-semibold text-amber-900 underline disabled:opacity-40"
+            >
               Write a new email instead
             </button>
           </div>

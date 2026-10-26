@@ -2,6 +2,7 @@ import { CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { Button } from "@/components/ui/button";
+import { OpenFileButton } from "@/components/open-file-button";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
@@ -102,14 +103,13 @@ export default async function CheckoutSuccessPage({
                 <p className="text-blue-800 text-sm mb-3">
                   Print this label, attach it to your package, and drop it off at the carrier.
                 </p>
-                <a
-                  href={order.shipping_label_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
+                <OpenFileButton
+                  url={order.shipping_label_url}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
                 >
                   Download Label (PDF)
-                </a>
+                </OpenFileButton>
               </>
             ) : (
               <p className="text-blue-800 text-sm">

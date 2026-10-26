@@ -259,14 +259,6 @@
   --sidebar-ring: var(--rx);
 }
 
-@keyframes ticker {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
-}
-.ticker-track {
-  animation: ticker 35s linear infinite;
-}
-
 /* ── Motion ────────────────────────────────────────────────────────────────
    Marketing moments only (never cart/checkout/order builder).
    Curves from the animate skill; transform + opacity only. */
@@ -691,7 +683,6 @@ html:active-view-transition .vt-header header {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ticker-track,
   .rx-reveal,
   .hero-in,
   .specimen-land,

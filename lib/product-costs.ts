@@ -47,29 +47,7 @@ function isMissingFile(error: { message?: string; status?: number; statusCode?: 
   return error.status === 404 || error.statusCode === "404" || /object not found|NoSuchKey/i.test(`${error.statusCode ?? ""} ${error.message ?? ""}`);
 }
 
-const RESTORATION_KEYS = ["regular_cents", "expedited_cents", "premium_cents", "ultra_premium_cents"] as const;
-
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const isCents = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-
-/**
- * A whole config sent to be saved, or null unless it has the config's shape:
- * products an object of product entries, presets a list, and restoration
- * all four costs. Every product's costs and presets live in this one file,
- * so a partial or empty config is never saved over it.
- */
-export function parseProductCostsConfig(value: unknown): ProductCostsConfig | null {
-  if (!isRecord(value) || !isRecord(value.products) || !Array.isArray(value.presets) || !isRecord(value.restoration)) return null;
-  if (!Object.values(value.products).every(isRecord)) return null;
-  if (!value.presets.every((p) => isRecord(p) && typeof p.id === "string")) return null;
-  const r = value.restoration;
-  if (!RESTORATION_KEYS.every((k) => isCents(r[k]))) return null;
-  return {
-    products: value.products as ProductCostsConfig["products"],
-    restoration: Object.fromEntries(RESTORATION_KEYS.map((k) => [k, r[k]])) as unknown as RestorationCosts,
-    presets: value.presets as ComponentPreset[],
-  };
-}
 
 /**
  * The saved config, or the empty default only when it has never been saved.
@@ -94,8 +72,11 @@ export async function getProductCosts(): Promise<ProductCostsConfig> {
   };
 }
 
-/** Saves the whole config. Throws if the save fails. */
-export async function saveProductCosts(config: ProductCostsConfig): Promise<void> {
+/**
+ * Saves the whole config. Throws if the save fails. Every product's costs and
+ * presets live in this one file, so only updateProductCosts() calls it.
+ */
+async function saveProductCosts(config: ProductCostsConfig): Promise<void> {
   const admin = createAdminClient();
   await ensureBucket(admin);
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });

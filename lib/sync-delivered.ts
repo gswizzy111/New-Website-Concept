@@ -12,6 +12,12 @@ const CHUNK = 50;
 
 export const DELIVERED_EVENT = "Marked Delivered — confirmed via Shippo transaction tracking.";
 
+/** Shippo's answer for a page number past the last page (404 "Invalid page."). */
+function isPastLastPage(err: unknown): boolean {
+  const e = err as { statusCode?: unknown; body?: unknown; message?: unknown } | null;
+  return e?.statusCode === 404 && /invalid page/i.test(`${e.body ?? ""} ${e.message ?? ""}`);
+}
+
 /**
  * trackingNumber → Shippo tracking status for the account's most recent
  * labels (up to 2,000). The transaction object carries trackingStatus
@@ -23,6 +29,9 @@ export async function getShippoTrackingStatuses(): Promise<Map<string, string>> 
     const pages = Array.from({ length: Math.min(WAVE, MAX_PAGES - first + 1) }, (_, i) => first + i);
     const lists = await Promise.all(
       pages.map((page) => shippo.transactions.list({ page, results: 100 }).catch((err) => {
+        // A wave can ask for pages past the last one: Shippo answers those
+        // 404 "Invalid page.", which is the end of the list, not a failure
+        if (isPastLastPage(err)) return { results: [], next: null };
         console.error(`[sync-delivered] Shippo page ${page} failed:`, err instanceof Error ? err.message : err);
         return null;
       }))

@@ -3,8 +3,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ClearCartAfterPayment } from "@/components/clear-cart-after-payment";
 import { PurchasePixel } from "@/components/purchase-pixel";
-import { stripe } from "@/lib/stripe";
-import { CHECKOUT_SESSION_ID } from "@/lib/tracking-guard";
+import { readCheckoutReturn } from "@/lib/checkout-return";
 
 export default async function ShopOrderConfirmedPage({
   searchParams,
@@ -15,25 +14,11 @@ export default async function ShopOrderConfirmedPage({
   // the address before analytics run (lib/tracking-guard.ts). It is read here
   // for the purchase amount and to empty the cart; a reload has none, so
   // neither happens twice.
-  const raw = (await searchParams).session_id;
-  const sessionId = raw && CHECKOUT_SESSION_ID.test(raw) ? raw : undefined;
-  let amountCents: number | null = null;
-  let currency = "usd";
-  // Stripe only returns here after a payment; null when the lookup failed
-  let complete: boolean | null = null;
-  if (sessionId) {
-    try {
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
-      complete = session.status === "complete";
-      // Only a completed checkout is a purchase
-      if (complete && session.amount_total != null) {
-        amountCents = session.amount_total;
-        currency = session.currency ?? "usd";
-      }
-    } catch (err) {
-      console.error("Kit order page: Stripe session lookup failed:", err instanceof Error ? err.message : err);
-    }
-  }
+  // Stripe only returns here after a payment; `complete` is null when the lookup failed
+  const { sessionId, amountCents, currency, complete } = await readCheckoutReturn(
+    (await searchParams).session_id,
+    "Kit order page",
+  );
 
   return (
     <section className="flex-1 flex items-center justify-center min-h-[70vh] px-6">

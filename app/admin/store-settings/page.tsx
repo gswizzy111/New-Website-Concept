@@ -6,8 +6,11 @@ import { TierRow } from "./tier-row";
 import { RestorationsToggle } from "./restorations-toggle";
 import { WaitlistNotifier } from "./waitlist-notifier";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/admin-auth";
 import { tierSlotUsage } from "@/lib/tier-slots";
+import { fetchAll } from "@/lib/fetch-all";
+import { marketingSendProblem, requestHosts } from "@/lib/email-unsubscribe";
 
 export const dynamic = "force-dynamic";
 
@@ -47,19 +50,36 @@ export default async function StoreSettingsPage() {
     }
   }
 
+  // The waitlist notifier skips anyone notified after this moment (server clock)
+  const loadedAt = new Date().toISOString();
+  type WaitlistRow = { id: string; name: string | null; email: string | null; phone: string | null; notified_at: string | null };
+
   const [
     { data: products },
-    { data: waitlistRows },
+    { rows: waitlistRows, error: waitlistError },
     restorationsOpen,
     slotsOpenedAt,
   ] = await Promise.all([
     admin.from("products").select("id, name, price_cents, inventory_count, display_order").eq("active", true).order("display_order", { ascending: true }),
-    admin.from("restoration_waitlist").select("id, name, email, phone, notified_at").order("created_at", { ascending: false }),
+    // Paged: the API returns at most 1,000 rows at a time
+    fetchAll<WaitlistRow>((from, to) =>
+      admin.from("restoration_waitlist").select("id, name, email, phone, notified_at")
+        .order("created_at", { ascending: false }).order("id").range(from, to)
+    ).then(
+      (rows) => ({ rows, error: null as string | null }),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("Restoration waitlist read failed:", message);
+        return { rows: [] as WaitlistRow[], error: message as string | null };
+      },
+    ),
     getRestorationsOpen(),
     getSlotsOpenedAt(),
   ]);
+  // Marketing email needs a postal address and unsubscribe links that reach this site
+  const waitlistSendProblem = marketingSendProblem(requestHosts(await headers()));
 
-  const waitlistPeople = (waitlistRows ?? []).map((w) => ({
+  const waitlistPeople = waitlistRows.map((w) => ({
     id: w.id as string,
     name: (w.name as string) ?? "",
     email: (w.email as string) ?? "",
@@ -202,7 +222,10 @@ ON CONFLICT (tier) DO NOTHING;`}</pre>
             </div>
           </div>
 
-          <WaitlistNotifier people={waitlistPeople} />
+          {waitlistError && (
+            <p className="text-sm text-red-600 font-medium mb-4">Couldn&apos;t load the waitlist: {waitlistError}</p>
+          )}
+          <WaitlistNotifier people={waitlistPeople} loadedAt={loadedAt} blockedReason={waitlistSendProblem} />
         </div>
 
         {/* Kit Inventory */}

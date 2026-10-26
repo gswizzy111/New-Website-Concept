@@ -4,17 +4,18 @@ import { fetchAll } from "@/lib/fetch-all";
 import { newToken, sha256, TOKEN_PATTERN } from "@/lib/admin-session";
 import { bareAddress } from "@/lib/email-problem-labels";
 import { siteUrl } from "@/lib/site-url";
+import { escapeHtml } from "@/lib/card-inquiries";
 
 /**
- * Marketing email (the admin Email Blast) and the bulk-send helpers it shares
- * with the restoration waitlist notifier.
+ * Marketing email (the admin Email Blast and the restoration waitlist notice)
+ * and the bulk-send helpers they share.
  *
- * Unsubscribing: every blast gives each address a fresh random token, links
+ * Unsubscribing: every send gives each address a fresh random token, links
  * /email/unsubscribe?token=… in the footer and sends List-Unsubscribe headers
  * that POST to /api/email/unsubscribe?token=… (one-click in Gmail and Yahoo).
  * Only the token's SHA-256 is stored (email_unsubscribe_tokens); using it adds
- * the address to email_unsubscribes, and every later blast skips it. Order,
- * shipping and account emails are not marketing and still go out.
+ * the address to email_unsubscribes, and every later marketing email skips it.
+ * Order, shipping and account emails are not marketing and still go out.
  * Schema: supabase/migrations/20261027_email.sql.
  */
 
@@ -44,7 +45,8 @@ export function mergeFirstName(text: string, firstName: string): string {
 
 /** The business's postal address for marketing footers (US anti-spam law asks
  * for one), from the BUSINESS_SHIPPING_* settings the shipping labels use.
- * null when any part is missing: the footer then leaves the line out. */
+ * null when any part is missing; marketing email then doesn't go out
+ * (marketingSendProblem()). */
 export function businessPostalAddress(): string | null {
   const street = [process.env.BUSINESS_SHIPPING_STREET1, process.env.BUSINESS_SHIPPING_STREET2]
     .map((s) => s?.trim() ?? "")
@@ -55,6 +57,53 @@ export function businessPostalAddress(): string | null {
   const zip = process.env.BUSINESS_SHIPPING_ZIP?.trim() ?? "";
   if (!process.env.BUSINESS_SHIPPING_STREET1?.trim() || !city || !state || !zip) return null;
   return `${street}, ${city}, ${state} ${zip}`;
+}
+
+/** A host without "www." or a trailing dot, lowercased, for comparing. */
+function bareHost(host: string): string {
+  return host.trim().toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+}
+
+/** The hosts a request came in on (the Host header, a proxy's forwarded
+ * host, the URL's host), for marketingSendProblem(). */
+export function requestHosts(headers: { get(name: string): string | null }, url?: string): string[] {
+  const hosts = [headers.get("x-forwarded-host")?.split(",")[0], headers.get("host")];
+  if (url) {
+    try { hosts.push(new URL(url).host); } catch { /* no URL host */ }
+  }
+  return hosts.filter((h): h is string => !!h && h.trim().length > 0);
+}
+
+/**
+ * Why marketing email (Email Blast, the restoration waitlist notice) can't go
+ * out from here, or null when it can. US anti-spam law asks for a postal
+ * address and a working unsubscribe link: the address comes from the
+ * BUSINESS_SHIPPING_* settings, and the links are built on siteUrl(), which
+ * must be this site (the old site has no unsubscribe page). `hosts`: the
+ * hosts this request came in on (requestHosts()); none known skips that check.
+ */
+export function marketingSendProblem(hosts: string[]): string | null {
+  if (!businessPostalAddress()) {
+    return "The business postal address isn't set (BUSINESS_SHIPPING_STREET1, CITY, STATE and ZIP in Netlify), and marketing emails must show it.";
+  }
+  const linkHost = bareHost(new URL(siteUrl()).host);
+  const here = hosts.map(bareHost);
+  if (here.length > 0 && !here.includes(linkHost)) {
+    return `Unsubscribe links would go to ${linkHost}, but this page is on ${here[0]}. Send from ${linkHost} if that is this site; otherwise set NEXT_PUBLIC_APP_URL to this site's address and redeploy.`;
+  }
+  return null;
+}
+
+/** The footer every marketing email ends with: the site, the postal address
+ * and the unsubscribe link. */
+export function marketingFooterHtml(businessName: string, unsubscribeLink: string): string {
+  const site = siteUrl();
+  const address = businessPostalAddress();
+  return `
+      <hr style="margin:28px 0;border:none;border-top:1px solid #eee" />
+      <p style="font-size:12px;color:#999;margin:0">${escapeHtml(businessName)} · <a href="${site}" style="color:#999">${escapeHtml(new URL(site).host)}</a></p>
+      ${address ? `<p style="font-size:12px;color:#999;margin:4px 0 0">${escapeHtml(address)}</p>` : ""}
+      <p style="font-size:12px;color:#999;margin:4px 0 0">Don't want these emails? <a href="${unsubscribeLink}" style="color:#999">Unsubscribe</a></p>`;
 }
 
 /** The unsubscribe page for a token. */
@@ -97,17 +146,19 @@ export async function unsubscribedEmails(): Promise<Set<string>> {
   return new Set(rows.map((r) => normalizeEmail(r.email)));
 }
 
-/** Addresses with an open bounce, spam complaint or Resend suppression
- * (lib/email-problems.ts). Mailing them again hurts the sending domain, which
- * also carries every order email. Throws if the list can't be read. */
+/** Addresses with an open bounce or Resend suppression, and every address
+ * that ever marked our email as spam, even after the admin marked that fixed
+ * (lib/email-problems.ts): a complaint counts as unsubscribing for good.
+ * Mailing them again hurts the sending domain, which also carries every order
+ * email. Throws if the list can't be read. */
 export async function undeliverableEmails(): Promise<Set<string>> {
   const admin = createAdminClient();
-  const rows = await fetchAll<{ email: string }>((from, to) =>
-    admin.from("email_problems").select("email").is("resolved_at", null)
+  const rows = await fetchAll<{ email: string; type: string; resolved_at: string | null }>((from, to) =>
+    admin.from("email_problems").select("email, type, resolved_at")
       .in("type", ["bounced", "complained", "suppressed"])
       .order("id").range(from, to)
   );
-  return new Set(rows.map((r) => bareAddress(r.email)));
+  return new Set(rows.filter((r) => r.type === "complained" || !r.resolved_at).map((r) => bareAddress(r.email)));
 }
 
 /** The address a token belongs to and whether it has unsubscribed already;

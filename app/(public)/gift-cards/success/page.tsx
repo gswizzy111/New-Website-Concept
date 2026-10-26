@@ -1,9 +1,21 @@
 import { PartyPopper } from "lucide-react";
 import Link from "next/link";
+import { PurchasePixel } from "@/components/purchase-pixel";
+import { readCheckoutReturn } from "@/lib/checkout-return";
 
-export default function GiftCardSuccessPage() {
+export default async function GiftCardSuccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ session_id?: string }>;
+}) {
+  // Stripe's ?session_id=, for the Meta Purchase event (lib/checkout-return.ts)
+  const { sessionId, amountCents, currency } = await readCheckoutReturn(
+    (await searchParams).session_id,
+    "Gift card success page",
+  );
   return (
     <div className="min-h-screen bg-paper flex items-center justify-center px-6">
+      <PurchasePixel sessionId={sessionId} amountCents={amountCents} currency={currency} />
       <div className="max-w-md w-full text-center">
         <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-lg bg-rx-soft text-rx"><PartyPopper className="h-8 w-8" strokeWidth={1.75} /></div>
         <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Gift Card Purchased!</h1>

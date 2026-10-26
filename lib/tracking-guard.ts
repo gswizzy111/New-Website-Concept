@@ -11,6 +11,14 @@ export const GA_ID = "G-LSQXS277DY";
  */
 export const CHECKOUT_SESSION_COOKIE = "checkout_session";
 
+/**
+ * Pages Stripe returns buyers to with ?session_id= (restoration and prep,
+ * kits, and gift cards and Kit Club once their checkouts add it). Each reads
+ * the ID on the server, for the order and the Meta Purchase event, and the
+ * script below takes it out of the address.
+ */
+export const RETURN_PAGE = /^\/(checkout\/success|shop\/order-confirmed|gift-cards\/success|subscribe\/success)$/;
+
 /** What a Stripe Checkout Session ID looks like (cs_test_..., cs_live_...). */
 export const CHECKOUT_SESSION_ID = /^cs_[A-Za-z0-9_]{10,200}$/;
 
@@ -24,11 +32,11 @@ export const CHECKOUT_SESSION_ID = /^cs_[A-Za-z0-9_]{10,200}$/;
  *    When it is on, the Meta pixel is never loaded (fbevents.js is never
  *    requested), as the privacy policy says. Google Analytics doesn't depend
  *    on it.
- * 1. Return pages (/checkout/success, /shop/order-confirmed): the session ID
- *    is removed from the address with history.replaceState. The server has
- *    already rendered the page with it, and Next.js reads the cleaned address
- *    when it starts (its router takes window.location as the first URL), so
- *    nothing after this line sees it.
+ * 1. Stripe return pages (RETURN_PAGE): the session ID is removed from the
+ *    address with history.replaceState. The server has already rendered the
+ *    page with it, and Next.js reads the cleaned address when it starts (its
+ *    router takes window.location as the first URL), so nothing after this
+ *    line sees it.
  * 2. Private pages (staff areas, pages whose address is a key or holds an
  *    email, and any address with such a parameter or an email in it) are
  *    never reported. If the page opens on one, neither tracker is loaded for
@@ -70,7 +78,7 @@ export function trackingGuardScript(): string {
   }
 
   var here = new URL(l.href);
-  if (here.pathname === '/checkout/success' || here.pathname === '/shop/order-confirmed') {
+  if (${RETURN_PAGE}.test(here.pathname)) {
     var sid = here.searchParams.get('session_id');
     if (sid !== null) {
       if (here.pathname === '/checkout/success' && ${CHECKOUT_SESSION_ID}.test(sid)) {
@@ -84,7 +92,12 @@ export function trackingGuardScript(): string {
   function stop() {
     w.__noTrack = true;
     w['ga-disable-${GA_ID}'] = true;
-    if (typeof w.fbq === 'function') w.fbq('consent', 'revoke');
+    if (typeof w.fbq === 'function') {
+      // fbevents.js not loaded yet: drop the queued init and page view, which
+      // it would otherwise send with the new address before the revoke
+      if (!w.fbq.callMethod && Array.isArray(w.fbq.queue)) w.fbq.queue.length = 0;
+      w.fbq('consent', 'revoke');
+    }
   }
   function check(url) {
     if (w.__noTrack) return;

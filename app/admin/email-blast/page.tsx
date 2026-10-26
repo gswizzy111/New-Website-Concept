@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { ComposeForm } from "./compose-form";
 import { loadBlastContacts, type SkipReason } from "./contacts";
+import { latestUnfinishedBlast, type UnfinishedBlast } from "./blasts";
 import { ResendConfirmationsButton } from "@/app/admin/resend-confirmations-button";
 import { isAdmin } from "@/lib/admin-auth";
+import { marketingSendProblem, requestHosts } from "@/lib/email-unsubscribe";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +27,7 @@ const SOURCE_COLORS: Record<string, string> = {
 
 const SKIP_LABELS: Record<SkipReason, string> = {
   unsubscribed: "Unsubscribed",
-  undeliverable: "Bounced or blocked",
+  undeliverable: "Bounced, blocked or marked as spam",
   invalid: "Not a valid address",
 };
 
@@ -35,6 +38,19 @@ export default async function EmailBlastPage() {
   const contacts = all.sort((a, b) => new Date(b.since).getTime() - new Date(a.since).getTime());
   const sendable = contacts.filter((c) => !c.skip).length;
   const skipped = contacts.length - sendable;
+
+  // A send that stopped part way (a closed tab, a lost connection) is picked
+  // up here, so it can continue instead of starting over
+  let unfinished: UnfinishedBlast | null = null;
+  let blastError: string | null = null;
+  try {
+    unfinished = await latestUnfinishedBlast();
+  } catch (err) {
+    blastError = err instanceof Error ? err.message : String(err);
+    console.error("Email blast: past sends unreadable:", blastError);
+  }
+  // A postal address and unsubscribe links that reach this site
+  const sendProblem = marketingSendProblem(requestHosts(await headers()));
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -47,13 +63,21 @@ export default async function EmailBlastPage() {
           </p>
           {skipped > 0 && (
             <p className="text-muted-foreground text-sm mt-1">
-              {skipped} skipped: unsubscribed, bounced or blocked, or not a valid address
+              {skipped} skipped: unsubscribed, bounced, blocked or marked as spam, or not a valid address
             </p>
           )}
           {listError && (
             <p className="text-sm text-red-600 font-medium mt-2">
               Couldn&apos;t read the unsubscribe and bounce lists, so sending is off until they load: {listError}
             </p>
+          )}
+          {blastError && (
+            <p className="text-sm text-red-600 font-medium mt-2">
+              Couldn&apos;t read past sends, so sending is off until they load: {blastError}
+            </p>
+          )}
+          {sendProblem && (
+            <p className="text-sm text-red-600 font-medium mt-2">Sending is off. {sendProblem}</p>
           )}
         </div>
 
@@ -77,7 +101,7 @@ export default async function EmailBlastPage() {
 
           {/* Compose panel */}
           <div className="order-2 lg:order-1">
-            <ComposeForm totalEmails={sendable} blocked={!!listError} />
+            <ComposeForm totalEmails={sendable} blocked={!!(listError || blastError || sendProblem)} unfinished={unfinished} />
           </div>
 
           {/* Contact list */}

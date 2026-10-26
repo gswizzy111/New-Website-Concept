@@ -3,7 +3,22 @@ import { fromEmail, businessName } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { siteUrl } from "@/lib/site-url";
-import { firstNameOf, isSendableAddress, mergeFirstName, normalizeEmail, sendBatch, type BatchMessage } from "@/lib/email-unsubscribe";
+import {
+  firstNameOf,
+  isSendableAddress,
+  marketingFooterHtml,
+  marketingSendProblem,
+  mergeFirstName,
+  newUnsubscribeTokens,
+  normalizeEmail,
+  requestHosts,
+  sendBatch,
+  undeliverableEmails,
+  unsubscribedEmails,
+  unsubscribeHeaders,
+  unsubscribeUrl,
+  type BatchMessage,
+} from "@/lib/email-unsubscribe";
 
 export const maxDuration = 60;
 
@@ -29,8 +44,8 @@ function personalize(template: string, firstName: string): string {
   return mergeFirstName(template, firstName);
 }
 
-function bodyToHtml(body: string): string {
-  const site = siteUrl();
+// The notice is marketing: it carries the unsubscribe link and postal address
+function bodyToHtml(body: string, unsubscribeLink: string): string {
   return `
     <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111;line-height:1.6">
       ${body
@@ -46,8 +61,7 @@ function bodyToHtml(body: string): string {
           Book Your Restoration
         </a>
       </p>
-      <hr style="margin:28px 0;border:none;border-top:1px solid #eee" />
-      <p style="font-size:12px;color:#999;margin:0">${escapeHtml(businessName)} · <a href="${site}" style="color:#999">${escapeHtml(new URL(site).host)}</a></p>
+      ${marketingFooterHtml(businessName, unsubscribeLink)}
     </div>
   `;
 }
@@ -58,7 +72,8 @@ function smsText(template: string, firstName: string): string {
   return /\/tier-selection\b/i.test(text) ? text : `${text} ${bookingUrl}`;
 }
 
-async function sendText(phone: string, message: string, key: string): Promise<boolean> {
+// Logs name the waitlist row, never the phone number
+async function sendText(personId: string, phone: string, message: string, key: string): Promise<boolean> {
   const digits = phone.replace(/\D/g, "");
   const normalized = digits.length === 10 ? `+1${digits}` : `+${digits}`;
   try {
@@ -70,9 +85,9 @@ async function sendText(phone: string, message: string, key: string): Promise<bo
     });
     const data = await res.json().catch(() => ({}));
     if (data.success) return true;
-    console.error("Textbelt error for", normalized, data.error);
+    console.error("Textbelt error for waitlist row", personId, data.error);
   } catch (e) {
-    console.error("Failed to text", normalized, e instanceof Error ? e.message : e);
+    console.error("Failed to text waitlist row", personId, e instanceof Error ? e.message : e);
   }
   return false;
 }
@@ -81,12 +96,17 @@ async function sendText(phone: string, message: string, key: string): Promise<bo
  * Tells restoration-waitlist signups that restorations are open: an email to
  * each, and a text to those who gave a phone number (when TEXTBELT_API_KEY is
  * set). Each person is marked notified as soon as their email or text goes
- * out, so a second send doesn't contact them again.
+ * out, so a second send doesn't contact them again. The email is marketing
+ * (lib/email-unsubscribe.ts): it has an unsubscribe link and the postal
+ * address, and isn't sent to addresses that unsubscribed, bounced or marked
+ * our email as spam (their text still goes).
  *
  * Body: ids (at most 25; the page sends a longer list in parts), the message
- * texts, and since: when this send began, so a part that's sent again (after
- * a dropped connection) skips the people this send already reached. Without
- * ids, the next 25 people not yet notified are sent.
+ * texts, and since: when the page loaded its list, by the server's clock, kept
+ * by the page until a send finishes. Anyone notified at or after it is skipped
+ * (counted in alreadyNotified), so a part that's sent again after a lost reply
+ * never reaches the same people twice. Without ids, the next 25 people not
+ * yet notified are sent.
  */
 export async function POST(request: Request) {
   if (!(await isAdmin())) {
@@ -111,9 +131,22 @@ export async function POST(request: Request) {
     // no body — use defaults, send to the next people not yet notified
   }
 
-  if (ids && ids.length === 0) return Response.json({ ok: true, sent: 0, texts: 0, notified: [], failed: [] });
+  if (ids && ids.length === 0) return Response.json({ ok: true, sent: 0, texts: 0, notified: [], failed: [], alreadyNotified: 0 });
   if (ids && ids.length > MAX_PER_REQUEST) {
     return Response.json({ error: `Send to at most ${MAX_PER_REQUEST} people per request.` }, { status: 400 });
+  }
+
+  // US anti-spam law asks for a postal address and an unsubscribe link that works
+  const problem = marketingSendProblem(requestHosts(request.headers, request.url));
+  if (problem) return Response.json({ error: `Nothing was sent. ${problem}` }, { status: 409 });
+
+  let unsubscribed: Set<string>;
+  let undeliverable: Set<string>;
+  try {
+    [unsubscribed, undeliverable] = await Promise.all([unsubscribedEmails(), undeliverableEmails()]);
+  } catch (err) {
+    console.error("Waitlist: unsubscribe/bounce lists unreadable:", err instanceof Error ? err.message : err);
+    return Response.json({ error: "Couldn't read the unsubscribe and bounce lists, so nothing was sent. Try again in a minute." }, { status: 500 });
   }
 
   const admin = createAdminClient();
@@ -149,14 +182,22 @@ export async function POST(request: Request) {
     return null;
   }
 
-  // Emails: one batch (at most 25). A malformed address is left out and
-  // reported, instead of sinking the batch.
+  // Emails: one batch (at most 25). A malformed, unsubscribed or bouncing
+  // address is left out and reported, instead of sinking the batch.
   const byEmail = new Map<string, string[]>();
-  const messages: BatchMessage[] = [];
+  const firstNames = new Map<string, string>();
   for (const person of waitlist) {
     const email = normalizeEmail(person.email);
     if (!isSendableAddress(email)) {
       failed.push({ email: person.email || "(no email)", reason: "Not a valid email address" });
+      continue;
+    }
+    if (unsubscribed.has(email)) {
+      failed.push({ email, reason: "Unsubscribed from marketing emails" });
+      continue;
+    }
+    if (undeliverable.has(email)) {
+      failed.push({ email, reason: "Bounced, blocked or marked as spam before" });
       continue;
     }
     // The same address twice in the list gets one email
@@ -165,13 +206,26 @@ export async function POST(request: Request) {
       continue;
     }
     byEmail.set(email, [person.id]);
-    messages.push({
+    firstNames.set(email, firstNameOf(person.name));
+  }
+
+  let tokens: Map<string, string>;
+  try {
+    tokens = await newUnsubscribeTokens(Array.from(byEmail.keys()));
+  } catch (err) {
+    console.error("Waitlist:", err instanceof Error ? err.message : err);
+    return Response.json({ error: "Couldn't save the unsubscribe links, so nothing was sent. Try again in a minute." }, { status: 500 });
+  }
+  const messages: BatchMessage[] = Array.from(byEmail.keys()).map((email) => {
+    const token = tokens.get(email)!;
+    return {
       from: fromEmail,
       to: email,
       subject: emailSubject,
-      html: bodyToHtml(personalize(emailBody, firstNameOf(person.name))),
-    });
-  }
+      html: bodyToHtml(personalize(emailBody, firstNames.get(email) ?? ""), unsubscribeUrl(token)),
+      headers: unsubscribeHeaders(token),
+    };
+  });
 
   const outcome = await sendBatch(messages);
   if (outcome.batchError) {
@@ -184,6 +238,7 @@ export async function POST(request: Request) {
       texts: 0,
       notified: Array.from(notified),
       failed,
+      alreadyNotified: alreadyDone.length,
     }, { status: 502 });
   }
   failed.push(...outcome.failed);
@@ -201,6 +256,7 @@ export async function POST(request: Request) {
       // Reached, even though the mark didn't save: the page takes them off the selection
       notified: [...Array.from(notified), ...emailedIds],
       failed,
+      alreadyNotified: alreadyDone.length,
     }, { status: 500 });
   }
 
@@ -210,7 +266,7 @@ export async function POST(request: Request) {
   for (let i = 0; i < toText.length; i += TEXT_CONCURRENCY) {
     const group = toText.slice(i, i + TEXT_CONCURRENCY);
     const results = await Promise.all(
-      group.map((person) => sendText(person.phone as string, smsText(smsMessage, firstNameOf(person.name)), textbeltKey!))
+      group.map((person) => sendText(person.id, person.phone as string, smsText(smsMessage, firstNameOf(person.name)), textbeltKey!))
     );
     results.forEach((ok, j) => {
       if (!ok) return;
@@ -229,6 +285,7 @@ export async function POST(request: Request) {
     texts: textsSent,
     notified: Array.from(notified),
     failed,
+    alreadyNotified: alreadyDone.length,
     ...(textMarkError ? { error: `Texts went out, but some couldn't be marked as notified: ${textMarkError}` } : {}),
   }, { status: textMarkError ? 500 : 200 });
 }

@@ -7,9 +7,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import type { ProductCostsConfig, ComponentPreset } from "@/lib/product-costs";
+import type { ProductCostsConfig, ComponentPreset, ProductComponent } from "@/lib/product-costs";
 
 const CATEGORIES = ["Kits", "Tools", "Supplies"];
+
+// The highest cost the server accepts for one component ($1,000,000)
+const MAX_COST_CENTS = 100_000_000;
+
+/**
+ * The named components as they will be saved, or null (after saying which
+ * one) when a cost is out of range: the server refuses the whole save then.
+ */
+function componentsToSave(list: Array<{ name: string; cost_str: string }>): ProductComponent[] | null {
+  const out = list
+    .filter((c) => c.name.trim())
+    .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) || 0 }));
+  const bad = out.find((c) => c.cost_cents < 0 || c.cost_cents > MAX_COST_CENTS);
+  if (bad) {
+    toast.error(`"${bad.name}" needs a cost from $0 to $1,000,000.`);
+    return null;
+  }
+  return out;
+}
 
 function normalizeCategory(cat: string | undefined): string {
   if (!cat) return "Kits";
@@ -204,9 +223,8 @@ export function ProductForm({ initial }: ProductFormProps) {
       toast.error("Couldn't load this product's costs. Reload the page to edit them.");
       return false;
     }
-    const validComponents = components
-      .filter((c) => c.name.trim())
-      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) || 0 }));
+    const validComponents = componentsToSave(components);
+    if (!validComponents) return false;
 
     setCostsSaving(true);
     const saved = await changeCosts({ action: "set_product", product_id: productId, components: validComponents });
@@ -217,9 +235,8 @@ export function ProductForm({ initial }: ProductFormProps) {
 
   async function saveAsPreset() {
     if (!presetName.trim()) return;
-    const validComponents = components
-      .filter((c) => c.name.trim())
-      .map((c) => ({ name: c.name.trim(), cost_cents: Math.round(parseFloat(c.cost_str || "0") * 100) || 0 }));
+    const validComponents = componentsToSave(components);
+    if (!validComponents) return;
     if (!validComponents.length) { toast.error("Add at least one component first."); return; }
     const name = presetName.trim();
     setPresetSaving(true);
@@ -249,9 +266,10 @@ export function ProductForm({ initial }: ProductFormProps) {
 
   async function saveComponentAsPreset(comp: { name: string; cost_str: string }) {
     if (!comp.name.trim()) { toast.error("Name the component first."); return; }
-    const name = comp.name.trim();
-    const cost_cents = Math.round(parseFloat(comp.cost_str || "0") * 100) || 0;
-    const saved = await changeCosts({ action: "add_preset", name, components: [{ name, cost_cents }] });
+    const one = componentsToSave([comp]);
+    if (!one) return;
+    const name = one[0].name;
+    const saved = await changeCosts({ action: "add_preset", name, components: one });
     if (!saved) return;
     setPresets(saved);
     toast.success(`Saved "${name}" as preset`);
