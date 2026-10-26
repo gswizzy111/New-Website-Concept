@@ -30,8 +30,8 @@ export default function CartPage() {
         {/* Items */}
         <div className="lg:col-span-2 flex flex-col gap-px bg-rule border border-rule rounded-lg overflow-hidden self-start">
           {items.map((item) => (
-            <div key={item.id} className="bg-card p-5 flex items-center gap-5">
-              <div className="w-16 h-16 bg-secondary shrink-0 overflow-hidden rounded-md">
+            <div key={item.id} className="bg-card p-5 grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 sm:flex sm:gap-5">
+              <div className="w-16 h-16 bg-secondary shrink-0 overflow-hidden rounded-md row-span-2 self-start sm:self-auto">
                 {item.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
@@ -46,34 +46,37 @@ export default function CartPage() {
                 )}
                 <p className="font-mono text-xs text-muted-foreground mt-1">{formatCurrency(item.price_cents)}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => updateQty(item.id, item.quantity - 1)}
-                  aria-label={`Decrease quantity of ${item.name}`}
-                  className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
-                >
-                  <Minus className="h-3 w-3" />
-                </button>
-                <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                <button
-                  onClick={() => updateQty(item.id, item.quantity + 1)}
-                  aria-label={`Increase quantity of ${item.name}`}
-                  className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
-                >
-                  <Plus className="h-3 w-3" />
-                </button>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="font-bold text-foreground text-sm w-16 text-right">
-                  {formatCurrency(item.price_cents * item.quantity)}
-                </span>
-                <button
-                  onClick={() => removeItem(item.id)}
-                  aria-label={`Remove ${item.name} from cart`}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+              {/* Phones: quantity and total share a line under the name; from sm the row is one line */}
+              <div className="col-start-2 flex items-center justify-between gap-4 sm:contents">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateQty(item.id, item.quantity - 1)}
+                    aria-label={`Decrease quantity of ${item.name}`}
+                    className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </button>
+                  <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                  <button
+                    onClick={() => updateQty(item.id, item.quantity + 1)}
+                    aria-label={`Increase quantity of ${item.name}`}
+                    className="w-8 h-8 rounded-md border border-rule flex items-center justify-center hover:border-ink/60 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="font-bold text-foreground text-sm w-16 text-right">
+                    {formatCurrency(item.price_cents * item.quantity)}
+                  </span>
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    aria-label={`Remove ${item.name} from cart`}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}

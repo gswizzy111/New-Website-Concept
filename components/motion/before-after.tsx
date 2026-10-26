@@ -151,7 +151,7 @@ export function BeforeAfter({ before, after, beforeAlt, afterAlt, sizes, priorit
         aria-valuenow={valueNow}
         aria-valuetext={`${valueNow}% restored`}
         onKeyDown={onKeyDown}
-        className="ba-handle absolute top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-rx ring-1 ring-ink/20 outline-none transition-transform duration-150 ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-rx group-data-[dragging]/ba:scale-110"
+        className="ba-handle absolute top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-rx ring-1 ring-ink/20 transition-transform duration-150 ease-[var(--ease-out)] focus-visible:ring-2 focus-visible:ring-rx group-data-[dragging]/ba:scale-110"
       >
         <ChevronsLeftRight className="h-5 w-5" strokeWidth={1.75} />
       </div>
