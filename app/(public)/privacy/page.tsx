@@ -231,9 +231,9 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p className="font-semibold mt-4">
-              We do <em>not</em> sell your personal information. We do not use your messages or
-              personal information for advertising, or send you promotional messages that you have
-              not consented to receive.
+              We do <em>not</em> sell your personal information. We do not use your messages, or
+              personal information you give us such as your name, email or address, for
+              advertising, or send you promotional messages that you have not consented to receive.
             </p>
           </section>
 
@@ -339,7 +339,7 @@ export default function PrivacyPage() {
                 >
                   Meta&rsquo;s Privacy Policy
                 </a>
-                .
+                . We also use the Meta Pixel on our website, as described in section 4.
               </li>
               <li>
                 <strong>ManyChat</strong> — we use ManyChat as our messaging automation platform.
