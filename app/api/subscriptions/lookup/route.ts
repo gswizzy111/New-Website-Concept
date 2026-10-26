@@ -1,26 +1,21 @@
-import { createAdminClient } from "@/lib/supabase/admin";
+import { z } from "zod";
+import { attemptWait, recordAttempt } from "@/lib/attempt-limit";
+import { KIT_CLUB_LINK_RULE, sendKitClubLink, subscriptionForEmail } from "@/lib/kit-club-link";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const email = (searchParams.get("email") ?? "").toLowerCase().trim();
-  if (!email) return Response.json({ error: "Email required" }, { status: 400 });
+const Body = z.object({ email: z.string().trim().email() });
 
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("subscriptions")
-    .select("id, status, created_at, cancelled_at")
-    .eq("customer_email", email)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
+// "Manage your subscription": emails a one-time link to the address when it
+// has a Kit Club subscription. Always answers the same way, so the form
+// can't be used to find out who subscribes, and shows nothing itself. A few
+// emails per address per hour at most (counted per address, never per IP).
+export async function POST(request: Request) {
+  const parsed = Body.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) return Response.json({ error: "Enter a valid email address." }, { status: 400 });
+  const email = parsed.data.email.toLowerCase();
 
-  if (error || !data) return Response.json({ found: false });
-
-  return Response.json({
-    found: true,
-    id: data.id,
-    status: data.status,
-    created_at: data.created_at,
-    cancelled_at: data.cancelled_at,
-  });
+  if ((await attemptWait("kit-club-link-email", email, KIT_CLUB_LINK_RULE)) === 0) {
+    const sub = await subscriptionForEmail(email);
+    if (sub && (await sendKitClubLink(email))) await recordAttempt("kit-club-link-email", email);
+  }
+  return Response.json({ ok: true });
 }

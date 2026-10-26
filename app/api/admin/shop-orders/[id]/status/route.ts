@@ -16,15 +16,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const { status } = await request.json();
+  const { status } = await request.json().catch(() => ({}));
 
-  if (!status || !(status in KIT_STATUSES)) {
+  if (typeof status !== "string" || !Object.hasOwn(KIT_STATUSES, status)) {
     return Response.json({ error: "Invalid status" }, { status: 400 });
   }
 
   const admin = createAdminClient();
-  const { error } = await admin.from("shop_orders").update({ status }).eq("id", id);
+  const { data: updated, error } = await admin.from("shop_orders").update({ status }).eq("id", id).select("id");
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (!updated?.length) return Response.json({ error: "Order not found" }, { status: 404 });
 
   return Response.json({ ok: true });
 }

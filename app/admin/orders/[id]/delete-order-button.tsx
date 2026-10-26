@@ -10,7 +10,15 @@ export function DeleteOrderButton({ orderId, orderNumber }: { orderId: string; o
 
   async function handleDelete() {
     setDeleting(true);
-    const res = await fetch(`/api/admin/orders/${orderId}`, { method: "DELETE" });
+    let res: Response;
+    try {
+      res = await fetch(`/api/admin/orders/${orderId}`, { method: "DELETE" });
+    } catch {
+      setDeleting(false);
+      setConfirming(false);
+      alert("Network error. Check your connection and try again.");
+      return;
+    }
     if (res.ok) {
       router.push("/admin");
     } else {

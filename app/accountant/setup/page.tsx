@@ -3,6 +3,9 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+// The same minimum as admin passwords (ADMIN_PASSWORD_MIN in lib/admin-password.ts)
+const MIN = 10;
+
 function SetupForm() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
@@ -20,7 +23,7 @@ function SetupForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (password.length < MIN) { setError(`Password must be at least ${MIN} characters.`); return; }
     if (password !== confirm) { setError("Passwords don't match."); return; }
     setLoading(true);
     const res = await fetch("/api/accountant/setup", {
@@ -59,7 +62,7 @@ function SetupForm() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
+            placeholder={`At least ${MIN} characters`}
             className="w-full h-11 px-4 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
             required
             autoFocus

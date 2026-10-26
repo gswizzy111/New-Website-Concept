@@ -1,19 +1,12 @@
 "use client";
 
-// Downloads the rows shown on the page as a CSV file (built in the browser).
-// Text that starts like a formula (=, +, -, @) gets a leading apostrophe so
-// spreadsheets show it as text; numbers stay numbers.
-function cell(v: string | number) {
-  if (typeof v === "number") return String(v);
-  const s = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
+import { csvText, type CsvValue } from "@/lib/csv";
 
-export function CsvButton({ rows, filename }: { rows: (string | number)[][]; filename: string }) {
+// Downloads the rows shown on the page as a CSV file (built in the browser).
+// Cells are guarded against spreadsheet formulas in lib/csv.ts.
+export function CsvButton({ rows, filename }: { rows: CsvValue[][]; filename: string }) {
   function download() {
-    const csv = rows.map((r) => r.map(cell).join(",")).join("\r\n");
-    // The byte-order mark makes Excel read the file as UTF-8
-    const url = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob([csvText(rows)], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;

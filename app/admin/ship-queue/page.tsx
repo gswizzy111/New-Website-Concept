@@ -3,6 +3,7 @@ import { ShipQueueStatusControl } from "./mark-shipped-button";
 import { ReturnLabelButton as KitReturnLabelButton } from "../shop-orders/return-label-button";
 import { ReturnLabelButton as RestorationReturnLabelButton } from "../orders/[id]/return-label-button";
 import { AddressEditor } from "./address-editor";
+import { CancelKitOrderButton } from "./cancel-kit-order-button";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin-auth";
 
@@ -50,34 +51,45 @@ export default async function ShipQueuePage({
   const admin = createAdminClient();
   const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-  const [{ data: kitOrders }, { data: completedOrders }, { data: recentlyShippedKits }] = await Promise.all([
+  const kitColumns = "id, customer_name, customer_email, customer_phone, shipping_address, items, created_at, status, return_label_url, labels, tracking_number";
+  const [kitQuery, restorationQuery, shippedQuery] = await Promise.all([
+    // Paid kits without a label, and kits being packed: 'processing' includes
+    // those whose label was bought at checkout (the webhook sets it with the label)
     admin
       .from("shop_orders")
-      .select("id, customer_name, customer_email, customer_phone, shipping_address, items, created_at, status, return_label_url")
-      .in("status", ["paid", "processing"])
-      .is("return_label_url", null)
+      .select(kitColumns)
+      .or("status.eq.processing,and(status.eq.paid,return_label_url.is.null)")
       .order("created_at", { ascending: true }),
     admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, customer_phone, restoration_tier, return_label_url, ship_from_address, created_at, cards(id, card_name, card_set, card_year, estimated_value_cents, completed)")
+      .select("id, order_number, customer_name, customer_email, customer_phone, restoration_tier, return_label_url, ship_from_address, created_at, insurance_type, insurance_declared_value_cents, cards(id, card_name, card_set, card_year, estimated_value_cents, completed)")
       .eq("status", "completed")
       .eq("payment_status", "paid")
       .is("return_label_url", null)
       .order("created_at", { ascending: true }),
+    // shipped_at is stamped by a trigger when an order's status becomes 'shipped'
+    // (supabase/migrations/20261027_kits.sql); until that runs this list is empty
     admin
       .from("shop_orders")
-      .select("id, customer_name, customer_email, customer_phone, shipping_address, items, created_at, status, return_label_url")
+      .select(kitColumns)
       .eq("status", "shipped")
-      .gte("updated_at", twoDaysAgo)
-      .order("created_at", { ascending: true }),
+      .gte("shipped_at", twoDaysAgo)
+      .order("shipped_at", { ascending: true }),
   ]);
+  if (kitQuery.error) console.error("[ship queue] kit orders:", kitQuery.error.message);
+  if (restorationQuery.error) console.error("[ship queue] restoration orders:", restorationQuery.error.message);
+  if (shippedQuery.error) console.error("[ship queue] recently shipped kits:", shippedQuery.error.message);
 
-  const readyToShip = kitOrders ?? [];
-  const restorationReady = completedOrders ?? [];
-  const recentlyShipped = recentlyShippedKits ?? [];
+  const readyToShip = kitQuery.data ?? [];
+  const restorationReady = restorationQuery.data ?? [];
+  const recentlyShipped = shippedQuery.data ?? [];
 
+  const hasKitLabel = (o: { return_label_url: string | null; labels: unknown }) =>
+    Boolean(o.return_label_url) || (Array.isArray(o.labels) && o.labels.length > 0);
   const kitsCount = readyToShip.length;
+  const kitsNeedingLabels = readyToShip.filter((o) => !hasKitLabel(o)).length;
   const restorationCount = restorationReady.length;
+  const loadError = kitQuery.error || restorationQuery.error;
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -86,9 +98,15 @@ export default async function ShipQueuePage({
         <div className="mb-6">
           <h1 className="font-heading font-black text-3xl text-foreground">Ship Queue</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            {kitsCount + restorationCount} order{(kitsCount + restorationCount) !== 1 ? "s" : ""} need labels — oldest first
+            {kitsNeedingLabels + restorationCount} order{(kitsNeedingLabels + restorationCount) !== 1 ? "s" : ""} need labels — oldest first
           </p>
         </div>
+
+        {loadError && (
+          <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Some orders could not be loaded: {loadError.message}. Reload the page to try again.
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 mb-7 border-b border-border">
@@ -181,8 +199,9 @@ export default async function ShipQueuePage({
                             />
                           </div>
                         </div>
-                        <div className="shrink-0">
+                        <div className="shrink-0 flex flex-col items-end gap-2">
                           <ShipQueueStatusControl orderId={order.id} currentStatus={order.status} />
+                          <CancelKitOrderButton orderId={order.id} customerName={order.customer_name} />
                         </div>
                       </div>
                     </div>
@@ -345,8 +364,8 @@ export default async function ShipQueuePage({
                           <RestorationReturnLabelButton
                             orderId={order.id}
                             existingLabelUrl={(order as any).return_label_url ?? null}
-                            insuranceType={null}
-                            insuranceDeclaredValueCents={null}
+                            insuranceType={(order.insurance_type as string | null) ?? null}
+                            insuranceDeclaredValueCents={(order.insurance_declared_value_cents as number | null) ?? null}
                           />
                         </div>
                       </div>

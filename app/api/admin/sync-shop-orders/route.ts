@@ -1,8 +1,26 @@
 import { addressFromSession } from "@/lib/shipping-address";
 import { stripe } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import Stripe from "stripe";
+import type Stripe from "stripe";
 import { isAdmin } from "@/lib/admin-auth";
+
+// Sessions newer than this are left to the Stripe webhook. It creates the kit
+// order and also buys the label, takes stock and gift-card balance and sends the
+// emails, and Stripe keeps retrying it for up to 3 days. A row made here first
+// would make it skip all of that (it treats an existing row as already handled).
+const WEBHOOK_WINDOW_SECONDS = 3 * 86_400;
+
+type MetaItem = { id: string; qty: number };
+
+function metaItems(session: Stripe.Checkout.Session): MetaItem[] {
+  try {
+    const items = JSON.parse(session.metadata?.items ?? "[]");
+    return Array.isArray(items) ? items : [];
+  } catch {
+    console.error("[sync kit orders] unreadable items metadata on", session.id);
+    return [];
+  }
+}
 
 export async function POST() {
   if (!(await isAdmin())) {
@@ -10,70 +28,80 @@ export async function POST() {
   }
 
   const admin = createAdminClient();
+  const createdBefore = Math.floor(Date.now() / 1000) - WEBHOOK_WINDOW_SECONDS;
 
-  // Get session IDs already in the DB so we don't duplicate
-  const { data: existing } = await admin
-    .from("shop_orders")
-    .select("stripe_session_id");
-  const existingIds = new Set((existing ?? []).map((o) => o.stripe_session_id));
-
-  // Page through all completed Stripe sessions
+  // Page through completed Stripe sessions older than the webhook window
   const toInsert: Record<string, unknown>[] = [];
   let startingAfter: string | undefined;
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const sessions = await stripe.checkout.sessions.list({
       limit: 100,
       status: "complete",
+      created: { lt: createdBefore },
       ...(startingAfter ? { starting_after: startingAfter } : {}),
     });
 
-    for (const session of sessions.data) {
-      if (session.metadata?.type !== "shop") continue;
-      if (existingIds.has(session.id)) continue;
+    const shopSessions = sessions.data.filter((s) =>
+      s.metadata?.type === "shop" && (s.payment_status === "paid" || s.payment_status === "no_payment_required"));
 
-      const items: { id: string; qty: number }[] = JSON.parse(session.metadata.items ?? "[]");
-      const productIds = items.map((i) => i.id).filter(Boolean);
+    if (shopSessions.length > 0) {
+      // Only this page's sessions are looked up, so the check never runs into
+      // the API's 1,000-row limit
+      const { data: existing, error: existingErr } = await admin
+        .from("shop_orders")
+        .select("stripe_session_id")
+        .in("stripe_session_id", shopSessions.map((s) => s.id));
+      if (existingErr) {
+        console.error("Sync lookup error:", existingErr);
+        return Response.json({ error: existingErr.message }, { status: 500 });
+      }
+      const existingIds = new Set((existing ?? []).map((o) => o.stripe_session_id));
+      const missing = shopSessions.filter((s) => !existingIds.has(s.id));
 
       // Fetch product names from DB
+      const productIds = [...new Set(missing.flatMap((s) => metaItems(s).map((i) => i.id).filter(Boolean)))];
       const { data: products } = productIds.length > 0
         ? await admin.from("products").select("id, name, price_cents").in("id", productIds)
         : { data: [] };
       const productMap = Object.fromEntries((products ?? []).map((p) => [p.id, p]));
 
-      const itemsForDb = items.map((i) => ({
-        product_id: i.id,
-        product_name: productMap[i.id]?.name ?? "Unknown product",
-        quantity: i.qty,
-        price_cents: productMap[i.id]?.price_cents ?? 0,
-      }));
+      for (const session of missing) {
+        const itemsForDb = metaItems(session).map((i) => ({
+          product_id: i.id,
+          product_name: productMap[i.id]?.name ?? "Unknown product",
+          quantity: i.qty,
+          price_cents: productMap[i.id]?.price_cents ?? 0,
+        }));
 
-      const typedSession = session as Stripe.Checkout.Session;
-      // The address checked in the cart (older orders: the one Stripe collected)
-      const shippingAddress = addressFromSession(typedSession);
+        // The address checked in the cart (older orders: the one Stripe collected)
+        const shippingAddress = addressFromSession(session);
+        const isInternational = session.metadata?.is_international === "true";
 
-      const isInternational = session.metadata?.is_international === "true";
+        const totalCents = session.amount_total ?? 0;
+        // Same as the webhook: live-rate checkouts record what shipping cost;
+        // older ones were $5.99 in the US (abroad: what the total holds beyond the items)
+        const kitShippingCents = parseInt(session.metadata?.kit_shipping_cents ?? "", 10);
+        const shippingCents = Number.isFinite(kitShippingCents)
+          ? kitShippingCents
+          : isInternational
+            ? totalCents - (session.amount_subtotal ?? totalCents - 599)
+            : 599;
 
-      const totalCents = session.amount_total ?? 0;
-      // For international, full shipping (incl. $10 handling) is in total; for US, $5.99 flat
-      const shippingCents = isInternational
-        ? (totalCents - (session.amount_subtotal ?? totalCents - 599))
-        : 599;
-
-      toInsert.push({
-        stripe_session_id: session.id,
-        customer_name: session.metadata.customer_name ?? session.customer_details?.name ?? "",
-        customer_email: session.customer_email ?? session.customer_details?.email ?? "",
-        customer_phone: session.metadata.customer_phone ?? "",
-        shipping_address: shippingAddress,
-        items: itemsForDb,
-        subtotal_cents: Math.max(0, totalCents - shippingCents),
-        shipping_cents: shippingCents,
-        total_cents: totalCents,
-        status: "paid",
-        affiliate_code: session.metadata?.affiliate_code || null,
-      });
+        toInsert.push({
+          stripe_session_id: session.id,
+          customer_name: session.metadata?.customer_name ?? session.customer_details?.name ?? "",
+          customer_email: session.customer_email ?? session.customer_details?.email ?? "",
+          customer_phone: session.metadata?.customer_phone ?? "",
+          shipping_address: shippingAddress,
+          items: itemsForDb,
+          subtotal_cents: Math.max(0, totalCents - shippingCents),
+          shipping_cents: shippingCents,
+          total_cents: totalCents,
+          status: "paid",
+          affiliate_code: session.metadata?.affiliate_code || null,
+        });
+      }
     }
 
     if (!sessions.has_more) break;
@@ -81,13 +109,20 @@ export async function POST() {
     if (toInsert.length >= 500) break; // safety cap
   }
 
+  let synced = 0;
   if (toInsert.length > 0) {
-    const { error } = await admin.from("shop_orders").insert(toInsert);
+    // If the webhook saves one of these meanwhile (an event resent from the
+    // Stripe Dashboard), its row wins and this one is skipped
+    const { data: inserted, error } = await admin
+      .from("shop_orders")
+      .upsert(toInsert, { onConflict: "stripe_session_id", ignoreDuplicates: true })
+      .select("id");
     if (error) {
       console.error("Sync insert error:", error);
       return Response.json({ error: error.message }, { status: 500 });
     }
+    synced = inserted?.length ?? 0;
   }
 
-  return Response.json({ synced: toInsert.length });
+  return Response.json({ synced });
 }
