@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendAccountLink } from "@/lib/account-links";
+import { CONFIRM_SUBJECT, emailAccountLink, mintAccountToken } from "@/lib/account-links";
+import { fromAddress } from "@/lib/resend";
 import { z } from "zod";
 
 const Body = z.object({
@@ -10,6 +11,8 @@ const Body = z.object({
 
 // Creates the account unconfirmed and emails a confirm link. Orders are matched
 // to accounts by email, so nobody can see orders until they prove they own it.
+// The reply says who the email comes from, so the page can tell people what to
+// look for (and to check Spam).
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = Body.safeParse(body);
@@ -28,17 +31,24 @@ export async function POST(request: Request) {
     user_metadata: { name },
   });
 
+  let existingAccount = false;
   if (createError) {
     const exists = /already|exists|registered/i.test(createError.message);
     if (!exists) return Response.json({ error: createError.message }, { status: 400 });
-    // Already signed up: a confirmed account signs in; an unconfirmed one gets a new link
-    const { data: existing } = await admin.auth.admin.generateLink({ type: "magiclink", email });
-    if (existing?.user?.email_confirmed_at) {
-      return Response.json({ error: "An account with that email already exists. Sign in, or reset your password." }, { status: 400 });
-    }
+    existingAccount = true;
   }
 
-  const sent = await sendAccountLink("confirm", email, name);
+  // One token per request: minting another would cancel the link we email.
+  const minted = await mintAccountToken("confirm", email);
+  if (!minted) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
+  // Already signed up and confirmed: sign in instead. Unconfirmed: a new link, but
+  // the password stays the one chosen first (a stranger mustn't be able to set it).
+  if (minted.user.email_confirmed_at) {
+    return Response.json({ error: "An account with that email already exists. Sign in, or reset your password." }, { status: 400 });
+  }
+
+  const greet = existingAccount ? (minted.user.user_metadata?.name as string | undefined) ?? name : name;
+  const sent = await emailAccountLink("confirm", email, minted.tokenHash, greet);
   if (!sent) return Response.json({ error: "We couldn't send the confirmation email. Please try again." }, { status: 500 });
-  return Response.json({ ok: true, confirmationSent: true });
+  return Response.json({ ok: true, confirmationSent: true, existingAccount, sentFrom: fromAddress, subject: CONFIRM_SUBJECT });
 }
