@@ -3,12 +3,18 @@
 -- keeps working: it uploads only the image types allowed below (plus the
 -- upsell list JSON), and still signs partners in by the plaintext
 -- partners.passcode, which the new site keeps writing until the switch.
+--
+-- Apply 20261027_attempt_limits.sql first: the partner sign-in limit (and the
+-- loyalty lookup limit) count tries in its auth_attempts table, and without it
+-- they let every try through.
 
 -- ── Card photos bucket (app/api/upload/route.ts) ─────────────────────────────
 -- The bucket is public and uploads need no sign-in (checkout photos come
 -- before an order exists). Supabase enforces these limits on every upload,
 -- including the direct signed-URL uploads the API can't inspect: 20 MB, and
 -- only the image types the uploaders accept (no SVG, HTML or other files).
+-- For those it checks the type the upload declares, not the bytes, so files
+-- are always served as one of these image types.
 -- application/json is for _config/upsell.json, which both sites keep in this
 -- bucket (app/api/shop/upsell-products/route.ts).
 update storage.buckets

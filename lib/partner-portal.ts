@@ -137,8 +137,8 @@ export async function endPartnerSession() {
   jar.delete(LEGACY_PARTNER_COOKIE);
 }
 
-/** Signs a partner out everywhere (after a new passcode is set). */
+/** Signs a partner out everywhere (after a new passcode is set). Throws if that fails. */
 export async function endSessionsForPartner(admin: Admin, partnerId: string) {
   const { error } = await admin.from("partner_sessions").delete().eq("partner_id", partnerId);
-  if (error) console.error("Ending partner sessions failed:", error.message);
+  if (error) throw new Error(`Could not end partner sessions: ${error.message}`);
 }

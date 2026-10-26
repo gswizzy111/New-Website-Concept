@@ -204,7 +204,13 @@ export async function PATCH(
       if (value == null || value <= 0) {
         return Response.json({ error: `Please enter a declared value for ${label}.` }, { status: 400 });
       }
-      const tierId = card.tier ?? order.restoration_tier ?? null;
+      // The order's tier first: an upgrade paid through the old site's webhook
+      // moves the order but not its cards. Mixed-tier orders have no order tier.
+      const tierId = order.restoration_tier ?? card.tier ?? null;
+      const priceChange = () => Response.json({
+        error: `Changing ${label}'s declared value would change its price. Please contact us to change it.`,
+        code: "PRICE_CHANGE",
+      }, { status: 400 });
       if (isRestorationTier(tierId)) {
         const tier = applyDbOverride(RESTORATION_TIERS[tierId], (await tierSettings())[tierId] ?? null);
         const max = RESTORATION_TIERS[tierId].max_card_value_cents;
@@ -216,18 +222,15 @@ export async function PATCH(
           }, { status: 400 });
         }
         if (getCardPriceCents(tier, value) !== getCardPriceCents(tier, before.estimated_value_cents ?? 0)) {
-          return Response.json({
-            error: `Changing ${label}'s declared value would change its price. Please contact us to change it.`,
-            code: "PRICE_CHANGE",
-          }, { status: 400 });
+          return priceChange();
         }
       } else if (tierId === "prep") {
         if (prepValuePriceKey(value) !== prepValuePriceKey(before.estimated_value_cents ?? 0)) {
-          return Response.json({
-            error: `Changing ${label}'s declared value would change its price. Please contact us to change it.`,
-            code: "PRICE_CHANGE",
-          }, { status: 400 });
+          return priceChange();
         }
+      } else {
+        // No tier to check the cap and price against (older orders): only we change it
+        return priceChange();
       }
     }
 
@@ -236,58 +239,74 @@ export async function PATCH(
 
   if (planned.length === 0) return Response.json({ ok: true });
 
-  // Saved only while work on the card still hasn't started (checked again in
-  // the update itself, in case it started a moment ago)
-  const results = await Promise.all(
-    planned.map(({ card, update }) =>
-      admin.from("cards").update(update)
-        .eq("id", card.id).eq("order_id", id)
-        .is("cleaning_started_at", null).is("slab_opening_started_at", null).neq("status", "refunded")
-        .select("id")
-    )
-  );
-  const failed = results.filter((r) => r.error || !r.data?.length);
-  const dbErrors = results.filter((r) => r.error);
-  if (dbErrors.length > 0) {
-    console.error("Card editor: saving cards failed:", dbErrors.map((r) => r.error?.message).join("; "));
-  }
-
   // Each customer edit goes in the order's history so the admin sees it (not
   // shown to the customer). The full before/after is in the event's metadata.
-  const saved = planned.filter((_, i) => !results[i].error && results[i].data?.length);
-  if (saved.length > 0) {
-    const describe = (c: Change, withText: boolean) => {
-      const quoted = (v: unknown) => (withText ? ` "${v ?? ""}"` : "");
-      switch (c.field) {
-        case "estimated_value_cents":
-          return `declared value ${c.from == null ? "none" : formatCurrency(c.from as number)} to ${formatCurrency(c.to as number)}`;
-        case "card_name": return `name${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
-        case "card_set": return `set${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
-        case "card_year": return `year${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
-        case "card_number": return `card number${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
-        case "notes": return "notes";
-        case "photo_urls": return `photos (${(c.from as string[]).length} to ${(c.to as string[]).length})`;
-        default: return c.field;
-      }
-    };
-    const description = (card: ExistingCard, changes: Change[]) => {
-      const full = `Customer edited card "${card.card_name ?? ""}": ${changes.map((c) => describe(c, true)).join("; ")}`;
-      // Admin pages find status changes by their wording ("Cards Received" and
-      // the like), so customer-typed text that reads like one is left out
-      return /received|shipped|status updated|delivered|refund/i.test(full)
-        ? `Customer edited a card: ${changes.map((c) => describe(c, false)).join("; ")}`
-        : full;
-    };
-    const { error: eventErr } = await admin.from("order_events").insert(
-      saved.map(({ card, changes }) => ({
+  // Recorded before the cards are saved, so no change is ever saved without
+  // its record; a record whose change then didn't save is taken back.
+  const describe = (c: Change, withText: boolean) => {
+    const quoted = (v: unknown) => (withText ? ` "${v ?? ""}"` : "");
+    switch (c.field) {
+      case "estimated_value_cents":
+        return `declared value ${c.from == null ? "none" : formatCurrency(c.from as number)} to ${formatCurrency(c.to as number)}`;
+      case "card_name": return `name${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
+      case "card_set": return `set${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
+      case "card_year": return `year${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
+      case "card_number": return `card number${quoted(c.from)} to${quoted(c.to)}`.replace(/ to$/, "");
+      case "notes": return "notes";
+      case "photo_urls": return `photos (${(c.from as string[]).length} to ${(c.to as string[]).length})`;
+      default: return c.field;
+    }
+  };
+  const description = (card: ExistingCard, changes: Change[]) => {
+    const full = `Customer edited card "${card.card_name ?? ""}": ${changes.map((c) => describe(c, true)).join("; ")}`;
+    // Admin pages find status changes by their wording ("Cards Received" and
+    // the like), so customer-typed text that reads like one is left out
+    return /received|shipped|status updated|delivered|refund/i.test(full)
+      ? `Customer edited a card: ${changes.map((c) => describe(c, false)).join("; ")}`
+      : full;
+  };
+  const { data: events, error: eventErr } = await admin
+    .from("order_events")
+    .insert(
+      planned.map(({ card, changes }) => ({
         order_id: id,
         event_type: "customer_card_edit",
         description: description(card, changes),
         is_customer_visible: false,
         metadata: { card_id: card.id, changes },
       }))
-    );
-    if (eventErr) console.error("Card editor: recording the edit failed:", eventErr.message);
+    )
+    .select("id, metadata");
+  if (eventErr) {
+    console.error("Card editor: recording the edit failed:", eventErr.message);
+    return Response.json({ error: "Save failed. Please try again." }, { status: 500 });
+  }
+  const eventIdFor = new Map(
+    (events ?? []).map((e) => [(e.metadata as { card_id?: string } | null)?.card_id, e.id as string])
+  );
+
+  // Saved only while work on the card still hasn't started (checked again in
+  // the update itself, in case it started a moment ago)
+  const results = await Promise.all(
+    planned.map(({ card, update }) =>
+      admin.from("cards").update(update)
+        .eq("id", card.id).eq("order_id", id)
+        .is("cleaning_started_at", null).is("slab_opening_started_at", null)
+        .or("status.is.null,status.neq.refunded")
+        .select("id")
+    )
+  );
+  const failed = planned.filter((_, i) => results[i].error || !results[i].data?.length);
+  const dbErrors = results.filter((r) => r.error);
+  if (dbErrors.length > 0) {
+    console.error("Card editor: saving cards failed:", dbErrors.map((r) => r.error?.message).join("; "));
+  }
+
+  // Take back the records of changes that didn't save
+  const unsavedEvents = failed.map(({ card }) => eventIdFor.get(card.id)).filter((e): e is string => !!e);
+  if (unsavedEvents.length > 0) {
+    const { error: undoErr } = await admin.from("order_events").delete().in("id", unsavedEvents);
+    if (undoErr) console.error("Card editor: removing the record of an unsaved edit failed:", undoErr.message);
   }
 
   if (failed.length > 0) {

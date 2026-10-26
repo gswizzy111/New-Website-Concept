@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * No sign-in: customers upload photos before they have an order. Only the
  * image formats the uploaders accept get through, up to 20 MB: the POST
  * checks the file's own bytes, and the card-photos bucket enforces the same
- * types and size on direct (signed URL) uploads
+ * types (as declared by the upload) and size on direct (signed URL) uploads
  * (supabase/migrations/20261027_security_data.sql).
  */
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB, same as the bucket's limit

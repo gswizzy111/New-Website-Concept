@@ -2,9 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sha256 } from "@/lib/admin-session";
 
 /**
- * Attempt limits for sign-ins and for emails anyone can trigger (sign-up,
- * forgot password, resend confirmation). Counted per account name or email
- * address, never per IP: the privacy policy doesn't cover IP addresses. Only
+ * Attempt limits for sign-ins, for emails anyone can trigger (sign-up,
+ * forgot password, resend confirmation) and for the loyalty lookup. Counted
+ * per account name or email address (or for everyone together), never per IP: the privacy policy doesn't cover IP addresses. Only
  * a SHA-256 of the name is stored (auth_attempts), so the table holds no
  * usernames or emails. Old rows are cleared as new ones come in.
  *
@@ -17,7 +17,8 @@ export type AttemptKind =
   | "partner-login"
   | "account-reset-email"
   | "account-confirm-email"
-  | "kit-club-link-email";
+  | "kit-club-link-email"
+  | "loyalty-lookup";
 
 export type AttemptRule = { max: number; windowMinutes: number };
 

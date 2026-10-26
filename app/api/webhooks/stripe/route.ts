@@ -42,101 +42,223 @@ const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const CLAIMS = "stripe_webhook_claims";
 /** Far longer than one run can last (the function times out well before). */
 const STALE_CLAIM_MS = 2 * 60 * 1000;
+/** A save that keeps failing this many deliveries in, or this long after the payment, is reported (once). */
+const RETRY_ALERT_ATTEMPTS = 3;
+const RETRY_ALERT_AFTER_MS = 60 * 60 * 1000;
 
 /** The table or function isn't there yet (migration not applied). */
 function missingSchema(err: { code?: string } | null | undefined) {
   return !!err && ["PGRST202", "PGRST205", "42P01", "42883"].includes(err.code ?? "");
 }
 
+/** This delivery's hold on one checkout session. */
+type Claim = {
+  admin: Admin;
+  session: Stripe.Checkout.Session;
+  kind: Kind;
+  /** When Stripe created the event (Unix seconds). */
+  eventCreated: number;
+  /** Written with the claim, so a run only ever lets go of its own. null: no claims table yet (data checks only). */
+  token: string | null;
+};
+
+type ClaimRow = {
+  claimed_at: string;
+  completed_at: string | null;
+  alerted_at: string | null;
+  released_at?: string | null;
+  claim_token?: string | null;
+  attempts?: number | null;
+  retry_alerted_at?: string | null;
+};
+
 /**
- * Claims the session for this run. null: go ahead (claimed, or the claims table
- * isn't there yet, so only the data checks guard). A Response: answer Stripe
- * with it and do nothing else.
+ * Claims the session for this run. A Claim: go ahead. A Response: answer
+ * Stripe with it and do nothing else.
  */
-async function claimSession(admin: Admin, session: Stripe.Checkout.Session, kind: Kind, orderId?: string | null): Promise<Response | null> {
+async function claimSession(admin: Admin, session: Stripe.Checkout.Session, kind: Kind, eventCreated: number, orderId?: string | null): Promise<Claim | Response> {
+  const claim: Claim = { admin, session, kind, eventCreated, token: randomUUID() };
   const { data, error } = await admin
     .from(CLAIMS)
-    .upsert({ stripe_session_id: session.id, kind, order_id: orderId ?? null }, { onConflict: "stripe_session_id", ignoreDuplicates: true })
+    .upsert({ stripe_session_id: session.id, kind, order_id: orderId ?? null, claim_token: claim.token }, { onConflict: "stripe_session_id", ignoreDuplicates: true })
     .select("stripe_session_id");
   if (error) {
     if (missingSchema(error)) {
       console.warn(`${CLAIMS} is missing (apply 20261027_webhook.sql); handling ${session.id} with data checks only`);
-      return null;
+      return { ...claim, token: null };
     }
-    // Nothing has happened yet, so Stripe can safely send it again
-    console.error(`Could not claim checkout session ${session.id}:`, error.message);
-    return Response.json({ error: "Could not claim the session" }, { status: 500 });
+    // Nothing has happened yet, so Stripe can safely send it again. The row may
+    // have been written even though the answer was lost: it is let go (it
+    // carries this run's token), so the next delivery doesn't take it for a run
+    // that died part-way.
+    return retryLater(claim, `could not claim the session (${error.message})`);
   }
-  if (data?.length) return null;
-  return repeatedSession(admin, session, kind);
+  if (data?.length) return claim;
+  return repeatedSession(claim);
 }
 
 /** Stripe sent a session that was already claimed. */
-async function repeatedSession(admin: Admin, session: Stripe.Checkout.Session, kind: Kind): Promise<Response> {
-  const { data: claim, error } = await admin
-    .from(CLAIMS)
-    .select("claimed_at, completed_at, alerted_at")
-    .eq("stripe_session_id", session.id)
-    .maybeSingle();
-  // The claim was released in between, or can't be read: Stripe tries again later
-  if (error || !claim) return Response.json({ error: "Session claim changed, retry" }, { status: 409 });
-  if (claim.completed_at || claim.alerted_at) return Response.json({ received: true, duplicate: true });
-  if (Date.now() - new Date(claim.claimed_at).getTime() < STALE_CLAIM_MS) {
+async function repeatedSession(claim: Claim): Promise<Claim | Response> {
+  const { admin, session, kind } = claim;
+  const { data, error } = await admin.from(CLAIMS).select("*").eq("stripe_session_id", session.id).maybeSingle();
+  const row = data as ClaimRow | null;
+  // The claim changed in between, or can't be read: Stripe tries again later
+  if (error || !row) return Response.json({ error: "Session claim changed, retry" }, { status: 409 });
+  if (row.completed_at || row.alerted_at) return Response.json({ received: true, duplicate: true });
+
+  if (row.released_at) {
+    // An earlier delivery stopped before doing anything and let the claim go:
+    // take it over (only if no other delivery took it over first)
+    let retake = admin
+      .from(CLAIMS)
+      .update({ claim_token: claim.token, claimed_at: new Date().toISOString(), released_at: null, attempts: (row.attempts ?? 1) + 1 })
+      .eq("stripe_session_id", session.id)
+      .is("completed_at", null)
+      .not("released_at", "is", null);
+    retake = row.claim_token ? retake.eq("claim_token", row.claim_token) : retake.is("claim_token", null);
+    const { data: retaken, error: retakeError } = await retake.select("stripe_session_id");
+    if (retakeError) {
+      console.error(`Could not take over checkout session ${session.id}:`, retakeError.message);
+      return Response.json({ error: "Could not claim the session" }, { status: 500 });
+    }
+    return retaken?.length ? claim : Response.json({ received: true, in_progress: true }, { status: 409 });
+  }
+
+  if (Date.now() - new Date(row.claimed_at).getTime() < STALE_CLAIM_MS) {
     // Another delivery is handling it right now. A non-2xx answer makes Stripe
     // ask again later, when that run has finished (or is known to have died).
     return Response.json({ received: true, in_progress: true }, { status: 409 });
   }
   // The first run stopped part-way (most likely a timeout): tell the admin, once
-  const { data: marked } = await admin
+  const { data: marked, error: markError } = await admin
     .from(CLAIMS)
     .update({ alerted_at: new Date().toISOString() })
     .eq("stripe_session_id", session.id)
     .is("completed_at", null)
     .is("alerted_at", null)
     .select("stripe_session_id");
+  if (markError) {
+    // Not reported yet: a non-2xx answer makes Stripe send it again, and that try reports it
+    console.error(`Could not mark checkout session ${session.id} as reported:`, markError.message);
+    return Response.json({ error: "Could not record the unfinished session" }, { status: 500 });
+  }
   if (marked?.length) {
     await alertAdmin(
       session,
       "WEBHOOK_UNFINISHED",
-      `Stripe sent paid checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}) again. The first run started ${claim.claimed_at} and never finished, most likely a timeout. Check it by hand: payment status, prepaid or kit label, gift card balance, cards and totals, and the emails.`,
+      `Stripe sent paid checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}) again. The first run started ${row.claimed_at} and never finished, most likely a timeout. Check it by hand: payment status, prepaid or kit label, gift card balance, cards and totals, and the emails.`,
     );
   }
   return Response.json({ received: true, duplicate: true });
 }
 
 /** The run ended (note: what it found already done, or why it stopped). */
-async function finishClaim(admin: Admin, sessionId: string, note?: string) {
-  const { error } = await admin
+async function finishClaim(claim: Claim, note?: string) {
+  if (!claim.token) return;
+  const { error } = await claim.admin
     .from(CLAIMS)
     .update({ completed_at: new Date().toISOString(), ...(note ? { note: note.slice(0, 500) } : {}) })
-    .eq("stripe_session_id", sessionId);
-  if (error && !missingSchema(error)) console.error(`Could not mark checkout session ${sessionId} done:`, error.message);
-}
-
-/** Nothing was done after all: let Stripe's next delivery start over. */
-async function releaseClaim(admin: Admin, sessionId: string) {
-  const { error } = await admin.from(CLAIMS).delete().eq("stripe_session_id", sessionId).is("completed_at", null);
-  if (error && !missingSchema(error)) console.error(`Could not release checkout session ${sessionId}:`, error.message);
+    .eq("stripe_session_id", claim.session.id);
+  if (error) console.error(`Could not mark checkout session ${claim.session.id} done:`, error.message);
 }
 
 /**
- * Whether this session's payment is already in the order's history (the
- * cards_added / tier_upgraded event carries the session id). A data check that
- * also works before the claims table exists. null: couldn't tell.
+ * Nothing was done for the session (a read or save failed before any label,
+ * charge, card, total or email): the claim is let go and Stripe gets a non-2xx
+ * answer, so its next delivery starts over. Stripe keeps trying for up to 3
+ * days; a failure that lasts (3 deliveries, or an hour after the payment) is
+ * reported to the admin once, and the claim row keeps the last error.
  */
-async function alreadyRecorded(admin: Admin, orderId: string, eventType: string, sessionId: string): Promise<boolean | null> {
+async function retryLater(claim: Claim, reason: string, status = 500): Promise<Response> {
+  const { admin, session, kind } = claim;
+  console.error(`Stripe webhook (${kind}) could not handle ${session.id}, Stripe will send it again: ${reason}`);
+  if (claim.token) {
+    const now = new Date().toISOString();
+    const { data, error } = await admin
+      .from(CLAIMS)
+      .update({ released_at: now, last_error: reason.slice(0, 500) })
+      .eq("stripe_session_id", session.id)
+      .eq("claim_token", claim.token)
+      .is("completed_at", null)
+      .select("attempts, retry_alerted_at");
+    if (error) console.error(`Could not release checkout session ${session.id}:`, error.message);
+    const row = (data?.[0] ?? null) as Pick<ClaimRow, "attempts" | "retry_alerted_at"> | null;
+    const attempts = row?.attempts ?? 1;
+    const lasting = attempts >= RETRY_ALERT_ATTEMPTS || Date.now() - claim.eventCreated * 1000 >= RETRY_ALERT_AFTER_MS;
+    if (row && lasting && !row.retry_alerted_at) {
+      const { data: marked } = await admin
+        .from(CLAIMS)
+        .update({ retry_alerted_at: now })
+        .eq("stripe_session_id", session.id)
+        .is("retry_alerted_at", null)
+        .select("stripe_session_id");
+      if (marked?.length) {
+        await alertAdmin(
+          session,
+          "WEBHOOK_RETRYING",
+          `Paid checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}) could not be recorded: ${reason}. Nothing was done for it yet (no label, gift card charge, cards, totals or emails). Stripe has sent it ${attempts} time${attempts !== 1 ? "s" : ""} and keeps trying for up to 3 days after the payment. Fix the cause so a later try goes through.`,
+        );
+      }
+    }
+  }
+  return Response.json({ error: reason }, { status });
+}
+
+/**
+ * Whether this session's payment is already in the order's history, a data
+ * check that also works before the claims table exists:
+ *   "yes": the new webhook's cards_added / tier_upgraded event carries the session id;
+ *   "old_site": the old site's webhook writes the same event without metadata,
+ *     and one for the same amount was saved after this session started (a
+ *     Stripe retry that crosses the domain switch must not add it twice);
+ *   "no"; "unknown": the history couldn't be read.
+ */
+async function alreadyRecorded(admin: Admin, orderId: string, eventType: string, session: Stripe.Checkout.Session): Promise<"yes" | "old_site" | "no" | "unknown"> {
   const { data, error } = await admin
     .from("order_events")
     .select("id")
     .eq("order_id", orderId)
     .eq("event_type", eventType)
-    .eq("metadata->>stripe_session_id", sessionId)
+    .eq("metadata->>stripe_session_id", session.id)
     .limit(1);
   if (error) {
-    console.error(`Could not check order history for session ${sessionId}:`, error.message);
-    return null;
+    console.error(`Could not check order history for session ${session.id}:`, error.message);
+    return "unknown";
   }
-  return (data?.length ?? 0) > 0;
+  if (data?.length) return "yes";
+
+  const { data: oldSite, error: oldSiteError } = await admin
+    .from("order_events")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("event_type", eventType)
+    .is("metadata", null)
+    .gte("created_at", new Date(session.created * 1000).toISOString())
+    .like("description", `%additional payment of ${usd(session.amount_total ?? 0)} received`)
+    .limit(1);
+  if (oldSiteError) {
+    console.error(`Could not check order history for session ${session.id}:`, oldSiteError.message);
+    return "unknown";
+  }
+  return oldSite?.length ? "old_site" : "no";
+}
+
+/**
+ * The payment was already recorded (an earlier delivery, or the old site's
+ * webhook): nothing more to do. A match on the old site's entry is only by
+ * amount and time, so the admin is told, in case the customer really paid
+ * twice for the same amount.
+ */
+async function alreadyDone(claim: Claim, found: "yes" | "old_site", orderId: string, what: string): Promise<Response> {
+  if (found === "old_site") {
+    await alertAdmin(
+      claim.session,
+      "OLD_SITE_HANDLED",
+      `Order id ${orderId}: paid checkout session ${claim.session.id} (${claim.kind}, ${usd(claim.session.amount_total ?? 0)}) was skipped, because the order's history already has a payment of the same amount from the old site's webhook, saved after this checkout started. If the customer paid twice for the same amount, add the second one by hand.`,
+    );
+  }
+  await finishClaim(claim, found === "old_site" ? `${what} by the old site's webhook` : `${what} for this session`);
+  return Response.json({ received: true, duplicate: true });
 }
 
 /** Raises a problem with a paid session in the checkout error log (stored + emailed to the admin). */
@@ -157,7 +279,8 @@ async function alertAdmin(session: Stripe.Checkout.Session, code: string, detail
  * done (a label may be bought), so a retry must not start over: the admin is
  * told what to finish by hand, and Stripe gets a 200.
  */
-async function failedAfterClaim(admin: Admin, session: Stripe.Checkout.Session, kind: Kind, stage: string, err: unknown): Promise<Response> {
+async function failedAfterClaim(claim: Claim, stage: string, err: unknown): Promise<Response> {
+  const { session, kind } = claim;
   const message = err instanceof Error ? err.message : String(err);
   console.error(`Stripe webhook (${kind}) stopped at "${stage}" for ${session.id}:`, err);
   await alertAdmin(
@@ -165,7 +288,7 @@ async function failedAfterClaim(admin: Admin, session: Stripe.Checkout.Session, 
     "WEBHOOK_FAILED",
     `Paid checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}) stopped at "${stage}": ${message}. The steps before it are done; finish the rest by hand.`,
   );
-  await finishClaim(admin, session.id, `stopped at ${stage}: ${message}`);
+  await finishClaim(claim, `stopped at ${stage}: ${message}`);
   return Response.json({ received: true, error: "logged" });
 }
 
@@ -284,8 +407,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       const personalMessage = session.metadata.personal_message ?? "";
       const isSelfPurchase = recipientEmail.toLowerCase() === purchaserEmail.toLowerCase();
 
-      const claimed = await claimSession(admin, session, "gift_card");
-      if (claimed) return claimed;
+      const claim = await claimSession(admin, session, "gift_card", event.created);
+      if (claim instanceof Response) return claim;
 
       // Generate unique code: GIFT-XXXX-XXXX (A-Z 0-9, no ambiguous chars)
       const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -315,20 +438,17 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           break;
         }
         if (insertError.code !== "23505") {
-          console.error("Gift card insert failed:", insertError.message);
-          await releaseClaim(admin, session.id);
-          return Response.json({ error: "Could not save the gift card" }, { status: 500 });
+          return retryLater(claim, `could not save the gift card (${insertError.message})`);
         }
         // Already saved for this session (an earlier delivery, or the other site's webhook)
         const { data: existing } = await admin.from("gift_cards").select("id").eq("stripe_session_id", session.id).maybeSingle();
         if (existing) {
-          await finishClaim(admin, session.id, "gift card already saved for this session");
+          await finishClaim(claim, "gift card already saved for this session");
           return Response.json({ received: true, duplicate: true });
         }
       }
       if (!code) {
-        await releaseClaim(admin, session.id);
-        return Response.json({ error: "Could not draw a unique gift card code" }, { status: 500 });
+        return retryLater(claim, "could not draw a unique gift card code");
       }
 
       let stage = "gift card email";
@@ -391,10 +511,10 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           );
         }
 
-        await finishClaim(admin, session.id);
+        await finishClaim(claim);
         return Response.json({ received: true });
       } catch (err) {
-        return failedAfterClaim(admin, session, "gift_card", stage, err);
+        return failedAfterClaim(claim, stage, err);
       }
     }
 
@@ -437,8 +557,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           : 599;
       const shippingService = session.metadata.kit_shipping_service ?? "";
 
-      const claimed = await claimSession(admin, session, "shop");
-      if (claimed) return claimed;
+      const claim = await claimSession(admin, session, "shop", event.created);
+      if (claim instanceof Response) return claim;
 
       // Save shop order to DB
       const { data: savedKitOrder, error: kitInsertError } = await admin.from("shop_orders").insert({
@@ -458,18 +578,25 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       // Stripe retried an event we already handled (the session ID is unique):
       // don't take stock, gift card balance or a label twice
       if (kitInsertError?.code === "23505") {
-        await finishClaim(admin, session.id, "kit order already saved for this session");
+        await finishClaim(claim, "kit order already saved for this session");
         return Response.json({ received: true, duplicate: true });
       }
       if (kitInsertError || !savedKitOrder) {
         // Nothing was saved, bought or sent: Stripe sends it again
-        console.error(`Kit order insert failed (session ${session.id}):`, kitInsertError?.message);
-        await releaseClaim(admin, session.id);
-        return Response.json({ error: "Could not save the kit order" }, { status: 500 });
+        return retryLater(claim, `could not save the kit order (${kitInsertError?.message ?? "no row returned"})`);
       }
 
-      let stage = "kit label";
+      let stage = "gift card";
       try {
+        // Consume gift card balance if one was applied. Taken first (one quick
+        // step), so it is spent even if the run dies later, e.g. buying the label.
+        const shopGcId = session.metadata?.gift_card_id;
+        const shopGcDiscount = parseInt(session.metadata?.gift_card_discount_cents ?? "0", 10);
+        if (shopGcId && shopGcDiscount > 0) {
+          await redeemGiftCard(admin, session, shopGcId, shopGcDiscount, `Kit order K${savedKitOrder.order_number ?? savedKitOrder.id}`);
+        }
+
+        stage = "kit label";
         // The shipping speed the customer picked is bought as the label now, so
         // the kit is ready to pack the moment the order lands
         let kitLabel: KitLabel | null = null;
@@ -515,14 +642,6 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
             .update({ inventory_count: Math.max(0, current - item.qty) })
             .eq("id", item.id);
           if (stockError) console.error(`Inventory update failed for product ${item.id} (session ${session.id}):`, stockError.message);
-        }
-
-        // Consume gift card balance if one was applied
-        stage = "gift card";
-        const shopGcId = session.metadata?.gift_card_id;
-        const shopGcDiscount = parseInt(session.metadata?.gift_card_discount_cents ?? "0", 10);
-        if (shopGcId && shopGcDiscount > 0) {
-          await redeemGiftCard(admin, session, shopGcId, shopGcDiscount, `Kit order K${savedKitOrder.order_number ?? savedKitOrder.id}`);
         }
 
         const addrLine = shippingAddress
@@ -583,10 +702,10 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           `,
         });
 
-        await finishClaim(admin, session.id);
+        await finishClaim(claim);
         return Response.json({ received: true });
       } catch (err) {
-        return failedAfterClaim(admin, session, "shop", stage, err);
+        return failedAfterClaim(claim, stage, err);
       }
     }
 
@@ -601,8 +720,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         console.error("Failed to parse subscription shipping_address_json");
       }
 
-      const claimed = await claimSession(admin2, session, "subscription");
-      if (claimed) return claimed;
+      const claim = await claimSession(admin2, session, "subscription", event.created);
+      if (claim instanceof Response) return claim;
 
       const { error: subInsertError } = await admin2.from("subscriptions").insert({
         stripe_subscription_id: String(session.subscription ?? ""),
@@ -615,13 +734,11 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       });
       // Already recorded (an earlier delivery, or the other site's webhook)
       if (subInsertError?.code === "23505") {
-        await finishClaim(admin2, session.id, "subscription already recorded");
+        await finishClaim(claim, "subscription already recorded");
         return Response.json({ received: true, duplicate: true });
       }
       if (subInsertError) {
-        console.error(`Subscription insert failed (session ${session.id}):`, subInsertError.message);
-        await releaseClaim(admin2, session.id);
-        return Response.json({ error: "Could not save the subscription" }, { status: 500 });
+        return retryLater(claim, `could not save the subscription (${subInsertError.message})`);
       }
 
       let stage = "first kit order";
@@ -666,10 +783,10 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           });
         }
 
-        await finishClaim(admin2, session.id);
+        await finishClaim(claim);
         return Response.json({ received: true });
       } catch (err) {
-        return failedAfterClaim(admin2, session, "subscription", stage, err);
+        return failedAfterClaim(claim, stage, err);
       }
     }
 
@@ -683,30 +800,31 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       const paidIntent = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
 
       if (addOrderId && cardCount > 0) {
-        const claimed = await claimSession(admin, session, "add_cards", addOrderId);
-        if (claimed) return claimed;
-        const addRecorded = await alreadyRecorded(admin, addOrderId, "cards_added", session.id);
-        if (addRecorded !== false) {
-          if (addRecorded === null) {
-            await releaseClaim(admin, session.id);
-            return Response.json({ error: "Could not check the order history" }, { status: 500 });
-          }
-          await finishClaim(admin, session.id, "cards already added for this session");
-          return Response.json({ received: true, duplicate: true });
-        }
+        const claim = await claimSession(admin, session, "add_cards", event.created, addOrderId);
+        if (claim instanceof Response) return claim;
+        const addRecorded = await alreadyRecorded(admin, addOrderId, "cards_added", session);
+        if (addRecorded === "unknown") return retryLater(claim, "could not check the order history");
+        if (addRecorded !== "no") return alreadyDone(claim, addRecorded, addOrderId, "cards already added");
 
         let stage = "read the added cards";
         let cardsSaved = false;
         try {
+          // Steps after the cards are in keep going if one fails; the admin gets the list
+          const problems: string[] = [];
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let newCardRows: Record<string, any>[] = [];
           // The full card details saved when the customer signed (add-cards route)
           const pendingId = session.metadata.pending_event_id;
-          const { data: pending } = pendingId
+          const { data: pending, error: pendingError } = pendingId
             ? await admin.from("order_events").select("metadata").eq("id", pendingId).maybeSingle()
-            : { data: null };
+            : { data: null, error: null };
+          // Nothing has been added yet: Stripe sends it again, rather than adding thin cards
+          if (pendingError) return retryLater(claim, `could not read the card details saved at signing (${pendingError.message})`);
           const pendingMeta = pending?.metadata as { cards?: AddedCard[]; prices?: unknown } | null;
           const pendingCards = pendingMeta?.cards;
+          if (pendingId && !pendingCards?.length) {
+            problems.push(`the card details saved when the customer signed (order event ${pendingId}) were not found, so the cards were added from the checkout's short details: no tier, per-card prices, number, variation, grade, cert number or known defects`);
+          }
           const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
           // What each card was charged: the admin's tier price the add-cards
           // route saved with the cards (older sessions: the default price)
@@ -755,17 +873,16 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
               newCardRows.push(row);
             } catch { /* skip malformed card */ }
           }
+          if (newCardRows.length !== cardCount) {
+            problems.push(`${cardCount} card${cardCount !== 1 ? "s were" : " was"} paid for but ${newCardRows.length} could be read from the checkout, so ${newCardRows.length < cardCount ? "the missing ones must be added by hand" : "check the cards on the order"}`);
+          }
 
-          // Steps after the cards are in keep going if one fails; the admin gets the list
-          const problems: string[] = [];
           if (newCardRows.length > 0) {
             stage = "add the cards";
             const { error: cardsError } = await admin.from("cards").insert(newCardRows);
             if (cardsError) {
               // One insert: no card was added and nothing else has happened, so Stripe sends it again
-              console.error(`Add-cards insert failed (session ${session.id}):`, cardsError.message);
-              await releaseClaim(admin, session.id);
-              return Response.json({ error: "Could not add the cards" }, { status: 500 });
+              return retryLater(claim, `could not add the cards (${cardsError.message})`);
             }
             cardsSaved = true;
 
@@ -832,11 +949,11 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           }
 
           if (problems.length) {
-            await alertAdmin(session, "ADD_CARDS_INCOMPLETE", `Order id ${addOrderId}: ${newCardRows.length} added card${newCardRows.length !== 1 ? "s were" : " was"} paid for (session ${session.id}), but ${problems.join("; ")}. Fix this by hand.`);
+            await alertAdmin(session, "ADD_CARDS_INCOMPLETE", `Order id ${addOrderId}: ${cardCount} added card${cardCount !== 1 ? "s were" : " was"} paid for (session ${session.id}), but ${problems.join("; ")}. Fix this by hand.`);
           }
-          await finishClaim(admin, session.id, problems.join("; ") || undefined);
+          await finishClaim(claim, problems.join("; ") || undefined);
         } catch (err) {
-          return failedAfterClaim(admin, session, "add_cards", cardsSaved ? `${stage} (the cards were added)` : stage, err);
+          return failedAfterClaim(claim, cardsSaved ? `${stage} (the cards were added)` : stage, err);
         }
       }
       return Response.json({ received: true });
@@ -847,17 +964,11 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       const upgradeOrderId = session.metadata.order_id;
       const newTier = session.metadata.new_tier;
       if (upgradeOrderId && newTier) {
-        const claimed = await claimSession(admin, session, "tier_upgrade", upgradeOrderId);
-        if (claimed) return claimed;
-        const upgradeRecorded = await alreadyRecorded(admin, upgradeOrderId, "tier_upgraded", session.id);
-        if (upgradeRecorded !== false) {
-          if (upgradeRecorded === null) {
-            await releaseClaim(admin, session.id);
-            return Response.json({ error: "Could not check the order history" }, { status: 500 });
-          }
-          await finishClaim(admin, session.id, "upgrade already recorded for this session");
-          return Response.json({ received: true, duplicate: true });
-        }
+        const claim = await claimSession(admin, session, "tier_upgrade", event.created, upgradeOrderId);
+        if (claim instanceof Response) return claim;
+        const upgradeRecorded = await alreadyRecorded(admin, upgradeOrderId, "tier_upgraded", session);
+        if (upgradeRecorded === "unknown") return retryLater(claim, "could not check the order history");
+        if (upgradeRecorded !== "no") return alreadyDone(claim, upgradeRecorded, upgradeOrderId, "upgrade already recorded");
 
         // Fetch order to compute new totals
         const { data: upgradeOrder, error: upgradeReadError } = await admin
@@ -866,9 +977,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           .eq("id", upgradeOrderId)
           .single();
         if (upgradeReadError) {
-          console.error(`Upgrade order read failed (session ${session.id}):`, upgradeReadError.message);
-          await releaseClaim(admin, session.id);
-          return Response.json({ error: "Could not read the order" }, { status: 500 });
+          return retryLater(claim, `could not read the order (${upgradeReadError.message})`);
         }
 
         const upgradePaidCents = session.amount_total ?? 0;
@@ -887,9 +996,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           .eq("id", upgradeOrderId);
         if (upgradeError) {
           // One update: nothing changed, so Stripe sends it again
-          console.error(`Upgrade order update failed (session ${session.id}):`, upgradeError.message);
-          await releaseClaim(admin, session.id);
-          return Response.json({ error: "Could not upgrade the order" }, { status: 500 });
+          return retryLater(claim, `could not upgrade the order (${upgradeError.message})`);
         }
 
         let stage = "move the service line";
@@ -940,9 +1047,9 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           if (problems.length) {
             await alertAdmin(session, "TIER_UPGRADE_INCOMPLETE", `Order id ${upgradeOrderId}: the upgrade to ${newTier} was paid (session ${session.id}) and the tier and totals were updated, but ${problems.join("; ")}. Fix this by hand.`);
           }
-          await finishClaim(admin, session.id, problems.join("; ") || undefined);
+          await finishClaim(claim, problems.join("; ") || undefined);
         } catch (err) {
-          return failedAfterClaim(admin, session, "tier_upgrade", `${stage} (the tier and totals were updated)`, err);
+          return failedAfterClaim(claim, `${stage} (the tier and totals were updated)`, err);
         }
       }
       return Response.json({ received: true });
@@ -988,8 +1095,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       }
     }
 
-    const claimed = await claimSession(admin, session, kind, orderId);
-    if (claimed) return claimed;
+    const claim = await claimSession(admin, session, kind, event.created, orderId);
+    if (claim instanceof Response) return claim;
 
     // Only an unpaid order turns paid, so a repeated delivery (or the other
     // site's webhook getting there first) finds nothing to update and stops
@@ -1002,20 +1109,14 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       .select();
 
     if (error) {
-      console.error("Supabase update error:", JSON.stringify(error));
-      await releaseClaim(admin, session.id);
-      return Response.json({ error: error.message }, { status: 500 });
+      return retryLater(claim, `could not mark the order paid (${error.message})`);
     }
 
     if (!updated || updated.length === 0) {
       const { data: existingOrder, error: lookupError } = await admin.from("orders").select("payment_status").eq("id", orderId).maybeSingle();
-      if (lookupError || !existingOrder) {
-        await releaseClaim(admin, session.id);
-        if (lookupError) return Response.json({ error: lookupError.message }, { status: 500 });
-        console.error("No order found with id:", orderId);
-        return Response.json({ error: `Order not found: ${orderId}` }, { status: 404 });
-      }
-      await finishClaim(admin, session.id, `order already ${existingOrder.payment_status}`);
+      if (lookupError) return retryLater(claim, `could not read the order (${lookupError.message})`);
+      if (!existingOrder) return retryLater(claim, `no order with id ${orderId}`, 404);
+      await finishClaim(claim, `order already ${existingOrder.payment_status}`);
       return Response.json({ received: true, duplicate: true });
     }
 
@@ -1027,8 +1128,17 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
     const inboundEta: string | null = null; // no ETA source yet
     // Why the prepaid label could not be bought, for the admin (order timeline + email)
     let labelError: string | null = null;
-    let stage = "prepaid label";
+    // Saves that failed after the order turned paid; the admin gets the list
+    const problems: string[] = [];
+    let stage = "gift card";
     try {
+      // Consume gift card balance if one was applied. Taken first (one quick
+      // step), so it is spent even if the run dies later, e.g. buying the label.
+      if (gcId && gcDiscount > 0) {
+        await redeemGiftCard(admin, session, gcId, gcDiscount, `Order #${updated[0].order_number}`);
+      }
+
+      stage = "prepaid label";
       if (rateObjectId) {
         // Read insurance and signature from Stripe metadata (passed at checkout time,
         // avoids depending on DB columns that may not be migrated yet)
@@ -1106,12 +1216,6 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         }
       }
 
-      // Consume gift card balance if one was applied
-      stage = "gift card";
-      if (gcId && gcDiscount > 0) {
-        await redeemGiftCard(admin, session, gcId, gcDiscount, `Order #${updated[0].order_number}`);
-      }
-
       stage = "order history";
       const { error: paidEventError } = await admin.from("order_events").insert({
         order_id: orderId,
@@ -1122,7 +1226,10 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         is_customer_visible: true,
         metadata: { stripe_session_id: session.id, stripe_payment_intent_id: paidIntent ?? null },
       });
-      if (paidEventError) console.error(`payment_received event not saved (order ${orderId}):`, paidEventError.message);
+      if (paidEventError) {
+        console.error(`payment_received event not saved (order ${orderId}):`, paidEventError.message);
+        problems.push(`its "payment received" entry was not saved in the order history, which the dashboard and sales reports date the payment from (${paidEventError.message})`);
+      }
       if (labelError) {
         const { error: labelEventError } = await admin.from("order_events").insert({
           order_id: orderId,
@@ -1130,7 +1237,10 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           description: `Prepaid label could not be created: ${labelError.slice(0, 300)}. Use Regenerate label on this order.`,
           is_customer_visible: false,
         });
-        if (labelEventError) console.error(`label_failed event not saved (order ${orderId}):`, labelEventError.message);
+        if (labelEventError) {
+          console.error(`label_failed event not saved (order ${orderId}):`, labelEventError.message);
+          problems.push(`the prepaid label could not be bought (${labelError.slice(0, 300)}) and that note was not saved on the order (${labelEventError.message}); use Regenerate label`);
+        }
       }
 
       // Notify admin of new restoration order
@@ -1251,18 +1361,25 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
       });
       if (confirmationError) {
         // Shown on the order's timeline, so the admin can send the details (and label) by hand
-        await admin.from("order_events").insert({
+        const { error: emailEventError } = await admin.from("order_events").insert({
           order_id: orderId,
           event_type: "email_failed",
           description: `Order confirmation email could not be sent: ${confirmationError.slice(0, 300)}`,
           is_customer_visible: false,
         });
+        if (emailEventError) {
+          console.error(`email_failed event not saved (order ${orderId}):`, emailEventError.message);
+          problems.push(`the confirmation email could not be sent (${confirmationError.slice(0, 300)}) and that note was not saved on the order (${emailEventError.message}); use Resend Confirmation`);
+        }
       }
 
-      await finishClaim(admin, session.id);
+      if (problems.length) {
+        await alertAdmin(session, "ORDER_INCOMPLETE", `Order #${order.order_number} is paid (session ${session.id}), but ${problems.join("; ")}. Fix this by hand.`);
+      }
+      await finishClaim(claim, problems.join("; ") || undefined);
       return Response.json({ received: true });
     } catch (err) {
-      return failedAfterClaim(admin, session, kind, stage, err);
+      return failedAfterClaim(claim, stage, err);
     }
   }
 
@@ -1276,11 +1393,16 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
     const subscriptionId = invoiceSubscriptionId(invoice);
     if (subscriptionId) {
       const adminInv = createAdminClient();
-      const { data: subRecord } = await adminInv
+      const { data: subRecord, error: subLookupError } = await adminInv
         .from("subscriptions")
         .select("*")
         .eq("stripe_subscription_id", subscriptionId)
         .maybeSingle();
+      if (subLookupError) {
+        // Not "no subscription": Stripe sends it again
+        console.error(`invoice.paid: could not read the subscription for ${invoice.id}:`, subLookupError.message);
+        return Response.json({ error: "Could not read the subscription" }, { status: 500 });
+      }
 
       if (subRecord) {
         const invPriceCents = typeof invoice.amount_paid === "number" ? invoice.amount_paid : await getSubscriptionPriceCents();
@@ -1323,11 +1445,16 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
     const subscription = event.data.object as Stripe.Subscription;
     const adminCan = createAdminClient();
     // Already cancelled (a repeat, or cancelled here first): keep the first date
-    await adminCan
+    const { error: cancelError } = await adminCan
       .from("subscriptions")
       .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
       .eq("stripe_subscription_id", subscription.id)
       .or("status.is.null,status.neq.cancelled");
+    if (cancelError) {
+      // Stripe sends it again
+      console.error(`customer.subscription.deleted: could not mark ${subscription.id} cancelled:`, cancelError.message);
+      return Response.json({ error: "Could not record the cancellation" }, { status: 500 });
+    }
   }
 
   return Response.json({ received: true });

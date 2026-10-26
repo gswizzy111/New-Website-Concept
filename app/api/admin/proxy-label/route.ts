@@ -2,9 +2,11 @@ import { isAdmin } from "@/lib/admin-auth";
 
 /**
  * Fetches a shipping label for the admin's label printer check (lib/qz-print.ts).
- * Only Shippo's label hosts, over https: every label URL in the database is on
- * deliver.goshippo.com, and Shippo has also served labels from its
- * shippo-delivery S3 buckets. Redirects are followed only to those same hosts.
+ * Only Shippo's label host, over https: every label URL in the database is on
+ * deliver.goshippo.com. Its redirects are followed only to that host or to
+ * Shippo's shippo-delivery S3 buckets (never asked for directly: anyone can
+ * name an S3 bucket that way). The label goes back as a PDF or as plain bytes,
+ * never with the upstream's own content type.
  */
 const LABEL_HOSTS = new Set(["deliver.goshippo.com"]);
 const SHIPPO_S3_HOST = /^shippo-delivery(?:-[a-z0-9-]+)?\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/;
@@ -14,7 +16,7 @@ const SHIPPO_S3_PATH = /^\/shippo-delivery(?:-[a-z0-9-]+)?\//;
 const MAX_REDIRECTS = 3;
 const MAX_LABEL_BYTES = 10 * 1024 * 1024;
 
-function allowedLabelUrl(raw: string, base?: string): URL | null {
+function allowedLabelUrl(raw: string, base?: string, redirect = false): URL | null {
   let url: URL;
   try {
     url = new URL(raw, base);
@@ -24,7 +26,8 @@ function allowedLabelUrl(raw: string, base?: string): URL | null {
   if (url.protocol !== "https:" || url.username || url.password) return null;
   if (url.port && url.port !== "443") return null;
   const host = url.hostname.toLowerCase();
-  const ok = LABEL_HOSTS.has(host) || SHIPPO_S3_HOST.test(host) || (S3_PATH_HOST.test(host) && SHIPPO_S3_PATH.test(url.pathname));
+  const ok = LABEL_HOSTS.has(host) ||
+    (redirect && (SHIPPO_S3_HOST.test(host) || (S3_PATH_HOST.test(host) && SHIPPO_S3_PATH.test(url.pathname))));
   return ok ? url : null;
 }
 
@@ -49,7 +52,7 @@ export async function GET(req: Request) {
     for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
       upstream = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
       if (upstream.status < 300 || upstream.status >= 400) break;
-      const next = allowedLabelUrl(upstream.headers.get("Location") ?? "", url.toString());
+      const next = allowedLabelUrl(upstream.headers.get("Location") ?? "", url.toString(), true);
       if (!next || hop === MAX_REDIRECTS) return new Response("Failed to fetch label", { status: 502 });
       url = next;
     }
@@ -59,14 +62,14 @@ export async function GET(req: Request) {
     if (length > MAX_LABEL_BYTES) return new Response("Failed to fetch label", { status: 502 });
     const buffer = await upstream.arrayBuffer();
     if (buffer.byteLength > MAX_LABEL_BYTES) return new Response("Failed to fetch label", { status: 502 });
-    const contentType = upstream.headers.get("Content-Type") ?? "application/octet-stream";
+    const isPdf = (upstream.headers.get("Content-Type") ?? "").toLowerCase().includes("pdf");
 
     return new Response(buffer, {
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": isPdf ? "application/pdf" : "application/octet-stream",
         "Cache-Control": "private, max-age=3600",
         // Tell client what format this is so it can choose PDF vs ZPL printing
-        "X-Label-Format": contentType.includes("pdf") ? "pdf" : "zpl",
+        "X-Label-Format": isPdf ? "pdf" : "zpl",
         // Shown to the admin only as a download, never run as a page
         "X-Content-Type-Options": "nosniff",
         "Content-Security-Policy": "sandbox",

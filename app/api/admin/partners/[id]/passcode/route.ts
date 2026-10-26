@@ -43,7 +43,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   if (!data?.length) return Response.json({ error: "Partner not found" }, { status: 404 });
 
-  // The old passcode's sessions end with it
-  await endSessionsForPartner(admin, id);
+  // The old passcode's sessions end with it. If that fails the admin is told,
+  // so they can save again (saving the same passcode again is fine).
+  try {
+    await endSessionsForPartner(admin, id);
+  } catch (err) {
+    console.error("Signing a partner out failed:", err instanceof Error ? err.message : err);
+    return Response.json({ error: "Passcode saved, but signing the partner out failed. Please try again." }, { status: 500 });
+  }
   return Response.json({ ok: true });
 }
