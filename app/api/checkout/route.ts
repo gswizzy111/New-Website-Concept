@@ -197,8 +197,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // Slots are counted in cards: each card takes one in its own tier, on paid
-  // orders and on checkouts started in the last 30 minutes (lib/tier-slots.ts)
+  // One slot is one order: this order takes one in each tier it includes, on
+  // top of paid orders and checkouts started in the last 30 minutes
+  // (lib/tier-slots.ts)
   const limitedTiers = uniqueTiers.filter((t) => tierMaxSlots(t, settingsMap[t]?.max_slots) !== null);
   if (limitedTiers.length > 0) {
     let usage: Record<string, number>;
@@ -210,8 +211,7 @@ export async function POST(request: Request) {
     }
     for (const tierId of limitedTiers) {
       const maxSlots = tierMaxSlots(tierId, settingsMap[tierId]?.max_slots)!;
-      const cardCount = cardTiers.filter((t) => t === tierId).length;
-      if ((usage[tierId] ?? 0) + cardCount > maxSlots) {
+      if ((usage[tierId] ?? 0) + 1 > maxSlots) {
         return Response.json({
           error: `Sorry, the ${getTierById(tierId).name} tier is sold out. Please choose a different tier or join the waitlist.`,
           code: "TIER_SOLD_OUT",

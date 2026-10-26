@@ -3,12 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
 import { applyDbOverride, getTierById, UPGRADE_LADDER } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
-import { bulkDiscountPercent, bulkPriceCents } from "@/lib/bulk-pricing";
 import { siteUrl } from "@/lib/site-url";
 import { getSlotsOpenedAt } from "@/lib/store-config";
 import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
-
-const TAX_RATE = 0.06625;
+import { upgradeFee } from "@/lib/upgrade-pricing";
 
 const Body = z.object({
   email: z.string().email(),
@@ -51,12 +49,15 @@ export async function POST(
   if (!currentTierId || !UPGRADE_LADDER.includes(currentTierId) || UPGRADE_LADDER.indexOf(new_tier) <= UPGRADE_LADDER.indexOf(currentTierId))
     return Response.json({ error: "You can only upgrade to a higher service level" }, { status: 400 });
 
-  // Count cards
-  const { count: cardCount } = await admin
+  // The order's cards and what each was charged (refunded cards pay nothing)
+  const { data: orderCards, error: cardsError } = await admin
     .from("cards")
-    .select("id", { count: "exact", head: true })
+    .select("tier, status, service_price_cents")
     .eq("order_id", order.id);
-  const numCards = cardCount ?? 1;
+  if (cardsError) {
+    console.error("Order cards unavailable:", cardsError.message);
+    return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+  }
 
   // The admin's prices and slots for both tiers (restoration_settings)
   const { data: settings, error: settingsError } = await admin
@@ -72,15 +73,18 @@ export async function POST(
   const newTier = applyDbOverride(getTierById(new_tier), settingFor(new_tier));
   const newTierSetting = settingFor(new_tier);
 
-  // The per-card difference at today's prices, for every card on the order
-  const diffCents = (newTier.price_cents - currentTier.price_cents) * numCards;
-  if (diffCents <= 0)
+  // For each card, the new tier's price (the admin's, today) minus what the
+  // card was charged, with the order's bulk percent off (lib/upgrade-pricing.ts)
+  const fee = upgradeFee(orderCards ?? [], currentTierId, currentTier.price_cents, newTier.price_cents);
+  if (fee.chargeCents <= 0)
     return Response.json({ error: "You can only upgrade to a higher service level" }, { status: 400 });
+  const numCards = fee.cardCount;
 
   if (newTierSetting && newTierSetting.is_open === false)
     return Response.json({ error: "That service level is currently closed" }, { status: 409 });
 
-  // Slots are counted in cards: the order's cards move into the new tier
+  // One slot is one order: the order takes a slot in the new tier (it counts
+  // in its own tier, never yet in a higher one; lib/tier-slots.ts)
   const maxSlots = tierMaxSlots(new_tier, newTierSetting?.max_slots);
   if (maxSlots !== null) {
     let usage: Record<string, number>;
@@ -90,15 +94,11 @@ export async function POST(
       console.error("Tier slot count failed:", err);
       return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });
     }
-    if ((usage[new_tier] ?? 0) + numCards > maxSlots)
+    if ((usage[new_tier] ?? 0) + 1 > maxSlots)
       return Response.json({ error: "No slots available for that service level" }, { status: 409 });
   }
 
-  // Bulk pricing: an order of 10+ cards pays the difference with its bulk percent off
-  const bulkPercent = bulkDiscountPercent(numCards);
-  const chargeCents = bulkPriceCents(diffCents, bulkPercent);
-  const taxCents = Math.round(chargeCents * TAX_RATE);
-  const totalUpgradeCents = chargeCents + taxCents;
+  const { bulkPercent, chargeCents, taxCents, totalCents: totalUpgradeCents } = fee;
 
   const appUrl = siteUrl();
 
@@ -136,8 +136,10 @@ export async function POST(
         new_tier,
         upgrade_amount_cents: String(totalUpgradeCents),
         upgrade_subtotal_cents: String(chargeCents),
-        // The new tier's per-card price (the admin's), for the order's service line
+        // Both tiers' per-card prices (the admin's), for the order's service
+        // line and for splitting the upgrade over the cards (lib/upgrade-pricing.ts)
         new_price_cents: String(newTier.price_cents),
+        current_price_cents: String(currentTier.price_cents),
         ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent) } : {}),
       },
     });

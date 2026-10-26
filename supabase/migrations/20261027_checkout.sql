@@ -1,4 +1,4 @@
--- Checkout: gift card holds, and tier slots counted in cards.
+-- Checkout: gift card holds, and tier slots counted in orders.
 -- Additive and safe to run more than once. Nothing here changes a table the
 -- old site (thecarddoc1.com, same database) uses.
 
@@ -166,32 +166,52 @@ grant execute on function public.gift_card_held_cents(uuid) to service_role;
 revoke execute on function public.hold_gift_card(text, integer, integer, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.hold_gift_card(text, integer, integer, text, text, timestamptz) to service_role;
 
--- ── Tier slots, counted in cards ─────────────────────────────────────────────
--- A tier's max_slots (restoration_settings) is a number of cards. Each card
--- counts toward its own tier (cards.tier; older cards without one: the order's
--- tier), on paid orders and on checkouts still in progress (pending, not
--- cancelled, started since p_pending_since), placed since p_since (store_config
--- slots_opened_at; null: all time). Refunded cards free their slot. Read by
--- the restoration checkout, add-cards, upgrades and the Restorations page
+-- ── Tier slots, counted in orders ────────────────────────────────────────────
+-- One slot is one order, whatever its card count; a tier's max_slots
+-- (restoration_settings) is a number of orders. An order counts in its tier
+-- (orders.restoration_tier); an order with cards on several tiers (no
+-- restoration_tier) counts once in each of its cards' tiers (cards.tier).
+-- Counted: paid orders (a fully refunded order is no longer 'paid'), and
+-- checkouts still in progress (pending, not cancelled, started since
+-- p_pending_since; null: none, for the admin's paid-only count), placed since
+-- p_since (store_config slots_opened_at; null: all time). Read by the
+-- restoration checkout, upgrades, the Restorations page and Store Settings
 -- (lib/tier-slots.ts).
-create or replace function public.tier_slot_usage(p_since timestamptz, p_pending_since timestamptz)
-returns table (tier text, cards integer)
+-- An earlier draft of this file counted cards under another name; it was never
+-- used, so it goes.
+drop function if exists public.tier_slot_usage(timestamptz, timestamptz);
+
+create or replace function public.tier_slot_orders(p_since timestamptz, p_pending_since timestamptz)
+returns table (tier text, orders integer)
 language sql
 stable
 set search_path = public
 as $$
-  select coalesce(c.tier, o.restoration_tier) as tier, count(*)::integer as cards
-    from public.cards c
-    join public.orders o on o.id = c.order_id
-   where coalesce(c.tier, o.restoration_tier) is not null
-     and c.status is distinct from 'refunded'
-     and (p_since is null or o.created_at >= p_since)
-     and (o.payment_status = 'paid'
-          or (o.payment_status = 'pending'
-              and o.created_at >= p_pending_since
-              and o.status is distinct from 'cancelled'))
-   group by 1
+  with counted as (
+    select o.id, o.restoration_tier
+      from public.orders o
+     where (p_since is null or o.created_at >= p_since)
+       and (o.payment_status = 'paid'
+            or (p_pending_since is not null
+                and o.payment_status = 'pending'
+                and o.created_at >= p_pending_since
+                and o.status is distinct from 'cancelled'))
+  ),
+  order_tiers as (
+    select k.id, k.restoration_tier as tier
+      from counted k
+     where k.restoration_tier is not null
+    union
+    select k.id, c.tier
+      from counted k
+      join public.cards c on c.order_id = k.id
+     where k.restoration_tier is null
+       and c.tier is not null
+  )
+  select t.tier, count(*)::integer as orders
+    from order_tiers t
+   group by t.tier
 $$;
 
-revoke execute on function public.tier_slot_usage(timestamptz, timestamptz) from public, anon, authenticated;
-grant execute on function public.tier_slot_usage(timestamptz, timestamptz) to service_role;
+revoke execute on function public.tier_slot_orders(timestamptz, timestamptz) from public, anon, authenticated;
+grant execute on function public.tier_slot_orders(timestamptz, timestamptz) to service_role;

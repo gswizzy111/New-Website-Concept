@@ -4,21 +4,18 @@ import { useState } from "react";
 import { formatCents } from "@/lib/restoration-tiers";
 import { formatCurrency } from "@/lib/utils";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
-import { bulkDiscountPercent, bulkPriceCents } from "@/lib/bulk-pricing";
 
-const TAX_RATE = 0.06625;
+/** A higher tier the order can move to, with the admin's name and price, and its fee as the upgrade route charges it. */
+export type UpgradeOffer = { tier: RestorationTier; totalCents: number; chargeCents: number; bulkPercent: number };
 
 interface Props {
   orderNumber: string;
   customerEmail: string;
-  /** The order's tier with the admin's price (upgrade-section.tsx) */
-  currentTier: RestorationTier;
-  /** The higher tiers it can move to, with the admin's names and prices */
-  upgradeTiers: RestorationTier[];
-  cardCount: number;
+  /** Priced in upgrade-section.tsx (lib/upgrade-pricing.ts) */
+  offers: UpgradeOffer[];
 }
 
-export function UpgradeForm({ orderNumber, customerEmail, currentTier, upgradeTiers, cardCount }: Props) {
+export function UpgradeForm({ orderNumber, customerEmail, offers }: Props) {
   const [loading, setLoading] = useState<RestorationTierId | null>(null);
   const [error, setError] = useState("");
 
@@ -53,15 +50,7 @@ export function UpgradeForm({ orderNumber, customerEmail, currentTier, upgradeTi
       </p>
 
       <div className="flex flex-col gap-3">
-        {upgradeTiers.map((tier) => {
-          // Same as the upgrade route: the per-card difference for every card,
-          // with the order's bulk percent off
-          const bulkPercent = bulkDiscountPercent(cardCount);
-          const diff = bulkPriceCents((tier.price_cents - currentTier.price_cents) * cardCount, bulkPercent);
-          const tax = Math.round(diff * TAX_RATE);
-          const total = diff + tax;
-
-          return (
+        {offers.map(({ tier, totalCents: total, bulkPercent }) => (
             <div key={tier.id} className="flex items-center justify-between gap-4 bg-white rounded-lg border border-blue-100 p-4">
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-foreground">{tier.name}</p>
@@ -80,8 +69,7 @@ export function UpgradeForm({ orderNumber, customerEmail, currentTier, upgradeTi
                 {loading === tier.id ? "Redirecting..." : "Upgrade"}
               </button>
             </div>
-          );
-        })}
+        ))}
       </div>
 
       {error && <p className="text-sm text-red-500 mt-3">{error}</p>}

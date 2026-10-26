@@ -49,7 +49,8 @@ function TierCard({
 }: {
   tier: RestorationTier;
   settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; display_slots_remaining?: number | null }>;
-  slotCounts: Record<string, number>;
+  /** null: the count couldn't be read, so slots left are unknown */
+  slotCounts: Record<string, number> | null;
   restorationsOpen: boolean;
   label?: React.ReactNode;
 }) {
@@ -59,8 +60,7 @@ function TierCard({
   const s = settingsMap[tier.id];
   // DB max_slots takes priority; fall back to site-config TIER_MAX_SLOTS constant
   const maxSlots = (s?.max_slots ?? null) ?? TIER_MAX_SLOTS[tier.id] ?? null;
-  const usedSlots = slotCounts[tier.id] ?? 0;
-  const slotsLeft = maxSlots !== null ? Math.max(0, maxSlots - usedSlots) : null;
+  const slotsLeft = maxSlots !== null && slotCounts ? Math.max(0, maxSlots - (slotCounts[tier.id] ?? 0)) : null;
   const isSoldOut = s?.is_open === false || (slotsLeft !== null && slotsLeft === 0);
 
   // Corner pill: sold out, else the owner's badge (or the card's own label).
@@ -207,14 +207,16 @@ export default async function TierSelectionPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settingsMap = Object.fromEntries((settingsRaw as any[]).map((s) => [s.tier, s]));
 
-  // Slots taken, in cards: paid orders plus checkouts in progress (under 30
-  // minutes old), counted the way checkout enforces them (lib/tier-slots.ts)
-  let slotCounts: Record<string, number> = {};
+  // Slots taken, one per order: paid orders plus checkouts in progress (under
+  // 30 minutes old), counted the way checkout enforces them (lib/tier-slots.ts).
+  // null: the count failed, so no tier shows a number of slots left.
+  let slotCounts: Record<string, number> | null = {};
   if (restorationsOpen) {
     try {
       slotCounts = await tierSlotUsage(admin, slotsOpenedAt);
     } catch (err) {
       console.error("Tier slot count failed:", err);
+      slotCounts = null;
     }
   }
 
@@ -231,8 +233,7 @@ export default async function TierSelectionPage() {
 
   // Diamond slot info for client component
   const eliteMaxSlots = (settingsMap["elite"]?.max_slots ?? null) ?? TIER_MAX_SLOTS["elite"] ?? null;
-  const eliteUsed = slotCounts["elite"] ?? 0;
-  const eliteSlotsLeft = eliteMaxSlots !== null ? Math.max(0, eliteMaxSlots - eliteUsed) : null;
+  const eliteSlotsLeft = eliteMaxSlots !== null && slotCounts ? Math.max(0, eliteMaxSlots - (slotCounts["elite"] ?? 0)) : null;
   const eliteIsSoldOut = settingsMap["elite"]?.is_open === false || (eliteSlotsLeft !== null && eliteSlotsLeft === 0);
 
   return (

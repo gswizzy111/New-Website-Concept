@@ -407,7 +407,9 @@ export async function POST(request: Request) {
       mode: "payment",
       customer_email: d.customer_email,
       line_items: lineItems,
-      success_url: `${appUrl}/orders/${order.order_number}?confirmed=1`,
+      // The confirmation page (order number, prepaid label) that also reports
+      // the purchase to Meta, as restoration checkouts do
+      success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/prep/order`,
       metadata: {
         service_type: "prep",

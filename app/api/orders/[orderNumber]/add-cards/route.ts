@@ -9,8 +9,6 @@ import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { siteUrl } from "@/lib/site-url";
-import { getSlotsOpenedAt } from "@/lib/store-config";
-import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
 
 const TAX_RATE = 0.06625;
 
@@ -72,7 +70,7 @@ export async function POST(
   // Priced as the admin set the tier (restoration_settings), like checkout
   const { data: tierSetting, error: tierSettingError } = await admin
     .from("restoration_settings")
-    .select("tier, max_slots, display_name, price_cents, pricing_rate, min_card_value_cents")
+    .select("tier, display_name, price_cents, pricing_rate, min_card_value_cents")
     .eq("tier", tierId)
     .maybeSingle();
   if (tierSettingError) {
@@ -99,22 +97,6 @@ export async function POST(
     .from("cards")
     .select("id", { count: "exact", head: true })
     .eq("order_id", order.id);
-
-  // Slots are counted in cards: the added cards take slots in the order's tier
-  const maxSlots = tierMaxSlots(tier.id, tierSetting?.max_slots);
-  if (maxSlots !== null) {
-    let usage: Record<string, number>;
-    try {
-      usage = await tierSlotUsage(admin, await getSlotsOpenedAt());
-    } catch (err) {
-      console.error("Tier slot count failed:", err);
-      return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });
-    }
-    if ((usage[tier.id] ?? 0) + cards.length > maxSlots) {
-      return Response.json({ error: `Sorry, the ${tier.name} tier is sold out, so cards can't be added right now.`, code: "TIER_SOLD_OUT" }, { status: 409 });
-    }
-  }
-
   const bulkPercent = addedCardsBulkPercent(tier.id, cardsOnOrder ?? 0, cards.length);
   const bulkDiscountCents = Math.round(listSubtotalCents * bulkPercent / 100);
   const subtotalCents = listSubtotalCents - bulkDiscountCents;

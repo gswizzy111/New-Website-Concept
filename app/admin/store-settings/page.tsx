@@ -92,11 +92,11 @@ export default async function StoreSettingsPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settingsMap = Object.fromEntries((tierSettings ?? []).map((s: any) => [s.tier, s]));
 
-  // Slots used, in cards, as checkout counts them: paid orders plus checkouts
-  // in progress (under 30 minutes old), each card in its own tier
-  let slotsUsed: Record<string, number> = {};
+  // Slots used: paid orders since the slots opened, one per order (a mixed-tier
+  // order counts in each of its tiers; lib/tier-slots.ts). null: unreadable.
+  let slotsUsed: Record<string, number> | null = null;
   try {
-    slotsUsed = await tierSlotUsage(admin, slotsOpenedAt);
+    slotsUsed = await tierSlotUsage(admin, slotsOpenedAt, { paidOnly: true });
   } catch (err) {
     console.error("Tier slot count failed:", err);
   }
@@ -164,7 +164,7 @@ ON CONFLICT (tier) DO NOTHING;`}</pre>
                     isOpen={(row as { is_open?: boolean })?.is_open ?? true}
                     maxSlots={(row as { max_slots?: number | null })?.max_slots ?? null}
                     displaySlotsRemaining={(row as { display_slots_remaining?: number | null })?.display_slots_remaining ?? null}
-                    slotsUsed={slotsUsed[defaultTier.id] ?? 0}
+                    slotsUsed={slotsUsed ? (slotsUsed[defaultTier.id] ?? 0) : null}
                     hasExtendedColumns={hasExtendedColumns}
                   />
                 );

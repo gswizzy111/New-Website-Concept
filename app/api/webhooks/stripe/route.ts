@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail, replyToAddress, businessName } from "@/lib/resend";
 import { randomInt, randomUUID } from "node:crypto";
 import { itemAmounts } from "@/lib/item-pricing";
+import { bulkPriceCents } from "@/lib/bulk-pricing";
+import { upgradeBaseCents } from "@/lib/upgrade-pricing";
 import { signedPdfAttachments } from "@/lib/signed-pdfs";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { siteUrl } from "@/lib/site-url";
@@ -259,6 +261,41 @@ async function alreadyDone(claim: Claim, found: "yes" | "old_site", orderId: str
   }
   await finishClaim(claim, found === "old_site" ? `${what} by the old site's webhook` : `${what} for this session`);
   return Response.json({ received: true, duplicate: true });
+}
+
+/**
+ * A paid tier upgrade, on each card it covered, split the way the upgrade
+ * route priced it (lib/upgrade-pricing.ts): every card not refunded that has
+ * its own price gains the new tier's price minus what it was charged, with the
+ * upgrade's bulk percent as discount and the tax on the rest. Its
+ * service_price_cents becomes its full price at the new tier, so a later
+ * upgrade charges from it. Returns what went wrong, or null.
+ */
+async function addUpgradeToCards(
+  admin: Admin,
+  orderId: string,
+  p: { oldTier: string; currentPriceCents: number; newPriceCents: number; bulkPercent: number },
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("cards")
+    .select("id, tier, status, service_price_cents, discount_cents, tax_cents")
+    .eq("order_id", orderId);
+  if (error) return error.message;
+  const cards = (data ?? []).filter((c) => c.status !== "refunded" && c.service_price_cents != null);
+  const bases = cards.map((c) => upgradeBaseCents(c, p.oldTier, p.currentPriceCents));
+  const diffs = bases.map((base) => Math.max(0, p.newPriceCents - base));
+  const listCents = diffs.reduce((sum, d) => sum + d, 0);
+  if (listCents <= 0) return null;
+  const shares = itemAmounts(diffs, listCents - bulkPriceCents(listCents, p.bulkPercent));
+  const results = await Promise.all(cards.map((c, i) => diffs[i] > 0
+    ? admin.from("cards").update({
+        service_price_cents: bases[i] + shares[i].service_price_cents,
+        discount_cents: (c.discount_cents ?? 0) + shares[i].discount_cents,
+        tax_cents: (c.tax_cents ?? 0) + shares[i].tax_cents,
+      }).eq("id", c.id)
+    : Promise.resolve({ error: null })));
+  const failed = results.filter((r) => r.error);
+  return failed.length ? `${failed.length} of ${cards.length} card${cards.length !== 1 ? "s" : ""} not updated: ${failed[0].error?.message}` : null;
 }
 
 /** Raises a problem with a paid session in the checkout error log (stored + emailed to the admin). */
@@ -1009,24 +1046,39 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           if (oldTier && oldTier !== newTier) {
             const tier = getTierById(newTier as RestorationTierId);
             const chargedPrice = parseInt(session.metadata.new_price_cents ?? "", 10);
+            const newPrice = Number.isFinite(chargedPrice) && chargedPrice > 0 ? chargedPrice : tier.price_cents;
             const { error: serviceError } = await admin
               .from("order_services")
               .update({
                 service_id: newTier,
                 service_name: `${tier.name} - Full Restoration & PSA Prep`,
-                price_cents: Number.isFinite(chargedPrice) && chargedPrice > 0 ? chargedPrice : tier.price_cents,
+                price_cents: newPrice,
               })
               .eq("order_id", upgradeOrderId)
               .eq("service_id", oldTier);
             if (serviceError) problems.push(`the service line was not moved to the new tier (${serviceError.message})`);
 
-            // The cards move too, so each takes its slot in the new tier (lib/tier-slots.ts)
+            // Each card's price, discount and tax take its share of the upgrade,
+            // as the upgrade route charged it (lib/upgrade-pricing.ts), so a
+            // per-card refund (lib/work-gates.ts) returns what was paid for it.
+            // Before the cards move: their tier tells which prices are current.
+            stage = "price the cards";
+            const currentPrice = parseInt(session.metadata.current_price_cents ?? "", 10);
+            const cardsPriceProblem = await addUpgradeToCards(admin, upgradeOrderId, {
+              oldTier,
+              currentPriceCents: Number.isFinite(currentPrice) && currentPrice > 0 ? currentPrice : getTierById(oldTier).price_cents,
+              newPriceCents: newPrice,
+              bulkPercent: parseInt(session.metadata.bulk_discount_percent ?? "0", 10) || 0,
+            });
+            if (cardsPriceProblem) problems.push(`the cards' prices were not updated for the upgrade, so a per-card refund would return only the old tier's price (${cardsPriceProblem})`);
+
+            // All the order's cards move to the new tier (an order that can
+            // upgrade is on one tier)
             stage = "move the cards";
             const { error: cardsTierError } = await admin
               .from("cards")
               .update({ tier: newTier })
-              .eq("order_id", upgradeOrderId)
-              .eq("tier", oldTier);
+              .eq("order_id", upgradeOrderId);
             if (cardsTierError) problems.push(`the cards were not moved to the new tier (${cardsTierError.message})`);
           }
 

@@ -109,7 +109,12 @@ export function StepReview({
   // Auto-detect loyalty discount when review step loads
   useEffect(() => {
     if (!customer.email) return;
-    fetch(`/api/loyalty?email=${encodeURIComponent(customer.email)}`)
+    // POST: the email stays out of the URL
+    fetch("/api/loyalty", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: customer.email }),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (data.discountPercent > 0) onLoyaltyDiscountChange(data.discountPercent);

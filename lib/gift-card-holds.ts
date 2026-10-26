@@ -92,7 +92,7 @@ export async function holdGiftCard(admin: Admin, opts: {
   // The balance is held elsewhere: if it's this customer's own earlier
   // checkout (they went back and started again), close that one and retry
   if (!row.hold_id && row.wanted_cents > 0 && row.available_cents < row.wanted_cents) {
-    if ((await releaseOwnOpenHolds(admin, row.card_id, email)) > 0) {
+    if ((await releaseOwnOpenHolds(admin, row.card_id, email, row.wanted_cents - row.available_cents)) > 0) {
       ({ data, error } = await call());
       if (error) {
         console.error("Gift card hold failed:", error.message);
@@ -123,30 +123,45 @@ async function withoutHolds(admin: Admin, code: string, maxCents: number, dueCen
 }
 
 /**
- * Ends this customer's open holds on the card: each one whose Stripe session
- * can be closed (expired) so it can never be paid, and any that never reached
- * Stripe. A restoration order whose session was closed is marked cancelled.
- * Returns how many holds were let go.
+ * Ends this customer's open holds on the card, but only when that frees at
+ * least `shortCents` (otherwise they would lose an open checkout and still
+ * not get this one): each hold whose Stripe session is still open or already
+ * expired (an open one is expired first, so it can never be paid), and any
+ * that never reached Stripe. A restoration order whose session was closed is
+ * marked cancelled. Returns how many holds were let go.
  */
-async function releaseOwnOpenHolds(admin: Admin, giftCardId: string, email: string): Promise<number> {
+async function releaseOwnOpenHolds(admin: Admin, giftCardId: string, email: string, shortCents: number): Promise<number> {
   if (!email) return 0;
-  const { data: holds, error } = await admin
+  const { data, error } = await admin
     .from(HOLDS)
-    .select("id, stripe_session_id, order_id, created_at")
+    .select("id, amount_cents, stripe_session_id, order_id, created_at")
     .eq("gift_card_id", giftCardId)
     .eq("customer_email", email)
     .is("released_at", null)
     .gt("expires_at", new Date().toISOString());
-  if (error || !holds?.length) return 0;
+  if (error || !data?.length) return 0;
+  const holds = data as { id: string; amount_cents: number; stripe_session_id: string | null; order_id: string | null; created_at: string }[];
+
+  // What letting them go would free: holds whose session is open (it gets
+  // expired) or already expired, and holds that never reached Stripe (a paid
+  // session's hold stays)
+  const sessionStatus = new Map<string, string | null>();
+  await Promise.all(holds.map(async (hold) => {
+    if (hold.stripe_session_id) sessionStatus.set(hold.id, await stripeSessionStatus(hold.stripe_session_id));
+  }));
+  const abandoned = (hold: (typeof holds)[number]) =>
+    !hold.stripe_session_id && Date.now() - new Date(hold.created_at).getTime() > ABANDONED_MINUTES * 60 * 1000;
+  const closable = (hold: (typeof holds)[number]) => ["open", "expired"].includes(sessionStatus.get(hold.id) ?? "");
+  const freeCents = holds.filter((hold) => abandoned(hold) || closable(hold)).reduce((sum, hold) => sum + hold.amount_cents, 0);
+  if (freeCents < shortCents) return 0;
 
   let released = 0;
-  for (const hold of holds as { id: string; stripe_session_id: string | null; order_id: string | null; created_at: string }[]) {
+  for (const hold of holds) {
     if (!hold.stripe_session_id) {
-      const ageMs = Date.now() - new Date(hold.created_at).getTime();
-      if (ageMs > ABANDONED_MINUTES * 60 * 1000 && (await releaseGiftCardHold(admin, hold.id, "abandoned"))) released++;
+      if (abandoned(hold) && (await releaseGiftCardHold(admin, hold.id, "abandoned"))) released++;
       continue;
     }
-    if (!(await closeSession(hold.stripe_session_id))) continue;
+    if (!closable(hold) || !(await closeSession(hold.stripe_session_id))) continue;
     if (!(await releaseGiftCardHold(admin, hold.id, "replaced"))) continue;
     released++;
     if (hold.order_id) {
@@ -168,6 +183,15 @@ async function releaseOwnOpenHolds(admin: Admin, giftCardId: string, email: stri
     }
   }
   return released;
+}
+
+/** A Stripe session's status (open, complete or expired), or null if it can't be read. */
+async function stripeSessionStatus(sessionId: string): Promise<string | null> {
+  try {
+    return (await stripe.checkout.sessions.retrieve(sessionId)).status ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Expires a Stripe session so it can't be paid. True when it is expired now. */
