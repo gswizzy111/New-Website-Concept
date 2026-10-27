@@ -1,6 +1,4 @@
 import type { StaticImageData } from "next/image";
-import mantleBefore from "@/public/specimen-mantle-before.jpg";
-import mantleAfter from "@/public/specimen-mantle-after.jpg";
 import mantleInHand from "@/public/about/mantle-in-hand.jpg";
 import mantleDetailBefore from "@/public/about/mantle-detail-before.jpg";
 import charmander from "@/public/specimen-charmander.png";
@@ -149,7 +147,8 @@ export type Method = { id: string; name: string; body: string; photo: Photo | nu
 export const PROCESS = {
   title: "Behind the restoration",
   lead: "Restoration here is careful, hands-on work. We choose the methods card by card, and not every card needs every one.",
-  /** Lead image: a close-up crop of public/specimen-mantle-before.jpg. */
+  /** Lead image: a close-up of the damaged card, cropped from the owner's
+   * public/before-after-mickey-mantle.png. */
   photo: {
     src: mantleDetailBefore,
     alt: "Close-up of a Mickey Mantle card before restoration, with cracks across the cap, face and jersey",
@@ -196,18 +195,6 @@ export type ResultCase =
     };
 
 export const RESULTS: ResultCase[] = [
-  {
-    kind: "slider",
-    id: "mickey-mantle",
-    card: "Mickey Mantle",
-    detail: "Banner, cap, face and jersey",
-    caption: "Cracking across the face, cap and jersey, before and after. Fine lines are still visible up close: restoration reduces damage, it doesn't erase a card's history.",
-    // Cut and aligned from public/before-after-mickey-mantle.png (DESIGN.md, Specimen Stack).
-    before: mantleBefore,
-    after: mantleAfter,
-    beforeAlt: "A Mickey Mantle card before restoration, cracked across the face and jersey",
-    afterAlt: "The same Mickey Mantle card after restoration",
-  },
   {
     kind: "composite",
     id: "charmander",

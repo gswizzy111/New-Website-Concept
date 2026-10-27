@@ -307,7 +307,7 @@
   background-repeat: no-repeat;
 }
 
-/* Hero specimen lands on the light table: it tips down out of a 3D tilt.
+/* A specimen photo lands on the light table: it tips down out of a 3D tilt.
    Opacity resolves fast so the image paints early; the move takes longer. */
 @keyframes fade-in {
   from { opacity: 0; }
@@ -324,15 +324,6 @@
 }
 @keyframes fade-out {
   to { opacity: 0; }
-}
-@keyframes fan-in {
-  from { transform: translate(-40px, 36px) rotate(-5deg); }
-  to   { transform: none; }
-}
-.fan-in {
-  animation:
-    fan-in 1500ms var(--ease-out) 420ms both,
-    fade-in 600ms ease-out 420ms both;
 }
 
 /* ── Materials ─────────────────────────────────────────────────────────────
@@ -695,7 +686,6 @@ html:active-view-transition .vt-header header {
   .rx-reveal,
   .hero-in,
   .specimen-land,
-  .fan-in,
   .split-word,
   .holo-ring::before,
   .nav-shell {

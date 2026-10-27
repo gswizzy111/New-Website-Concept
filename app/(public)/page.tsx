@@ -1,17 +1,12 @@
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, Sparkles, Star, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
 import { ScanReveal } from "@/components/motion/scan-reveal";
-import { ScrollFan } from "@/components/motion/scroll-fan";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { TrustedBy } from "@/components/marketing/trusted-by";
 import { getCardsRestoredStat } from "@/lib/site-stats";
 import { CustomerReviews } from "@/components/marketing/customer-reviews";
-import { BeforeAfter } from "@/components/motion/before-after";
-import mantleBefore from "@/public/specimen-mantle-before.jpg";
-import mantleAfter from "@/public/specimen-mantle-after.jpg";
 import charmander from "@/public/specimen-charmander.png";
 
 export const dynamic = "force-dynamic";
@@ -141,46 +136,6 @@ export default async function HomePage() {
               Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
             </p>
           </div>
-
-          {/* Specimens on the light table: the Charmander case sits behind and fans out on scroll */}
-          <figure className="relative mx-auto w-full max-w-[34rem] lg:max-w-none lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-2 lg:self-center mt-24 sm:mt-20 lg:mt-0">
-            <div className="absolute -top-[30%] sm:-top-[24%] lg:-top-[22%] left-[4%] sm:left-auto sm:-right-[1%] lg:-right-[2%] w-[40%] lg:w-[44%] -rotate-[10deg] sm:rotate-[8deg] z-0">
-              <div className="fan-in">
-                <ScrollFan>
-                  <div className="rounded-lg bg-white p-2 md:p-2.5 ring-1 ring-ink/15 shadow-[0_24px_50px_-24px_oklch(0.25_0.006_70/0.5)]">
-                    <div className="rounded-md bg-[oklch(0.96_0.003_80)] px-3 py-4">
-                      <Image
-                        src={charmander}
-                        alt="A Charmander card before and after restoration"
-                        sizes="(min-width: 1024px) 220px, 45vw"
-                        className="w-full h-auto"
-                        loading="eager"
-                      />
-                    </div>
-                  </div>
-                </ScrollFan>
-              </div>
-            </div>
-
-            {/* Held still: only the compare bar moves, and only when dragged. */}
-            <div className="specimen-land relative z-10">
-              <div className="rounded-lg border border-ink/70 bg-white overflow-hidden shadow-[0_40px_80px_-40px_oklch(0.25_0.006_70/0.55)]">
-                <div className="p-2 md:p-3">
-                  <BeforeAfter
-                    before={mantleBefore}
-                    after={mantleAfter}
-                    beforeAlt="A Mickey Mantle card before restoration, cracked across the face and jersey"
-                    afterAlt="The same Mickey Mantle card after restoration"
-                    sizes="(min-width: 1280px) 440px, (min-width: 1024px) 34vw, 92vw"
-                    priority
-                  />
-                </div>
-                <div className="bg-rx px-4 py-2">
-                  <span className="rx-label text-primary-foreground">The Card Doc</span>
-                </div>
-              </div>
-            </div>
-          </figure>
 
           {/* Services, laid out like the lines of a prescription label */}
           <ul className="lg:col-span-7 lg:row-start-2 border-t-[6px] border-rx border-b border-b-ink/80 divide-y divide-rule">
