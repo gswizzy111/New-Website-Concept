@@ -28,13 +28,13 @@ export default function PrivacyPage() {
           doing business as &ldquo;The Card Doc&rdquo;
         </p>
 
-        <div className="prose prose-sm max-w-none space-y-6 text-foreground">
+        <div className="prose prose-sm max-w-none space-y-6 text-foreground [&_p+p]:mt-3 [&_p+ul]:mt-3 [&_ul+p]:mt-3">
 
           {/* ─── Overview ──────────────────────────────────────────────────────── */}
           <section>
             <h2 className="text-2xl font-bold font-heading mt-8 mb-4">Overview</h2>
             <p>
-              This Privacy Policy describes how <strong>The Card Doc LLC</strong>
+              This Privacy Policy describes how <strong>The Card Doc LLC</strong>{" "}
               (&ldquo;The Card Doc,&rdquo; &ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;)
               collects, uses, shares, and protects personal information when you interact with us
               through our website at{" "}
