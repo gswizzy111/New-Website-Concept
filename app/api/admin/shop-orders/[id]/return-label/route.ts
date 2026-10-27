@@ -204,7 +204,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const contact = escapeHtml(replyToAddress);
 
     try {
-      await resend.emails.send({
+      const { error: emailError } = await resend.emails.send({
         from: fromEmail,
         to: order.customer_email as string,
         subject: `Your order is on the way! — ${businessName}`,
@@ -215,9 +215,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
             <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
               <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Tracking Number</p>
-              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${trackingNumber}</p>
+              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${escapeHtml(trackingNumber)}</p>
               ${trackingUrl
-                ? `<a href="${trackingUrl}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
+                ? `<a href="${escapeHtml(trackingUrl)}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
                 : ""}
             </div>
 
@@ -227,6 +227,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           </div>
         `,
       });
+      if (emailError) console.error("Failed to send shipping email:", emailError.message);
     } catch (err) {
       console.error("Failed to send shipping email:", err);
     }

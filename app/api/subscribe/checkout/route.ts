@@ -54,7 +54,9 @@ export async function POST(request: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${appUrl}/subscribe/success`,
+      // The success page reads the session for the Meta Purchase event; the
+      // page's first script takes the ID out of the address (lib/tracking-guard.ts)
+      success_url: `${appUrl}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/subscribe`,
       metadata: {
         type: "subscription",

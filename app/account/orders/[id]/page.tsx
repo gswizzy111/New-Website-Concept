@@ -11,6 +11,7 @@ import { CardEditor } from "./card-editor";
 import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { trackingLink } from "@/lib/tracking-carrier";
+import { OpenFileButton } from "@/components/open-file-button";
 
 export const dynamic = "force-dynamic";
 
@@ -216,14 +217,13 @@ export default async function AccountOrderPage({
               <div className="bg-white rounded-xl border border-border p-5">
                 <h2 className="font-heading font-black text-sm uppercase tracking-wide text-muted-foreground mb-3">Shipping Label</h2>
                 <p className="text-xs text-muted-foreground mb-3">Print and attach to your package.</p>
-                <a
-                  href={order.shipping_label_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+                {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
+                <OpenFileButton
+                  url={order.shipping_label_url}
+                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
                 >
                   Download Label (PDF)
-                </a>
+                </OpenFileButton>
               </div>
             )}
 

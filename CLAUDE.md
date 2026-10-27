@@ -19,7 +19,9 @@ Rules for this repo:
   Netlify, production needs a new build. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
   is a browser key (Places API (New) + Maps JavaScript API), restricted to the
   site's domains in Google Cloud; it is not marked secret because it ships in
-  the page. The live Stripe webhook runs on the old site and serves both.
+  the page. The live Stripe webhook runs on the old site and serves both
+  until the switch. Links, Stripe return URLs and metadata use `siteUrl()`
+  (`lib/site-url.ts`: `NEXT_PUBLIC_APP_URL`, else https://thecarddoc1.com).
 - **Preview mode** (`NEXT_PUBLIC_PREVIEW_MODE=true`) is on for branch deploys
   and deploy previews only (`netlify.toml`). It runs the site without
   checkout or accounts: `/api/*` returns "not functional yet" and private
@@ -92,6 +94,8 @@ Rules for this repo:
   (exact history from October 23, 2026; earlier days are rebuilt from
   `order_events` and flagged), and `backlog_daily` keeps each finished day. Tabs:
   `/admin/backlog` and `/admin/services` (PSA Prep vs Full Restoration).
+  Reports (Tax, Sales Statement, P&L) count through `lib/sales-report.ts`, and
+  every CSV is built with `lib/csv.ts`.
 - **Daily jobs** run as Netlify scheduled functions in `netlify/functions/`,
   which call `/api/cron/*` with `CRON_SECRET`.
 - **Email** goes through Resend from `FROM_EMAIL` (orders@thecarddoc1.com, no
@@ -102,7 +106,78 @@ Rules for this repo:
   site only, `RESEND_WEBHOOK_SECRET`) records bounced, spam-complaint,
   suppressed and failed emails in `email_problems`; both sites' admins show
   them on `/admin/email-problems`, as a nav badge and on the order page
-  (`lib/email-problems.ts`).
+  (`lib/email-problems.ts`). Resend's `send()` returns `{ error }` and never
+  throws: always check it.
+- **Marketing email** (Email Blast, waitlist notice, `lib/email-unsubscribe.ts`):
+  each send stores a fresh unsubscribe token per address (SHA-256 only), links
+  `/email/unsubscribe?token=`, sends one-click `List-Unsubscribe` headers and
+  skips unsubscribed, invalid, bouncing and complaining addresses. It refuses to
+  send (`marketingSendProblem()`) unless the `BUSINESS_SHIPPING_*` postal address
+  is complete and `siteUrl()`'s host is the admin's. Progress: `email_blasts`.
+- **Stripe webhook** (`app/api/webhooks/stripe/route.ts`) handles each checkout
+  session once: it claims it in `stripe_webhook_claims` before any label, gift
+  card charge, card or total change, or email. A repeat gets 200 `{duplicate}`;
+  an unfinished claim under 2 minutes old gets 409; an older one alerts once. A
+  failure before any side effect releases the claim and answers 500 (Stripe
+  retries); after one, it alerts and answers 200, so no second label is bought.
+  Data checks (orders turn paid only from pending/failed/null, unique session or
+  subscription IDs, the event's `metadata.stripe_session_id`) also catch the old
+  site's webhook. Alerts go to the checkout error log (`/admin/checkout-errors`,
+  emailed to `ADMIN_NOTIFICATION_EMAIL` or the fallbacks in
+  `lib/checkout-error-log.ts`): WEBHOOK_FAILED, WEBHOOK_UNFINISHED,
+  WEBHOOK_RETRYING, OLD_SITE_HANDLED, ORDER_INCOMPLETE, GIFT_CARD_NOT_CHARGED,
+  GIFT_CARD_SHORT, GIFT_CARD_EMAIL_FAILED, LABEL_NOT_SAVED, KIT_LABEL_NOT_SAVED,
+  KIT_CLUB_ORDER_NOT_SAVED, ADD_CARDS_INCOMPLETE, TIER_UPGRADE_INCOMPLETE. Event
+  descriptions never change (the dashboard SQL parses them). Never enable the
+  old and new endpoints at once: the old one is not idempotent.
+- **Gift cards**: only the webhook's `redeem_gift_card()` takes balance (locked,
+  never below 0, once per session, `gift_card_redemptions`); never
+  read-then-write `remaining_cents`. Restoration and kit checkouts hold what
+  they take off (`lib/gift-card-holds.ts`) until paid, released or 30 minutes
+  after their 60-minute session expires, and never leave 1-49 cents to pay.
+- **Tier slots** (`lib/tier-slots.ts`): one slot is one order and `max_slots`
+  counts orders; a mixed-tier order counts once in each of its tiers. Counted
+  since `slots_opened_at`: paid orders, plus pending checkouts under 30 minutes
+  old for new orders. An upgrade takes a slot in the new tier; added cards take
+  none, except the first Bronze card on a mixed-tier order (one Bronze slot).
+  Prices come from `restoration_settings` (`getLiveTiers()`).
+- **Tip** (optional, restoration checkout): in `orders.total_cents`, the Stripe
+  line and the signed text; gift cards never cover it, and the webhook must
+  never overwrite `total_cents` on new orders.
+- **Attempt limits** (`lib/attempt-limit.ts`, `auth_attempts`): per name or email
+  (or everyone), never per IP, stored as SHA-256; `takeAttempt()` reserves first
+  and limits fail open. Admin, accountant and creator sign-ins: 10 per name per
+  15 minutes; partner sign-in 20 and loyalty lookup 60 per 15 minutes in all;
+  confirmation, reset and Kit Club link emails: 3 per address per hour.
+- **Kit Club** (`/subscribe/manage`, `lib/kit-club-link.ts`): viewing or
+  cancelling needs the emailed one-time, 1-hour link (`kit_club_manage_links`,
+  SHA-256) or a signed-in account with the same confirmed email. The price is
+  the subscriber's last billed kit, else the admin setting ($89.99 fallback).
+- **Partner portal** (`lib/partner-portal.ts`): passcodes are PBKDF2 hashes
+  (`passcode_hash`, 10+ characters, never shown); sessions are SHA-256 in
+  `partner_sessions` (30 days). `KEEP_PLAINTEXT_PASSCODE` keeps writing the
+  plaintext `passcode` for the old site until the switch, then set it false.
+- **Analytics**: GA4 and the Meta pixel load only from `trackingGuardScript()`
+  (`lib/tracking-guard.ts`, first in `<head>`); pixel events go through
+  `lib/pixel.ts`. Global Privacy Control keeps the pixel off. Stripe return pages
+  drop `session_id` from the address. Private pages (`KEY_PATH`, token or email
+  parameters, "@") turn both off for the tab; add new token or email pages there.
+- **Admin refunds** (`lib/order-payments.ts`, order and per card): split across
+  the order's payments (original, then add-cards and upgrades), each recorded
+  with `recordRefund`; a per-click `requestId` is the Stripe idempotency key.
+  Stripe refunds the ledger lacks are recorded first and the request gets 409.
+- **Completion notes email** (`lib/completion-notes-email.ts`) goes once per
+  order: notes saved before the order is done are held and sent when it becomes
+  completed, shipped_back or delivered; notes saved after go at once.
+- **Kit orders**: a trigger stamps `shop_orders.shipped_at`. Cancel & Refund
+  (`/api/admin/shop-orders/[id]/cancel`) claims the order as cancelled, refunds
+  what Stripe still holds and restores the status if that fails (never voids a
+  label); cancelled kits refuse status and label changes. Customers can't cancel.
+- **Product costs** change only by PATCH `/api/admin/product-costs` (one change,
+  applied on the server). **Prep** is US and Puerto Rico only.
+- **Migrations `20261027_*.sql`** are additive and rerunnable; apply them to
+  production before the code (`attempt_limits` before `security_data`). A new
+  function in `public` sets its own `search_path`.
 
 ## Design skills: who owns what
 

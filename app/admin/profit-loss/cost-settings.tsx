@@ -22,21 +22,22 @@ export function CostSettings({ initial, names = {} }: { initial: ProductCostsCon
   async function save() {
     setSaving(true);
     try {
-      // Saved together with every product's costs: never save over them unless they were read
-      const current = await fetch("/api/admin/product-costs");
-      if (!current.ok) throw new Error();
-      const config: ProductCostsConfig = await current.json();
-      if (!config?.products || typeof config.products !== "object" || !Array.isArray(config.presets)) throw new Error();
-      config.restoration = Object.fromEntries(
+      // Only the restoration costs change, on the server: products and presets
+      // saved elsewhere (product page, another tab) are left as they are
+      const restoration = Object.fromEntries(
         TIERS.map((t) => [t.key, Math.round(parseFloat(costs[t.key] || "0") * 100)])
       ) as unknown as ProductCostsConfig["restoration"];
       const res = await fetch("/api/admin/product-costs", {
-        method: "POST",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
+        body: JSON.stringify({ action: "set_restoration", restoration }),
       });
-      if (!res.ok || !(await res.json()).ok) throw new Error();
-      toast.success("Restoration costs saved");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        toast.error(data.error ?? "Failed to save");
+      } else {
+        toast.success("Restoration costs saved");
+      }
     } catch {
       toast.error("Failed to save");
     }

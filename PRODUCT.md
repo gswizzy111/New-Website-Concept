@@ -90,8 +90,9 @@ state any.)
   (`lib/site-stats.ts`). It also counts unfinished cards, cards not yet
   received and prep cards. The About page uses a narrower live figure instead:
   cards on paid, finished website orders, labelled "Cards restored and
-  prepped" (`getCardsFinishedStat`). "4.9★" and "100% documented" are the owner's
-  claims; do not add new numbers or claims.
+  prepped" (`getCardsFinishedStat`). "100% documented" is the owner's claim.
+  The owner removed fixed ratings (the home "4.9★" and the shop's star
+  ratings): show none, and do not add new numbers or claims.
 - Trusted by (`lib/trusted-by.ts`): only people with a confirmed order or
   conversation (Joey Valence, Boston Scott). Unconfirmed contacts stay out.
 - Facts the owner corrected: cards are insured only when the customer adds
@@ -116,10 +117,20 @@ state any.)
   `orders.return_carrier` / `return_service_level` for the return label.
 - **Kit shipping** is priced live for the customer's address and the speed
   they pick: carrier postage plus $2 handling in the US, $10 abroad
-  (`lib/kit-shipping.ts`). The rate they pick is bought as the label when
-  they pay (Stripe webhook; the live webhook runs on the old site). If live
-  rates are down, US orders fall back to $5.99 Standard Shipping and the
-  label is bought by hand.
+  (`lib/kit-shipping.ts`); home and nav say "US shipping at cost + $2
+  handling". The rate they pick is bought as the label when they pay (Stripe
+  webhook; the live webhook runs on the old site). If live rates are down, US
+  orders fall back to $5.99 Standard Shipping and the label is bought by hand
+  ($5.99 is only that fallback, not a flat rate).
+- **Kit Club price** comes from the admin setting (`store_config`
+  `subscription_price_cents`, $89.99 today and the fallback); the manage page
+  shows what that subscriber was last billed.
+- **PSA Prep** takes US and Puerto Rico addresses only, like restorations.
+- **Restorations closed**: Restorations (`/tier-selection`) shows the plain
+  line "Restorations are currently closed." (no countdown), and `/order`
+  sends people there.
+- **Restoration slots**: one slot is one order, whatever its card count; an
+  order with cards on several tiers takes one slot in each.
 - **Request an update** on an order in the customer's account: once a week
   per order, filed as an Update Request case for the admin.
 - **Address suggestions** come from Google (Places API (New), key in

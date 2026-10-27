@@ -28,25 +28,6 @@ function invalid(error: z.ZodError) {
   return Response.json({ error: cost ? "Each cost must be from $0 to $1,000,000." : "Invalid product costs." }, { status: 400 });
 }
 
-// P&L Restoration Supply Costs. It sends back the whole config it read, but
-// only its restoration costs are used: products and presets saved since that
-// read (product page, another tab) are never put back to what it had
-export async function POST(req: Request) {
-  if (!await authed()) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const parsed = z.object({ restoration: Restoration }).safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return invalid(parsed.error);
-  const { restoration } = parsed.data;
-  try {
-    await updateProductCosts((c) => {
-      c.restoration = restoration;
-    });
-  } catch (err) {
-    console.error("[product-costs] save failed:", err instanceof Error ? err.message : err);
-    return Response.json({ error: SAVE_FAILED }, { status: 500 });
-  }
-  return Response.json({ ok: true });
-}
-
 const Components = z.array(z.object({
   name: z.string().trim().min(1).max(200),
   cost_cents: Cents,

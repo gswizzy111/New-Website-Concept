@@ -15,6 +15,7 @@ import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { SyncKitOrdersButton } from "./sync-kit-orders-button";
 import { SyncShopDeliveredButton } from "./sync-shop-delivered-button";
 import { requireAdmin } from "@/lib/admin-auth";
+import { trackingCarrier } from "@/lib/tracking-carrier";
 
 export const dynamic = "force-dynamic";
 
@@ -41,12 +42,6 @@ type ShippingAddress = {
   zip: string;
   country: string;
 };
-
-function detectCarrier(trackingNumber: string): string {
-  if (/^1Z/i.test(trackingNumber)) return "ups";
-  if (/^\d{12}$|^\d{15}$/.test(trackingNumber)) return "fedex";
-  return "usps";
-}
 
 function OrderCard({ order }: { order: Record<string, any> }) {
   const address = order.shipping_address as ShippingAddress | null;
@@ -222,7 +217,12 @@ export default async function ShopOrdersPage({
       toCheck.map(async (order) => {
         const tracking = order.tracking_number ??
           (Array.isArray(order.labels) ? order.labels[0]?.trackingNumber : null);
-        const carrier = detectCarrier(tracking ?? "");
+        // The carrier saved with this number's label, else the one saved with the
+        // order (tracking entered by hand), else told from the number
+        const label = Array.isArray(order.labels)
+          ? order.labels.find((l: { trackingNumber?: string | null }) => l?.trackingNumber && l.trackingNumber === tracking)
+          : null;
+        const carrier = trackingCarrier(tracking ?? "", label?.carrier ?? order.carrier ?? null).token;
         try {
           const track = await shippo.trackingStatus.get(tracking, carrier);
           const status = track.trackingStatus?.status ?? "UNKNOWN";

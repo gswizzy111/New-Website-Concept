@@ -84,12 +84,13 @@ export async function POST(
     return Response.json({ error: "That service level is currently closed" }, { status: 409 });
 
   // One slot is one order: the order takes a slot in the new tier (it counts
-  // in its own tier, never yet in a higher one; lib/tier-slots.ts)
+  // in its own tier, never yet in a higher one). Checked against paid orders
+  // only, as upgrades always were, placed since the slots opened (lib/tier-slots.ts).
   const maxSlots = tierMaxSlots(new_tier, newTierSetting?.max_slots);
   if (maxSlots !== null) {
     let usage: Record<string, number>;
     try {
-      usage = await tierSlotUsage(admin, await getSlotsOpenedAt());
+      usage = await tierSlotUsage(admin, await getSlotsOpenedAt(), { paidOnly: true });
     } catch (err) {
       console.error("Tier slot count failed:", err);
       return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });

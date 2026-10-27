@@ -15,6 +15,7 @@ import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
 import type { KitRate } from "@/lib/kit-shipping";
+import { giftCardCents } from "@/lib/order-totals";
 
 const INPUT_CN = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
 
@@ -285,7 +286,8 @@ function CheckoutInner() {
   const discountedTotal = totalCents - discountCents;
   const taxCents = Math.round(discountedTotal * 0.06625);
   const preTaxTotal = discountedTotal + taxCents + shippingCents;
-  const gcApplied = Math.min(giftCardAmountCents, preTaxTotal);
+  // The server's rule: Stripe is left $0 or at least 50 cents (lib/order-totals.ts)
+  const gcApplied = giftCardCents(Math.min(giftCardAmountCents, preTaxTotal), preTaxTotal);
   const finalTotal = preTaxTotal - gcApplied;
 
   if (items.length === 0) {

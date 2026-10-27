@@ -16,6 +16,11 @@ const LOOKBACK_SECONDS = 60 * 86_400;
 
 type MetaItem = { id: string; qty: number };
 
+/** The table isn't there yet (supabase/migrations/20261027_webhook.sql not applied). */
+function missingTable(err: { code?: string } | null | undefined) {
+  return !!err && ["PGRST205", "42P01"].includes(err.code ?? "");
+}
+
 function metaItems(session: Stripe.Checkout.Session): MetaItem[] {
   try {
     const items = JSON.parse(session.metadata?.items ?? "[]");
@@ -65,6 +70,20 @@ export async function POST() {
         return Response.json({ error: existingErr.message }, { status: 500 });
       }
       const existingIds = new Set((existing ?? []).map((o) => o.stripe_session_id));
+
+      // A session the webhook has claimed (stripe_webhook_claims), finished,
+      // still running or let go for Stripe's next try, is the webhook's: a bare
+      // row made here would make its retry skip the label, stock and emails
+      const { data: claims, error: claimsErr } = await admin
+        .from("stripe_webhook_claims")
+        .select("stripe_session_id")
+        .in("stripe_session_id", shopSessions.map((s) => s.id));
+      if (claimsErr && !missingTable(claimsErr)) {
+        console.error("Sync claims lookup error:", claimsErr);
+        return Response.json({ error: claimsErr.message, synced }, { status: 500 });
+      }
+      for (const c of claims ?? []) existingIds.add(c.stripe_session_id);
+
       const missing = shopSessions.filter((s) => !existingIds.has(s.id));
 
       // Fetch product names from DB

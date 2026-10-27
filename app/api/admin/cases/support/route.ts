@@ -118,6 +118,8 @@ export async function POST(req: Request) {
     .single();
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
+  // The case is saved either way; the admin is told when the email didn't go
+  let emailFailed = false;
   try {
     await sendCaseEmail({
       to: data.customer_email,
@@ -130,9 +132,10 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     console.error("Failed to send support case email:", err);
+    emailFailed = true;
   }
 
-  return Response.json({ case: data });
+  return Response.json({ case: data, ...(emailFailed ? { emailFailed: true } : {}) });
 }
 
 export async function PATCH(req: Request) {
@@ -150,6 +153,8 @@ export async function PATCH(req: Request) {
     .single();
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
+  // The case is saved either way; the admin is told when the email didn't go
+  let emailFailed = false;
   try {
     await sendCaseEmail({
       to: data.customer_email,
@@ -162,7 +167,8 @@ export async function PATCH(req: Request) {
     });
   } catch (err) {
     console.error("Failed to send support case update email:", err);
+    emailFailed = true;
   }
 
-  return Response.json({ case: data });
+  return Response.json({ case: data, ...(emailFailed ? { emailFailed: true } : {}) });
 }

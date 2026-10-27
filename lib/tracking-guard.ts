@@ -4,18 +4,18 @@ import { PIXEL_ID } from "@/lib/pixel";
 export const GA_ID = "G-LSQXS277DY";
 
 /**
- * Stripe sends a restoration buyer back to /checkout/success with the
- * checkout session ID in the address. The page reads it on the server, then
- * the script below takes it out of the address bar and keeps it here, for
- * that page only, so a reload still shows the order.
+ * Stripe sends a restoration or prep buyer back to /checkout/success with
+ * the checkout session ID in the address. The page reads it on the server,
+ * then the script below takes it out of the address bar and keeps it here,
+ * for that page only, so a reload still shows the order.
  */
 export const CHECKOUT_SESSION_COOKIE = "checkout_session";
 
 /**
  * Pages Stripe returns buyers to with ?session_id= (restoration and prep,
- * kits, and gift cards and Kit Club once their checkouts add it). Each reads
- * the ID on the server, for the order and the Meta Purchase event, and the
- * script below takes it out of the address.
+ * kits, gift cards and Kit Club). Each reads the ID on the server, for the
+ * order and the Meta Purchase event, and the script below takes it out of
+ * the address.
  */
 export const RETURN_PAGE = /^\/(checkout\/success|shop\/order-confirmed|gift-cards\/success|subscribe\/success)$/;
 

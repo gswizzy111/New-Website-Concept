@@ -9,6 +9,8 @@ import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { siteUrl } from "@/lib/site-url";
+import { getSlotsOpenedAt } from "@/lib/store-config";
+import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
 
 const TAX_RATE = 0.06625;
 
@@ -70,7 +72,7 @@ export async function POST(
   // Priced as the admin set the tier (restoration_settings), like checkout
   const { data: tierSetting, error: tierSettingError } = await admin
     .from("restoration_settings")
-    .select("tier, display_name, price_cents, pricing_rate, min_card_value_cents")
+    .select("tier, is_open, max_slots, display_name, price_cents, pricing_rate, min_card_value_cents")
     .eq("tier", tierId)
     .maybeSingle();
   if (tierSettingError) {
@@ -86,6 +88,38 @@ export async function POST(
       error: `${overCap.name} is declared above the ${tier.name} tier's $${(tier.max_card_value_cents! / 100).toLocaleString()} cap, so it can't be added to this order. Please place a new order for it with a higher tier.`,
       code: "TIER_CAP",
     }, { status: 400 });
+  }
+
+  // One slot is one order: cards added on a tier the order already counts in
+  // take no new slot. An order with cards on several tiers counts once in each
+  // of its cards' tiers, so its first Bronze card takes a Bronze slot, checked
+  // like an upgrade (paid orders since the slots opened; lib/tier-slots.ts).
+  if (!order.restoration_tier) {
+    const { count: cardsOnTier, error: cardsOnTierError } = await admin
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", order.id)
+      .eq("tier", tierId);
+    if (cardsOnTierError) {
+      console.error("Order cards unavailable:", cardsOnTierError.message);
+      return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    }
+    if (!cardsOnTier) {
+      if (tierSetting?.is_open === false)
+        return Response.json({ error: `The ${tier.name} tier is currently closed, so cards can't be added to this order right now.`, code: "TIER_CLOSED" }, { status: 409 });
+      const maxSlots = tierMaxSlots(tierId, tierSetting?.max_slots);
+      if (maxSlots !== null) {
+        let usage: Record<string, number>;
+        try {
+          usage = await tierSlotUsage(admin, await getSlotsOpenedAt(), { paidOnly: true });
+        } catch (err) {
+          console.error("Tier slot count failed:", err);
+          return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });
+        }
+        if ((usage[tierId] ?? 0) + 1 > maxSlots)
+          return Response.json({ error: `Sorry, the ${tier.name} tier is sold out, so cards can't be added to this order right now.`, code: "TIER_SOLD_OUT" }, { status: 409 });
+      }
+    }
   }
 
   const cardPrices = cards.map((c) => getCardPriceCents(tier, c.declaredValueCents));

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Counts the number inside `value` up from zero the first time it scrolls
- * into view, then settles on the exact original text ("500+", "4.9★").
+ * into view, then settles on the exact original text ("500+", "2,321+").
  * Server render and reduced motion both show the final text.
  */
 export function CountUp({ value, duration = 1400 }: { value: string; duration?: number }) {

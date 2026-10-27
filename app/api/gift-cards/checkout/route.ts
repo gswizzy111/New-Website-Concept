@@ -38,7 +38,9 @@ export async function POST(req: Request) {
         quantity: 1,
       },
     ],
-    success_url: `${appUrl}/gift-cards/success`,
+    // The success page reads the session for the Meta Purchase event; the
+    // page's first script takes the ID out of the address (lib/tracking-guard.ts)
+    success_url: `${appUrl}/gift-cards/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/gift-cards`,
     metadata: {
       type: "gift_card",

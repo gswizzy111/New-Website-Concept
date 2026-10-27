@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents, type RestorationTier, type RestorationTierId, type TierDbOverride } from "@/lib/restoration-tiers";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
@@ -46,10 +46,29 @@ export async function POST(request: Request) {
   const d = parsed.data;
   const admin = createAdminClient();
 
+  // Tier prices as the admin set them (restoration_settings over the
+  // defaults), like checkout. Never priced without them.
+  const usedTiers = [...new Set([d.restoration_tier, ...d.cards.map((c) => c.tier)].filter(Boolean))] as RestorationTierId[];
+  const liveTiers: Partial<Record<RestorationTierId, RestorationTier>> = {};
+  if (usedTiers.length > 0) {
+    const { data: tierSettings, error: tierSettingsError } = await admin
+      .from("restoration_settings")
+      .select("tier, display_name, price_cents, pricing_rate, min_card_value_cents")
+      .in("tier", usedTiers);
+    if (tierSettingsError) {
+      console.error("Tier settings unavailable:", tierSettingsError.message);
+      return Response.json({ error: "Couldn't load the tier prices. Please try again in a moment." }, { status: 503 });
+    }
+    const byTier = new Map((tierSettings ?? []).map((s) => [s.tier as string, s as TierDbOverride]));
+    for (const id of usedTiers) liveTiers[id] = applyDbOverride(RESTORATION_TIERS[id], byTier.get(id) ?? null);
+  }
+  // A manual order has no declared values, so Diamond (a share of value) is $0, as before
+  const tierPriceCents = (id: RestorationTierId) => getCardPriceCents(liveTiers[id] ?? RESTORATION_TIERS[id]);
+
   function cardPriceCents(card: typeof d.cards[number]): number {
-    if (card.tier) return RESTORATION_TIERS[card.tier].price_cents;
+    if (card.tier) return tierPriceCents(card.tier);
     if (card.price_per_card_cents) return card.price_per_card_cents;
-    if (d.restoration_tier) return RESTORATION_TIERS[d.restoration_tier].price_cents;
+    if (d.restoration_tier) return tierPriceCents(d.restoration_tier);
     if (d.price_per_card_cents) return d.price_per_card_cents;
     return 0;
   }
