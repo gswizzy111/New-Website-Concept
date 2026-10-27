@@ -92,16 +92,18 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
       const track = await shippo.trackingStatus.get(order.tracking_number, kitCarrier.token);
       liveShippoStatus = track.trackingStatus?.status ?? null;
 
-      // Update DB status if Shippo reports a further-along state
-      if (liveShippoStatus === "DELIVERED" && order.status !== "delivered") {
-        await admin.from("shop_orders").update({ status: "delivered" }).eq("id", order.id);
-        order.status = "delivered";
+      // Update DB status if Shippo reports a further-along state. Only an open
+      // order moves (never a cancelled one), checked again in the update
+      const DELIVERABLE = ["paid", "processing", "shipped"];
+      if (liveShippoStatus === "DELIVERED" && DELIVERABLE.includes(order.status)) {
+        const { data: moved } = await admin.from("shop_orders").update({ status: "delivered" }).eq("id", order.id).in("status", DELIVERABLE).select("id");
+        if (moved?.length) order.status = "delivered";
       } else if (
         (liveShippoStatus === "TRANSIT" || liveShippoStatus === "PRE_TRANSIT") &&
         order.status === "processing"
       ) {
-        await admin.from("shop_orders").update({ status: "shipped" }).eq("id", order.id);
-        order.status = "shipped";
+        const { data: moved } = await admin.from("shop_orders").update({ status: "shipped" }).eq("id", order.id).eq("status", "processing").select("id");
+        if (moved?.length) order.status = "shipped";
       }
     } catch {
       // fail silently

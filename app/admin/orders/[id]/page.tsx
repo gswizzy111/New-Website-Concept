@@ -83,6 +83,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const versionOf = new Map((versionRows ?? []).map((v) => [v.id, v.version as string]));
   // The latest choice of each consent type
   const latestConsents = [...new Map((consentRows ?? []).map((c) => [c.type, c])).values()];
+  // What a card refund can still take from the order, as the card refund route
+  // checks it: nothing unless the order is still paid through Stripe, and never
+  // more than the order has left
+  const orderStillPaid = (order.payment_status === "paid" || order.payment_status === "partially_refunded")
+    && !!(order.stripe_payment_intent_id || order.stripe_session_id);
+  const orderLeftCents = orderStillPaid
+    ? Math.max(0, ((order.total_cents as number) ?? 0) - ((order.refunded_cents as number) ?? 0))
+    : 0;
   const panelCards: PanelCard[] = (cards ?? []).map((c) => {
     const gate = cardGate(c as GateCard, facts);
     return {
@@ -97,6 +105,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
       slabBy: c.slab_opening_started_by ?? null,
       slabSignatureId: (sigRows ?? []).find((s) => s.type === "slab_removal" && s.order_item_id === c.id)?.id ?? null,
       ...gate,
+      refundableCents: Math.min(gate.refundableCents, orderLeftCents),
     };
   });
 

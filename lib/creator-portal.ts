@@ -94,13 +94,49 @@ export function netCents(totalCents: number | null, refundedCents: number | null
 
 /**
  * What an order with a creator code counts for: its amount after refunds, or
- * null when it doesn't count (unpaid, cancelled or fully refunded). The creator
- * dashboard and the admin Affiliates page both count sales with this.
+ * null when it doesn't count (unpaid, cancelled or fully refunded). Refunds
+ * are the larger of the order's refunded_cents and `ledgerCents`, its refund
+ * ledger total (ledgerRefundCents), as refundedSoFar in lib/refund-ledger.ts
+ * does: the admin refund routes write both, a Stripe Dashboard refund only
+ * the ledger. The creator dashboard and the admin Affiliates page both count
+ * sales with this.
  */
-export function saleCents(kind: "kit" | "restoration", o: { status: string | null; total_cents: number | null; refunded_cents: number | null }) {
+export function saleCents(
+  kind: "kit" | "restoration",
+  o: { status: string | null; total_cents: number | null; refunded_cents: number | null },
+  ledgerCents = 0,
+) {
   if (!countsForCommission(kind, o.status)) return null;
-  const cents = netCents(o.total_cents, o.refunded_cents);
+  const cents = netCents(o.total_cents, Math.max(o.refunded_cents ?? 0, ledgerCents));
   return cents > 0 ? cents : null;
+}
+
+/** Ledger refunds that count as refunded (as refundedSoFar in lib/refund-ledger.ts). */
+const COUNTED_REFUNDS = ["succeeded", "pending", "requires_action"];
+
+/**
+ * The refund ledger's total for each order (`order_id`) or kit order
+ * (`shop_order_id`), by id. Read in chunks of 100 ids, each in pages.
+ */
+export async function ledgerRefundCents(column: "order_id" | "shop_order_id", ids: string[]): Promise<Map<string, number>> {
+  const sums = new Map<string, number>();
+  const admin = createAdminClient();
+  type Row = { order_id: string | null; shop_order_id: string | null; amount_cents: number | null };
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const rows = await fetchAll<Row>((from, to) => admin
+      .from("refunds")
+      .select("order_id, shop_order_id, amount_cents")
+      .in(column, chunk)
+      .in("status", COUNTED_REFUNDS)
+      .order("id", { ascending: true })
+      .range(from, to));
+    for (const r of rows) {
+      const id = r[column];
+      if (id) sums.set(id, (sums.get(id) ?? 0) + (r.amount_cents ?? 0));
+    }
+  }
+  return sums;
 }
 
 /** What a kit order held, for the sales lists ("Restoration Kit ×2"). */
@@ -186,28 +222,34 @@ export type CreatorSale = {
 
 /**
  * Sales made with a creator's code, newest first. Selects only the columns
- * the portal shows: no names, emails, addresses or order numbers.
+ * the portal shows (plus the internal id, to match refunds): no names,
+ * emails, addresses or order numbers.
  */
 export async function creatorSales(code: string, rates: CommissionRate[] | undefined): Promise<CreatorSale[]> {
   const admin = createAdminClient();
   const match = literalCode(code);
-  type Row = { items?: unknown; total_cents: number | null; refunded_cents: number | null; status: string | null; created_at: string };
+  type Row = { id: string; items?: unknown; total_cents: number | null; refunded_cents: number | null; status: string | null; created_at: string };
   // Every order with the code, read in pages (the API returns at most 1,000 rows a request)
   const [kits, restorations] = await Promise.all([
-    fetchAll<Row>((from, to) => admin.from("shop_orders").select("items, total_cents, refunded_cents, status, created_at")
+    fetchAll<Row>((from, to) => admin.from("shop_orders").select("id, items, total_cents, refunded_cents, status, created_at")
       .ilike("affiliate_code", match).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
-    fetchAll<Row>((from, to) => admin.from("orders").select("total_cents, refunded_cents, status, created_at")
+    fetchAll<Row>((from, to) => admin.from("orders").select("id, total_cents, refunded_cents, status, created_at")
       .ilike("affiliate_code", match).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+  ]);
+  // Refunds made in the Stripe Dashboard are only in the refund ledger
+  const [kitRefunds, restorationRefunds] = await Promise.all([
+    ledgerRefundCents("shop_order_id", kits.map((o) => o.id)),
+    ledgerRefundCents("order_id", restorations.map((o) => o.id)),
   ]);
   const sales: CreatorSale[] = [];
   for (const o of kits) {
-    const cents = saleCents("kit", o);
+    const cents = saleCents("kit", o, kitRefunds.get(o.id));
     if (cents === null) continue;
     const percent = rateAt(rates, o.created_at);
     sales.push({ date: o.created_at, type: "kit", cents, percent, commissionCents: commissionCents(cents, percent), summary: kitSummary(o.items) });
   }
   for (const o of restorations) {
-    const cents = saleCents("restoration", o);
+    const cents = saleCents("restoration", o, restorationRefunds.get(o.id));
     if (cents === null) continue;
     const percent = rateAt(rates, o.created_at);
     sales.push({ date: o.created_at, type: "restoration", cents, percent, commissionCents: commissionCents(cents, percent), summary: "Restoration service" });

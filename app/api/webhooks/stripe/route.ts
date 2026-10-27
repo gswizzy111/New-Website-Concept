@@ -10,7 +10,7 @@ import { upgradeBaseCents } from "@/lib/upgrade-pricing";
 import { signedPdfAttachments } from "@/lib/signed-pdfs";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { siteUrl } from "@/lib/site-url";
-import { logCheckoutError } from "@/lib/checkout-error-log";
+import { logCheckoutError, getCheckoutErrors } from "@/lib/checkout-error-log";
 import { markGiftCardHoldsPaid } from "@/lib/gift-card-holds";
 import { getSubscriptionPriceCents } from "@/lib/store-config";
 
@@ -312,6 +312,32 @@ async function alertAdmin(session: Stripe.Checkout.Session, code: string, detail
 }
 
 /**
+ * What this site started the session for, or null (a Stripe Payment Link sale
+ * or anything else with no order behind it).
+ */
+function sessionKind(session: Stripe.Checkout.Session): Kind | null {
+  const type = session.metadata?.type;
+  if (type === "gift_card" || type === "shop" || type === "subscription" || type === "add_cards" || type === "tier_upgrade") return type;
+  if (session.metadata?.order_id) return session.metadata.service_type === "prep" ? "prep" : "restoration";
+  return null;
+}
+
+/**
+ * A payment by a delayed method (a bank debit, for example) that hasn't
+ * arrived, or that failed: nothing is done for the session, and the admin is
+ * told once (Stripe may send the same event again).
+ */
+async function alertPaymentOnce(session: Stripe.Checkout.Session, code: string, detail: string) {
+  try {
+    const logged = await getCheckoutErrors();
+    if (logged.some((entry) => entry.code === code && entry.actual_error.includes(session.id))) return;
+  } catch (err) {
+    console.error(`Could not read the checkout error log for ${session.id}:`, err);
+  }
+  await alertAdmin(session, code, detail);
+}
+
+/**
  * Something threw after the session was claimed. The steps before `stage` are
  * done (a label may be bought), so a retry must not start over: the admin is
  * told what to finish by hand, and Stripe gets a 200.
@@ -430,8 +456,43 @@ export async function POST(request: Request) {
 }
 
 async function handleEvent(event: Stripe.Event): Promise<Response> {
-  if (event.type === "checkout.session.completed") {
+  // ── Delayed payment methods ─────────────────────────────────────────────
+  // With a bank debit (for example) Checkout completes before the money
+  // arrives: checkout.session.completed comes with payment_status "unpaid",
+  // then async_payment_succeeded (handled like a paid completion below, under
+  // the same claim) or async_payment_failed. The Stripe endpoint must be
+  // subscribed to both async events for them to arrive.
+  if (event.type === "checkout.session.async_payment_failed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    const kind = sessionKind(session);
+    if (kind) {
+      await alertPaymentOnce(
+        session,
+        "PAYMENT_FAILED",
+        `The delayed payment for checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}, ${usd(session.amount_total ?? 0)}) failed. Nothing was done for it (no order change, label, gift card or email). Ask the customer to pay again.`,
+      );
+    }
+    return Response.json({ received: true, ignored: "payment failed" });
+  }
+
+  if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+    const session = event.data.object as Stripe.Checkout.Session;
+    if (session.payment_status === "unpaid") {
+      // Not paid yet: no claim, so the async_payment_succeeded event can claim it.
+      // The admin is told, unless that event already got here first.
+      const kind = sessionKind(session);
+      const { data: claimed } = kind
+        ? await createAdminClient().from(CLAIMS).select("stripe_session_id").eq("stripe_session_id", session.id).maybeSingle()
+        : { data: null };
+      if (kind && !claimed) {
+        await alertPaymentOnce(
+          session,
+          "PAYMENT_PENDING",
+          `Checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}, ${usd(session.amount_total ?? 0)}) was completed with a payment that hasn't arrived yet (a delayed method such as a bank debit). Nothing was done for it yet (no order change, label, gift card or email). It is handled when Stripe reports the payment succeeded, if the webhook endpoint is subscribed to checkout.session.async_payment_succeeded; otherwise handle it by hand once the payment arrives.`,
+        );
+      }
+      return Response.json({ received: true, ignored: "awaiting payment" });
+    }
     const admin = createAdminClient();
 
     // ── Gift card purchase ────────────────────────────────────────────────

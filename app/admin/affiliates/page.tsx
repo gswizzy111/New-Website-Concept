@@ -7,7 +7,7 @@ import { PortalAccess } from "./portal-access";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/admin-auth";
-import { commissionCents, commissionRatesFor, currentRate, formatPercent, kitSummary, rateAt, saleCents, saleDate } from "@/lib/creator-portal";
+import { commissionCents, commissionRatesFor, currentRate, formatPercent, kitSummary, ledgerRefundCents, rateAt, saleCents, saleDate } from "@/lib/creator-portal";
 import { fetchAll } from "@/lib/fetch-all";
 
 export const dynamic = "force-dynamic";
@@ -79,12 +79,18 @@ export default async function AdminAffiliatesPage({
       .range(from, to)),
   ]);
 
+  // Refunds made in the Stripe Dashboard are only in the refund ledger
+  const [kitRefunds, restorationRefunds] = await Promise.all([
+    ledgerRefundCents("shop_order_id", kitOrders.map((o) => o.id)),
+    ledgerRefundCents("order_id", restorationOrders.map((o) => o.id)),
+  ]);
+
   // Build sales map by code
   const salesByCode: Record<string, Sale[]> = {};
 
   // Counted the same way as on the creator's own dashboard (saleCents in lib/creator-portal.ts)
   for (const o of kitOrders) {
-    const cents = saleCents("kit", o);
+    const cents = saleCents("kit", o, kitRefunds.get(o.id));
     if (cents === null) continue;
     const code = o.affiliate_code.toUpperCase();
     if (!salesByCode[code]) salesByCode[code] = [];
@@ -92,7 +98,7 @@ export default async function AdminAffiliatesPage({
   }
 
   for (const o of restorationOrders) {
-    const cents = saleCents("restoration", o);
+    const cents = saleCents("restoration", o, restorationRefunds.get(o.id));
     if (cents === null) continue;
     const code = o.affiliate_code.toUpperCase();
     if (!salesByCode[code]) salesByCode[code] = [];

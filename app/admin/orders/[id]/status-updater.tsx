@@ -81,8 +81,10 @@ export function StatusUpdater({
     }
   }
 
+  // Off the timeline (Cancelled) there's no next step: without this check the
+  // button would offer "Mark as Awaiting Payment"
   const currentIndex = STATUS_TIMELINE.indexOf(status as OrderStatus);
-  const nextStatus = STATUS_TIMELINE[currentIndex + 1] as OrderStatus | undefined;
+  const nextStatus = currentIndex >= 0 ? (STATUS_TIMELINE[currentIndex + 1] as OrderStatus | undefined) : undefined;
 
   return (
     <div className="flex flex-col gap-4">
