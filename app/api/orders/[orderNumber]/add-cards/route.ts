@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CardFieldsSchema, SigningSchema, cardDetails, checkoutConsents, signingChoices, masterSignatureInput, signingError, type AuthorizedOrder } from "@/lib/checkout-signing";
 import { recordConsents, recordSignatures, signingContext } from "@/lib/signatures";
@@ -13,6 +14,57 @@ import { getSlotsOpenedAt } from "@/lib/store-config";
 import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
 
 const TAX_RATE = 0.06625;
+
+/** Stripe's metadata limits: 50 keys, 500 characters a value. */
+const METADATA_MAX_KEYS = 50;
+const METADATA_MAX_CHARS = 500;
+
+type AddedCardInput = { name: string; card_set?: string; card_year?: string; declaredValueCents: number; photoUrls: string[] };
+
+/**
+ * One card's short details for the checkout, kept within Stripe's limits.
+ * Both sites' webhooks add the cards from the add_cards_pending event; these
+ * are the fallback if it is missing. card_<i> keeps the shape both read:
+ * {n: name, s: set, y: year, v: declared value, p: photo URLs}. When the
+ * photos don't fit in it, they move to card_<i>_p (only this site's webhook
+ * reads that key; the old site's adds the card without photos). A name or set
+ * too long even without photos is cut short.
+ */
+function cardMetadata(c: AddedCardInput, i: number): Record<string, string> {
+  const details = { n: c.name, s: c.card_set || undefined, y: c.card_year || undefined, v: c.declaredValueCents || undefined };
+  const photos = c.photoUrls.length ? c.photoUrls : undefined;
+  const whole = JSON.stringify({ ...details, p: photos });
+  if (whole.length <= METADATA_MAX_CHARS) return { [`card_${i}`]: whole };
+
+  // Without the photos; then, if still too long, a character at a time off the longer of name and set
+  const name = Array.from(details.n);
+  const set = Array.from(details.s ?? "");
+  let entry = "";
+  for (;;) {
+    entry = JSON.stringify({ ...details, n: name.join(""), s: set.length ? set.join("") : undefined });
+    if (entry.length <= METADATA_MAX_CHARS || (!name.length && !set.length)) break;
+    if (set.length > name.length) set.pop();
+    else name.pop();
+  }
+  if (entry.length > METADATA_MAX_CHARS) entry = JSON.stringify({ n: "", v: details.v });
+  const out: Record<string, string> = { [`card_${i}`]: entry };
+
+  // The photos in their own key, as many as fit
+  const kept: string[] = [];
+  for (const url of photos ?? []) {
+    if (JSON.stringify([...kept, url]).length <= METADATA_MAX_CHARS) kept.push(url);
+  }
+  if (kept.length) out[`card_${i}_p`] = JSON.stringify(kept);
+  return out;
+}
+
+/** What Stripe would refuse in this metadata, or null. */
+function metadataProblem(metadata: Record<string, string>): string | null {
+  const keys = Object.keys(metadata);
+  if (keys.length > METADATA_MAX_KEYS) return `${keys.length} metadata keys (Stripe allows ${METADATA_MAX_KEYS})`;
+  const long = keys.find((k) => k.length > 40 || metadata[k].length > METADATA_MAX_CHARS);
+  return long ? `metadata ${long} is too long` : null;
+}
 
 const CardSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -138,6 +190,32 @@ export async function POST(
   const taxCents = Math.round(subtotalCents * TAX_RATE);
   const totalCents = subtotalCents + taxCents;
 
+  // The checkout's metadata, built and checked against Stripe's limits before
+  // anything is signed, so a signature is never recorded for a checkout Stripe
+  // would refuse. The pending event's id is chosen here and used when it is saved.
+  const pendingEventId = randomUUID();
+  const metadata: Record<string, string> = {
+    type: "add_cards",
+    order_id: order.id,
+    order_number: String(orderNumber),
+    tier: tier.id,
+    card_count: String(cards.length),
+    pending_event_id: pendingEventId,
+    subtotal_cents: String(subtotalCents),
+    ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
+    ...Object.fromEntries(cards.flatMap((c, i) => Object.entries(cardMetadata(c, i)))),
+  };
+  // Photo keys are only a fallback: dropped (last first) if there are too many keys
+  for (const key of Object.keys(metadata).filter((k) => k.endsWith("_p")).reverse()) {
+    if (Object.keys(metadata).length <= METADATA_MAX_KEYS) break;
+    delete metadata[key];
+  }
+  const tooLarge = metadataProblem(metadata);
+  if (tooLarge) {
+    console.error(`Add-cards checkout for ${orderNumber} not started: ${tooLarge}`);
+    return Response.json({ error: "Payment setup failed. Please try again." }, { status: 500 });
+  }
+
   let terms;
   try {
     terms = await ensureTermsVersion(admin);
@@ -168,6 +246,7 @@ export async function POST(
 
   // The added cards' full details wait here until payment (Stripe metadata is too small for them)
   const { data: pending } = await admin.from("order_events").insert({
+    id: pendingEventId,
     order_id: order.id,
     event_type: "add_cards_pending",
     description: `Terms of Service v${terms.version} signed by ${parsed.data.terms!.signer_name.trim()} to add ${cards.length} card${cards.length !== 1 ? "s" : ""} (awaiting payment)`,
@@ -175,20 +254,12 @@ export async function POST(
     // prices: what each card is charged (the admin's tier price), for the webhook
     metadata: { cards, terms_version_id: terms.id, prices: cardPrices },
   }).select("id").single();
+  // pending_event_id stays even if the save looked like it failed (its reply
+  // can be lost after it committed): a webhook that can't find the row falls
+  // back to the short details in card_<i> anyway
+  if (!pending) console.error(`add_cards_pending for ${order.order_number} may not have been saved`);
 
   const appUrl = siteUrl();
-
-  // Encode each card as a separate metadata key (max 500 chars, stays well under for typical cards)
-  const cardMetadata: Record<string, string> = {};
-  cards.forEach((c, i) => {
-    cardMetadata[`card_${i}`] = JSON.stringify({
-      n: c.name,
-      s: c.card_set || undefined,
-      y: c.card_year || undefined,
-      v: c.declaredValueCents || undefined,
-      p: c.photoUrls.length ? c.photoUrls : undefined,
-    });
-  });
 
   let session;
   try {
@@ -223,17 +294,7 @@ export async function POST(
       payment_intent_data: { metadata: { order_id: order.id, type: "add_cards" } },
       success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&added=1`,
       cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
-      metadata: {
-        type: "add_cards",
-        order_id: order.id,
-        order_number: String(orderNumber),
-        tier: tier.id,
-        card_count: String(cards.length),
-        ...(pending ? { pending_event_id: pending.id } : {}),
-        subtotal_cents: String(subtotalCents),
-        ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
-        ...cardMetadata,
-      },
+      metadata,
     });
   } catch (err) {
     console.error("Add-cards session creation failed:", err);

@@ -128,8 +128,9 @@ export async function POST(
       ],
       // The payment itself names its order, so admin refunds can find it
       payment_intent_data: { metadata: { order_id: order.id, type: "tier_upgrade" } },
-      success_url: `${appUrl}/orders/${orderNumber}?upgraded=1`,
-      cancel_url: `${appUrl}/orders/${orderNumber}`,
+      // The order page opens with the order's email (as add-cards does)
+      success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&upgraded=1`,
+      cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
       metadata: {
         type: "tier_upgrade",
         order_id: order.id,

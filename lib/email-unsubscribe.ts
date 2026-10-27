@@ -64,14 +64,14 @@ function bareHost(host: string): string {
   return host.trim().toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
 }
 
-/** The hosts a request came in on (the Host header, a proxy's forwarded
- * host, the URL's host), for marketingSendProblem(). */
-export function requestHosts(headers: { get(name: string): string | null }, url?: string): string[] {
-  const hosts = [headers.get("x-forwarded-host")?.split(",")[0], headers.get("host")];
-  if (url) {
-    try { hosts.push(new URL(url).host); } catch { /* no URL host */ }
-  }
-  return hosts.filter((h): h is string => !!h && h.trim().length > 0);
+/** The host the admin's browser used for this request (a proxy's forwarded
+ * host, else the Host header), for marketingSendProblem(). Never the request
+ * URL's host: the server builds that itself (localhost under next start, the
+ * runtime's own host on Netlify), so it can differ from the page. The pages
+ * and the send APIs all call this, so they agree. */
+export function requestHosts(headers: { get(name: string): string | null }): string[] {
+  const host = headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host")?.trim();
+  return host ? [host] : [];
 }
 
 /**
@@ -80,7 +80,7 @@ export function requestHosts(headers: { get(name: string): string | null }, url?
  * address and a working unsubscribe link: the address comes from the
  * BUSINESS_SHIPPING_* settings, and the links are built on siteUrl(), which
  * must be this site (the old site has no unsubscribe page). `hosts`: the
- * hosts this request came in on (requestHosts()); none known skips that check.
+ * host this request came in on (requestHosts()); none known skips that check.
  */
 export function marketingSendProblem(hosts: string[]): string | null {
   if (!businessPostalAddress()) {

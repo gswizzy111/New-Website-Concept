@@ -114,27 +114,33 @@ export function saleCents(
 /** Ledger refunds that count as refunded (as refundedSoFar in lib/refund-ledger.ts). */
 const COUNTED_REFUNDS = ["succeeded", "pending", "requires_action"];
 
+/** An order given to ledgerRefundCents: its id, or its id and status. */
+type LedgerOrder = string | { id: string; status: string | null };
+
 /**
  * The refund ledger's total for each order (`order_id`) or kit order
- * (`shop_order_id`), by id. Read in chunks of 100 ids, each in pages.
+ * (`shop_order_id`), by id. Orders given with their status are read only if
+ * they count for commission (countsForCommission; saleCents skips the rest).
+ * Read in chunks of 100 ids at once, each in pages.
  */
-export async function ledgerRefundCents(column: "order_id" | "shop_order_id", ids: string[]): Promise<Map<string, number>> {
-  const sums = new Map<string, number>();
+export async function ledgerRefundCents(column: "order_id" | "shop_order_id", orders: LedgerOrder[]): Promise<Map<string, number>> {
+  const kind = column === "shop_order_id" ? "kit" : "restoration";
+  const ids = orders.flatMap((o) => (typeof o === "string" ? [o] : countsForCommission(kind, o.status) ? [o.id] : []));
   const admin = createAdminClient();
   type Row = { order_id: string | null; shop_order_id: string | null; amount_cents: number | null };
-  for (let i = 0; i < ids.length; i += 100) {
-    const chunk = ids.slice(i, i + 100);
-    const rows = await fetchAll<Row>((from, to) => admin
-      .from("refunds")
-      .select("order_id, shop_order_id, amount_cents")
-      .in(column, chunk)
-      .in("status", COUNTED_REFUNDS)
-      .order("id", { ascending: true })
-      .range(from, to));
-    for (const r of rows) {
-      const id = r[column];
-      if (id) sums.set(id, (sums.get(id) ?? 0) + (r.amount_cents ?? 0));
-    }
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+  const results = await Promise.all(chunks.map((chunk) => fetchAll<Row>((from, to) => admin
+    .from("refunds")
+    .select("order_id, shop_order_id, amount_cents")
+    .in(column, chunk)
+    .in("status", COUNTED_REFUNDS)
+    .order("id", { ascending: true })
+    .range(from, to))));
+  const sums = new Map<string, number>();
+  for (const r of results.flat()) {
+    const id = r[column];
+    if (id) sums.set(id, (sums.get(id) ?? 0) + (r.amount_cents ?? 0));
   }
   return sums;
 }
@@ -238,8 +244,8 @@ export async function creatorSales(code: string, rates: CommissionRate[] | undef
   ]);
   // Refunds made in the Stripe Dashboard are only in the refund ledger
   const [kitRefunds, restorationRefunds] = await Promise.all([
-    ledgerRefundCents("shop_order_id", kits.map((o) => o.id)),
-    ledgerRefundCents("order_id", restorations.map((o) => o.id)),
+    ledgerRefundCents("shop_order_id", kits),
+    ledgerRefundCents("order_id", restorations),
   ]);
   const sales: CreatorSale[] = [];
   for (const o of kits) {

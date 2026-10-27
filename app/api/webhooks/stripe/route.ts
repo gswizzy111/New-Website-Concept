@@ -323,18 +323,18 @@ function sessionKind(session: Stripe.Checkout.Session): Kind | null {
 }
 
 /**
- * A payment by a delayed method (a bank debit, for example) that hasn't
- * arrived, or that failed: nothing is done for the session, and the admin is
- * told once (Stripe may send the same event again).
+ * Whether the checkout error log already has a `code` alert naming `id` (a
+ * session or invoice), so an event Stripe sends again isn't reported twice.
+ * If the log can't be read, the answer is no: at worst a second alert.
  */
-async function alertPaymentOnce(session: Stripe.Checkout.Session, code: string, detail: string) {
+async function alreadyAlerted(code: string, id: string): Promise<boolean> {
   try {
     const logged = await getCheckoutErrors();
-    if (logged.some((entry) => entry.code === code && entry.actual_error.includes(session.id))) return;
+    return logged.some((entry) => entry.code === code && entry.actual_error.includes(id));
   } catch (err) {
-    console.error(`Could not read the checkout error log for ${session.id}:`, err);
+    console.error(`Could not read the checkout error log for ${id}:`, err);
+    return false;
   }
-  await alertAdmin(session, code, detail);
 }
 
 /**
@@ -456,39 +456,19 @@ export async function POST(request: Request) {
 }
 
 async function handleEvent(event: Stripe.Event): Promise<Response> {
-  // ── Delayed payment methods ─────────────────────────────────────────────
-  // With a bank debit (for example) Checkout completes before the money
-  // arrives: checkout.session.completed comes with payment_status "unpaid",
-  // then async_payment_succeeded (handled like a paid completion below, under
-  // the same claim) or async_payment_failed. The Stripe endpoint must be
-  // subscribed to both async events for them to arrive.
-  if (event.type === "checkout.session.async_payment_failed") {
+  if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const kind = sessionKind(session);
-    if (kind) {
-      await alertPaymentOnce(
-        session,
-        "PAYMENT_FAILED",
-        `The delayed payment for checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}, ${usd(session.amount_total ?? 0)}) failed. Nothing was done for it (no order change, label, gift card or email). Ask the customer to pay again.`,
-      );
-    }
-    return Response.json({ received: true, ignored: "payment failed" });
-  }
-
-  if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-    const session = event.data.object as Stripe.Checkout.Session;
+    // A delayed payment method (a bank debit, for example) completes Checkout
+    // before the money arrives: payment_status "unpaid". None is enabled on the
+    // account, and later payment events aren't handled, so such a session is
+    // never fulfilled here: no claim, nothing done, and the admin is told once.
     if (session.payment_status === "unpaid") {
-      // Not paid yet: no claim, so the async_payment_succeeded event can claim it.
-      // The admin is told, unless that event already got here first.
       const kind = sessionKind(session);
-      const { data: claimed } = kind
-        ? await createAdminClient().from(CLAIMS).select("stripe_session_id").eq("stripe_session_id", session.id).maybeSingle()
-        : { data: null };
-      if (kind && !claimed) {
-        await alertPaymentOnce(
+      if (kind && !(await alreadyAlerted("PAYMENT_PENDING", session.id))) {
+        await alertAdmin(
           session,
           "PAYMENT_PENDING",
-          `Checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}, ${usd(session.amount_total ?? 0)}) was completed with a payment that hasn't arrived yet (a delayed method such as a bank debit). Nothing was done for it yet (no order change, label, gift card or email). It is handled when Stripe reports the payment succeeded, if the webhook endpoint is subscribed to checkout.session.async_payment_succeeded; otherwise handle it by hand once the payment arrives.`,
+          `Checkout session ${session.id} (${kind}${session.metadata?.order_id ? `, order id ${session.metadata.order_id}` : ""}, ${usd(session.amount_total ?? 0)}) was paid with a delayed payment method (such as a bank debit), so the money had not arrived when checkout finished. Nothing was fulfilled for it: no order change, label, gift card, cards or email. It is not handled automatically, even if the payment arrives later. Check the payment in Stripe before doing anything.${kind === "subscription" ? " The Kit Club subscription is active in Stripe." : ""}`,
         );
       }
       return Response.json({ received: true, ignored: "awaiting payment" });
@@ -921,8 +901,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           if (pendingError) return retryLater(claim, `could not read the card details saved at signing (${pendingError.message})`);
           const pendingMeta = pending?.metadata as { cards?: AddedCard[]; prices?: unknown } | null;
           const pendingCards = pendingMeta?.cards;
-          if (pendingId && !pendingCards?.length) {
-            problems.push(`the card details saved when the customer signed (order event ${pendingId}) were not found, so the cards were added from the checkout's short details: no tier, per-card prices, number, variation, grade, cert number or known defects`);
+          if (!pendingCards?.length) {
+            problems.push(`${pendingId ? `the card details saved when the customer signed (order event ${pendingId}) were not found` : "the card details were not saved when the customer signed"}, so the cards were added from the checkout's short details: no tier, per-card prices, number, variation, grade, cert number or known defects, and a very long name or set may be cut short`);
           }
           const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
           // What each card was charged: the admin's tier price the add-cards
@@ -955,6 +935,17 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
               ...amounts[i],
             }));
           }
+          // The short details in the checkout (add-cards route): card_<i> is
+          // {n, s, y, v, p}; photos that didn't fit in it are in card_<i>_p
+          const photosOf = (i: number, inline: unknown): string[] => {
+            if (Array.isArray(inline) && inline.length) return inline;
+            try {
+              const extra = JSON.parse(session.metadata?.[`card_${i}_p`] ?? "[]");
+              return Array.isArray(extra) ? extra : [];
+            } catch {
+              return [];
+            }
+          };
           for (let i = 0; i < cardCount && !pendingCards?.length; i++) {
             const raw = session.metadata[`card_${i}`];
             if (!raw) continue;
@@ -964,7 +955,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
               const row: Record<string, any> = {
                 order_id: addOrderId,
                 card_name: c.n ?? "",
-                photo_urls: c.p ?? [],
+                photo_urls: photosOf(i, c.p),
               };
               if (c.s) row.card_set = c.s;
               if (c.y) row.card_year = c.y;
@@ -1549,7 +1540,19 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           return Response.json({ error: "Could not save the kit order" }, { status: 500 });
         }
       } else {
+        // A subscription this site never recorded: no kit order can be made
+        // for it, so the admin is told (once per invoice)
         console.warn("invoice.paid: no subscription record found for", subscriptionId);
+        if (!(await alreadyAlerted("KIT_CLUB_ORDER_NOT_SAVED", invoice.id))) {
+          await logCheckoutError({
+            ref: `KIT_CLUB_ORDER_NOT_SAVED-${Date.now().toString(36).toUpperCase()}`,
+            timestamp: new Date().toISOString(),
+            code: "KIT_CLUB_ORDER_NOT_SAVED",
+            actual_error: `Stripe invoice ${invoice.id} for subscription ${subscriptionId} was paid (${usd(invoice.amount_paid ?? 0)}), but this site has no record of that subscription, so no kit order was saved for it. Check the subscription in Stripe and, if it is a Kit Club subscription, add the kit to Kit Orders by hand.`,
+            customer_name: invoice.customer_name || undefined,
+            customer_email: invoice.customer_email || undefined,
+          });
+        }
       }
     }
   }

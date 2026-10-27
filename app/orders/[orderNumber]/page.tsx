@@ -193,10 +193,10 @@ export default async function OrderDetailPage({
   searchParams,
 }: {
   params: Promise<{ orderNumber: string }>;
-  searchParams: Promise<{ email?: string; added?: string }>;
+  searchParams: Promise<{ email?: string; added?: string; upgraded?: string }>;
 }) {
   const { orderNumber } = await params;
-  const { email: rawEmail, added } = await searchParams;
+  const { email: rawEmail, added, upgraded } = await searchParams;
   const email = (rawEmail ?? "").trim().toLowerCase();
 
   // No email in URL — customer likely came from an old confirmation email link.
@@ -317,6 +317,16 @@ export default async function OrderDetailPage({
           <p className="text-sm font-bold text-green-800">Cards added successfully!</p>
           <p className="text-sm text-green-800 mt-0.5">
             Your payment was received. The new cards have been added to your order.
+          </p>
+        </div>
+      )}
+
+      {/* Upgrade success banner */}
+      {upgraded === "1" && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-5">
+          <p className="text-sm font-bold text-green-800">Upgrade received!</p>
+          <p className="text-sm text-green-800 mt-0.5">
+            Your payment was received. Your order will show the new service level shortly.
           </p>
         </div>
       )}

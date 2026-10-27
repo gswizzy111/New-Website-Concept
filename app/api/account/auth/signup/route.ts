@@ -16,6 +16,7 @@ const Body = z.object({
 const EMAIL_RULE = { max: 3, windowMinutes: 60 };
 const EXISTS = "An account with that email already exists. Sign in, or reset your password.";
 const NOT_SENT = "We couldn't send the confirmation email. Please try again.";
+const NOT_CREATED = "We couldn't create your account. Please try again.";
 
 function sentReply() {
   return Response.json({ ok: true, confirmationSent: true, sentFrom: fromAddress, subject: CONFIRM_SUBJECT });
@@ -45,8 +46,18 @@ export async function POST(request: Request) {
 
   let existingAccount = false;
   if (createError) {
-    const exists = /already|exists|registered/i.test(createError.message);
-    if (!exists) return Response.json({ error: createError.message }, { status: 400 });
+    // Two sign-ups for a new address at once: the one that loses gets
+    // Supabase's database error, not "already exists", so check again.
+    const exists = /already|exists|registered/i.test(createError.message) || (await accountExists(email));
+    if (!exists) {
+      // Supabase's own failures stay in the log; its checks on the email or
+      // password (4xx) are for the person signing up
+      if (createError.status && createError.status < 500) {
+        return Response.json({ error: createError.message }, { status: 400 });
+      }
+      console.error("Sign-up: creating the account failed:", createError.message);
+      return Response.json({ error: NOT_CREATED }, { status: 500 });
+    }
     existingAccount = true;
   }
 
@@ -100,6 +111,13 @@ export async function POST(request: Request) {
   // Already counted when its place was taken
   if (!attempt) await recordAttempt("account-confirm-email", email);
   return sentReply();
+}
+
+/** Whether an account with this email exists now (false when it can't be read). */
+async function accountExists(email: string): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc("account_signup_state", { p_email: email });
+  if (error) console.error("Reading the sign-up state failed:", error.message);
+  return Array.isArray(data) && data.length > 0;
 }
 
 /**

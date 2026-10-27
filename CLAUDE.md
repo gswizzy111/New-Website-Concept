@@ -127,7 +127,8 @@ Rules for this repo:
   `lib/checkout-error-log.ts`): WEBHOOK_FAILED, WEBHOOK_UNFINISHED,
   WEBHOOK_RETRYING, OLD_SITE_HANDLED, ORDER_INCOMPLETE, GIFT_CARD_NOT_CHARGED,
   GIFT_CARD_SHORT, GIFT_CARD_EMAIL_FAILED, LABEL_NOT_SAVED, KIT_LABEL_NOT_SAVED,
-  KIT_CLUB_ORDER_NOT_SAVED, ADD_CARDS_INCOMPLETE, TIER_UPGRADE_INCOMPLETE. Event
+  KIT_CLUB_ORDER_NOT_SAVED, ADD_CARDS_INCOMPLETE, TIER_UPGRADE_INCOMPLETE,
+  PAYMENT_PENDING. Event
   descriptions never change (the dashboard SQL parses them). Never enable the
   old and new endpoints at once: the old one is not idempotent.
 - **Gift cards**: only the webhook's `redeem_gift_card()` takes balance (locked,

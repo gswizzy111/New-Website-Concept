@@ -1,8 +1,9 @@
 -- Security fixes for photo uploads and the partner portal (fix list items 41
 -- and 42). Additive and idempotent. The old site shares this database and
--- keeps working: it uploads only the image types allowed below (plus the
--- upsell list JSON), and still signs partners in by the plaintext
--- partners.passcode, which the new site keeps writing until the switch.
+-- keeps working: it uploads the types allowed below (images, the upsell list
+-- JSON, and untyped files as application/octet-stream, see the bucket note),
+-- and still signs partners in by the plaintext partners.passcode, which the
+-- new site keeps writing until the switch.
 --
 -- Apply 20261027_attempt_limits.sql first: the partner sign-in limit (and the
 -- loyalty lookup limit) count tries in its auth_attempts table, and without it
@@ -14,15 +15,23 @@
 -- including the direct signed-URL uploads the API can't inspect: 20 MB, and
 -- only the image types the uploaders accept (no SVG, HTML or other files).
 -- For those it checks the type the upload declares, not the bytes, so files
--- are always served as one of these image types.
+-- are always served as one of these types.
 -- application/json is for _config/upsell.json, which both sites keep in this
 -- bucket (app/api/shop/upsell-products/route.ts).
+-- application/octet-stream is for the OLD site's checkout and add-cards
+-- uploader (components/order-builder/photo-uploader.tsx): when the browser
+-- gives a file no type (e.g. .HEIC on a desktop), it PUTs the original to the
+-- signed URL with an empty Content-Type, which Storage records as
+-- application/octet-stream, and its POST fallback refuses that type. A file
+-- served as application/octet-stream is downloaded, never rendered, so HTML,
+-- SVG and scripts stay out. The new site's own uploads never use it.
 update storage.buckets
 set file_size_limit = 20971520,
     allowed_mime_types = array[
       'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
-      'image/avif', 'image/heic', 'image/heif',
-      'application/json'
+      'image/avif', 'image/heic', 'image/heif', 'image/tiff',
+      'application/json',
+      'application/octet-stream'
     ]
 where id = 'card-photos';
 

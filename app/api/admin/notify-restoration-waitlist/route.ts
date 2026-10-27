@@ -137,7 +137,7 @@ export async function POST(request: Request) {
   }
 
   // US anti-spam law asks for a postal address and an unsubscribe link that works
-  const problem = marketingSendProblem(requestHosts(request.headers, request.url));
+  const problem = marketingSendProblem(requestHosts(request.headers));
   if (problem) return Response.json({ error: `Nothing was sent. ${problem}` }, { status: 409 });
 
   let unsubscribed: Set<string>;

@@ -6,7 +6,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * image formats the uploaders accept get through, up to 20 MB: the POST
  * checks the file's own bytes, and the card-photos bucket enforces the same
  * types (as declared by the upload) and size on direct (signed URL) uploads
- * (supabase/migrations/20261027_security_data.sql).
+ * (supabase/migrations/20261027_security_data.sql). The bucket also takes
+ * application/octet-stream, only for the old site's untyped uploads (served
+ * as a download, never rendered); this route never stores or signs for it.
  */
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB, same as the bucket's limit
 
@@ -81,8 +83,9 @@ export async function POST(request: Request) {
 }
 
 // Presigned upload URL — client uploads directly to Supabase, bypassing Netlify body limits.
-// The bucket only takes the image types above, up to 20 MB, so the bytes sent to
-// the signed URL are held to the same rules. Anything else falls back to the POST.
+// Signed only for the image types above, up to 20 MB, which the bucket also
+// enforces on the bytes sent to the signed URL (plus application/octet-stream,
+// kept for the old site and never rendered). Anything else falls back to the POST.
 export async function PUT(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body?.filename) return Response.json({ error: "filename required" }, { status: 400 });
