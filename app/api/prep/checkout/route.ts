@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
+import { itemAmounts } from "@/lib/item-pricing";
+import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
 import {
   CardFieldsSchema, SigningSchema, cardDetails, checkoutConsents, signingChoices, masterSignatureInput, signingError, slabSignatureFor, slabSignatureInput, usd,
   type AuthorizedOrder,
@@ -147,11 +150,24 @@ export async function POST(request: Request) {
   }
 
   // Calculate pricing using server-authoritative DB prices
-  const prepSubtotal = d.cards.reduce((sum, c) => sum + cardPrepCents(c.declared_value_cents, prices.standardPriceCents), 0);
+  const cardPrices = d.cards.map((c) => cardPrepCents(c.declared_value_cents, prices.standardPriceCents));
+  const prepSubtotal = cardPrices.reduce((sum, price) => sum + price, 0);
   const preGradeSubtotal = d.add_pre_grade ? d.cards.length * prices.preGradePriceCents : 0;
   const slabCrackSubtotal = slabCrackCount * prices.slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
-  const taxCents = Math.round(serviceSubtotal * NJ_TAX_RATE);
+
+  // Bulk pricing (10+ cards 10% off, 20+ 15% off; lib/bulk-pricing.ts), as on
+  // restoration orders: off the per-card prep fees only, never the add-ons
+  // (Pre-Grade Assessment, slab removal), shipping or insurance. Cards $1,500
+  // and over (2% of value) count toward the 10 or 20 but take no discount, as
+  // restoration leaves out Diamond. Discounts don't combine; prep takes no
+  // creator, coupon or loyalty code, so bulk is the only one that can apply here.
+  const bulkPercent = bulkDiscountPercent(d.cards.length);
+  const bulkEligible = d.cards.map((c) => c.declared_value_cents < HIGH_VALUE_THRESHOLD_CENTS);
+  const discountCents = bulkDiscountCentsOf(cardPrices.reduce((sum, price, i) => (bulkEligible[i] ? sum + price : sum), 0), bulkPercent);
+  const discountPercent = discountCents > 0 ? bulkPercent : 0;
+  // Sales tax on what is charged for the services, after the discount (as at the restoration checkout)
+  const taxCents = Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
 
   // Shipping is priced from the Shippo rate quoted for this address (never the
   // browser's price). The prepaid label's rate (to us) is paid twice, to us and
@@ -173,7 +189,7 @@ export async function POST(request: Request) {
   const hasInsurance = d.insurance_election === "purchased" && (d.insurance_amount_cents ?? 0) > 0;
   const insuranceCents = hasInsurance ? estimateInsuranceCents(d.insurance_amount_cents ?? 0) : 0;
 
-  const totalCents = serviceSubtotal + taxCents + shippingAmountCents + insuranceCents;
+  const totalCents = serviceSubtotal - discountCents + taxCents + shippingAmountCents + insuranceCents;
 
   const shipFromAddress = (d.street1 && d.city) ? {
     name: d.customer_name,
@@ -214,6 +230,8 @@ export async function POST(request: Request) {
     slab_crack_count: slabCrackCount,
     terms_version_id: terms.id,
     insurance_election: d.insurance_election,
+    // Read by the admin breakdown and the reports, as on restoration orders
+    ...(discountCents > 0 ? { discount_cents: discountCents, discount_percent: discountPercent } : {}),
   }).select("id, order_number").single();
 
   if (orderErr || !order) {
@@ -221,35 +239,32 @@ export async function POST(request: Request) {
     return Response.json({ error: "Failed to create order. Please try again." }, { status: 500 });
   }
 
-  // Insert cards (the order's items), each with its prep price and tax
+  // Insert cards (the order's items), each with what it cost: its prep price
+  // and its share of the discount and of the tax on the rest, for per-card refunds
+  const amounts = itemAmounts(cardPrices, discountCents, bulkEligible);
   const cardIds = d.cards.map(() => randomUUID());
   const { error: cardsErr } = await admin.from("cards").insert(
-    d.cards.map((c, i) => {
-      const price = cardPrepCents(c.declared_value_cents, prices.standardPriceCents);
-      return {
-        id: cardIds[i],
-        order_id: order.id,
-        card_name: c.card_name.trim(),
-        card_set: c.card_set ?? null,
-        card_year: c.card_year ?? null,
-        card_number: c.card_number ?? null,
-        variation: c.variation ?? null,
-        grading_company: c.grading_company ?? null,
-        grade: c.grade ?? null,
-        cert_number: c.cert_number ?? null,
-        known_defects: c.known_defects ?? null,
-        estimated_value_cents: c.declared_value_cents,
-        photo_urls: c.photo_urls ?? [],
-        service_ids: [],
-        tier: "prep",
-        slab_removal_selected: !!slabSigned[i],
-        pregrade_selected: d.add_pre_grade,
-        status: "active",
-        service_price_cents: price,
-        discount_cents: 0,
-        tax_cents: Math.round(price * NJ_TAX_RATE),
-      };
-    })
+    d.cards.map((c, i) => ({
+      id: cardIds[i],
+      order_id: order.id,
+      card_name: c.card_name.trim(),
+      card_set: c.card_set ?? null,
+      card_year: c.card_year ?? null,
+      card_number: c.card_number ?? null,
+      variation: c.variation ?? null,
+      grading_company: c.grading_company ?? null,
+      grade: c.grade ?? null,
+      cert_number: c.cert_number ?? null,
+      known_defects: c.known_defects ?? null,
+      estimated_value_cents: c.declared_value_cents,
+      photo_urls: c.photo_urls ?? [],
+      service_ids: [],
+      tier: "prep",
+      slab_removal_selected: !!slabSigned[i],
+      pregrade_selected: d.add_pre_grade,
+      status: "active",
+      ...amounts[i],
+    }))
   );
 
   // Exactly what the customer is authorizing, recorded with the master signature
@@ -258,12 +273,13 @@ export async function POST(request: Request) {
     cards: d.cards.map((c, i) => ({
       ...cardDetails(c, c.declared_value_cents),
       services: [
-        { name: "Grading prep", cents: cardPrepCents(c.declared_value_cents, prices.standardPriceCents) },
+        { name: "Grading prep", cents: cardPrices[i] },
         ...(d.add_pre_grade ? [{ name: "Pre-Grade Assessment", cents: prices.preGradePriceCents }] : []),
         ...(slabSigned[i] ? [{ name: "Slab removal (signed authorization)", cents: prices.slabCrackPriceCents }] : []),
       ],
     })),
     order_lines: [
+      ...(discountCents > 0 ? [{ name: "Discount", cents: -discountCents }] : []),
       ...(d.shipping_method === "buy_label"
         ? [{ name: "Prepaid shipping label, to us and back", cents: shippingAmountCents }]
         : [
@@ -401,12 +417,35 @@ export async function POST(request: Request) {
     });
   }
 
+  // The bulk discount goes to Stripe as a fixed-amount coupon, as at the
+  // restoration checkout: Stripe refuses negative line items, and a percent
+  // coupon would also come off the add-ons, tax and shipping, so the charge
+  // would not match totalCents.
+  let stripeDiscounts: Stripe.Checkout.SessionCreateParams["discounts"] = undefined;
+  if (discountCents > 0) {
+    try {
+      const coupon = await stripe.coupons.create({
+        amount_off: discountCents,
+        currency: "usd",
+        duration: "once",
+        name: `Bulk discount (${discountPercent}% off, ${d.cards.length} cards)`.slice(0, 40),
+      });
+      stripeDiscounts = [{ coupon: coupon.id }];
+    } catch (err) {
+      console.error("Failed to create Stripe coupon:", err);
+      // Signed records are permanent, so the unpaid order is cancelled, not deleted
+      await admin.from("orders").update({ status: "cancelled", internal_notes: "Payment session could not be created." }).eq("id", order.id);
+      return Response.json({ error: "Payment session could not be created. Please try again." }, { status: 500 });
+    }
+  }
+
   let session: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
   try {
     session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: d.customer_email,
       line_items: lineItems,
+      discounts: stripeDiscounts,
       // The confirmation page (order number, prepaid label) that also reports
       // the purchase to Meta, as restoration checkouts do
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -417,6 +456,8 @@ export async function POST(request: Request) {
         slab_crack_count: String(slabCrackCount),
         add_pre_grade: d.add_pre_grade ? "true" : "false",
         is_international: "false",
+        // For the record in Stripe; neither site's webhook changes a prep order's totals
+        ...(discountCents > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(discountCents) } : {}),
         ...(shippingRateObjectId ? { shipping_rate_object_id: shippingRateObjectId } : {}),
         ...(hasInsurance ? {
           insurance_declared_value_cents: String(d.insurance_amount_cents),

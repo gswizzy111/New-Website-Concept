@@ -103,7 +103,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           <span>{formatCurrency(subtotal)}</span>
         </div>
         {discountCents > 0 && (
-          <div className="flex justify-between text-green-600 font-semibold">
+          <div className="flex justify-between text-green-700 font-semibold">
             <span>
               {discountKind === "bulk"
                 ? `Bulk discount (${discountPercentApplied}% off, ${cards.length} cards)`

@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Check, Hammer, Mailbox, Package, X } from "lucide-react";
+import { Camera, Check, Hammer, Mailbox, Package, Trophy, X } from "lucide-react";
 import { SigningSection, emptySigning, signingReady, slabSigned, submittedSigning, type SigningState, type SlabCard } from "@/components/checkout/signing-section";
 import { SlabAuthorizationDialog } from "@/components/checkout/slab-authorization-dialog";
 import { Need, Req, revealMissing } from "@/components/checkout/required";
@@ -13,6 +13,7 @@ import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { US_STATES } from "@/lib/constants";
+import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
 
 type CardRow = CardIdentity & {
   id: string;
@@ -173,14 +174,20 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const preGradeSubtotal = addPreGrade ? filledCards.length * preGradePriceCents : 0;
   const slabCrackSubtotal = slabCrackCount * slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
-  const taxCents = Math.round(serviceSubtotal * NJ_TAX_RATE);
+  // Bulk pricing, as the checkout charges it: 10+ cards 10% off, 20+ 15% off
+  // the per-card prep price of cards under $1,500 (every card counts toward
+  // the 10 or 20; not the add-ons or shipping), taxed after the discount
+  const bulkPercent = bulkDiscountPercent(filledCards.length);
+  const bulkExcluded = filledCards.some((c) => cardValueCents(c) >= HIGH_VALUE_THRESHOLD_CENTS);
+  const bulkDiscountCents = bulkDiscountCentsOf(filledCards.filter((c) => cardValueCents(c) < HIGH_VALUE_THRESHOLD_CENTS).length * standardPriceCents, bulkPercent);
+  const taxCents = Math.round((serviceSubtotal - bulkDiscountCents) * NJ_TAX_RATE);
   // The prepaid label pays the rate twice (to us and back); shipping your own
   // way pays it once, for the trip back to you
   const shippingTrips = shippingMethod === "buy_label" ? 2 : 1;
   const shippingCents = (selectedRate?.amount_cents ?? 0) * shippingTrips;
   const insuranceDeclaredValueCents = addInsurance ? Math.round((parseFloat(insuranceValueDollars) || 0) * 100) : 0;
   const estimatedInsuranceCents = estimateInsuranceCents(insuranceDeclaredValueCents);
-  const totalEstimate = serviceSubtotal + taxCents + shippingCents + estimatedInsuranceCents;
+  const totalEstimate = serviceSubtotal - bulkDiscountCents + taxCents + shippingCents + estimatedInsuranceCents;
   const totalDeclaredValueCents = filledCards.reduce((sum, c) => sum + cardValueCents(c), 0);
 
   // Rates are quoted per address and per method (to us, or back to you)
@@ -473,6 +480,18 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <span className="text-lg font-extrabold text-foreground">{fmt(prepSubtotal)}</span>
             </div>
           )}
+          {/* Bulk discount (10+ cards), with the restoration review step's wording */}
+          {bulkDiscountCents > 0 && (
+            <div className="bg-rx-soft border border-rx/30 rounded-lg p-4 flex items-center gap-3">
+              <Trophy className="h-6 w-6 shrink-0 text-rx" strokeWidth={1.75} />
+              <div>
+                <p className="font-bold text-ink text-sm">{bulkPercent}% bulk discount applied!</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {filledCards.length} cards: {bulkPercent}% off the per-card price{bulkExcluded ? " (cards $1,500 and over excluded)" : ""}.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Add-ons */}
@@ -697,6 +716,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Prep ({filledCards.length} card{filledCards.length !== 1 ? "s" : ""})</span>
                 <span className="font-semibold">{fmt(prepSubtotal)}</span>
+              </div>
+            )}
+            {bulkDiscountCents > 0 && (
+              <div className="flex justify-between text-green-700 font-semibold">
+                <span>Bulk discount ({bulkPercent}% off, {filledCards.length} cards)</span>
+                <span>−{fmt(bulkDiscountCents)}</span>
               </div>
             )}
             {addPreGrade && filledCards.length > 0 && (

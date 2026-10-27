@@ -61,13 +61,15 @@ function refundRow(r: ReportRefund): TxRow {
     const p = place(o.ship_from_address);
     const isPrep = isPrepKey(o.tier_key);
     const subtotal = refundShare(r.amount_cents, o.subtotal_cents, o.total_cents);
+    // Tax was charged on the subtotal less the order's discount (bulk, code or loyalty)
+    const taxable = refundShare(r.amount_cents, (o.subtotal_cents ?? 0) - (o.discount_cents ?? 0), o.total_cents);
     return {
       ...base, ...p, order_id: o.id, order_number: o.order_number,
       customer_name: o.customer_name ?? "", customer_email: o.customer_email ?? "",
       service: isPrep ? "Prep" : "Restoration", type: isPrep ? "prep" : "restoration",
       subtotal_cents: neg(subtotal),
       shipping_cents: neg(refundShare(r.amount_cents, o.shipping_cents, o.total_cents)),
-      tax_cents: neg(njTax(p.is_nj, subtotal)),
+      tax_cents: neg(njTax(p.is_nj, taxable)),
     };
   }
   if (r.kit) {
@@ -108,7 +110,8 @@ export async function taxRowsForYear(admin: SupabaseClient, year: number): Promi
       customer_name: o.customer_name ?? "", customer_email: o.customer_email ?? "",
       service: isPrep ? "Prep" : "Restoration", type: isPrep ? "prep" : "restoration",
       subtotal_cents: s.subtotal_cents, shipping_cents: s.shipping_cents,
-      tax_cents: njTax(p.is_nj, s.subtotal_cents), total_cents: s.total_cents,
+      // Tax was charged after the order's discount; later payments are net already
+      tax_cents: njTax(p.is_nj, s.subtotal_cents - (s.type === "order" ? o.discount_cents ?? 0 : 0)), total_cents: s.total_cents,
     });
   }
 
