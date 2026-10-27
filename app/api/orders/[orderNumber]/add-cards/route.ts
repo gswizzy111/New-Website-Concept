@@ -12,6 +12,7 @@ import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { siteUrl } from "@/lib/site-url";
 import { getSlotsOpenedAt } from "@/lib/store-config";
 import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
+import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
 
 const TAX_RATE = 0.06625;
 
@@ -113,6 +114,9 @@ export async function POST(
     return Response.json({ error: "Email does not match this order" }, { status: 403 });
   if (order.status !== "awaiting_cards")
     return Response.json({ error: "Cards can only be added before they are received" }, { status: 409 });
+  // A paid upgrade not on the order yet: the cards would be priced at the old tier
+  if ((await hasUnappliedUpgrade(order)) === true)
+    return Response.json({ error: "Your last upgrade payment is still being processed. Please try again in a few minutes." }, { status: 409 });
 
   // Added cards take the order's tier (an order with cards on several tiers:
   // Bronze). Orders that aren't restorations (prep) can't add cards here.

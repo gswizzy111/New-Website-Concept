@@ -12,6 +12,7 @@ import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { ReportProblem } from "@/components/orders/report-problem";
 import { FileDown } from "lucide-react";
 import { trackingCarrier, trackingLink } from "@/lib/tracking-carrier";
+import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
 
 function EmailMismatch() {
   return (
@@ -85,9 +86,13 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
   const kitCarrier = order.tracking_number ? trackingCarrier(order.tracking_number, order.carrier ?? kitLabel?.carrier ?? null) : null;
   const kitTrackUrl = order.tracking_number ? trackingLink(order.tracking_number, order.carrier ?? kitLabel?.carrier ?? null, kitLabel?.trackingUrl ?? null) : null;
 
+  // A cancelled kit (admin Cancel & Refund) has no delivery to follow
+  const kitCancelled = order.status === "cancelled";
+  const kitRefundedCents = Number(order.refunded_cents ?? 0);
+
   // Check Shippo for live tracking and opportunistically update DB status
   let liveShippoStatus: string | null = null;
-  if (order.tracking_number && order.status !== "delivered" && kitCarrier) {
+  if (order.tracking_number && order.status !== "delivered" && !kitCancelled && kitCarrier) {
     try {
       const track = await shippo.trackingStatus.get(order.tracking_number, kitCarrier.token);
       liveShippoStatus = track.trackingStatus?.status ?? null;
@@ -123,32 +128,41 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
 
       <div className="bg-white rounded-xl border border-border p-6 mb-5">
         <h2 className="font-heading font-black text-lg text-foreground mb-5">Status</h2>
-        <div className="flex flex-col gap-3">
-          {KIT_STATUS_TIMELINE.map((s) => {
-            const sIdx = KIT_STATUS_TIMELINE.indexOf(s);
-            const isDone = sIdx < currentIdx;
-            const isCurrent = s === order.status;
-            return (
-              <div key={s} className="flex items-center gap-3">
-                <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
-                  isCurrent ? "bg-primary" : isDone ? "bg-primary/30" : "bg-border"
-                }`}>
-                  {isDone && <span className="text-white text-xs">✓</span>}
-                  {isCurrent && <span className="w-2 h-2 rounded-full bg-white block" />}
+        {kitCancelled ? (
+          <div className="flex flex-col gap-1 text-sm">
+            <p className="font-bold text-foreground">This order was cancelled.</p>
+            {kitRefundedCents > 0 && (
+              <p className="text-muted-foreground">A refund of {formatCurrency(kitRefundedCents)} was issued.</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {KIT_STATUS_TIMELINE.map((s) => {
+              const sIdx = KIT_STATUS_TIMELINE.indexOf(s);
+              const isDone = sIdx < currentIdx;
+              const isCurrent = s === order.status;
+              return (
+                <div key={s} className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
+                    isCurrent ? "bg-primary" : isDone ? "bg-primary/30" : "bg-border"
+                  }`}>
+                    {isDone && <span className="text-white text-xs">✓</span>}
+                    {isCurrent && <span className="w-2 h-2 rounded-full bg-white block" />}
+                  </div>
+                  <span className={`text-sm font-medium ${isCurrent ? "text-primary font-bold" : isDone ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                    {KIT_STATUS_LABELS[s]}
+                  </span>
                 </div>
-                <span className={`text-sm font-medium ${isCurrent ? "text-primary font-bold" : isDone ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
-                  {KIT_STATUS_LABELS[s]}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {order.tracking_number && (
         <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
           <p className="rx-label text-rx mb-1">Shipment Tracking</p>
-          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
+          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3 break-all">{order.tracking_number}</p>
           <a
             href={kitTrackUrl ?? undefined}
             target="_blank"
@@ -176,7 +190,7 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
         </div>
       </div>
 
-      <ReportProblem orderRef={`K${order.order_number}`} email={email} />
+      {!kitCancelled && <ReportProblem orderRef={`K${order.order_number}`} email={email} />}
 
       <p className="text-center text-sm text-muted-foreground">
         Questions? DM us on Instagram{" "}
@@ -240,6 +254,12 @@ export default async function OrderDetailPage({
     return <EmailMismatch />;
   }
 
+  // A paid upgrade not on the order yet (asked of Stripe while the rest loads;
+  // null when Stripe didn't answer in time)
+  const unappliedUpgrade: Promise<boolean | null> = order.status === "awaiting_cards"
+    ? hasUnappliedUpgrade({ id: order.id, customer_email: order.customer_email, restoration_tier: order.restoration_tier })
+    : Promise.resolve(false);
+
   const { data: cards } = await admin.from("cards").select("*").eq("order_id", order.id);
   // The customer's copy of what they signed; a high-value agreement shows once its card is on the order
   const { data: signedRows } = await admin
@@ -274,6 +294,13 @@ export default async function OrderDetailPage({
 
   const currentIndex = STATUS_TIMELINE.indexOf(order.status as OrderStatus);
   const visibleStatuses = STATUS_TIMELINE.filter(s => s !== "awaiting_payment");
+  // A paid upgrade not recorded yet: no upgrade is offered until the order
+  // shows it, so it can't be paid twice. Just back from paying (upgraded=1)
+  // counts only when Stripe can't say, so the address doesn't hide the offers
+  // for good once the webhook has run
+  const pendingUpgrade = await unappliedUpgrade;
+  const showUpgradeReceived = upgraded === "1" || pendingUpgrade === true;
+  const hideUpgradeOffer = pendingUpgrade === true || (pendingUpgrade === null && upgraded === "1");
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-12">
@@ -322,7 +349,7 @@ export default async function OrderDetailPage({
       )}
 
       {/* Upgrade success banner */}
-      {upgraded === "1" && (
+      {showUpgradeReceived && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-5">
           <p className="text-sm font-bold text-green-800">Upgrade received!</p>
           <p className="text-sm text-green-800 mt-0.5">
@@ -331,8 +358,8 @@ export default async function OrderDetailPage({
         </div>
       )}
 
-      {/* Upgrade section — only while awaiting cards */}
-      {order.status === "awaiting_cards" && (
+      {/* Upgrade section — only while awaiting cards, and not while a paid upgrade is on its way */}
+      {order.status === "awaiting_cards" && !hideUpgradeOffer && (
         <UpgradeSection
           orderNumber={order.order_number}
           customerEmail={order.customer_email}
@@ -342,8 +369,9 @@ export default async function OrderDetailPage({
         />
       )}
 
-      {/* Add cards section — only while awaiting cards */}
-      {order.status === "awaiting_cards" && (
+      {/* Add cards section — only while awaiting cards, and not while a paid
+          upgrade is still on its way (the cards would be priced at the old tier) */}
+      {order.status === "awaiting_cards" && !hideUpgradeOffer && (
         <AddCardsSection
           orderNumber={String(order.order_number)}
           customerEmail={order.customer_email}
@@ -381,7 +409,7 @@ export default async function OrderDetailPage({
       {order.tracking_number && (
         <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
           <p className="rx-label text-rx mb-1">Return Tracking</p>
-          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
+          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3 break-all">{order.tracking_number}</p>
           <a
             href={order.outbound_tracking_number === order.tracking_number
               ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)

@@ -7,6 +7,7 @@ import { siteUrl } from "@/lib/site-url";
 import { getSlotsOpenedAt } from "@/lib/store-config";
 import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
 import { upgradeFee } from "@/lib/upgrade-pricing";
+import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
 
 const Body = z.object({
   email: z.string().email(),
@@ -48,6 +49,11 @@ export async function POST(
   const currentTierId = order.restoration_tier as RestorationTierId | null;
   if (!currentTierId || !UPGRADE_LADDER.includes(currentTierId) || UPGRADE_LADDER.indexOf(new_tier) <= UPGRADE_LADDER.indexOf(currentTierId))
     return Response.json({ error: "You can only upgrade to a higher service level" }, { status: 400 });
+
+  // An upgrade already paid but not on the order yet: another would charge twice
+  // (unknown when Stripe can't be asked in time: the webhook still catches a repeat)
+  if ((await hasUnappliedUpgrade(order)) === true)
+    return Response.json({ error: "Your last upgrade payment is still being processed. Please try again in a few minutes." }, { status: 409 });
 
   // The order's cards and what each was charged (refunded cards pay nothing)
   const { data: orderCards, error: cardsError } = await admin
@@ -136,6 +142,8 @@ export async function POST(
         order_id: order.id,
         order_number: orderNumber,
         new_tier,
+        // The tier it was priced from, so the webhook can tell if the order moved since
+        from_tier: currentTierId,
         upgrade_amount_cents: String(totalUpgradeCents),
         upgrade_subtotal_cents: String(chargeCents),
         // Both tiers' per-card prices (the admin's), for the order's service

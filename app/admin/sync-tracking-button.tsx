@@ -36,7 +36,7 @@ export function SyncTrackingButton() {
         </p>
         {result.noMatch > 0 && (
           <p className="text-green-700 mb-1">
-            {result.noMatch} label{result.noMatch !== 1 ? "s" : ""} couldn&apos;t be matched in Shippo — tracking number may need to be entered manually.
+            {result.noMatch} label{result.noMatch !== 1 ? "s" : ""}{" "}couldn&apos;t be matched in Shippo — tracking number may need to be entered manually.
           </p>
         )}
         {result.noLabel > 0 && (

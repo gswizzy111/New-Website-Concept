@@ -54,7 +54,7 @@ export default function PrivacyPage() {
               (our &ldquo;Messenger App&rdquo;).
             </p>
             <p>
-              This is <em>our own</em> policy. It is not Meta&rsquo;s policy, ManyChat&rsquo;s
+              This is <em>our own</em>{" "}policy. It is not Meta&rsquo;s policy, ManyChat&rsquo;s
               policy, or any other party&rsquo;s policy. The Card Doc LLC is the publisher of and
               data controller responsible for this policy. Where we reference Meta&rsquo;s own
               privacy policies it is as a supplementary reference only&mdash;those third-party
@@ -254,7 +254,7 @@ export default function PrivacyPage() {
                 of generating a reply. See Section 5 (Service Providers) for more details.
               </li>
               <li>
-                Your messages are <strong>not used to train AI models.</strong> Anthropic&rsquo;s
+                Your messages are <strong>not used to train AI models.</strong>{" "}Anthropic&rsquo;s
                 API terms prohibit using customer API inputs and outputs to train their models
                 without explicit opt-in consent, and we have not provided such consent.
               </li>
@@ -356,7 +356,7 @@ export default function PrivacyPage() {
                 .
               </li>
               <li>
-                <strong>Anthropic PBC</strong> — message content is sent to Anthropic&rsquo;s
+                <strong>Anthropic PBC</strong>{" "}— message content is sent to Anthropic&rsquo;s
                 Claude API to generate automated replies. Anthropic processes this data subject to
                 their API usage policies and does not use it to train models.{" "}
                 <a
@@ -370,12 +370,12 @@ export default function PrivacyPage() {
                 .
               </li>
               <li>
-                <strong>Railway</strong> — we host our backend automation services on Railway&rsquo;s
+                <strong>Railway</strong>{" "}— we host our backend automation services on Railway&rsquo;s
                 cloud infrastructure. Railway may process data in connection with hosting and
                 running our server.
               </li>
               <li>
-                <strong>Supabase</strong> — we use Supabase as our database and backend-as-a-service
+                <strong>Supabase</strong>{" "}— we use Supabase as our database and backend-as-a-service
                 provider. Order records, customer information, and message-related data are stored
                 in Supabase&rsquo;s managed PostgreSQL database.
               </li>
@@ -438,7 +438,7 @@ export default function PrivacyPage() {
                 and accounting compliance, regardless of the conversation retention period.
               </li>
               <li>
-                <strong>Signed agreements and signing records:</strong> kept with the order record,
+                <strong>Signed agreements and signing records:</strong>{" "}kept with the order record,
                 for at least 7 years and for as long as any question, claim or dispute about the
                 order is open. They cannot be changed, and we can&rsquo;t delete them on request
                 during that time, because they are the record of what was agreed.
@@ -520,13 +520,13 @@ export default function PrivacyPage() {
                 (see Section 7 above for how to submit a deletion request).
               </li>
               <li>
-                <strong>Stop messaging / block:</strong> you can stop receiving messages from our
+                <strong>Stop messaging / block:</strong>{" "}you can stop receiving messages from our
                 DM assistant at any time by replying &ldquo;STOP,&rdquo; blocking our account, or
                 using Instagram&rsquo;s or Facebook&rsquo;s built-in controls to restrict or
                 block our account.
               </li>
               <li>
-                <strong>Request a human:</strong> at any time you may request to speak with a
+                <strong>Request a human:</strong>{" "}at any time you may request to speak with a
                 human team member rather than the automated assistant. Reply &ldquo;human&rdquo;
                 or &ldquo;agent&rdquo; in the chat, or email us directly.
               </li>

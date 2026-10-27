@@ -23,7 +23,7 @@ type AddedCard = {
   grading_company?: string; grade?: string; cert_number?: string; known_defects?: string;
 };
 import { buyKitLabel, type KitLabel } from "@/lib/kit-shipping";
-import { RESTORATION_TIERS, getCardPriceCents, getTierById } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, UPGRADE_LADDER, getCardPriceCents, getTierById } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -1075,26 +1075,126 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         const upgradeSubtotalCents = session.metadata.upgrade_subtotal_cents
           ? parseInt(session.metadata.upgrade_subtotal_cents, 10)
           : Math.round(upgradePaidCents / 1.06625);
+        const upgradeIntent = (typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id) ?? null;
 
-        const { error: upgradeError } = await admin
-          .from("orders")
-          .update({
-            restoration_tier: newTier,
+        // A second paid checkout for an upgrade the order already has (or a
+        // lower one): both were opened before the first was recorded, so the
+        // customer paid twice. Its cards count too (all of them already moved)
+        const { data: upgradeCards, error: upgradeCardsError } = await admin
+          .from("cards")
+          .select("tier, status")
+          .eq("order_id", upgradeOrderId);
+        if (upgradeCardsError) {
+          return retryLater(claim, `could not read the order's cards (${upgradeCardsError.message})`);
+        }
+        const ladderRank = (tier: string | null | undefined) => UPGRADE_LADDER.indexOf(tier as RestorationTierId);
+        const hasNewTier = (tier: string | null | undefined) =>
+          !!tier && (tier === newTier || (ladderRank(newTier) >= 0 && ladderRank(tier) >= ladderRank(newTier)));
+        const liveCards = (upgradeCards ?? []).filter((c) => c.status !== "refunded");
+        const orderTier = (upgradeOrder?.restoration_tier as string | null | undefined) ?? null;
+        const orderHasIt = hasNewTier(orderTier);
+        // Writes the order only if its tier and total are still as read above:
+        // another payment recorded in between (an upgrade or added cards) makes
+        // it write nothing, and this one goes back to Stripe to be read again
+        const orderTotal = (upgradeOrder?.total_cents as number | null | undefined) ?? null;
+        const updateOrderIfUnchanged = (values: Record<string, unknown>) => {
+          let query = admin.from("orders").update(values).eq("id", upgradeOrderId);
+          query = orderTier === null ? query.is("restoration_tier", null) : query.eq("restoration_tier", orderTier);
+          query = orderTotal === null ? query.is("total_cents", null) : query.eq("total_cents", orderTotal);
+          return query.select("id");
+        };
+        if (orderHasIt || (liveCards.length > 0 && liveCards.every((c) => hasNewTier(c.tier)))) {
+          // The money was taken, so it goes in the totals and the history like
+          // any upgrade payment: the dashboard, reports and Issue Refund count
+          // from them, so refunding it balances out. The tier, service line and
+          // cards stay as they are
+          const { data: repeatRows, error: repeatTotalsError } = await updateOrderIfUnchanged({
             subtotal_cents: (upgradeOrder?.subtotal_cents ?? 0) + upgradeSubtotalCents,
             total_cents: (upgradeOrder?.total_cents ?? 0) + upgradePaidCents,
-          })
-          .eq("id", upgradeOrderId);
+          });
+          if (repeatTotalsError) {
+            // One update: nothing changed, so Stripe sends it again
+            return retryLater(claim, `could not add a repeat upgrade payment to the order (${repeatTotalsError.message})`);
+          }
+          if (!repeatRows?.length) {
+            return retryLater(claim, "the order changed while this upgrade was being recorded");
+          }
+          try {
+            const { error: repeatEventError } = await admin.from("order_events").insert({
+              order_id: upgradeOrderId,
+              event_type: "tier_upgraded",
+              // The dashboard reads the amount from the first "$" here
+              description: `Repeat payment for the ${newTier} upgrade, which the order already had: additional payment of ${usd(upgradePaidCents)} received`,
+              is_customer_visible: false,
+              metadata: { stripe_session_id: session.id, stripe_payment_intent_id: upgradeIntent, amount_cents: upgradePaidCents, repeat_upgrade: true },
+            });
+
+            // The earlier payment this one repeats: an upgrade entry from
+            // another session (or the old site's, which has no metadata) to
+            // this tier or higher. Without one, the order may have reached the
+            // tier another way, and this may be the only payment for it
+            const reachedTier = orderHasIt ? (orderTier ?? newTier) : newTier;
+            const { data: upgradeEvents, error: upgradeEventsError } = await admin
+              .from("order_events")
+              .select("description, metadata, created_at")
+              .eq("order_id", upgradeOrderId)
+              .eq("event_type", "tier_upgraded")
+              .order("created_at", { ascending: true });
+            const earlier = (upgradeEvents ?? []).filter((e) => {
+              const meta = (e.metadata ?? null) as { stripe_session_id?: string; repeat_upgrade?: boolean } | null;
+              if (meta?.stripe_session_id === session.id || meta?.repeat_upgrade) return false;
+              const tierInText = /^Upgraded to (\S+) tier/.exec(String(e.description ?? ""))?.[1];
+              return hasNewTier(tierInText);
+            });
+            const describePayment = (e: { metadata: unknown; created_at: string }) => {
+              const meta = (e.metadata ?? null) as { stripe_session_id?: string; stripe_payment_intent_id?: string | null; amount_cents?: number } | null;
+              if (!meta?.stripe_session_id) return `an entry from ${e.created_at} with no payment details (the old site's webhook)`;
+              return `session ${meta.stripe_session_id}${meta.stripe_payment_intent_id ? `, payment ${meta.stripe_payment_intent_id}` : ""}${typeof meta.amount_cents === "number" ? `, ${usd(meta.amount_cents)}` : ""}`;
+            };
+            const thisPayment = upgradeIntent ? `payment ${upgradeIntent} in Stripe` : `the payment of session ${session.id} in Stripe`;
+            const advice = upgradeEventsError
+              ? `The order's other upgrade payments could not be read (${upgradeEventsError.message}): check that an earlier one exists before refunding.`
+              : earlier.length
+                ? `The earlier upgrade payment: ${earlier.map(describePayment).join("; ")}. The customer appears to have paid twice for the same upgrade and needs a refund of ${usd(upgradePaidCents)}: refund ${thisPayment}, or use Issue Refund on the order, which refunds the original payment first.`
+                : `No other upgrade payment is recorded: check how the order reached ${reachedTier} before refunding.`;
+            await alertAdmin(
+              session,
+              "TIER_UPGRADE_INCOMPLETE",
+              `Order id ${upgradeOrderId} ${orderHasIt ? `was already on ${orderTier}` : `already had all its cards on ${newTier} or higher`} when another upgrade to ${newTier} was paid (session ${session.id}${upgradeIntent ? `, payment ${upgradeIntent}` : ""}, ${usd(upgradePaidCents)}). ${advice} This payment was added to the order's totals so a refund balances out; the tier, service lines and cards were not changed.${repeatEventError ? ` Its entry in the order history was not saved (${repeatEventError.message}), so the dashboard doesn't count it yet: add it by hand.` : ""}`,
+            );
+            await finishClaim(claim, `repeat upgrade payment: the order ${orderHasIt ? `was already on ${orderTier}` : "already had its cards on the new tier"}`);
+          } catch (err) {
+            return failedAfterClaim(claim, "record a repeat upgrade payment (the totals were updated)", err);
+          }
+          return Response.json({ received: true });
+        }
+
+        const { data: upgradedRows, error: upgradeError } = await updateOrderIfUnchanged({
+          restoration_tier: newTier,
+          subtotal_cents: (upgradeOrder?.subtotal_cents ?? 0) + upgradeSubtotalCents,
+          total_cents: (upgradeOrder?.total_cents ?? 0) + upgradePaidCents,
+        });
         if (upgradeError) {
           // One update: nothing changed, so Stripe sends it again
           return retryLater(claim, `could not upgrade the order (${upgradeError.message})`);
+        }
+        if (!upgradedRows?.length) {
+          return retryLater(claim, "the order changed while this upgrade was being recorded");
         }
 
         let stage = "move the service line";
         try {
           const problems: string[] = [];
+          const oldTier = upgradeOrder?.restoration_tier as RestorationTierId | null | undefined;
+          // The upgrade route priced this checkout from the tier the order was
+          // on then (newer sessions say which): another upgrade recorded since
+          // means part of it may have been paid twice
+          const fromTier = session.metadata.from_tier;
+          if (fromTier && oldTier && fromTier !== oldTier) {
+            problems.push(`the checkout was priced from ${fromTier}, but the order was on ${oldTier} when it was paid (${usd(upgradePaidCents)}), so if another upgrade was paid in between, the customer paid twice for part of it: compare the order's upgrade payments and refund the difference`);
+          }
           // Move the order's service line to the new tier, at the per-card
           // price the upgrade route charged from (older sessions: the default)
-          const oldTier = upgradeOrder?.restoration_tier as RestorationTierId | null | undefined;
           if (oldTier && oldTier !== newTier) {
             const tier = getTierById(newTier as RestorationTierId);
             const chargedPrice = parseInt(session.metadata.new_price_cents ?? "", 10);
@@ -1143,7 +1243,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
             // The payment behind it, for refunds and for spotting a repeat
             metadata: {
               stripe_session_id: session.id,
-              stripe_payment_intent_id: (typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id) ?? null,
+              stripe_payment_intent_id: upgradeIntent,
               amount_cents: upgradePaidCents,
             },
           });

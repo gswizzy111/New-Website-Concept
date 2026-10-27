@@ -176,7 +176,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
                 {isElite && <p className="text-xs text-muted-foreground mt-1">Service fee: {formatCurrency(cardPrice(card))}</p>}
                 {overCap(card) && (
                   <p className="text-xs text-red-600 font-semibold mt-1">
-                    This is above the {tierInfo.name} tier&apos;s ${(maxCents! / 100).toLocaleString()} cap, so it can&apos;t be added to this order. Please place a new order for it with a higher tier.
+                    This is above the {tierInfo.name} tier&apos;s ${(maxCents! / 100).toLocaleString()}{" "}cap, so it can&apos;t be added to this order. Please place a new order for it with a higher tier.
                   </p>
                 )}
               </Need>

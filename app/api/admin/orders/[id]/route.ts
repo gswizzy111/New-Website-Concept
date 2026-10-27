@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
 
+const ORDER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -10,6 +12,11 @@ export async function DELETE(
   }
 
   const { id } = await params;
+  // Order ids are uuids: anything else can't be an order (Postgres would refuse
+  // it with 22P02, which reads like a failed check)
+  if (!ORDER_ID.test(id)) {
+    return Response.json({ error: "Order not found" }, { status: 404 });
+  }
   const admin = createAdminClient();
 
   // Check every record that keeps an order before deleting anything. Signed
@@ -27,7 +34,7 @@ export async function DELETE(
     admin.from("order_notices").select("id", { count: "exact", head: true }).eq("order_id", id),
     admin.from("refunds").select("id", { count: "exact", head: true }).eq("order_id", id),
   ]);
-  if (orderRead.error?.code === "PGRST116") {
+  if (orderRead.error?.code === "PGRST116" || orderRead.error?.code === "22P02") {
     return Response.json({ error: "Order not found" }, { status: 404 });
   }
   const failed = orderRead.error ? orderRead : counts.find((c) => c.error);

@@ -402,7 +402,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
                   <div className="bg-red-100 border border-red-200 rounded-lg p-3">
                     <p className="text-red-900 text-sm font-semibold mb-1">What to do:</p>
                     <p className="text-red-800 text-sm leading-relaxed">
-                      Screenshot this screen and DM <strong>@the_card_doc</strong> on Instagram — include the error reference above and we&apos;ll complete your order manually right away.
+                      Screenshot this screen and DM <strong>@the_card_doc</strong>{" "}on Instagram — include the error reference above and we&apos;ll complete your order manually right away.
                     </p>
                   </div>
                 </div>

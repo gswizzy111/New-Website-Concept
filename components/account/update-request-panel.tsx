@@ -72,7 +72,7 @@ export function UpdateRequestPanel({
       ) : (
         <>
           <p className="text-xs text-muted-foreground mb-3">
-            Wondering how your {subject} is doing? Request an update and we&apos;ll email you. You can do this once a week.
+            Wondering how your {subject}{" "}is doing? Request an update and we&apos;ll email you. You can do this once a week.
           </p>
           <button
             type="button"
