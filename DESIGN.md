@@ -161,7 +161,7 @@ components:
 
 Every service is still dispensed like an Rx: a white label, a band of signal orange across the top, a heavy ink rule under it, and hairline rows of precise facts in small grotesque caps. What changed is the room it sits in. The label now lies on a lit table: card photos float with real depth, catch a holo foil sheen, and the proof is shown in a dark "light box" where a scan beam develops the before/after photo as you scroll.
 
-The two moods alternate with purpose. **Paper** carries information (services, prices, FAQ, terms, forms). **Ink stage** carries evidence and decisions (proof and stats, customer messages, closing calls to action, the footer). The hero is paper, lit from behind the specimen.
+The two moods alternate with purpose. **Paper** carries information (services, prices, FAQ, terms, forms). **Ink stage** carries evidence and decisions (proof and stats, customer messages, closing calls to action, the footer). The hero is paper under the light table's key light, which falls behind the service rows.
 
 Density is moderate. Headlines are much larger than body (up to ~8rem in the hero), set in a soft, heavy old-style serif that reads like the name printed on a vintage card. Information still lives in rows and rules, not floating cards.
 
@@ -224,7 +224,7 @@ Neutral with one pop: warm-leaning greys (chroma under 0.006, never cream) and a
 Young Serif ships one weight, so `html` sets `font-synthesis-weight: none`: `font-bold`/`font-extrabold` on a heading never fakes a heavier cut. Its default figures are old-style, so headings turn on lining figures (`"lnum" 1`).
 
 ### Hierarchy
-- **Display** (up to ~8.25rem, line-height 0.84, -0.025em): the home "The Card Doc" only, broken as "The Card / Doc" (19.5vw on phones so "The Card" holds one line at 360px). On desktop the Doc's mark and the subline sit right-aligned on the "Doc" line; the subline is capped at `min(26.5rem, 30vw)` so it never runs into "Doc".
+- **Display** (up to ~8.25rem, line-height 0.84, -0.025em): the home "The Card Doc" only, broken as "The Card / Doc" (19.5vw on phones so "The Card" holds one line at 360px). From 1024 to 1279 the Doc's mark and the subline sit right-aligned on the "Doc" line (capped at 26.5rem); from 1280 the name is a fixed 8.25rem on one line per word and the mark and subline close the name field at its foot.
 - **Headline** (2.9rem phone to 5.75rem desktop, -0.022em): every inner page title, via `<PageHero/>`.
 - **Section** (2.25rem to 3.75rem, -0.02em): section h2s on paper and stage (the home proof headline is 4rem so "Proven Results," holds one line).
 - **Stat** (4.5rem to 7.5rem, -0.01em): the proof stats on the stage.
@@ -244,7 +244,7 @@ Young Serif ships one weight, so `html` sets `font-synthesis-weight: none`: `fon
 
 A centered column with generous gutters: `max-w-7xl` for nav, hero, footer and the review wall; `max-w-6xl` for most sections; `max-w-5xl` for prep and how it works. Gutters 16px phone, 40px from md. Sections breathe at 80px phone and 128px desktop.
 
-The home hero is a 12-column grid: title and service rows on 7 columns, the specimen stack on 5, spanning both rows. On phone it stacks title, subline, specimen stack, service rows. The whole hero fits a 1440 x 900 viewport with all three service rows visible.
+From 1280 the home hero is one Rx label across `max-w-7xl`: the 6px orange band on top and the ink rule at the foot run the full width. A `min-content` name field on the left (the name, then 56px to a 1px hairline) is ruled into the label's three lines: the name fills the first two and the Doc's mark and subline the third, under a hairline that runs on as the divider between the second and third service rows. The three service rows sit right of the hairline at equal heights (`auto-rows-fr`), their dividers starting at it, their buttons one width (8.5rem) so they line up. From 1024 to 1279 the name sits over a full-width label; on phone it stacks title, subline, service rows. The whole hero fits a 1440 x 900 viewport with all three service rows visible (the ink rule lands at y=615). The owner removed the Mickey Mantle before/after card (and the Charmander card behind it) from this hero and from About's Real results on October 27, 2026: don't bring it back.
 
 Two-column fact grids (terms on About, how it works) stay rule-divided. The home terms summary uses four panels with icons; the link index is a 3-column grid of large rows with an arrow at each row's end and a 56px column gap so arrows never read as belonging to the next column.
 
@@ -277,7 +277,7 @@ Base radius stays 6px (`--radius: 0.375rem`); panels now use `rounded-xl` (about
 - **Focus:** 2px rx outline on paper, rx-bright on the stage.
 
 ### Rx Label (signature)
-Unchanged structure: 6px orange top band, ink bottom rule, hairline rows. On the home hero each row has a 24px serif service name, a 15px line, a small from-price and a compact primary action; rows tint to white on hover.
+Unchanged structure: 6px orange top band, ink bottom rule, hairline rows. On the home hero from 1280 the label spans the full width with the name printed in its left field (Layout, above); each row has a 24px serif service name, a 15px line, a small from-price and a compact primary action; rows tint to white on hover.
 
 ### Ink Stage (`.stage .stage-light`)
 The dark light box. On home it arrives as an inset rounded panel and opens to full bleed as it scrolls up (`<ExpandingStage/>`). It holds the proof headline and CTA, the scan-developed before/after photo, the three stats and the customer reviews. The stats sit in a `1.25fr 1fr 1fr` row (the first figure is the longest) divided by white/12 hairlines, and their size comes from the row's width in container units (`clamp(2.75rem, 9cqi, 6.75rem)` from `sm`, stacked and `clamp(4rem, 21cqi, 6rem)` on phones), so a live figure like "2,321+" never runs into the next one. The screenshot wall (`<ParallaxWall/>`) is no longer on the home page.

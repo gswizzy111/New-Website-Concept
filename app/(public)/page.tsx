@@ -112,55 +112,63 @@ export default async function HomePage() {
 
       {/* ── Hero: the light table ── */}
       <section className="light-table relative overflow-x-clip border-b border-rule">
-        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-6 pb-12 md:pt-12 md:pb-20 lg:pt-14 lg:pb-20 grid gap-10 lg:gap-x-12 lg:gap-y-10 lg:grid-cols-12 items-start">
-          <div className="lg:col-span-7 lg:row-start-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/card-doctor.jpg" alt="The Card Doc" className="hero-in hidden sm:block lg:hidden w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-8" />
-            {/* Desktop: the Doc's mark and the subline sit on the "Doc" line, right-aligned, like a label beside the name */}
-            <div className="grid">
-              <h1 className="col-start-1 row-start-1 font-heading font-extrabold text-ink tracking-[-0.025em] leading-[0.84] text-[clamp(3.75rem,19.5vw,6.5rem)] sm:text-[clamp(6rem,15vw,8.5rem)] lg:text-[clamp(6rem,8.6vw,8.25rem)]">
-                <SplitReveal text="The Card Doc" lines={["The Card", "Doc"]} step={110} />
-              </h1>
-              <div
-                className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[min(26.5rem,30vw)] pb-[0.3rem]"
-                style={{ ["--d" as string]: 420 }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/card-doctor.jpg" alt="" className="w-11 h-11 shrink-0 rounded-md object-cover ring-1 ring-rule mt-1" />
-                <p className="text-lg text-muted-foreground leading-relaxed">
-                  Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
-                </p>
-              </div>
-            </div>
-            <p className="hero-in lg:hidden mt-6 text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed" style={{ ["--d" as string]: 300 }}>
-              Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
-            </p>
-          </div>
-
-          {/* Services, laid out like the lines of a prescription label */}
-          <ul className="lg:col-span-7 lg:row-start-2 border-t-[6px] border-rx border-b border-b-ink/80 divide-y divide-rule">
-            {services.map(({ href, code, name, line, price, action, Icon }, i) => (
-              <li key={href} className="rx-reveal" style={{ ["--i" as string]: i + 3 }}>
-                <Link
-                  href={href}
-                  className="group nudge-arrow grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 md:gap-x-5 gap-y-3 py-5 sm:py-6 -mx-3 px-3 rounded-md transition-colors duration-300 hover:bg-white/80"
+        {/* From xl the hero is one prescription label lying on the light table: the orange band and the ink rule run
+            the full width, the name is printed in the left field (title at the top, the Doc's mark and the subline at
+            the foot) and the three services are the label's lines on the right, behind a hairline, in the glow.
+            Below xl the name sits above the label, as before; phones are unchanged. */}
+        <div className="max-w-7xl mx-auto px-4 md:px-10 pt-6 pb-12 md:pt-12 md:pb-20 lg:pt-12 lg:pb-16 xl:pt-14 xl:pb-20">
+          <div className="grid gap-10 xl:gap-0 xl:grid-cols-[min-content_minmax(0,1fr)] xl:border-t-[6px] xl:border-t-rx xl:border-b xl:border-b-ink/80">
+            <div className="xl:flex xl:flex-col xl:pr-14">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/card-doctor.jpg" alt="The Card Doc" className="hero-in hidden sm:block lg:hidden w-12 h-12 rounded-md object-cover ring-1 ring-rule mb-8" />
+              {/* lg: the Doc's mark and the subline sit on the "Doc" line, at the label's right edge. xl: the name field is ruled into the
+                  label's three lines: the name takes the first two, the mark and the subline the third, behind a hairline level with the
+                  last service line's */}
+              <div className="grid xl:flex-1 xl:grid-rows-3">
+                <h1 className="col-start-1 row-start-1 font-heading font-extrabold text-ink tracking-[-0.025em] leading-[0.84] text-[clamp(3.75rem,19.5vw,6.5rem)] sm:text-[clamp(6rem,15vw,8.5rem)] lg:text-[clamp(6rem,8.6vw,8.25rem)] xl:text-[8.25rem] xl:whitespace-nowrap xl:row-span-2 xl:pt-8">
+                  <SplitReveal text="The Card Doc" lines={["The Card", "Doc"]} step={110} />
+                </h1>
+                <div
+                  className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[26.5rem] pb-[0.3rem] xl:row-start-3 xl:self-stretch xl:justify-self-stretch xl:max-w-none xl:flex-wrap xl:content-end xl:border-t xl:border-rule xl:-mr-14 xl:pr-14 xl:pt-6 xl:pb-[1.1875rem]"
+                  style={{ ["--d" as string]: 420 }}
                 >
-                  <Icon className="h-5 w-5 text-rx self-start mt-1.5" strokeWidth={1.75} />
-                  <span className="min-w-0">
-                    <span className="flex items-baseline gap-3">
-                      <span className="font-heading text-2xl font-extrabold tracking-[-0.01em] text-ink">{name}</span>
-                      <span className="rx-label">{code}</span>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src="/card-doctor.jpg" alt="" className="w-11 h-11 xl:size-12 shrink-0 rounded-md object-cover ring-1 ring-rule mt-1 xl:mt-2" />
+                  <p className="text-lg xl:text-xl text-muted-foreground leading-relaxed text-balance xl:flex-1 xl:min-w-0">
+                    Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
+                  </p>
+                </div>
+              </div>
+              <p className="hero-in lg:hidden mt-6 text-lg md:text-xl text-muted-foreground max-w-md leading-relaxed" style={{ ["--d" as string]: 300 }}>
+                Expert card restoration &amp; PSA prep — every card treated like it&apos;s worth a fortune.
+              </p>
+            </div>
+
+            {/* Services, laid out like the lines of a prescription label */}
+            <ul className="border-t-[6px] border-rx border-b border-b-ink/80 divide-y divide-rule xl:border-t-0 xl:border-b-0 xl:border-l xl:border-l-rule xl:grid xl:auto-rows-fr">
+              {services.map(({ href, code, name, line, price, action, Icon }, i) => (
+                <li key={href} className="rx-reveal xl:pl-14" style={{ ["--i" as string]: i + 3 }}>
+                  <Link
+                    href={href}
+                    className="group nudge-arrow grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 md:gap-x-5 gap-y-3 py-5 sm:py-6 lg:py-5 xl:py-6 xl:h-full -mx-3 px-3 xl:mr-0 xl:pr-0 rounded-md transition-colors duration-300 hover:bg-white/80"
+                  >
+                    <Icon className="h-5 w-5 text-rx self-start mt-1.5" strokeWidth={1.75} />
+                    <span className="min-w-0">
+                      <span className="flex items-baseline gap-3">
+                        <span className="font-heading text-2xl font-extrabold tracking-[-0.01em] text-ink">{name}</span>
+                        <span className="rx-label">{code}</span>
+                      </span>
+                      <span className="block text-sm md:text-[15px] text-muted-foreground leading-snug mt-1 xl:text-pretty">{line}</span>
+                      <span className="block font-mono text-xs text-muted-foreground mt-2">{price}</span>
                     </span>
-                    <span className="block text-sm md:text-[15px] text-muted-foreground leading-snug mt-1">{line}</span>
-                    <span className="block font-mono text-xs text-muted-foreground mt-2">{price}</span>
-                  </span>
-                  <span className="btn-depth btn-sheen col-start-2 sm:col-start-auto inline-flex h-10 items-center justify-center gap-1 rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end">
-                    {action.replace(" →", "")}<span className="arrow" aria-hidden>→</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+                    <span className="btn-depth btn-sheen col-start-2 sm:col-start-auto inline-flex h-10 items-center justify-center gap-1 rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end xl:min-w-[8.5rem]">
+                      {action.replace(" →", "")}<span className="arrow" aria-hidden>→</span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
