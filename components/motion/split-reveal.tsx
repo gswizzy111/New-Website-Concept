@@ -29,7 +29,7 @@ export function SplitReveal({
               const d = delay + index++ * step;
               return (
                 <span key={i}>
-                  <span className="inline-block overflow-hidden pb-[0.08em] -mb-[0.08em] align-bottom">
+                  <span className="inline-block overflow-hidden pt-[0.08em] -mt-[0.08em] pb-[0.08em] -mb-[0.08em] align-bottom">
                     <span className="split-word inline-block" style={{ ["--d" as string]: d }}>
                       {w}
                     </span>

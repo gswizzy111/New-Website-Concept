@@ -92,8 +92,8 @@ export function ResultsGallery({ cases }: { cases: ResultCase[] }) {
             key={c.id}
             id={`result-${c.id}`}
             data-index={i}
-            aria-roledescription="slide"
-            aria-label={`${i + 1} of ${cases.length}: ${c.card}`}
+            aria-roledescription={cases.length > 1 ? "slide" : undefined}
+            aria-label={cases.length > 1 ? `${i + 1} of ${cases.length}: ${c.card}` : c.card}
             className={`${cases.length > 1 ? "w-[88%]" : "w-full"} md:w-full shrink-0 snap-start grid gap-7 md:gap-12 md:grid-cols-12 md:items-center`}
           >
             <div className="md:col-span-7">

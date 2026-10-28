@@ -129,7 +129,7 @@ export default async function HomePage() {
                   <SplitReveal text="The Card Doc" lines={["The Card", "Doc"]} step={110} />
                 </h1>
                 <div
-                  className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[26.5rem] pb-[0.3rem] xl:row-start-3 xl:self-stretch xl:justify-self-stretch xl:max-w-none xl:flex-wrap xl:content-end xl:border-t xl:border-rule xl:-mr-14 xl:pr-14 xl:pt-6 xl:pb-[1.1875rem]"
+                  className="hero-in hidden lg:flex col-start-1 row-start-1 justify-self-end self-end items-start gap-4 max-w-[26.5rem] pb-[0.3rem] xl:row-start-3 xl:self-stretch xl:justify-self-stretch xl:max-w-none xl:flex-wrap xl:content-end xl:-mt-px xl:border-t xl:border-rule xl:-mr-14 xl:pr-14 xl:pt-6 xl:pb-[1.1875rem]"
                   style={{ ["--d" as string]: 420 }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -147,10 +147,10 @@ export default async function HomePage() {
             {/* Services, laid out like the lines of a prescription label */}
             <ul className="border-t-[6px] border-rx border-b border-b-ink/80 divide-y divide-rule xl:border-t-0 xl:border-b-0 xl:border-l xl:border-l-rule xl:grid xl:auto-rows-fr">
               {services.map(({ href, code, name, line, price, action, Icon }, i) => (
-                <li key={href} className="rx-reveal xl:pl-14" style={{ ["--i" as string]: i + 3 }}>
+                <li key={href} className="rx-reveal" style={{ ["--i" as string]: i + 3 }}>
                   <Link
                     href={href}
-                    className="group nudge-arrow grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 md:gap-x-5 gap-y-3 py-5 sm:py-6 lg:py-5 xl:py-6 xl:h-full -mx-3 px-3 xl:mr-0 xl:pr-0 rounded-md transition-colors duration-300 hover:bg-white/80"
+                    className="group nudge-arrow grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_auto] items-center gap-x-4 md:gap-x-5 gap-y-3 py-5 sm:py-6 lg:py-5 xl:py-6 xl:h-full -mx-3 px-3 xl:mx-0 xl:pl-14 xl:pr-0 rounded-md xl:rounded-none xl:focus-visible:outline-offset-[-4px] transition-colors duration-300 hover:bg-white/80"
                   >
                     <Icon className="h-5 w-5 text-rx self-start mt-1.5" strokeWidth={1.75} />
                     <span className="min-w-0">
@@ -161,7 +161,7 @@ export default async function HomePage() {
                       <span className="block text-sm md:text-[15px] text-muted-foreground leading-snug mt-1 xl:text-pretty">{line}</span>
                       <span className="block font-mono text-xs text-muted-foreground mt-2">{price}</span>
                     </span>
-                    <span className="btn-depth btn-sheen col-start-2 sm:col-start-auto inline-flex h-10 items-center justify-center gap-1 rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end xl:min-w-[8.5rem]">
+                    <span className="btn-depth btn-sheen col-start-2 sm:col-start-auto inline-flex h-10 items-center justify-center gap-1 rounded-md bg-rx px-4 text-sm font-semibold text-primary-foreground transition-colors group-hover:bg-rx/90 whitespace-nowrap justify-self-start sm:justify-self-end lg:min-w-[8.5rem]">
                       {action.replace(" →", "")}<span className="arrow" aria-hidden>→</span>
                     </span>
                   </Link>
