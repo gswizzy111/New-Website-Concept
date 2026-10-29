@@ -19,8 +19,8 @@ export default function PartnerLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ passcode }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Invalid passcode");
       router.push("/partners/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid passcode");

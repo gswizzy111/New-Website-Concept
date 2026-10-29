@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 const KIT_STATUSES = {
@@ -22,22 +22,47 @@ const STATUS_COLORS: Record<KitStatus, string> = {
 };
 
 export function KitStatusUpdater({ orderId, currentStatus }: { orderId: string; currentStatus: string }) {
-  const [status, setStatus] = useState<KitStatus>(
-    (currentStatus as KitStatus) in KIT_STATUSES ? (currentStatus as KitStatus) : "paid"
-  );
-  const [loading, setLoading] = useState(false);
+  // The saved status comes from the page, so the badge only moves once the save
+  // went through and the page has reloaded it
+  const status: KitStatus = Object.hasOwn(KIT_STATUSES, currentStatus) ? (currentStatus as KitStatus) : "paid";
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [refreshing, startRefresh] = useTransition();
+  const loading = saving || refreshing;
   const router = useRouter();
 
   async function updateStatus(newStatus: KitStatus) {
-    setLoading(true);
-    await fetch(`/api/admin/shop-orders/${orderId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus }),
-    });
-    setStatus(newStatus);
-    setLoading(false);
-    router.refresh();
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/shop-orders/${orderId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Could not update the status.");
+        return;
+      }
+      startRefresh(() => router.refresh());
+    } catch {
+      setError("Could not update the status. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Cancelled from the Ship Queue (and refunded): nothing left to move it to
+  if (currentStatus === "cancelled") {
+    return (
+      <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-border">
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Order Status</p>
+        <div className="inline-flex self-start items-center px-3 py-1 rounded-full border text-xs font-bold bg-gray-50 text-gray-600 border-gray-200">
+          Cancelled
+        </div>
+      </div>
+    );
   }
 
   const currentIndex = TIMELINE.indexOf(status);
@@ -69,6 +94,8 @@ export function KitStatusUpdater({ orderId, currentStatus }: { orderId: string; 
           </button>
         ))}
       </div>
+
+      {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
 
       {/* Quick advance */}
       {nextStatus && (

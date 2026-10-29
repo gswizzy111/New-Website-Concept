@@ -3,9 +3,9 @@ import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restor
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
 import { TIER_MAX_SLOTS } from "@/lib/site-config";
+import { tierSlotUsage } from "@/lib/tier-slots";
 import { AlertTriangle, Check, CheckCircle, ChevronDown, Zap, Star, Crown, Rocket } from "lucide-react";
 import { WaitlistModal } from "./waitlist-modal";
-import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
 import { FACT_ROW } from "./fact-row";
 import { BulkSwitch } from "./bulk-switch";
@@ -49,7 +49,8 @@ function TierCard({
 }: {
   tier: RestorationTier;
   settingsMap: Record<string, { is_open?: boolean; max_slots?: number | null; display_slots_remaining?: number | null }>;
-  slotCounts: Record<string, number>;
+  /** null: the count couldn't be read, so slots left are unknown */
+  slotCounts: Record<string, number> | null;
   restorationsOpen: boolean;
   label?: React.ReactNode;
 }) {
@@ -59,8 +60,7 @@ function TierCard({
   const s = settingsMap[tier.id];
   // DB max_slots takes priority; fall back to site-config TIER_MAX_SLOTS constant
   const maxSlots = (s?.max_slots ?? null) ?? TIER_MAX_SLOTS[tier.id] ?? null;
-  const usedSlots = slotCounts[tier.id] ?? 0;
-  const slotsLeft = maxSlots !== null ? Math.max(0, maxSlots - usedSlots) : null;
+  const slotsLeft = maxSlots !== null && slotCounts ? Math.max(0, maxSlots - (slotCounts[tier.id] ?? 0)) : null;
   const isSoldOut = s?.is_open === false || (slotsLeft !== null && slotsLeft === 0);
 
   // Corner pill: sold out, else the owner's badge (or the card's own label).
@@ -196,21 +196,6 @@ export default async function TierSelectionPage() {
   const defaultTiers = getAllTiers();
   const admin = createAdminClient();
 
-  // Count paid orders + recent in-progress checkouts (pending, < 30 min old = active reservation)
-  // This matches the same logic enforced at checkout so the display is accurate.
-  // Note: stripe_session_id filter removed — that column may not exist yet in the DB.
-  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  let paidQuery = admin.from("orders").select("restoration_tier").eq("payment_status", "paid").not("restoration_tier", "is", null);
-  if (slotsOpenedAt) paidQuery = paidQuery.gte("created_at", slotsOpenedAt);
-
-  let pendingQuery = admin.from("orders").select("restoration_tier")
-    .eq("payment_status", "pending")
-    .not("restoration_tier", "is", null)
-    .gte("created_at", thirtyMinAgo);
-  if (slotsOpenedAt) pendingQuery = pendingQuery.gte("created_at", slotsOpenedAt);
-
-  const [{ data: paidOrders }, { data: pendingOrders }] = await Promise.all([paidQuery, pendingQuery]);
-
   const { data: extSettings, error: extErr } = await admin
     .from("restoration_settings")
     .select("tier, is_open, max_slots, display_slots_remaining, display_name, price_cents, pricing_rate, min_card_value_cents, turnaround_min_days, turnaround_max_days, description, includes_notes, includes_video, badge");
@@ -222,13 +207,16 @@ export default async function TierSelectionPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settingsMap = Object.fromEntries((settingsRaw as any[]).map((s) => [s.tier, s]));
 
-  const slotCounts: Record<string, number> = {};
+  // Slots taken, one per order: paid orders plus checkouts in progress (under
+  // 30 minutes old), counted the way checkout enforces them (lib/tier-slots.ts).
+  // null: the count failed, so no tier shows a number of slots left.
+  let slotCounts: Record<string, number> | null = {};
   if (restorationsOpen) {
-    for (const row of paidOrders ?? []) {
-      if (row.restoration_tier) slotCounts[row.restoration_tier] = (slotCounts[row.restoration_tier] ?? 0) + 1;
-    }
-    for (const row of pendingOrders ?? []) {
-      if (row.restoration_tier) slotCounts[row.restoration_tier] = (slotCounts[row.restoration_tier] ?? 0) + 1;
+    try {
+      slotCounts = await tierSlotUsage(admin, slotsOpenedAt);
+    } catch (err) {
+      console.error("Tier slot count failed:", err);
+      slotCounts = null;
     }
   }
 
@@ -245,21 +233,18 @@ export default async function TierSelectionPage() {
 
   // Diamond slot info for client component
   const eliteMaxSlots = (settingsMap["elite"]?.max_slots ?? null) ?? TIER_MAX_SLOTS["elite"] ?? null;
-  const eliteUsed = slotCounts["elite"] ?? 0;
-  const eliteSlotsLeft = eliteMaxSlots !== null ? Math.max(0, eliteMaxSlots - eliteUsed) : null;
+  const eliteSlotsLeft = eliteMaxSlots !== null && slotCounts ? Math.max(0, eliteMaxSlots - (slotCounts["elite"] ?? 0)) : null;
   const eliteIsSoldOut = settingsMap["elite"]?.is_open === false || (eliteSlotsLeft !== null && eliteSlotsLeft === 0);
 
   return (
     <div className="min-h-screen page-glow">
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
-      {/* Countdown — shown when shop is closed */}
-      {!restorationsOpen && <CountdownBanner />}
-
       {/* Closed text banner */}
       {!restorationsOpen && (
         <div className="bg-amber-50 border-b border-amber-200">
           <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 text-center">
-            <p className="text-sm font-semibold text-amber-900">
+            <p className="text-sm font-bold text-amber-900">Restorations are currently closed.</p>
+            <p className="mt-0.5 text-sm font-semibold text-amber-900">
               We&apos;re not accepting new restoration orders right now — but you can still browse our pricing below.
             </p>
           </div>

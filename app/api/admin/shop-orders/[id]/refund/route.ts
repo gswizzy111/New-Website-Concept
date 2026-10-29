@@ -5,6 +5,8 @@ import { refundEmailHtml } from "@/lib/refund-email";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin-auth";
 import { recordRefund } from "@/lib/refund-ledger";
+import { findKitPayment, type KitPaymentRef } from "@/lib/kit-payment";
+import { escapeHtml } from "@/lib/card-inquiries";
 
 const Body = z.object({
   amountCents: z.number().int().min(1).optional(),
@@ -12,31 +14,6 @@ const Body = z.object({
   sendEmail: z.boolean().optional(),
   customerMessage: z.string().max(1000).optional(),
 });
-
-type PaymentRef = { payment_intent: string } | { charge: string };
-
-// Kit orders are paid three ways: a shop Checkout session (cs_), the first month
-// of Kit Club (a subscription Checkout session, paid through its invoice), or a
-// Kit Club renewal (stripe_session_id holds the invoice id, in_).
-async function findPayment(stripeSessionId: string): Promise<PaymentRef | null> {
-  let invoiceId: string | null = null;
-  if (stripeSessionId.startsWith("cs_")) {
-    const session = await stripe.checkout.sessions.retrieve(stripeSessionId);
-    const pi = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-    if (pi) return { payment_intent: pi };
-    invoiceId = typeof session.invoice === "string" ? session.invoice : session.invoice?.id ?? null;
-  } else if (stripeSessionId.startsWith("in_")) {
-    invoiceId = stripeSessionId;
-  }
-  if (!invoiceId) return null;
-
-  const payments = await stripe.invoicePayments.list({ invoice: invoiceId, status: "paid", limit: 1 });
-  const payment = payments.data[0]?.payment;
-  const pi = typeof payment?.payment_intent === "string" ? payment.payment_intent : payment?.payment_intent?.id;
-  if (pi) return { payment_intent: pi };
-  const charge = typeof payment?.charge === "string" ? payment.charge : payment?.charge?.id;
-  return charge ? { charge } : null;
-}
 
 export async function POST(
   request: Request,
@@ -69,9 +46,9 @@ export async function POST(
     return Response.json({ error: `Cannot refund more than ${maxRefundable / 100} (remaining balance)` }, { status: 400 });
   }
 
-  let payment: PaymentRef | null = null;
+  let payment: KitPaymentRef | null = null;
   try {
-    payment = order.stripe_session_id ? await findPayment(order.stripe_session_id) : null;
+    payment = order.stripe_session_id ? await findKitPayment(order.stripe_session_id) : null;
   } catch (e) {
     console.error("Stripe payment lookup failed:", e);
     return Response.json({ error: "Could not retrieve the Stripe payment for this order." }, { status: 502 });
@@ -107,12 +84,18 @@ export async function POST(
   if (parsed.data.sendEmail && order.customer_email) {
     const amountFormatted = `$${(refundAmount / 100).toFixed(2)}`;
     const name = (order.customer_name as string | null)?.split(" ")[0] || "there";
-    await resend.emails.send({
-      from: fromEmail,
-      to: order.customer_email,
-      subject: `Your refund from ${businessName} — Order #${orderLabel}`,
-      html: refundEmailHtml({ orderNumber: orderLabel, firstName: name, amountFormatted, isFullRefund, customNote: parsed.data.customerMessage?.trim() }),
-    }).catch((e) => console.error("[kit refund email]", e));
+    const note = parsed.data.customerMessage?.trim();
+    try {
+      const { error: emailErr } = await resend.emails.send({
+        from: fromEmail,
+        to: order.customer_email,
+        subject: `Your refund from ${businessName} — Order #${orderLabel}`,
+        html: refundEmailHtml({ orderNumber: orderLabel, firstName: escapeHtml(name), amountFormatted, isFullRefund, customNote: note ? escapeHtml(note) : undefined }),
+      });
+      if (emailErr) console.error("[kit refund email]", emailErr.message, "order:", id);
+    } catch (e) {
+      console.error("[kit refund email]", e);
+    }
   }
 
   return Response.json({

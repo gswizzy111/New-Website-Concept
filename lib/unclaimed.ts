@@ -16,14 +16,16 @@ export const NOTICE_LABEL: Record<NoticeKind, string> = {
   follow_up: "Follow-up",
 };
 
-/** The emailed notice for an order. */
+/** The emailed notice for an order. Throws when Resend doesn't take it (its
+ * send() reports a refusal as { error } instead of throwing), so the notices
+ * route never logs a notice as emailed when it wasn't. */
 export async function sendNoticeEmail(order: { order_number: string | number; customer_name: string | null; customer_email: string }, kind: NoticeKind, note?: string) {
   const name = (order.customer_name ?? "").split(" ")[0] || "there";
   const label = orderLabel(order.order_number);
   const what = kind === "undeliverable"
     ? `the return package for order ${label} came back to us as undeliverable`
     : `your cards from order ${label} are ready to come back to you`;
-  await resend.emails.send({
+  const { error } = await resend.emails.send({
     from: fromEmail,
     to: order.customer_email,
     subject: `Action needed: order ${label} — ${businessName}`,
@@ -35,4 +37,5 @@ export async function sendNoticeEmail(order: { order_number: string | number; cu
       <p style="color:#666;font-size:13px">${businessName} · thecarddoc1@gmail.com</p>
     </div>`,
   });
+  if (error) throw new Error(`Resend refused the notice email: ${error.message}`);
 }

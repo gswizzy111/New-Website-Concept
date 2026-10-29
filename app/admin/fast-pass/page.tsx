@@ -3,6 +3,9 @@ import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin-auth";
+import { addDays, etToday } from "@/lib/dashboard-metrics";
+import { etDateOf } from "@/lib/sales-report";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -19,47 +22,52 @@ const STATUS_COLORS: Record<string, string> = {
 
 const TURNAROUND_DAYS = 5;
 
-function businessDaysSince(dateStr: string): number {
-  const start = new Date(dateStr);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(0, 0, 0, 0);
+// Business days count in New York calendar days (the server runs on UTC)
+const isWeekday = (day: string) => {
+  const dow = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return dow !== 0 && dow !== 6;
+};
+
+/** Weekdays after `from` up to and including `to` (YYYY-MM-DD, from <= to). */
+function weekdaysBetween(from: string, to: string): number {
   let count = 0;
-  const d = new Date(start);
-  while (d < end) {
-    d.setDate(d.getDate() + 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
-  }
+  for (let d = addDays(from, 1); d <= to; d = addDays(d, 1)) if (isWeekday(d)) count++;
   return count;
 }
 
-function addBusinessDays(date: Date, days: number): Date {
-  const result = new Date(date);
-  let remaining = days;
-  while (remaining > 0) {
-    result.setDate(result.getDate() + 1);
-    if (result.getDay() !== 0 && result.getDay() !== 6) remaining--;
-  }
-  return result;
+function businessDaysSince(dateStr: string): number {
+  const start = etDateOf(dateStr);
+  const today = etToday();
+  return start < today ? weekdaysBetween(start, today) : 0;
 }
 
-function businessDaysUntil(target: Date): number {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const t = new Date(target);
-  t.setHours(0, 0, 0, 0);
-  if (now.getTime() === t.getTime()) return 0;
-  const overdue = t < now;
-  const from = overdue ? new Date(t) : new Date(now);
-  const to = overdue ? new Date(now) : new Date(t);
-  let count = 0;
-  const d = new Date(from);
-  while (d < to) {
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+/** The New York day `days` business days after the day of `dateStr`. */
+function addBusinessDays(dateStr: string, days: number): string {
+  let d = etDateOf(dateStr);
+  let remaining = days;
+  while (remaining > 0) {
+    d = addDays(d, 1);
+    if (isWeekday(d)) remaining--;
   }
-  return overdue ? -count : count;
+  return d;
+}
+
+type Rows<T> = PromiseLike<{ data: T[] | null; error: { message: string } | null }>;
+
+/** Every row a query returns for these orders: 100 order ids at a time, each read in pages. */
+async function forOrders<T>(orderIds: string[], read: (ids: string[], from: number, to: number) => Rows<T>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const ids = orderIds.slice(i, i + 100);
+    rows.push(...(await fetchAll<T>((from, to) => read(ids, from, to))));
+  }
+  return rows;
+}
+
+function businessDaysUntil(target: string): number {
+  const today = etToday();
+  if (today === target) return 0;
+  return target < today ? -weekdaysBetween(target, today) : weekdaysBetween(today, target);
 }
 
 export default async function FastPassPage({
@@ -71,32 +79,46 @@ export default async function FastPassPage({
   const { status: statusFilter } = await searchParams;
   const admin = createAdminClient();
 
-  const { data: orders } = await admin
+  type FastPassOrder = {
+    id: string; order_number: number | string; customer_name: string | null; customer_email: string | null;
+    total_cents: number; refunded_cents: number | null; status: string; payment_status: string | null;
+    created_at: string; insurance_declared_value_cents: number | null;
+  };
+  const orders = await fetchAll<FastPassOrder>((from, to) => admin
     .from("orders")
-    .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, payment_status, created_at, restoration_tier, shipping_label_url, inbound_method, admin_notes, insurance_declared_value_cents")
+    .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, refunded_cents, status, payment_status, created_at, restoration_tier, shipping_label_url, inbound_method, admin_notes, insurance_declared_value_cents")
     .eq("restoration_tier", "fast_pass")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: true })
+    .range(from, to));
 
-  const orderIds = (orders ?? []).map((o) => o.id);
-  const { data: allCards } = orderIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls, completed").in("order_id", orderIds)
-    : { data: [] };
-
-  // Find received-at for in-progress orders
-  const { data: receivedEvents } = orderIds.length > 0
-    ? await admin.from("order_events")
-        .select("order_id, created_at")
-        .in("order_id", orderIds)
-        .like("description", "%Cards Received%")
-        .order("created_at", { ascending: true })
-    : { data: [] };
+  const orderIds = orders.map((o) => o.id);
+  // A failed read shows the error page rather than a page that is quietly missing rows
+  type CardRow = { order_id: string; card_name: string; photo_urls: string[] | null; completed: boolean | null };
+  type EventRow = { order_id: string; created_at: string };
+  type RefundRow = { order_id: string; amount_cents: number | null };
+  const [allCards, receivedEvents, ledgerRefunds] = await Promise.all([
+    forOrders<CardRow>(orderIds, (ids, from, to) => admin.from("cards")
+      .select("order_id, card_name, photo_urls, completed").in("order_id", ids)
+      .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    // Find received-at for in-progress orders
+    forOrders<EventRow>(orderIds, (ids, from, to) => admin.from("order_events")
+      .select("order_id, created_at")
+      .in("order_id", ids)
+      .like("description", "%Cards Received%")
+      .order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)),
+    forOrders<RefundRow>(orderIds, (ids, from, to) => admin.from("refunds")
+      .select("order_id, amount_cents")
+      .in("order_id", ids).in("status", ["succeeded", "pending", "requires_action"])
+      .order("id", { ascending: true }).range(from, to)),
+  ]);
   const receivedAtByOrder: Record<string, string> = {};
-  for (const ev of receivedEvents ?? []) {
+  for (const ev of receivedEvents) {
     if (!receivedAtByOrder[ev.order_id]) receivedAtByOrder[ev.order_id] = ev.created_at;
   }
 
   const cardsByOrder: Record<string, { name: string; photo: string | null; completed: boolean }[]> = {};
-  for (const card of allCards ?? []) {
+  for (const card of allCards) {
     if (!cardsByOrder[card.order_id]) cardsByOrder[card.order_id] = [];
     const photos: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
     cardsByOrder[card.order_id].push({ name: card.card_name, photo: photos[0] ?? null, completed: card.completed ?? false });
@@ -105,7 +127,7 @@ export default async function FastPassPage({
   const PAST = ["shipped_back", "delivered", "cancelled"];
   const ACTIVE_STATUSES = ["awaiting_cards", "received", "in_progress", "completed", "awaiting_payment"];
 
-  const all = orders ?? [];
+  const all = orders;
   const activeOrders = all.filter((o) => !PAST.includes(o.status));
   const pastOrders = all.filter((o) => PAST.includes(o.status));
 
@@ -120,12 +142,16 @@ export default async function FastPassPage({
     if (!recA && !recB) return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     if (!recA) return 1;
     if (!recB) return -1;
-    const dueA = addBusinessDays(new Date(recA), TURNAROUND_DAYS).getTime();
-    const dueB = addBusinessDays(new Date(recB), TURNAROUND_DAYS).getTime();
-    return dueA - dueB;
+    return addBusinessDays(recA, TURNAROUND_DAYS).localeCompare(addBusinessDays(recB, TURNAROUND_DAYS));
   });
 
-  const totalRevenue = all.reduce((s, o) => s + (o.total_cents ?? 0), 0);
+  // Revenue as the dashboard counts it: paid orders only, less what was refunded
+  // (the refund ledger, or the order's own figure if larger, as lib/refund-ledger.ts refundedSoFar does)
+  const ledgerByOrder = new Map<string, number>();
+  for (const r of ledgerRefunds) ledgerByOrder.set(r.order_id, (ledgerByOrder.get(r.order_id) ?? 0) + (r.amount_cents ?? 0));
+  const totalRevenue = all
+    .filter((o) => (o.payment_status === "paid" || o.payment_status === "refunded") && o.status !== "awaiting_payment")
+    .reduce((s, o) => s + Math.max(0, (o.total_cents ?? 0) - Math.max(o.refunded_cents ?? 0, ledgerByOrder.get(o.id) ?? 0)), 0);
   const activeCount = activeOrders.filter((o) => o.payment_status === "paid").length;
 
   return (
@@ -223,7 +249,7 @@ export default async function FastPassPage({
                   const done = cards.filter((c) => c.completed).length;
                   const receivedAt = receivedAtByOrder[order.id] ?? null;
                   const bizDaysIn = receivedAt ? businessDaysSince(receivedAt) : null;
-                  const dueDate = receivedAt ? addBusinessDays(new Date(receivedAt), TURNAROUND_DAYS) : null;
+                  const dueDate = receivedAt ? addBusinessDays(receivedAt, TURNAROUND_DAYS) : null;
                   const daysUntilDue = dueDate ? businessDaysUntil(dueDate) : null;
                   const isOverdue = daysUntilDue !== null && daysUntilDue < 0;
                   const isDueSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 1;

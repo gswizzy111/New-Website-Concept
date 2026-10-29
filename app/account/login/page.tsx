@@ -51,6 +51,7 @@ function LoginForm() {
         email: email.trim(),
         password,
         sent: !!data.confirmationSent,
+        alreadySent: !!data.alreadySent,
         sentFrom: data.sentFrom,
         subject: data.subject,
         message: data.error,

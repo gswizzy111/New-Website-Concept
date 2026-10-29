@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Info } from "lucide-react";
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
 import type { KitRate } from "@/lib/kit-shipping";
+import { giftCardCents } from "@/lib/order-totals";
 
 const INPUT_CN = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
 
@@ -65,11 +66,20 @@ function rateEta(r: KitRate) {
 }
 
 function CheckoutInner() {
-  const { items, totalCents, clearCart } = useCart();
+  const { items, totalCents } = useCart();
   const searchParams = useSearchParams();
   const isInternational = searchParams.get("international") === "true";
 
   const [submitting, setSubmitting] = useState(false);
+  // Back from Stripe with the browser's back button: the page can come back from
+  // the back/forward cache still showing "Redirecting...", so make it usable again
+  useEffect(() => {
+    function onPageShow(e: PageTransitionEvent) {
+      if (e.persisted) setSubmitting(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
   // Pressed pay (or see shipping) with something missing: outline it in red
   const [showMissing, setShowMissing] = useState(false);
   const miss = (v: string | undefined) => showMissing && !v?.trim();
@@ -148,17 +158,21 @@ function CheckoutInner() {
   async function validateGiftCard() {
     const trimmed = gcInput.trim().toUpperCase();
     if (!trimmed) return;
-    const res = await fetch(`/api/gift-cards/validate?code=${encodeURIComponent(trimmed)}`);
-    const data = await res.json();
-    if (res.ok && data.ok) {
-      setGiftCardCode(trimmed);
-      setGcStatus("valid");
-      setGiftCardAmountCents(data.remaining_cents);
-    } else {
-      setGiftCardCode("");
-      setGcStatus("invalid");
-      setGiftCardAmountCents(0);
+    try {
+      const res = await fetch(`/api/gift-cards/validate?code=${encodeURIComponent(trimmed)}`);
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setGiftCardCode(trimmed);
+        setGcStatus("valid");
+        setGiftCardAmountCents(data.remaining_cents);
+        return;
+      }
+    } catch {
+      // Network failure or a non-JSON error page: treat the code as not applied
     }
+    setGiftCardCode("");
+    setGcStatus("invalid");
+    setGiftCardAmountCents(0);
   }
 
   async function calculateShipping() {
@@ -253,7 +267,8 @@ function CheckoutInner() {
       });
       const data = await res.json();
       if (data.url) {
-        clearCart();
+        // Keep the cart until the payment goes through: cancelling on Stripe comes
+        // back to /cart, and the order-confirmed page empties it after paying
         window.location.href = data.url;
       } else {
         toast.error(typeof data.error === "string" ? data.error : "Something went wrong.");
@@ -271,7 +286,8 @@ function CheckoutInner() {
   const discountedTotal = totalCents - discountCents;
   const taxCents = Math.round(discountedTotal * 0.06625);
   const preTaxTotal = discountedTotal + taxCents + shippingCents;
-  const gcApplied = Math.min(giftCardAmountCents, preTaxTotal);
+  // The server's rule: Stripe is left $0 or at least 50 cents (lib/order-totals.ts)
+  const gcApplied = giftCardCents(Math.min(giftCardAmountCents, preTaxTotal), preTaxTotal);
   const finalTotal = preTaxTotal - gcApplied;
 
   if (items.length === 0) {

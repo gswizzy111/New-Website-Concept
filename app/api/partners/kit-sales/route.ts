@@ -1,54 +1,40 @@
-import { cookies } from "next/headers";
+import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getPartner } from "@/lib/partner-portal";
 
-const ALLOCATED_FIELD: Record<string, string> = {
-  kit:    "kits_allocated",
-  polish: "polish_allocated",
-  spray:  "spray_allocated",
-};
-
-async function getPartnerId() {
-  const jar = await cookies();
-  return jar.get("partner_session")?.value ?? null;
-}
+const Body = z.object({
+  quantity: z.number().int().min(1).max(10_000),
+  notes: z.string().max(1000).nullable().optional(),
+  product_type: z.enum(["kit", "polish", "spray"]).optional().default("kit"),
+});
 
 export async function POST(request: Request) {
-  const partnerId = await getPartnerId();
-  if (!partnerId) return Response.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { quantity, notes, product_type = "kit" } = await request.json();
-  if (!quantity || quantity < 1) return Response.json({ error: "Invalid quantity" }, { status: 400 });
-  if (!ALLOCATED_FIELD[product_type]) return Response.json({ error: "Invalid product type" }, { status: 400 });
-
-  const admin = createAdminClient();
-
-  const { data: partner } = await admin
-    .from("partners")
-    .select("id, kits_allocated, polish_allocated, spray_allocated")
-    .eq("id", partnerId)
-    .single();
+  const partner = await getPartner();
   if (!partner) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const allocated = (partner as Record<string, number>)[ALLOCATED_FIELD[product_type]] ?? 0;
+  const parsed = Body.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0];
+    const error = field === "product_type" ? "Invalid product type" : field === "notes" ? "Notes are too long." : "Invalid quantity";
+    return Response.json({ error }, { status: 400 });
+  }
+  const { quantity, notes, product_type } = parsed.data;
 
-  const { data: existingSales } = await admin
-    .from("partner_kit_sales")
-    .select("quantity")
-    .eq("partner_id", partnerId)
-    .eq("product_type", product_type);
-
-  const totalSold = (existingSales ?? []).reduce((s, r) => s + r.quantity, 0);
-  if (totalSold + quantity > allocated) {
+  // Checks the allocation and logs the sale in one step, with the partner's
+  // row locked, so two sales at once can't go over it
+  const { data: result, error } = await createAdminClient().rpc("partner_log_sale", {
+    p_partner_id: partner.id,
+    p_product_type: product_type,
+    p_quantity: quantity,
+    p_notes: notes?.trim() || null,
+  });
+  if (error) {
+    console.error("Logging a partner sale failed:", error.message);
+    return Response.json({ error: "Could not log the sale. Please try again." }, { status: 500 });
+  }
+  if (result === "over_allocation") {
     return Response.json({ error: `Cannot exceed allocated ${product_type} count` }, { status: 400 });
   }
-
-  const { error } = await admin.from("partner_kit_sales").insert({
-    partner_id: partnerId,
-    quantity,
-    notes: notes?.trim() || null,
-    product_type,
-  });
-
-  if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (result !== "ok") return Response.json({ error: "Unauthorized" }, { status: 401 });
   return Response.json({ ok: true });
 }

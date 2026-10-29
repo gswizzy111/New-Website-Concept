@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useCallback, useSyncExternalStore } from "react";
 import { AlertTriangle, ImageOff, X } from "lucide-react";
 import { toast } from "sonner";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
@@ -53,9 +53,18 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
+// The file's type, or a guess from its name when the browser gives none (many
+// desktops don't know HEIC). The bucket only takes uploads declared as images.
+function fileType(file: File): string {
+  if (file.type) return file.type;
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  return ext === "heic" ? "image/heic" : ext === "heif" ? "image/heif" : "";
+}
+
 async function uploadFile(file: File): Promise<string> {
   // Compress first; if compression produces a tiny result, upload directly.
   const compressed = await compressImage(file);
+  const contentType = fileType(compressed);
 
   // Try presigned direct-to-Supabase upload first (bypasses Netlify 6 MB body cap).
   // Fall back to regular server-side POST if presign fails.
@@ -63,13 +72,13 @@ async function uploadFile(file: File): Promise<string> {
     const presignRes = await fetch("/api/upload", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: compressed.name, contentType: compressed.type }),
+      body: JSON.stringify({ filename: compressed.name, contentType }),
     });
     if (presignRes.ok) {
       const { signedUrl, publicUrl } = await presignRes.json();
       const uploadRes = await fetch(signedUrl, {
         method: "PUT",
-        headers: { "Content-Type": compressed.type },
+        headers: { "Content-Type": contentType },
         body: compressed,
       });
       if (uploadRes.ok) return publicUrl as string;
@@ -91,16 +100,20 @@ async function uploadFile(file: File): Promise<string> {
   return data.url as string;
 }
 
+// The user agent never changes while the page is open
+const noSubscribe = () => () => {};
+
 export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: PhotoUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [isInAppBrowser, setIsInAppBrowser] = useState(false);
-
-  useEffect(() => {
-    setIsInAppBrowser(/Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok/i.test(navigator.userAgent));
-  }, []);
+  // In-app browsers (Instagram, Facebook...) often can't pick photos; false on the server
+  const isInAppBrowser = useSyncExternalStore(
+    noSubscribe,
+    () => /Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok/i.test(navigator.userAgent),
+    () => false,
+  );
 
   const processFiles = useCallback(async (rawFiles: File[]) => {
     setUploadError("");
@@ -191,7 +204,7 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
           tabIndex={0}
           aria-label="Upload photos"
           onClick={() => !uploading && inputRef.current?.click()}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); !uploading && inputRef.current?.click(); } }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!uploading) inputRef.current?.click(); } }}
           onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { stripe } from "@/lib/stripe";
+import { siteUrl } from "@/lib/site-url";
 
 const Schema = z.object({
   amount_cents: z.number().int().min(1000).max(100000),
@@ -18,7 +19,7 @@ export async function POST(req: Request) {
   }
 
   const data = parsed.data;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = siteUrl();
   const amountDollars = (data.amount_cents / 100).toFixed(2);
 
   const session = await stripe.checkout.sessions.create({
@@ -37,7 +38,9 @@ export async function POST(req: Request) {
         quantity: 1,
       },
     ],
-    success_url: `${appUrl}/gift-cards/success`,
+    // The success page reads the session for the Meta Purchase event; the
+    // page's first script takes the ID out of the address (lib/tracking-guard.ts)
+    success_url: `${appUrl}/gift-cards/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/gift-cards`,
     metadata: {
       type: "gift_card",

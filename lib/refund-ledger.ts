@@ -14,6 +14,9 @@ export type RefundKind = "restoration" | "prep" | "kit" | "kit_club" | "other" |
 type Link = { order_id: string | null; shop_order_id: string | null; card_id: string | null; kind: RefundKind; match_method: string };
 
 const SYNC_KEY = "refunds_synced_at";
+// When a sync last started, successful or not: the throttle counts from this, so a
+// refund that keeps failing doesn't make every page load run a full sync
+const ATTEMPT_KEY = "refunds_sync_attempted_at";
 // Each sync re-reads this far back: a refund can still fail up to 30 days after it
 // posts, and unchanged refunds are skipped, so the overlap costs only list pages
 const OVERLAP_SECONDS = 35 * 86_400;
@@ -118,17 +121,23 @@ export async function recordRefund(
 
 /** Save or update one Stripe refund, matching it to an order the first time. */
 export async function upsertStripeRefund(admin: SupabaseClient, r: Stripe.Refund, opts: StripeOpts = {}) {
-  const { data: existing } = await admin.from("refunds").select("kind").eq("stripe_refund_id", r.id).maybeSingle();
-  const link = existing && existing.kind !== "unmatched" ? {} : await matchRefund(admin, r, opts);
+  const { data: existing, error: readError } = await admin.from("refunds").select("kind").eq("stripe_refund_id", r.id).maybeSingle();
+  if (readError) throw new Error(`refund ${r.id}: ${readError.message}`);
+  // A known refund keeps its match (order, card, method); `kind` is sent again because an
+  // upsert is an INSERT first, and kind is NOT NULL (without it every update failed)
+  const link = existing && existing.kind !== "unmatched" ? { kind: existing.kind as RefundKind } : await matchRefund(admin, r, opts);
   const { error } = await admin.from("refunds").upsert({ ...ledgerRow(r), ...link }, { onConflict: "stripe_refund_id" });
   if (error) throw new Error(`refund ${r.id}: ${error.message}`);
 }
 
 /**
  * Bring the ledger up to date with Stripe: refunds created since the last
- * sync (with an overlap), and every refund still pending. At most once per
- * `minIntervalMs`; stops after `budgetMs` and finishes on a later call. Each
- * Stripe request gives up after `requestTimeoutMs`, without retries.
+ * sync (with an overlap), and every refund still pending. Starts at most once
+ * per `minIntervalMs`, counted from the last start whether or not it finished;
+ * stops after `budgetMs` and finishes on a later call. Each
+ * Stripe request gives up after `requestTimeoutMs`, without retries. A refund
+ * that can't be saved doesn't stop the others; the sync then throws at the end
+ * and doesn't move its start time, so the next run tries that refund again.
  */
 export async function syncRefunds(
   admin: SupabaseClient,
@@ -137,9 +146,28 @@ export async function syncRefunds(
   const opts: StripeOpts = { timeout: requestTimeoutMs, maxNetworkRetries: 0 };
   const overBudget = () => Date.now() - started > budgetMs;
   const started = Date.now();
-  const { data: state } = await admin.from("metrics_settings").select("value_ts").eq("key", SYNC_KEY).maybeSingle();
-  const last = state?.value_ts ? new Date(state.value_ts).getTime() : 0;
-  if (started - last < minIntervalMs) return { synced: 0, skipped: true };
+  const { data: state, error: stateError } = await admin.from("metrics_settings").select("key, value_ts").in("key", [SYNC_KEY, ATTEMPT_KEY]);
+  if (stateError) throw new Error(`sync state: ${stateError.message}`);
+  const at = (key: string) => {
+    const v = (state ?? []).find((s) => s.key === key)?.value_ts;
+    return v ? new Date(v).getTime() : 0;
+  };
+  const last = at(SYNC_KEY);
+  if (started - Math.max(last, at(ATTEMPT_KEY)) < minIntervalMs) return { synced: 0, skipped: true };
+  const { error: attemptError } = await admin.from("metrics_settings")
+    .upsert({ key: ATTEMPT_KEY, value_ts: new Date(started).toISOString(), updated_at: new Date().toISOString() });
+  if (attemptError) console.error("[refund ledger] could not save the sync start:", attemptError.message);
+
+  const failures: string[] = [];
+  const save = async (refundId: string, load: () => Promise<Stripe.Refund>) => {
+    try {
+      await upsertStripeRefund(admin, await load(), opts);
+      return true;
+    } catch (e) {
+      failures.push(e instanceof Error ? e.message : `refund ${refundId}: ${String(e)}`);
+      return false;
+    }
+  };
 
   // Without a previous sync, read the whole account's history
   const since = last ? Math.floor(last / 1000) - OVERLAP_SECONDS : 0;
@@ -154,8 +182,7 @@ export async function syncRefunds(
     for (const r of page.data) {
       if (seen.get(r.id) === r.status) continue;
       if (overBudget()) { complete = false; break; }
-      await upsertStripeRefund(admin, r, opts);
-      synced++;
+      if (await save(r.id, async () => r)) synced++;
     }
     if (!complete || !page.has_more) break;
     if (overBudget()) { complete = false; break; }
@@ -166,12 +193,15 @@ export async function syncRefunds(
       .in("status", ["pending", "requires_action"]).not("stripe_refund_id", "is", null);
     for (const row of open ?? []) {
       if (overBudget()) { complete = false; break; }
-      await upsertStripeRefund(admin, await stripe.refunds.retrieve(row.stripe_refund_id!, {}, opts), opts);
-      synced++;
+      if (await save(row.stripe_refund_id!, () => stripe.refunds.retrieve(row.stripe_refund_id!, {}, opts))) synced++;
     }
   }
+  if (failures.length) {
+    throw new Error(`${failures.length} refund${failures.length === 1 ? "" : "s"} not saved (${synced} saved): ${failures.slice(0, 3).join("; ")}`);
+  }
   if (complete) {
-    await admin.from("metrics_settings").upsert({ key: SYNC_KEY, value_ts: new Date(started).toISOString(), updated_at: new Date().toISOString() });
+    const { error } = await admin.from("metrics_settings").upsert({ key: SYNC_KEY, value_ts: new Date(started).toISOString(), updated_at: new Date().toISOString() });
+    if (error) console.error("[refund ledger] could not save the sync time:", error.message);
   }
   return { synced, skipped: false, complete };
 }

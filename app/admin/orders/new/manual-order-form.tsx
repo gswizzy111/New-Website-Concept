@@ -2,10 +2,13 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RESTORATION_TIERS, getAllTiers } from "@/lib/restoration-tiers";
-import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { getCardPriceCents } from "@/lib/restoration-tiers";
+import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 
-const TIERS = getAllTiers();
+/** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
+function newYorkToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 
 type TierOrCustom = RestorationTierId | "custom" | "";
 type CardRow = { id: string; name: string; tier: TierOrCustom };
@@ -14,9 +17,11 @@ function emptyCard(defaultTier: TierOrCustom): CardRow {
   return { id: crypto.randomUUID(), name: "", tier: defaultTier };
 }
 
-function tierPrice(tier: TierOrCustom): number | null {
+/** A tier's per-card price as the admin set it, priced as /api/admin/orders prices it (no declared value, so Diamond is $0). */
+function tierPrice(tiers: RestorationTier[], tier: TierOrCustom): number | null {
   if (!tier || tier === "custom") return null;
-  return RESTORATION_TIERS[tier as RestorationTierId].price_cents;
+  const t = tiers.find((x) => x.id === tier);
+  return t ? getCardPriceCents(t) : null;
 }
 
 function fmt(cents: number) {
@@ -111,7 +116,7 @@ Pikachu 1st Edition Base Set #58,`;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ManualOrderForm() {
+export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -133,7 +138,7 @@ export function ManualOrderForm() {
   const [zip, setZip] = useState("");
 
   // Order details
-  const [orderDate, setOrderDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [orderDate, setOrderDate] = useState(newYorkToday);
   const [defaultTier, setDefaultTier] = useState<TierOrCustom>("");
   const [customPricePerCard, setCustomPricePerCard] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -194,7 +199,7 @@ export function ManualOrderForm() {
   const customPriceCents = Math.round((parseFloat(customPricePerCard.replace(/[^0-9.]/g, "")) || 0) * 100);
 
   function cardPriceCents(card: CardRow): number {
-    const tp = tierPrice(card.tier);
+    const tp = tierPrice(tiers, card.tier);
     if (tp !== null) return tp;
     return customPriceCents;
   }
@@ -238,7 +243,7 @@ export function ManualOrderForm() {
           cards: filledCards.map((c) => ({
             card_name: c.name.trim(),
             tier: (c.tier && c.tier !== "custom") ? c.tier : undefined,
-            price_per_card_cents: (tierPrice(c.tier) === null && customPriceCents > 0) ? customPriceCents : undefined,
+            price_per_card_cents: (tierPrice(tiers, c.tier) === null && customPriceCents > 0) ? customPriceCents : undefined,
           })),
         }),
       });
@@ -391,7 +396,7 @@ export function ManualOrderForm() {
         <h2 className="font-heading font-black text-base text-foreground">Order Date</h2>
         <div>
           <label className={label}>Date Taken <span className="text-muted-foreground font-normal">(for backdating)</span></label>
-          <input className={input} type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} max={new Date().toISOString().split("T")[0]} />
+          <input className={input} type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} max={newYorkToday()} />
         </div>
       </div>
 
@@ -402,9 +407,9 @@ export function ManualOrderForm() {
           <label className={label}>Apply to all cards</label>
           <select className={select} value={defaultTier} onChange={(e) => applyTierToAll(e.target.value as TierOrCustom)}>
             <option value="">— No Tier / Custom Price —</option>
-            {TIERS.map((t) => (
+            {tiers.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name} — {fmt(t.price_cents)}/card
+                {t.name} — {fmt(getCardPriceCents(t))}/card
               </option>
             ))}
             <option value="custom">Custom Price</option>
@@ -521,9 +526,9 @@ export function ManualOrderForm() {
                   onChange={(e) => updateCardTier(card.id, e.target.value as TierOrCustom)}
                 >
                   <option value="">— Inherit from order —</option>
-                  {TIERS.map((t) => (
+                  {tiers.map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name} — {fmt(t.price_cents)}
+                      {t.name} — {fmt(getCardPriceCents(t))}
                     </option>
                   ))}
                   <option value="custom">Custom</option>
@@ -541,7 +546,7 @@ export function ManualOrderForm() {
             <span className="text-sm text-muted-foreground">
               {filledCards.length} card{filledCards.length !== 1 ? "s" : ""}
               {allSameTier && filledCards[0].tier && filledCards[0].tier !== "custom" && (
-                <span className="ml-1 text-xs">({RESTORATION_TIERS[filledCards[0].tier as RestorationTierId]?.name})</span>
+                <span className="ml-1 text-xs">({tiers.find((t) => t.id === filledCards[0].tier)?.name})</span>
               )}
             </span>
             <span className="text-xl font-black text-foreground">{totalCents > 0 ? fmt(totalCents) : "—"}</span>

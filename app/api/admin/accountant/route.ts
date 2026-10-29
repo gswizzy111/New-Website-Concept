@@ -2,7 +2,9 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateToken } from "@/lib/crypto";
 import { resend, fromEmail, businessName } from "@/lib/resend";
+import { escapeHtml } from "@/lib/card-inquiries";
 import { z } from "zod";
+import { siteUrl } from "@/lib/site-url";
 
 const InviteBody = z.object({
   name: z.string().min(1),
@@ -32,18 +34,18 @@ export async function POST(request: Request) {
     return Response.json({ error: "Failed to create invite." }, { status: 500 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   const setupUrl = `${appUrl}/accountant/setup?token=${token}`;
 
   try {
-    await resend.emails.send({
+    const { error: sendError } = await resend.emails.send({
       from: fromEmail,
       to: email,
       subject: `You've been invited to access The Card Doc admin — ${businessName}`,
       html: `
         <div style="font-family:Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#111">
           <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">You've been invited</h1>
-          <p>Hi ${name.split(" ")[0]}, you've been granted accountant access to The Card Doc admin dashboard.</p>
+          <p>Hi ${escapeHtml(name.split(" ")[0])}, you've been granted accountant access to The Card Doc admin dashboard.</p>
           <p style="color:#555;font-size:14px">You'll be able to view tax reports, P&L, statements, and orders — but won't be able to make any changes.</p>
           <div style="margin:28px 0">
             <a href="${setupUrl}" style="display:inline-block;background:#a23200;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">
@@ -55,6 +57,8 @@ export async function POST(request: Request) {
         </div>
       `,
     });
+    // Resend reports a refused email in `error` (it doesn't throw)
+    if (sendError) throw new Error(sendError.message);
   } catch (err) {
     console.error("Failed to send accountant invite email:", err);
     return Response.json({ error: "Invite created but email failed to send. Check server logs." }, { status: 500 });

@@ -1,9 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { addressFromSession } from "@/lib/shipping-address";
-import { stripe } from "@/lib/stripe";
 import { shippo } from "@/lib/shippo";
 import { formatCurrency } from "@/lib/utils";
-import Stripe from "stripe";
+import { fetchAll } from "@/lib/fetch-all";
 import Link from "next/link";
 import { ReturnLabelButton } from "./return-label-button";
 import { InternationalLabelButton } from "./international-label-button";
@@ -17,6 +15,7 @@ import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { SyncKitOrdersButton } from "./sync-kit-orders-button";
 import { SyncShopDeliveredButton } from "./sync-shop-delivered-button";
 import { requireAdmin } from "@/lib/admin-auth";
+import { trackingCarrier } from "@/lib/tracking-carrier";
 
 export const dynamic = "force-dynamic";
 
@@ -43,78 +42,6 @@ type ShippingAddress = {
   zip: string;
   country: string;
 };
-
-function detectCarrier(trackingNumber: string): string {
-  if (/^1Z/i.test(trackingNumber)) return "ups";
-  if (/^\d{12}$|^\d{15}$/.test(trackingNumber)) return "fedex";
-  return "usps";
-}
-
-// Fast auto-sync: only checks the 15 most recent Stripe sessions (single API call).
-async function syncRecentFromStripe() {
-  const admin = createAdminClient();
-
-  const sessions = await stripe.checkout.sessions.list({ limit: 15, status: "complete" });
-  const shopSessions = sessions.data.filter((s) => s.metadata?.type === "shop");
-  if (shopSessions.length === 0) return;
-
-  const { data: existing } = await admin
-    .from("shop_orders")
-    .select("stripe_session_id")
-    .in("stripe_session_id", shopSessions.map((s) => s.id));
-  const existingIds = new Set((existing ?? []).map((o) => o.stripe_session_id));
-
-  const newSessions = shopSessions.filter((s) => !existingIds.has(s.id));
-  if (newSessions.length === 0) return;
-
-  const productIds = [...new Set(newSessions.flatMap((s) => {
-    const items: { id: string }[] = JSON.parse(s.metadata?.items ?? "[]");
-    return items.map((i) => i.id).filter(Boolean);
-  }))];
-  const { data: products } = productIds.length > 0
-    ? await admin.from("products").select("id, name, price_cents").in("id", productIds)
-    : { data: [] };
-  const productMap = Object.fromEntries((products ?? []).map((p) => [p.id, p]));
-
-  const toInsert = newSessions.map((session) => {
-    const items: { id: string; qty: number }[] = JSON.parse(session.metadata?.items ?? "[]");
-    const itemsForDb = items.map((i) => ({
-      product_id: i.id,
-      product_name: productMap[i.id]?.name ?? "Unknown product",
-      quantity: i.qty,
-      price_cents: productMap[i.id]?.price_cents ?? 0,
-    }));
-
-    const typedSession = session as Stripe.Checkout.Session;
-    // The address checked in the cart (older orders: the one Stripe collected)
-    const shippingAddress = addressFromSession(typedSession);
-
-    const isInternational = session.metadata?.is_international === "true";
-
-    const totalCents = session.amount_total ?? 0;
-    const shippingCents = isInternational
-      ? (totalCents - (session.amount_subtotal ?? totalCents - 599))
-      : 599;
-
-    return {
-      stripe_session_id: session.id,
-      customer_name: session.metadata?.customer_name ?? session.customer_details?.name ?? "",
-      customer_email: session.customer_email ?? session.customer_details?.email ?? "",
-      customer_phone: session.metadata?.customer_phone ?? "",
-      shipping_address: shippingAddress,
-      items: itemsForDb,
-      subtotal_cents: Math.max(0, totalCents - shippingCents),
-      shipping_cents: shippingCents,
-      total_cents: totalCents,
-      status: "paid",
-      affiliate_code: session.metadata?.affiliate_code || null,
-    };
-  });
-
-  if (toInsert.length > 0) {
-    await admin.from("shop_orders").insert(toInsert);
-  }
-}
 
 function OrderCard({ order }: { order: Record<string, any> }) {
   const address = order.shipping_address as ShippingAddress | null;
@@ -244,7 +171,9 @@ export default async function ShopOrdersPage({
   const activeTab = tab === "not-scanned" ? "not-scanned" : "all";
 
   const admin = createAdminClient();
-  await syncRecentFromStripe();
+  // No sync from Stripe here: the Stripe webhook creates kit orders (and buys the
+  // label, takes stock and gift-card balance, sends the emails); a row made here
+  // first would make it skip all of that. "Sync All Orders" fills in older gaps.
   const revenueSeries = activeTab === "all"
     ? await syncRefundsQuietly(admin).then(() => getRevenueSeries(admin)).catch((e) => {
         console.error("[kit orders] revenue_series:", e);
@@ -252,10 +181,20 @@ export default async function ShopOrdersPage({
       })
     : null;
 
-  const { data: orders } = await admin
-    .from("shop_orders")
-    .select("*")
-    .order("created_at", { ascending: false });
+  // Every kit order, in pages (the API returns at most 1,000 rows per request)
+  const { orders, loadError } = await fetchAll((from, to) =>
+    admin
+      .from("shop_orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, to))
+    .then((rows) => ({ orders: rows, loadError: null }))
+    .catch((e: unknown) => {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error("[kit orders] list:", message);
+      return { orders: null, loadError: message };
+    });
 
   // For "not-scanned" tab: check Shippo tracking on recently-shipped orders
   type NotScannedRow = { order: Record<string, any>; daysSince: number; labelCreatedAt: string | null };
@@ -278,7 +217,12 @@ export default async function ShopOrdersPage({
       toCheck.map(async (order) => {
         const tracking = order.tracking_number ??
           (Array.isArray(order.labels) ? order.labels[0]?.trackingNumber : null);
-        const carrier = detectCarrier(tracking ?? "");
+        // The carrier saved with this number's label, else the one saved with the
+        // order (tracking entered by hand), else told from the number
+        const label = Array.isArray(order.labels)
+          ? order.labels.find((l: { trackingNumber?: string | null }) => l?.trackingNumber && l.trackingNumber === tracking)
+          : null;
+        const carrier = trackingCarrier(tracking ?? "", label?.carrier ?? order.carrier ?? null).token;
         try {
           const track = await shippo.trackingStatus.get(tracking, carrier);
           const status = track.trackingStatus?.status ?? "UNKNOWN";
@@ -344,12 +288,18 @@ export default async function ShopOrdersPage({
           ))}
         </div>
 
+        {loadError && (
+          <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Kit orders could not be loaded: {loadError}. Reload the page to try again.
+          </div>
+        )}
+
         {activeTab === "all" && (
           <>
             <div className="mb-8">
               {revenueSeries && <RevenueChart series={revenueSeries} label="Kit Sales" kitsOnly />}
             </div>
-            {(!orders || orders.length === 0) && (
+            {orders && orders.length === 0 && (
               <div className="bg-white rounded-xl border border-border p-12 text-center text-muted-foreground">
                 No kit orders found.
               </div>

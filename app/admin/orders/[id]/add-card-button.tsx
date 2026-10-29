@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { uploadPhotos } from "./upload-photos";
 
 export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTier?: string | null }) {
   const router = useRouter();
@@ -27,17 +28,15 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
     setUploading(true);
-    const uploaded: string[] = [];
-    for (const file of files) {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (data.url) uploaded.push(data.url);
+    setError("");
+    try {
+      const { urls: uploaded, error: uploadError } = await uploadPhotos(files);
+      setPhotos((prev) => [...prev, ...uploaded]);
+      if (uploadError) setError(uploadError);
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    setPhotos((prev) => [...prev, ...uploaded]);
-    setUploading(false);
-    if (fileRef.current) fileRef.current.value = "";
   }
 
   async function handleSave() {
@@ -58,9 +57,10 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
           tier: orderTier ?? null,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? "Failed to add card."); setSaving(false); return; }
       reset();
+      setSaving(false);
       setOpen(false);
       router.refresh();
     } catch {

@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { headers } from "next/headers";
 import { ComposeForm } from "./compose-form";
+import { loadBlastContacts, type SkipReason } from "./contacts";
+import { latestUnfinishedBlast, type UnfinishedBlast } from "./blasts";
 import { ResendConfirmationsButton } from "@/app/admin/resend-confirmations-button";
 import { isAdmin } from "@/lib/admin-auth";
+import { marketingSendProblem, requestHosts } from "@/lib/email-unsubscribe";
 
 export const dynamic = "force-dynamic";
 
@@ -22,59 +25,32 @@ const SOURCE_COLORS: Record<string, string> = {
   "Restoration Waitlist": "bg-amber-100 text-amber-700",
 };
 
+const SKIP_LABELS: Record<SkipReason, string> = {
+  unsubscribed: "Unsubscribed",
+  undeliverable: "Bounced, blocked or marked as spam",
+  invalid: "Not a valid address",
+};
+
 export default async function EmailBlastPage() {
   if (!(await isAdmin())) redirect("/admin/login");
 
-  const admin = createAdminClient();
+  const { contacts: all, listError } = await loadBlastContacts({ strict: false });
+  const contacts = all.sort((a, b) => new Date(b.since).getTime() - new Date(a.since).getTime());
+  const sendable = contacts.filter((c) => !c.skip).length;
+  const skipped = contacts.length - sendable;
 
-  const [{ data: restorationOrders }, { data: shopOrders }, { data: waitlistRows }, { data: rlWaitlist }] =
-    await Promise.all([
-      admin.from("orders").select("customer_name, customer_email, created_at").neq("status", "awaiting_payment"),
-      admin.from("shop_orders").select("customer_name, customer_email, created_at"),
-      admin.from("waitlist").select("email, created_at"),
-      admin.from("restoration_waitlist").select("name, email, created_at"),
-    ]);
-
-  type ContactEntry = { name: string; email: string; source: string; since: string };
-  const map = new Map<string, ContactEntry>();
-
-  for (const o of restorationOrders ?? []) {
-    const e = (o.customer_email ?? "").toLowerCase().trim();
-    if (!e) continue;
-    const ex = map.get(e);
-    if (ex) {
-      if (ex.source === "Kit Order") ex.source = "Both";
-    } else {
-      map.set(e, { name: o.customer_name ?? "", email: e, source: "Restoration", since: o.created_at });
-    }
+  // A send that stopped part way (a closed tab, a lost connection) is picked
+  // up here, so it can continue instead of starting over
+  let unfinished: UnfinishedBlast | null = null;
+  let blastError: string | null = null;
+  try {
+    unfinished = await latestUnfinishedBlast();
+  } catch (err) {
+    blastError = err instanceof Error ? err.message : String(err);
+    console.error("Email blast: past sends unreadable:", blastError);
   }
-
-  for (const o of shopOrders ?? []) {
-    const e = (o.customer_email ?? "").toLowerCase().trim();
-    if (!e) continue;
-    const ex = map.get(e);
-    if (ex) {
-      if (ex.source === "Restoration") ex.source = "Both";
-    } else {
-      map.set(e, { name: o.customer_name ?? "", email: e, source: "Kit Order", since: o.created_at });
-    }
-  }
-
-  for (const w of waitlistRows ?? []) {
-    const e = (w.email ?? "").toLowerCase().trim();
-    if (!e || map.has(e)) continue;
-    map.set(e, { name: "", email: e, source: "Waitlist", since: w.created_at });
-  }
-
-  for (const w of rlWaitlist ?? []) {
-    const e = (w.email ?? "").toLowerCase().trim();
-    if (!e || map.has(e)) continue;
-    map.set(e, { name: w.name ?? "", email: e, source: "Restoration Waitlist", since: w.created_at });
-  }
-
-  const contacts = Array.from(map.values()).sort(
-    (a, b) => new Date(b.since).getTime() - new Date(a.since).getTime()
-  );
+  // A postal address and unsubscribe links that reach this site
+  const sendProblem = marketingSendProblem(requestHosts(await headers()));
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -85,6 +61,24 @@ export default async function EmailBlastPage() {
           <p className="text-muted-foreground text-sm mt-1">
             {contacts.length} unique contacts across restoration orders, kit orders, and waitlists
           </p>
+          {skipped > 0 && (
+            <p className="text-muted-foreground text-sm mt-1">
+              {skipped} skipped: unsubscribed, bounced, blocked or marked as spam, or not a valid address
+            </p>
+          )}
+          {listError && (
+            <p className="text-sm text-red-600 font-medium mt-2">
+              Couldn&apos;t read the unsubscribe and bounce lists, so sending is off until they load: {listError}
+            </p>
+          )}
+          {blastError && (
+            <p className="text-sm text-red-600 font-medium mt-2">
+              Couldn&apos;t read past sends, so sending is off until they load: {blastError}
+            </p>
+          )}
+          {sendProblem && (
+            <p className="text-sm text-red-600 font-medium mt-2">Sending is off. {sendProblem}</p>
+          )}
         </div>
 
         {/* Resend confirmation emails */}
@@ -107,7 +101,7 @@ export default async function EmailBlastPage() {
 
           {/* Compose panel */}
           <div className="order-2 lg:order-1">
-            <ComposeForm totalEmails={contacts.length} />
+            <ComposeForm totalEmails={sendable} blocked={!!(listError || blastError || sendProblem)} unfinished={unfinished} />
           </div>
 
           {/* Contact list */}
@@ -129,6 +123,9 @@ export default async function EmailBlastPage() {
                           <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
                         )}
                         <p className="text-sm text-muted-foreground truncate">{c.email}</p>
+                        {c.skip && (
+                          <p className="text-xs text-red-600 font-medium">{SKIP_LABELS[c.skip]}: not sent</p>
+                        )}
                       </div>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${SOURCE_COLORS[c.source] ?? "bg-gray-100 text-gray-500"}`}>
                         {SOURCE_LABELS[c.source] ?? c.source}

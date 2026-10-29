@@ -2,49 +2,61 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { uploadPhotos } from "./upload-photos";
 
 export function PhotoUploader({ orderId, existingPhotos }: { orderId: string; existingPhotos: string[] }) {
   const [photos, setPhotos] = useState<string[]>(existingPhotos);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  /** Save the order's photo list; true when the server kept it. */
+  async function savePhotos(newPhotos: string[]): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/photos`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: newPhotos }),
+      });
+      if (res.ok) return true;
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "The photos weren't saved. Try again.");
+    } catch {
+      setError("Network error. The photos weren't saved.");
+    }
+    return false;
+  }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
     setUploading(true);
+    setError("");
 
-    const uploaded: string[] = [];
-    for (const file of files) {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (data.url) uploaded.push(data.url);
+    try {
+      const { urls: uploaded, error: uploadError } = await uploadPhotos(files);
+      if (uploaded.length) {
+        const newPhotos = [...photos, ...uploaded];
+        if (await savePhotos(newPhotos)) {
+          setPhotos(newPhotos);
+          router.refresh();
+        }
+      }
+      if (uploadError) setError(uploadError);
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
     }
-
-    const newPhotos = [...photos, ...uploaded];
-    await fetch(`/api/admin/orders/${orderId}/photos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photos: newPhotos }),
-    });
-
-    setPhotos(newPhotos);
-    setUploading(false);
-    router.refresh();
-    if (inputRef.current) inputRef.current.value = "";
   }
 
   async function removePhoto(url: string) {
+    setError("");
     const newPhotos = photos.filter((p) => p !== url);
-    await fetch(`/api/admin/orders/${orderId}/photos`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photos: newPhotos }),
-    });
-    setPhotos(newPhotos);
-    router.refresh();
+    if (await savePhotos(newPhotos)) {
+      setPhotos(newPhotos);
+      router.refresh();
+    }
   }
 
   return (
@@ -82,6 +94,7 @@ export function PhotoUploader({ orderId, existingPhotos }: { orderId: string; ex
         >
           {uploading ? "Uploading..." : "+ Upload Photos"}
         </label>
+        {error && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{error}</p>}
       </div>
     </div>
   );

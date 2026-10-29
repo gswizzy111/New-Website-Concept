@@ -1,6 +1,7 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail } from "@/lib/resend";
 import { escapeHtml } from "@/lib/card-inquiries";
+import { siteUrl } from "@/lib/site-url";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -37,9 +38,9 @@ export async function saveProblemReport(admin: Admin, r: {
     return "We couldn't send your report. Please email thecarddoc1@gmail.com instead.";
   }
   const to = process.env.ADMIN_NOTIFY_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL ?? "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   if (to) {
-    await resend.emails.send({
+    const { error: sendError } = await resend.emails.send({
       from: fromEmail,
       to,
       replyTo: r.customerEmail,
@@ -50,7 +51,9 @@ export async function saveProblemReport(admin: Admin, r: {
         ${r.photoUrls.length ? `<p>${r.photoUrls.map((u, i) => `<a href="${escapeHtml(u)}">Photo ${i + 1}</a>`).join(" · ")}</p>` : "<p>No photos attached.</p>"}
         <p><a href="${appUrl}/admin/cases/${data.id}" style="color:#a23200;font-weight:700">Open the case →</a></p>
       </div>`,
-    }).catch((err) => console.error("Problem report email failed:", err));
+    }).catch((err: unknown) => ({ error: err }));
+    // The report is saved as a case either way; the email is only a heads-up
+    if (sendError) console.error("Problem report email failed:", sendError);
   }
   return null;
 }

@@ -9,6 +9,8 @@ type Service = { id: string; service_name: string; price_cents: number; quantity
 
 interface Props {
   orderId: string;
+  /** Paid through Stripe: totals and service lines stay as charged (refunds change money) */
+  paidThroughStripe: boolean;
   totalCents: number;
   dueDate: string | null;
   customerNotes: string | null;
@@ -18,14 +20,14 @@ interface Props {
 
 type CardRow = { id: string; name: string; isNew?: boolean };
 
-export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards, services }: Props) {
+export function OrderEditor({ orderId, paidThroughStripe, totalCents, dueDate, customerNotes, cards, services }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // Derive initial price per card from first service
-  const firstService = services[0];
+  // Derive initial price per card from a manual order's single price line
+  const firstService = services.length === 1 ? services[0] : undefined;
   const initialPricePerCard = firstService && cards.length > 0
     ? firstService.price_cents
     : Math.round(totalCents / Math.max(cards.length, 1));
@@ -51,12 +53,14 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
 
   const filledCards = cardRows.filter((r) => r.name.trim());
   const pricePerCardCents = Math.round((parseFloat(pricePerCard.replace(/[^0-9.]/g, "")) || 0) * 100);
-  const newTotal = pricePerCardCents * filledCards.length;
+  // Reprice only a manual order, and only when its price or card count changes
+  const reprice = !paidThroughStripe && (pricePerCardCents !== initialPricePerCard || filledCards.length !== cards.length);
+  const newTotal = reprice ? pricePerCardCents * filledCards.length : totalCents;
 
   async function handleSave() {
     setError("");
     if (filledCards.length === 0) { setError("Need at least one card."); return; }
-    if (pricePerCardCents <= 0) { setError("Enter a valid price."); return; }
+    if (reprice && pricePerCardCents <= 0) { setError("Enter a valid price."); return; }
 
     setSaving(true);
     try {
@@ -64,14 +68,15 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          price_per_card_cents: pricePerCardCents,
+          ...(reprice ? { price_per_card_cents: pricePerCardCents } : {}),
           due_date: due || null,
           notes: notes || null,
           cards: filledCards.map((r) => ({ id: r.isNew ? null : r.id, name: r.name.trim() })),
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? "Failed to save."); setSaving(false); return; }
+      setSaving(false);
       setOpen(false);
       router.refresh();
     } catch {
@@ -80,12 +85,22 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
     }
   }
 
-  function handleCancel() {
+  // Start from the saved order each time (after a save, the refreshed props hold the new cards' real IDs)
+  function resetFromProps() {
     setCardRows(cards.map((c) => ({ id: c.id, name: c.card_name })));
     setPricePerCard((initialPricePerCard / 100).toFixed(2));
     setDue(dueDate ?? "");
     setNotes(customerNotes ?? "");
     setError("");
+  }
+
+  function handleOpen() {
+    resetFromProps();
+    setOpen(true);
+  }
+
+  function handleCancel() {
+    resetFromProps();
     setOpen(false);
   }
 
@@ -94,7 +109,7 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
   if (!open) {
     return (
       <button
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
       >
         Edit Order
@@ -124,8 +139,8 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
               onChange={(e) => updateRow(row.id, e.target.value)}
               placeholder="Card name"
             />
-            {cardRows.length > 1 && (
-              <button type="button" onClick={() => removeRow(row.id)} className="text-red-400 hover:text-red-600 text-lg leading-none shrink-0">×</button>
+            {cardRows.length > 1 && (!paidThroughStripe || row.isNew) && (
+              <button type="button" onClick={() => removeRow(row.id)} aria-label="Remove card" className="text-red-400 hover:text-red-600 text-lg leading-none shrink-0">×</button>
             )}
           </div>
         ))}
@@ -133,6 +148,9 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
 
       {/* Price + Due date */}
       <div className="grid grid-cols-2 gap-3">
+        {paidThroughStripe ? (
+          <p className="text-xs text-muted-foreground self-end">Paid through Stripe, so the price and total stay as charged. Use Refund to give money back.</p>
+        ) : (
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Price per Card</label>
           <div className="relative">
@@ -147,6 +165,7 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
             />
           </div>
         </div>
+        )}
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-1.5">Due Date</label>
           <input className={inputCn} type="date" value={due} onChange={(e) => setDue(e.target.value)} />
@@ -166,6 +185,7 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
       </div>
 
       {/* New total preview */}
+      {!paidThroughStripe && (
       <div className="flex items-center justify-between text-sm border-t border-amber-200 pt-3">
         <span className="text-muted-foreground">
           {filledCards.length} card{filledCards.length !== 1 ? "s" : ""}
@@ -178,6 +198,7 @@ export function OrderEditor({ orderId, totalCents, dueDate, customerNotes, cards
           <span className="font-black text-lg text-foreground">{formatCurrency(newTotal)}</span>
         </div>
       </div>
+      )}
 
       {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
 

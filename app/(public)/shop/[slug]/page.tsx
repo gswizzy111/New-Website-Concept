@@ -3,9 +3,10 @@ import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { AddToCartButtonLarge } from "./add-to-cart-button-large";
-import { Info, RefreshCw, Star } from "lucide-react";
+import { Info, RefreshCw } from "lucide-react";
 import { isSoldOut } from "@/lib/site-config";
 import { PixelViewContent } from "@/components/pixel-view-content";
+import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 export const dynamic = "force-dynamic";
 
@@ -32,36 +33,21 @@ function DescriptionBlock({ text }: { text: string }) {
   return <p className="text-muted-foreground leading-relaxed text-sm">{text}</p>;
 }
 
-const RATINGS: { keywords: string[]; stars: number; count: number }[] = [
-  { keywords: ["official"],   stars: 4.97, count: 89 },
-  { keywords: ["essential"],  stars: 4.8,  count: 24 },
-  { keywords: ["starter"],    stars: 4.7,  count: 51 },
-  { keywords: ["clamp"],      stars: 4.9,  count: 17 },
-  { keywords: ["wrinkle"],    stars: 4.85, count: 9  },
-  { keywords: ["tools"],      stars: 4.75, count: 13 },
-  { keywords: ["polish"],     stars: 4.8,  count: 22 },
-  { keywords: ["spray"],      stars: 4.9,  count: 16 },
-];
-
-function getRating(name: string) {
-  const lower = name.toLowerCase();
-  return RATINGS.find((r) => r.keywords.some((k) => lower.includes(k)));
-}
-
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const admin = createAdminClient();
 
-  const { data: product } = await admin
-    .from("products")
-    .select("*")
-    .eq("slug", slug)
-    .eq("active", true)
-    .single();
+  const [{ data: product }, subscriptionPriceCents] = await Promise.all([
+    admin
+      .from("products")
+      .select("*")
+      .eq("slug", slug)
+      .eq("active", true)
+      .single(),
+    getSubscriptionPriceCents(),
+  ]);
 
   if (!product) notFound();
-
-  const rating = getRating(product.name);
 
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-10 py-10 md:py-14">
@@ -99,18 +85,6 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             </p>
             <h1 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.015em] text-ink mb-3">{product.name}</h1>
 
-            {rating && (
-              <div className="flex items-center gap-2 mb-3">
-                <span className="flex gap-0.5" aria-label="5 star rating">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-amber-500 text-amber-500" strokeWidth={1.5} />
-                  ))}
-                </span>
-                <span className="text-sm font-semibold text-foreground">{rating.stars}</span>
-                <span className="text-sm text-muted-foreground">({rating.count} reviews)</span>
-              </div>
-            )}
-
             <p className="font-heading text-3xl font-bold tracking-[-0.01em] text-ink tabular-nums">{formatCurrency(product.price_cents)}</p>
           </div>
 
@@ -146,7 +120,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                 className="w-full flex items-center justify-center gap-2 h-13 font-semibold text-sm tracking-wide border border-ink/70 text-ink hover:border-rx hover:text-rx active:scale-[0.98] transition-all duration-150 rounded-md"
               >
                 <RefreshCw className="h-4 w-4" />
-                Subscribe — $62.99/mo · Save every month
+                Subscribe — {formatCurrency(subscriptionPriceCents)}/mo · Save every month
               </Link>
             )}
 

@@ -1,6 +1,5 @@
 import { Nav } from "@/components/marketing/nav";
 import { Footer } from "@/components/marketing/footer";
-import { CountdownTicker } from "@/components/marketing/countdown-ticker";
 import { RestorationBubble } from "@/components/marketing/restoration-bubble";
 import { CartProvider } from "@/lib/cart-context";
 import { PreviewBanner } from "@/components/marketing/preview-banner";
@@ -13,7 +12,6 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <div className="nav-shell vt-header sticky top-0 z-50">
         <PreviewBanner />
         <Nav />
-        <CountdownTicker />
       </div>
       <main className="flex-1">{children}</main>
       <Footer />

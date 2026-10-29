@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, Check, Hammer, Mailbox, Package, X } from "lucide-react";
+import { Camera, Check, Hammer, Mailbox, Package, Trophy, X } from "lucide-react";
 import { SigningSection, emptySigning, signingReady, slabSigned, submittedSigning, type SigningState, type SlabCard } from "@/components/checkout/signing-section";
 import { SlabAuthorizationDialog } from "@/components/checkout/slab-authorization-dialog";
 import { Need, Req, revealMissing } from "@/components/checkout/required";
@@ -12,6 +12,8 @@ import { useState, useCallback } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
+import { US_STATES } from "@/lib/constants";
+import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
 
 type CardRow = CardIdentity & {
   id: string;
@@ -31,62 +33,8 @@ type ShippingRate = {
   duration_terms: string | null;
 };
 
-const US_STATES = [
-  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
-  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
-  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
-  "VA","WA","WV","WI","WY","DC",
-];
-
-const COUNTRIES = [
-  { code: "US", name: "United States" },
-  { code: "CA", name: "Canada" },
-  { code: "GB", name: "United Kingdom" },
-  { code: "AU", name: "Australia" },
-  { code: "JP", name: "Japan" },
-  { code: "SG", name: "Singapore" },
-  { code: "DE", name: "Germany" },
-  { code: "FR", name: "France" },
-  { code: "NL", name: "Netherlands" },
-  { code: "IT", name: "Italy" },
-  { code: "ES", name: "Spain" },
-  { code: "PT", name: "Portugal" },
-  { code: "SE", name: "Sweden" },
-  { code: "NO", name: "Norway" },
-  { code: "DK", name: "Denmark" },
-  { code: "FI", name: "Finland" },
-  { code: "CH", name: "Switzerland" },
-  { code: "AT", name: "Austria" },
-  { code: "BE", name: "Belgium" },
-  { code: "NZ", name: "New Zealand" },
-  { code: "MX", name: "Mexico" },
-  { code: "BR", name: "Brazil" },
-  { code: "AR", name: "Argentina" },
-  { code: "CL", name: "Chile" },
-  { code: "CO", name: "Colombia" },
-  { code: "KR", name: "South Korea" },
-  { code: "TW", name: "Taiwan" },
-  { code: "HK", name: "Hong Kong" },
-  { code: "CN", name: "China" },
-  { code: "IN", name: "India" },
-  { code: "PH", name: "Philippines" },
-  { code: "MY", name: "Malaysia" },
-  { code: "TH", name: "Thailand" },
-  { code: "ID", name: "Indonesia" },
-  { code: "VN", name: "Vietnam" },
-  { code: "ZA", name: "South Africa" },
-  { code: "AE", name: "United Arab Emirates" },
-  { code: "SA", name: "Saudi Arabia" },
-  { code: "IL", name: "Israel" },
-  { code: "PL", name: "Poland" },
-  { code: "CZ", name: "Czech Republic" },
-  { code: "HU", name: "Hungary" },
-  { code: "RO", name: "Romania" },
-  { code: "GR", name: "Greece" },
-  { code: "TR", name: "Turkey" },
-  { code: "IE", name: "Ireland" },
-  { code: "HR", name: "Croatia" },
-];
+// Prep ships within the United States and Puerto Rico only (as restoration does)
+const COUNTRY = "US";
 
 const HIGH_VALUE_THRESHOLD_CENTS = 150000; // $1,500
 const NJ_TAX_RATE = 0.06625;
@@ -142,7 +90,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   // Shipping
   const [shippingMethod, setShippingMethod] = useState<"buy_label" | "self_ship">("buy_label");
-  const [country, setCountry] = useState("US");
   const [street1, setStreet1] = useState("");
   const [street2, setStreet2] = useState("");
   const [city, setCity] = useState("");
@@ -175,8 +122,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   const [notes, setNotes] = useState("");
   const [socialHandle, setSocialHandle] = useState("");
-
-  const isInternational = country !== "US";
 
   function resetAddress() {
     setSelectedRate(null);
@@ -229,23 +174,25 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const preGradeSubtotal = addPreGrade ? filledCards.length * preGradePriceCents : 0;
   const slabCrackSubtotal = slabCrackCount * slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
-  // No NJ tax for international orders
-  const taxCents = isInternational ? 0 : Math.round(serviceSubtotal * NJ_TAX_RATE);
+  // Bulk pricing, as the checkout charges it: 10+ cards 10% off, 20+ 15% off
+  // the per-card prep price of cards under $1,500 (every card counts toward
+  // the 10 or 20; not the add-ons or shipping), taxed after the discount
+  const bulkPercent = bulkDiscountPercent(filledCards.length);
+  const bulkExcluded = filledCards.some((c) => cardValueCents(c) >= HIGH_VALUE_THRESHOLD_CENTS);
+  const bulkDiscountCents = bulkDiscountCentsOf(filledCards.filter((c) => cardValueCents(c) < HIGH_VALUE_THRESHOLD_CENTS).length * standardPriceCents, bulkPercent);
+  const taxCents = Math.round((serviceSubtotal - bulkDiscountCents) * NJ_TAX_RATE);
   // The prepaid label pays the rate twice (to us and back); shipping your own
   // way pays it once, for the trip back to you
   const shippingTrips = shippingMethod === "buy_label" ? 2 : 1;
   const shippingCents = (selectedRate?.amount_cents ?? 0) * shippingTrips;
   const insuranceDeclaredValueCents = addInsurance ? Math.round((parseFloat(insuranceValueDollars) || 0) * 100) : 0;
   const estimatedInsuranceCents = estimateInsuranceCents(insuranceDeclaredValueCents);
-  const totalEstimate = serviceSubtotal + taxCents + shippingCents + estimatedInsuranceCents;
+  const totalEstimate = serviceSubtotal - bulkDiscountCents + taxCents + shippingCents + estimatedInsuranceCents;
   const totalDeclaredValueCents = filledCards.reduce((sum, c) => sum + cardValueCents(c), 0);
 
   // Rates are quoted per address and per method (to us, or back to you)
-  const addressFingerprint = [shippingMethod, country, street1.trim(), street2.trim(), city.trim(), stateCode.trim(), zip.trim()].join("|");
-  const addressComplete = !!(
-    street1.trim() && city.trim() && zip.trim() &&
-    (isInternational || stateCode) // state required for US, optional for international
-  );
+  const addressFingerprint = [shippingMethod, street1.trim(), street2.trim(), city.trim(), stateCode.trim(), zip.trim()].join("|");
+  const addressComplete = !!(street1.trim() && city.trim() && zip.trim() && stateCode);
   const addressChangedSinceFetch = rates.length > 0 && ratesFetchedFor !== addressFingerprint;
 
   const fetchRates = useCallback(async () => {
@@ -263,7 +210,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           body: JSON.stringify({
             to_address: {
               name: name.trim(), email: email.trim(), phone: phone.trim(), street1: street1.trim(), street2: street2.trim(),
-              city: city.trim(), state: stateCode.trim(), zip: zip.trim(), country,
+              city: city.trim(), state: stateCode.trim(), zip: zip.trim(), country: COUNTRY,
             },
             parcel: { length: 6, width: 4, height: 2, weight: 8 },
             from_business: true,
@@ -282,7 +229,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             city: city.trim(),
             state: stateCode.trim() || undefined,
             zip: zip.trim(),
-            country,
+            country: COUNTRY,
             card_count: Math.max(1, filledCards.length),
             total_value_usd: totalValueUsd,
           }),
@@ -308,7 +255,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
       setRatesLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [street1, street2, city, stateCode, zip, country, addressFingerprint, filledCards.length, totalDeclaredValueCents, shippingMethod]);
+  }, [street1, street2, city, stateCode, zip, addressFingerprint, filledCards.length, totalDeclaredValueCents, shippingMethod]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -334,7 +281,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         ? "Full address is required to generate a prepaid label."
         : "Full address is required so we can ship your cards back.");
     }
-    if (!isInternational && !stateCode) {
+    if (!stateCode) {
       return fail("State is required for US addresses.");
     }
     if (!selectedRate) {
@@ -367,7 +314,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           add_pre_grade: addPreGrade,
           insurance_election: insuranceElection,
           shipping_method: shippingMethod,
-          country,
+          country: COUNTRY,
           street1: street1.trim(),
           street2: street2.trim() || undefined,
           city: city.trim(),
@@ -390,7 +337,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         setSubmitting(false);
         return;
       }
-      try { window.location.href = data.url; } catch { setSubmitting(false); }
+      try { window.location.assign(data.url); } catch { setSubmitting(false); }
     } catch {
       setError("Network error. Please try again.");
       setSubmitting(false);
@@ -533,6 +480,18 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <span className="text-lg font-extrabold text-foreground">{fmt(prepSubtotal)}</span>
             </div>
           )}
+          {/* Bulk discount (10+ cards), with the restoration review step's wording */}
+          {bulkDiscountCents > 0 && (
+            <div className="bg-rx-soft border border-rx/30 rounded-lg p-4 flex items-center gap-3">
+              <Trophy className="h-6 w-6 shrink-0 text-rx" strokeWidth={1.75} />
+              <div>
+                <p className="font-bold text-ink text-sm">{bulkPercent}% bulk discount applied!</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {filledCards.length} cards: {bulkPercent}% off the per-card price{bulkExcluded ? " (cards $1,500 and over excluded)" : ""}.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Add-ons */}
@@ -588,18 +547,11 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="flex flex-col gap-4">
             <div className="border-t border-border pt-4 flex flex-col gap-3">
 
-              {/* Country selector — always first */}
               <div>
-                <label className={labelCls}>Country<Req /></label>
-                <select
-                  className={selectCls}
-                  value={country}
-                  onChange={(e) => { setCountry(e.target.value); setStateCode(""); resetAddress(); }}
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>{c.name}</option>
-                  ))}
-                </select>
+                <p className={labelCls}>Country</p>
+                <p className="h-10 flex items-center px-3 text-sm rounded-lg border border-border bg-muted/40 text-muted-foreground">
+                  United States
+                </p>
               </div>
 
               <Need missing={miss(street1)}>
@@ -608,7 +560,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   value={street1}
                   onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
                   onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
-                  countries={[country.toLowerCase()]}
                   className={input}
                   placeholder="123 Main St"
                 />
@@ -618,42 +569,24 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
               </div>
 
-              {!isInternational ? (
-                /* US: city / state dropdown / zip */
-                <div className="grid grid-cols-5 gap-2">
-                  <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
-                  </Need>
-                  <Need missing={miss(stateCode)}>
-                    <label className={labelCls}>State<Req /></label>
-                    <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
-                      <option value="">—</option>
-                      {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </Need>
-                  <Need missing={miss(zip)} className="col-span-2">
-                    <label className={labelCls}>ZIP Code<Req /></label>
-                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
-                  </Need>
-                </div>
-              ) : (
-                /* International: city / state text (optional) / postal code */
-                <div className="grid grid-cols-5 gap-2">
-                  <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
-                  </Need>
-                  <div>
-                    <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
-                    <input className={input} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
-                  </div>
-                  <Need missing={miss(zip)} className="col-span-2">
-                    <label className={labelCls}>Postal Code<Req /></label>
-                    <input className={input} value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
-                  </Need>
-                </div>
-              )}
+              {/* City / state / ZIP */}
+              <div className="grid grid-cols-5 gap-2">
+                <Need missing={miss(city)} className="col-span-2">
+                  <label className={labelCls}>City<Req /></label>
+                  <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                </Need>
+                <Need missing={miss(stateCode)}>
+                  <label className={labelCls}>State<Req /></label>
+                  <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                    <option value="">—</option>
+                    {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
+                  </select>
+                </Need>
+                <Need missing={miss(zip)} className="col-span-2">
+                  <label className={labelCls}>ZIP Code<Req /></label>
+                  <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                </Need>
+              </div>
             </div>
 
             {addressComplete && (
@@ -661,10 +594,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 {shippingMethod === "self_ship" ? (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
                     <strong>Return shipping is paid now.</strong> You send your cards to us your own way; we ship them back to this address with a tracked label.
-                  </div>
-                ) : isInternational ? (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 leading-relaxed">
-                    <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
                   </div>
                 ) : (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
@@ -789,6 +718,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <span className="font-semibold">{fmt(prepSubtotal)}</span>
               </div>
             )}
+            {bulkDiscountCents > 0 && (
+              <div className="flex justify-between text-green-700 font-semibold">
+                <span>Bulk discount ({bulkPercent}% off, {filledCards.length} cards)</span>
+                <span>−{fmt(bulkDiscountCents)}</span>
+              </div>
+            )}
             {addPreGrade && filledCards.length > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Pre-Grade Assessment × {filledCards.length}</span>
@@ -828,9 +763,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             <p className="text-xs text-muted-foreground">
               {!selectedRate
                 ? "* Select a shipping option above to see your full total."
-                : isInternational
-                  ? "* All amounts in USD. Confirmed at Stripe checkout."
-                  : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
+                : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
             </p>
           </div>
         </div>

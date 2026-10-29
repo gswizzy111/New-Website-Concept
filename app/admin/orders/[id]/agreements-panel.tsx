@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, FileDown, Lock, ShieldAlert } from "lucide-react";
@@ -62,6 +62,9 @@ export function AgreementsPanel({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [emailRefund, setEmailRefund] = useState(true);
+  // One ID per card refund attempt: a retry after a dropped connection or a server
+  // error reuses it, so the server finishes that refund instead of making another
+  const refundIds = useRef(new Map<string, string>());
 
   async function startWork(card: PanelCard, action: "start_cleaning" | "start_slab_opening") {
     setBusy(card.id + action);
@@ -95,9 +98,20 @@ export function AgreementsPanel({
   async function refund(card: PanelCard) {
     if (!confirm(`Refund ${usd(card.refundableCents)} for ${card.name} and cancel it? This can't be undone.`)) return;
     setBusy(card.id + "refund");
+    const requestId = refundIds.current.get(card.id) ?? crypto.randomUUID();
+    refundIds.current.set(card.id, requestId);
     try {
-      const data = await post(`/api/admin/cards/${card.id}/refund`, { sendEmail: emailRefund });
+      const res = await fetch(`/api/admin/cards/${card.id}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendEmail: emailRefund, requestId }),
+      });
+      const data = await res.json().catch(() => null);
+      // A success, or a refusal made before anything was refunded, ends this attempt
+      if (res.ok || (res.status < 500 && data)) refundIds.current.delete(card.id);
+      if (!res.ok) throw new Error(data?.error ?? "Something went wrong");
       toast.success(`Refunded ${usd(data.amountCents)}`);
+      if (data.emailFailed) toast.error("The refund went through, but the email to the customer failed.");
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");

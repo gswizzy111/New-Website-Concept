@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, Sparkles, Star, Truck, Wrench } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Ban, Clock, MessageCircle, Microscope, Plus, ShieldAlert, Sparkles, Truck, Wrench } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
 import { ScanReveal } from "@/components/motion/scan-reveal";
@@ -99,7 +99,7 @@ export default async function HomePage() {
       code: "Shop",
       name: "DIY Kits",
       line: <>The same pro-grade tools The Card Doc uses — delivered to you.</>,
-      price: <><span className="text-ink font-semibold">$5.99</span> flat-rate US shipping</>,
+      price: <>US shipping at cost + <span className="text-ink font-semibold">$2</span> handling</>,
       action: "Shop Now →",
       Icon: Wrench,
     },
@@ -108,7 +108,6 @@ export default async function HomePage() {
   const cardsRestored = await getCardsRestoredStat();
   const stats = [
     { stat: cardsRestored, label: "Cards Restored" },
-    { stat: "4.9★", label: "Avg. Rating" },
     { stat: "Free", label: "Photo Review" },
   ];
 
@@ -211,16 +210,15 @@ export default async function HomePage() {
 
       {/* ── Trust strip: the owner's own facts, at a glance ── */}
       <section aria-label="Why collectors trust The Card Doc" className="border-b border-rule bg-white">
-        {/* Phone: the two figures side by side, the reply time across the row below. Desktop: one row of three. */}
-        <ul data-reveal="stagger" className="max-w-7xl mx-auto grid grid-cols-2 lg:grid-cols-3 divide-rule [&>li]:border-rule">
+        {/* Phone: one fact per row, so the reply time stays on one line. From 640px: one row of two. */}
+        <ul data-reveal="stagger" className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 divide-rule [&>li]:border-rule">
           {[
             { Icon: BadgeCheck, strong: cardsRestored, text: "Cards Restored" },
-            { Icon: Star, strong: "4.9★", text: "Avg. Rating" },
             { Icon: MessageCircle, strong: null, text: "We reply within 1 business day." },
           ].map(({ Icon, strong, text }, i) => (
             <li
               key={text}
-              className={`flex items-center gap-3 px-4 md:px-10 py-5 md:py-6 ${i === 1 ? "border-l" : ""} ${i < 2 ? "border-b lg:border-b-0" : ""} ${i === 2 ? "col-span-2 lg:col-span-1 lg:border-l" : ""}`}
+              className={`flex items-center gap-3 px-4 md:px-10 py-5 md:py-6 ${i === 0 ? "border-b sm:border-b-0" : "sm:border-l"}`}
             >
               <Icon className="h-5 w-5 shrink-0 text-rx" strokeWidth={1.75} />
               <span className="text-[13px] md:text-sm leading-snug text-ink">
@@ -264,7 +262,7 @@ export default async function HomePage() {
             </div>
 
             {/* Figures are sized to the row (container units), so a longer one like "2,321+" never runs into the next */}
-            <dl className="@container mt-20 md:mt-32 grid grid-cols-1 sm:grid-cols-[1.25fr_1fr_1fr] border-t border-white/12">
+            <dl className="@container mt-20 md:mt-32 grid grid-cols-1 sm:grid-cols-2 border-t border-white/12">
               {stats.map((s, i) => (
                 <div
                   key={s.stat}

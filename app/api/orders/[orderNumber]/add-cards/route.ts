@@ -1,15 +1,71 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CardFieldsSchema, SigningSchema, cardDetails, checkoutConsents, signingChoices, masterSignatureInput, signingError, type AuthorizedOrder } from "@/lib/checkout-signing";
 import { recordConsents, recordSignatures, signingContext } from "@/lib/signatures";
 import { ensureTermsVersion } from "@/lib/terms-versions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { RESTORATION_TIERS, getCardPriceCents } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { siteUrl } from "@/lib/site-url";
+import { getSlotsOpenedAt } from "@/lib/store-config";
+import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
+import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
 
 const TAX_RATE = 0.06625;
+
+/** Stripe's metadata limits: 50 keys, 500 characters a value. */
+const METADATA_MAX_KEYS = 50;
+const METADATA_MAX_CHARS = 500;
+
+type AddedCardInput = { name: string; card_set?: string; card_year?: string; declaredValueCents: number; photoUrls: string[] };
+
+/**
+ * One card's short details for the checkout, kept within Stripe's limits.
+ * Both sites' webhooks add the cards from the add_cards_pending event; these
+ * are the fallback if it is missing. card_<i> keeps the shape both read:
+ * {n: name, s: set, y: year, v: declared value, p: photo URLs}. When the
+ * photos don't fit in it, they move to card_<i>_p (only this site's webhook
+ * reads that key; the old site's adds the card without photos). A name or set
+ * too long even without photos is cut short.
+ */
+function cardMetadata(c: AddedCardInput, i: number): Record<string, string> {
+  const details = { n: c.name, s: c.card_set || undefined, y: c.card_year || undefined, v: c.declaredValueCents || undefined };
+  const photos = c.photoUrls.length ? c.photoUrls : undefined;
+  const whole = JSON.stringify({ ...details, p: photos });
+  if (whole.length <= METADATA_MAX_CHARS) return { [`card_${i}`]: whole };
+
+  // Without the photos; then, if still too long, a character at a time off the longer of name and set
+  const name = Array.from(details.n);
+  const set = Array.from(details.s ?? "");
+  let entry = "";
+  for (;;) {
+    entry = JSON.stringify({ ...details, n: name.join(""), s: set.length ? set.join("") : undefined });
+    if (entry.length <= METADATA_MAX_CHARS || (!name.length && !set.length)) break;
+    if (set.length > name.length) set.pop();
+    else name.pop();
+  }
+  if (entry.length > METADATA_MAX_CHARS) entry = JSON.stringify({ n: "", v: details.v });
+  const out: Record<string, string> = { [`card_${i}`]: entry };
+
+  // The photos in their own key, as many as fit
+  const kept: string[] = [];
+  for (const url of photos ?? []) {
+    if (JSON.stringify([...kept, url]).length <= METADATA_MAX_CHARS) kept.push(url);
+  }
+  if (kept.length) out[`card_${i}_p`] = JSON.stringify(kept);
+  return out;
+}
+
+/** What Stripe would refuse in this metadata, or null. */
+function metadataProblem(metadata: Record<string, string>): string | null {
+  const keys = Object.keys(metadata);
+  if (keys.length > METADATA_MAX_KEYS) return `${keys.length} metadata keys (Stripe allows ${METADATA_MAX_KEYS})`;
+  const long = keys.find((k) => k.length > 40 || metadata[k].length > METADATA_MAX_CHARS);
+  return long ? `metadata ${long} is too long` : null;
+}
 
 const CardSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -54,12 +110,32 @@ export async function POST(
     .single();
 
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
-  if (order.customer_email.toLowerCase() !== email.toLowerCase())
+  if ((order.customer_email ?? "").toLowerCase() !== email.toLowerCase())
     return Response.json({ error: "Email does not match this order" }, { status: 403 });
   if (order.status !== "awaiting_cards")
     return Response.json({ error: "Cards can only be added before they are received" }, { status: 409 });
+  // A paid upgrade not on the order yet: the cards would be priced at the old tier
+  if ((await hasUnappliedUpgrade(order)) === true)
+    return Response.json({ error: "Your last upgrade payment is still being processed. Please try again in a few minutes." }, { status: 409 });
 
-  const tier = RESTORATION_TIERS[order.restoration_tier as RestorationTierId] ?? RESTORATION_TIERS["regular"];
+  // Added cards take the order's tier (an order with cards on several tiers:
+  // Bronze). Orders that aren't restorations (prep) can't add cards here.
+  const tierId = (order.restoration_tier ?? "regular") as RestorationTierId;
+  if (!RESTORATION_TIERS[tierId]) {
+    return Response.json({ error: "Cards can't be added to this order online." }, { status: 409 });
+  }
+
+  // Priced as the admin set the tier (restoration_settings), like checkout
+  const { data: tierSetting, error: tierSettingError } = await admin
+    .from("restoration_settings")
+    .select("tier, is_open, max_slots, display_name, price_cents, pricing_rate, min_card_value_cents")
+    .eq("tier", tierId)
+    .maybeSingle();
+  if (tierSettingError) {
+    console.error("Tier settings unavailable:", tierSettingError.message);
+    return Response.json({ error: "We couldn't load our prices. Please try again in a moment." }, { status: 503 });
+  }
+  const tier = applyDbOverride(RESTORATION_TIERS[tierId], tierSetting);
 
   // A tier's card-value cap is an eligibility condition (Terms 9.2)
   const overCap = tier.max_card_value_cents === null ? undefined : cards.find((c) => c.declaredValueCents > tier.max_card_value_cents!);
@@ -68,6 +144,38 @@ export async function POST(
       error: `${overCap.name} is declared above the ${tier.name} tier's $${(tier.max_card_value_cents! / 100).toLocaleString()} cap, so it can't be added to this order. Please place a new order for it with a higher tier.`,
       code: "TIER_CAP",
     }, { status: 400 });
+  }
+
+  // One slot is one order: cards added on a tier the order already counts in
+  // take no new slot. An order with cards on several tiers counts once in each
+  // of its cards' tiers, so its first Bronze card takes a Bronze slot, checked
+  // like an upgrade (paid orders since the slots opened; lib/tier-slots.ts).
+  if (!order.restoration_tier) {
+    const { count: cardsOnTier, error: cardsOnTierError } = await admin
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("order_id", order.id)
+      .eq("tier", tierId);
+    if (cardsOnTierError) {
+      console.error("Order cards unavailable:", cardsOnTierError.message);
+      return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    }
+    if (!cardsOnTier) {
+      if (tierSetting?.is_open === false)
+        return Response.json({ error: `The ${tier.name} tier is currently closed, so cards can't be added to this order right now.`, code: "TIER_CLOSED" }, { status: 409 });
+      const maxSlots = tierMaxSlots(tierId, tierSetting?.max_slots);
+      if (maxSlots !== null) {
+        let usage: Record<string, number>;
+        try {
+          usage = await tierSlotUsage(admin, await getSlotsOpenedAt(), { paidOnly: true });
+        } catch (err) {
+          console.error("Tier slot count failed:", err);
+          return Response.json({ error: "We couldn't check how many spots are left. Please try again in a moment." }, { status: 503 });
+        }
+        if ((usage[tierId] ?? 0) + 1 > maxSlots)
+          return Response.json({ error: `Sorry, the ${tier.name} tier is sold out, so cards can't be added to this order right now.`, code: "TIER_SOLD_OUT" }, { status: 409 });
+      }
+    }
   }
 
   const cardPrices = cards.map((c) => getCardPriceCents(tier, c.declaredValueCents));
@@ -85,6 +193,32 @@ export async function POST(
 
   const taxCents = Math.round(subtotalCents * TAX_RATE);
   const totalCents = subtotalCents + taxCents;
+
+  // The checkout's metadata, built and checked against Stripe's limits before
+  // anything is signed, so a signature is never recorded for a checkout Stripe
+  // would refuse. The pending event's id is chosen here and used when it is saved.
+  const pendingEventId = randomUUID();
+  const metadata: Record<string, string> = {
+    type: "add_cards",
+    order_id: order.id,
+    order_number: String(orderNumber),
+    tier: tier.id,
+    card_count: String(cards.length),
+    pending_event_id: pendingEventId,
+    subtotal_cents: String(subtotalCents),
+    ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
+    ...Object.fromEntries(cards.flatMap((c, i) => Object.entries(cardMetadata(c, i)))),
+  };
+  // Photo keys are only a fallback: dropped (last first) if there are too many keys
+  for (const key of Object.keys(metadata).filter((k) => k.endsWith("_p")).reverse()) {
+    if (Object.keys(metadata).length <= METADATA_MAX_KEYS) break;
+    delete metadata[key];
+  }
+  const tooLarge = metadataProblem(metadata);
+  if (tooLarge) {
+    console.error(`Add-cards checkout for ${orderNumber} not started: ${tooLarge}`);
+    return Response.json({ error: "Payment setup failed. Please try again." }, { status: 500 });
+  }
 
   let terms;
   try {
@@ -116,69 +250,60 @@ export async function POST(
 
   // The added cards' full details wait here until payment (Stripe metadata is too small for them)
   const { data: pending } = await admin.from("order_events").insert({
+    id: pendingEventId,
     order_id: order.id,
     event_type: "add_cards_pending",
     description: `Terms of Service v${terms.version} signed by ${parsed.data.terms!.signer_name.trim()} to add ${cards.length} card${cards.length !== 1 ? "s" : ""} (awaiting payment)`,
     is_customer_visible: false,
-    metadata: { cards, terms_version_id: terms.id },
+    // prices: what each card is charged (the admin's tier price), for the webhook
+    metadata: { cards, terms_version_id: terms.id, prices: cardPrices },
   }).select("id").single();
+  // pending_event_id stays even if the save looked like it failed (its reply
+  // can be lost after it committed): a webhook that can't find the row falls
+  // back to the short details in card_<i> anyway
+  if (!pending) console.error(`add_cards_pending for ${order.order_number} may not have been saved`);
 
+  const appUrl = siteUrl();
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
-
-  // Encode each card as a separate metadata key (max 500 chars, stays well under for typical cards)
-  const cardMetadata: Record<string, string> = {};
-  cards.forEach((c, i) => {
-    cardMetadata[`card_${i}`] = JSON.stringify({
-      n: c.name,
-      s: c.card_set || undefined,
-      y: c.card_year || undefined,
-      v: c.declaredValueCents || undefined,
-      p: c.photoUrls.length ? c.photoUrls : undefined,
-    });
-  });
-
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    customer_email: order.customer_email,
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}`,
-          },
-          unit_amount: subtotalCents,
-        },
-        quantity: 1,
-      },
-      ...(taxCents > 0
-        ? [
-            {
-              price_data: {
-                currency: "usd",
-                product_data: { name: "Sales Tax (6.625%)" },
-                unit_amount: taxCents,
-              },
-              quantity: 1,
+  let session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: order.customer_email,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: `Add ${cards.length} Card${cards.length !== 1 ? "s" : ""} — ${tier.name} Restoration${bulkPercent > 0 ? ` (${bulkPercent}% bulk discount)` : ""}`,
             },
-          ]
-        : []),
-    ],
-    success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&added=1`,
-    cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
-    metadata: {
-      type: "add_cards",
-      order_id: order.id,
-      order_number: String(orderNumber),
-      tier: tier.id,
-      card_count: String(cards.length),
-      ...(pending ? { pending_event_id: pending.id } : {}),
-      subtotal_cents: String(subtotalCents),
-      ...(bulkPercent > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(bulkDiscountCents) } : {}),
-      ...cardMetadata,
-    },
-  });
+            unit_amount: subtotalCents,
+          },
+          quantity: 1,
+        },
+        ...(taxCents > 0
+          ? [
+              {
+                price_data: {
+                  currency: "usd",
+                  product_data: { name: "Sales Tax (6.625%)" },
+                  unit_amount: taxCents,
+                },
+                quantity: 1,
+              },
+            ]
+          : []),
+      ],
+      // The payment itself names its order, so admin refunds can find it
+      payment_intent_data: { metadata: { order_id: order.id, type: "add_cards" } },
+      success_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}&added=1`,
+      cancel_url: `${appUrl}/orders/${orderNumber}?email=${encodeURIComponent(email)}`,
+      metadata,
+    });
+  } catch (err) {
+    console.error("Add-cards session creation failed:", err);
+    return Response.json({ error: "Payment setup failed. Please try again." }, { status: 500 });
+  }
 
   return Response.json({ url: session.url });
 }

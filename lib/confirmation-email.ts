@@ -1,4 +1,6 @@
 import { resend, fromEmail, businessName } from "@/lib/resend";
+import { siteUrl } from "@/lib/site-url";
+import { escapeHtml } from "@/lib/card-inquiries";
 
 export type ConfirmationOrder = {
   order_number: string;
@@ -14,7 +16,7 @@ export type ConfirmationOrder = {
  * refuses the email.
  */
 export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Promise<void> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   const firstName = (order.customer_name ?? "").split(" ")[0] || "there";
   const trackingUrl = `${appUrl}/orders/${order.order_number}`;
   const labelUrl = order.shipping_label_url as string | null;
@@ -30,7 +32,7 @@ export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Prom
           <li>Print the label below and tape it to the outside</li>
           <li>Drop the package off at your nearest carrier location</li>
         </ol>
-        <a href="${labelUrl}" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
+        <a href="${escapeHtml(labelUrl)}" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">⬇ Download Shipping Label (PDF)</a>
       </div>`
     : `<div style="background:#fefce8;border:2px solid #fbbf24;border-radius:12px;padding:24px;margin:24px 0">
         <p style="margin:0 0 6px;font-size:18px;font-weight:900;color:#78350f">📬 Ship Your Cards To Us</p>
@@ -39,7 +41,7 @@ export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Prom
         </p>
         <ol style="margin:0 0 16px;padding-left:20px;color:#92400e;font-size:14px;line-height:2">
           <li>Package your cards securely in a bubble mailer or small box</li>
-          <li>Write your order number <strong>#${order.order_number}</strong> on the inside</li>
+          <li>Write your order number <strong>#${escapeHtml(order.order_number)}</strong> on the inside</li>
           <li>Ship to the address below and save your tracking number</li>
         </ol>
         <div style="background:#fff8e1;border:1px solid #fde68a;border-radius:8px;padding:14px">
@@ -64,13 +66,13 @@ export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Prom
         </div>
         <div style="background:#fff;border:1px solid #e6e4e2;border-top:0;border-radius:0 0 12px 12px;padding:28px">
           <p style="color:#666;margin:0 0 4px;font-size:13px">Order number</p>
-          <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${order.order_number}</p>
+          <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${escapeHtml(order.order_number)}</p>
           <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6">
-            Hi ${firstName}! 👋 Thank you for your order. Here's what to do next to get your cards to us.
+            Hi ${escapeHtml(firstName)}! 👋 Thank you for your order. Here's what to do next to get your cards to us.
           </p>
           ${shippingSection}
           <div style="text-align:center;margin:24px 0">
-            <a href="${trackingUrl}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
+            <a href="${escapeHtml(trackingUrl)}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
           </div>
           <hr style="border:none;border-top:1px solid #e6e4e2;margin:24px 0">
           <p style="font-size:13px;color:#666;margin:0 0 6px">Questions? We're always happy to help:</p>

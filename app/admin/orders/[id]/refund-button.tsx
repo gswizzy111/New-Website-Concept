@@ -21,6 +21,9 @@ export function RefundButton({ orderId, totalCents, alreadyRefundedCents, custom
   const [customerMessage, setCustomerMessage] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
+  // One ID per refund attempt: a retry after a dropped connection or a server
+  // error reuses it, so the server finishes the same refund instead of making another
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
 
   const maxRefundable = totalCents - alreadyRefundedCents;
   const isFullyRefunded = maxRefundable <= 0;
@@ -56,26 +59,41 @@ export function RefundButton({ orderId, totalCents, alreadyRefundedCents, custom
     setStatus("loading");
     setMessage("");
 
-    const res = await fetch(refundUrl ?? `/api/admin/orders/${orderId}/refund`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amountCents: mode === "partial" ? partialCents : undefined,
-        reason: reason.trim() || undefined,
-        sendEmail,
-        customerMessage: customerMessage.trim() || undefined,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(refundUrl ?? `/api/admin/orders/${orderId}/refund`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amountCents: mode === "partial" ? partialCents : undefined,
+          reason: reason.trim() || undefined,
+          sendEmail,
+          customerMessage: customerMessage.trim() || undefined,
+          requestId,
+        }),
+      });
+    } catch {
+      // The refund may or may not have gone through: keep the same request ID so trying again is safe
+      setStatus("error");
+      setMessage("Network error. Check your connection and try again.");
+      return;
+    }
 
-    const data = await res.json().catch(() => ({}));
+    const json = await res.json().catch(() => null);
+    const data = json ?? {};
+    // A success, or a refusal made before anything was refunded, ends this attempt. A server
+    // error or timeout may have refunded some of it: keep the ID, so trying again finishes
+    // that same refund instead of making another
+    if (res.ok || (res.status < 500 && json)) setRequestId(crypto.randomUUID());
 
     if (!res.ok) {
       setStatus("error");
       setMessage(data.error ?? "Refund failed. Check the Stripe dashboard.");
     } else {
       setStatus("success");
-      setMessage(`✓ Refund of ${formatCurrency(data.amountCents)} issued${sendEmail ? " · Email sent to customer" : ""}. Stripe ID: ${data.refundId}`);
+      setMessage(`✓ Refund of ${formatCurrency(data.amountCents)} issued${sendEmail ? (data.emailFailed ? " · The email to the customer failed" : " · Email sent to customer") : ""}. Stripe ID: ${data.refundId}`);
       setOpen(false);
+      if (data.emailFailed) alert("The refund went through, but the email to the customer failed.");
       window.location.reload();
     }
   }

@@ -10,7 +10,7 @@ export async function getSubscriptionPriceCents(): Promise<number> {
       .single();
     if (data?.value) return parseInt(data.value, 10);
   } catch {}
-  return 6299;
+  return 8999;
 }
 
 export async function getRestorationsOpen(): Promise<boolean> {

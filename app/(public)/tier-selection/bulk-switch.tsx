@@ -4,11 +4,13 @@ import { useRef, useState } from "react";
 import { BULK_PLANS, type BulkPlan } from "@/lib/bulk-pricing";
 
 /**
- * Individual / 10+ / 20+ switch for the tier prices. Each price block renders
- * all three prices (marked data-plan); this sets data-bulk on the wrapper and
- * globals.css shows the matching one, so the cards stay server-rendered.
+ * Individual / 10+ / 20+ switch for the tier prices (and the Prep page's).
+ * Each price block renders all three prices (marked data-plan); this sets
+ * data-bulk on the wrapper and globals.css shows the matching one, so the
+ * cards stay server-rendered. `note` replaces the Restorations page's note;
+ * `stacked` keeps the note under the switch at every width (a narrow column).
  */
-export function BulkSwitch({ children }: { children: React.ReactNode }) {
+export function BulkSwitch({ children, note, stacked = false }: { children: React.ReactNode; note?: React.ReactNode; stacked?: boolean }) {
   const [plan, setPlan] = useState<BulkPlan>("single");
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -29,9 +31,9 @@ export function BulkSwitch({ children }: { children: React.ReactNode }) {
 
   return (
     <div data-bulk={plan}>
-      <div className="mb-6 md:mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className={stacked ? "mb-6 flex flex-col gap-3" : "mb-6 md:mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"}>
         {/* A segmented control, so on phones it doesn't read as another row of tier chips */}
-        <div role="radiogroup" aria-label="Number of cards" className="grid w-full grid-cols-3 rounded-full border border-rule bg-white p-1 md:inline-grid md:w-auto">
+        <div role="radiogroup" aria-label="Number of cards" className={`grid w-full grid-cols-3 rounded-full border border-rule bg-white p-1${stacked ? "" : " md:inline-grid md:w-auto"}`}>
           {BULK_PLANS.map((p, i) => {
             const active = p.id === plan;
             return (
@@ -58,8 +60,8 @@ export function BulkSwitch({ children }: { children: React.ReactNode }) {
             );
           })}
         </div>
-        <p className="text-sm text-muted-foreground md:max-w-sm md:text-right">
-          Bulk pricing is applied automatically at checkout for every tier except Diamond. Discounts don&apos;t combine: you get the biggest one.
+        <p className={stacked ? "text-sm text-muted-foreground" : "text-sm text-muted-foreground md:max-w-sm md:text-right"}>
+          {note ?? <>Bulk pricing is applied automatically at checkout for every tier except Diamond. Discounts don&apos;t combine: you get the biggest one.</>}
         </p>
       </div>
       {children}

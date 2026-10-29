@@ -4,10 +4,10 @@ import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { PrintButton } from "./print-button";
 import { ExportButton } from "./export-button";
+import { syncRefundsQuietly } from "@/lib/refund-ledger";
+import { filterTaxRows, quarterMonths, rowMonth, taxRowsForYear, taxYear } from "./tax-rows";
 
 export const dynamic = "force-dynamic";
-
-const NJ_TAX_RATE = 0.06625;
 
 function fmt(cents: number) {
   return formatCurrency(cents);
@@ -22,36 +22,6 @@ function fmtDate(iso: string) {
   });
 }
 
-function getState(addr: Record<string, string> | null | undefined): string {
-  return addr?.state ?? "";
-}
-
-function getCity(addr: Record<string, string> | null | undefined): string {
-  return addr?.city ?? "";
-}
-
-function getCountry(addr: Record<string, string> | null | undefined): string {
-  return addr?.country ?? "US";
-}
-
-type TxRow = {
-  date: string;
-  order_id: string | null;
-  order_number: string | number;
-  customer_name: string;
-  customer_email: string;
-  city: string;
-  state: string;
-  country: string;
-  service: string;
-  subtotal_cents: number;
-  shipping_cents: number;
-  tax_cents: number;        // NJ tax computed or collected
-  total_cents: number;
-  is_nj: boolean;
-  type: "restoration" | "prep" | "kit";
-};
-
 const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export default async function TaxPage({
@@ -65,131 +35,26 @@ export default async function TaxPage({
   const selectedMonth = monthParam && monthParam !== "all" ? monthParam : null;
   const admin = createAdminClient();
 
-  const nowYear = new Date().getFullYear();
-  const selectedYear = year ? parseInt(year) : nowYear;
-  const yearStart = `${selectedYear}-01-01T00:00:00.000Z`;
-  const yearEnd = `${selectedYear + 1}-01-01T00:00:00.000Z`;
-
-  const [{ data: orders }, { data: shopOrders }] = await Promise.all([
-    admin
-      .from("orders")
-      .select("id, order_number, customer_name, customer_email, ship_from_address, restoration_tier, subtotal_cents, shipping_cents, total_cents, payment_status, created_at, status")
-      .eq("payment_status", "paid")
-      .neq("status", "cancelled")
-      .gte("created_at", yearStart)
-      .lt("created_at", yearEnd)
-      .order("created_at", { ascending: false }),
-    admin
-      .from("shop_orders")
-      .select("id, customer_name, customer_email, shipping_address, subtotal_cents, shipping_cents, total_cents, created_at, status")
-      .gte("created_at", yearStart)
-      .lt("created_at", yearEnd)
-      .neq("status", "cancelled")
-      .order("created_at", { ascending: false }),
-  ]);
-
-  const rows: TxRow[] = [];
-
-  for (const o of orders ?? []) {
-    const addr = o.ship_from_address as Record<string, string> | null;
-    const st = getState(addr);
-    const isNJ = st === "NJ";
-    const isPrep = ["prep", "prep_standard"].includes(o.restoration_tier ?? "");
-    const subtotal = o.subtotal_cents ?? 0;
-    const shipping = o.shipping_cents ?? 0;
-    const taxCents = isNJ ? Math.round(subtotal * NJ_TAX_RATE) : 0;
-    rows.push({
-      date: o.created_at,
-      order_id: o.id,
-      order_number: o.order_number,
-      customer_name: o.customer_name ?? "",
-      customer_email: o.customer_email ?? "",
-      city: getCity(addr),
-      state: st,
-      country: getCountry(addr),
-      service: isPrep ? "Prep" : "Restoration",
-      subtotal_cents: subtotal,
-      shipping_cents: shipping,
-      tax_cents: taxCents,
-      total_cents: o.total_cents ?? 0,
-      is_nj: isNJ,
-      type: isPrep ? "prep" : "restoration",
-    });
-  }
-
-  for (const o of shopOrders ?? []) {
-    const addr = o.shipping_address as Record<string, string> | null;
-    const st = getState(addr);
-    const isNJ = st === "NJ";
-    const subtotal = o.subtotal_cents ?? 0;
-    const shipping = o.shipping_cents ?? 599;
-    const taxCents = isNJ ? Math.round(subtotal * NJ_TAX_RATE) : 0;
-    rows.push({
-      date: o.created_at,
-      order_id: null,
-      order_number: "",
-      customer_name: o.customer_name ?? "",
-      customer_email: o.customer_email ?? "",
-      city: getCity(addr),
-      state: st,
-      country: getCountry(addr),
-      service: "Kit",
-      subtotal_cents: subtotal,
-      shipping_cents: shipping,
-      tax_cents: taxCents,
-      total_cents: o.total_cents ?? 0,
-      is_nj: isNJ,
-      type: "kit",
-    });
-  }
-
-  // Sort by date desc
-  rows.sort((a, b) => b.date.localeCompare(a.date));
-
-  // Month / Quarter filter (month takes priority)
-  let filteredRows = rows;
-  if (selectedMonth !== null) {
-    const m = parseInt(selectedMonth);
-    filteredRows = filteredRows.filter((r) => new Date(r.date).getMonth() === m);
-  } else if (quarter && quarter !== "all") {
-    const qMap: Record<string, [number, number]> = {
-      "Q1": [0, 3], "Q2": [3, 6], "Q3": [6, 9], "Q4": [9, 12],
-    };
-    const [startM, endM] = qMap[quarter] ?? [0, 12];
-    filteredRows = filteredRows.filter((r) => {
-      const m = new Date(r.date).getMonth();
-      return m >= startM && m < endM;
-    });
-  }
-
-  // State filter
-  if (stateFilter && stateFilter !== "all") {
-    if (stateFilter === "NJ") filteredRows = filteredRows.filter((r) => r.is_nj);
-    else if (stateFilter === "non-NJ-US") filteredRows = filteredRows.filter((r) => !r.is_nj && r.country === "US");
-    else if (stateFilter === "international") filteredRows = filteredRows.filter((r) => r.country !== "US");
-    else filteredRows = filteredRows.filter((r) => r.state === stateFilter);
-  }
-
-  // Type filter
-  if (typeFilter && typeFilter !== "all") {
-    filteredRows = filteredRows.filter((r) => r.type === typeFilter);
-  }
+  // Calendar periods are New York's; sales and refunds are rows of their own (./tax-rows.ts)
+  const nowYear = taxYear(null);
+  const selectedYear = taxYear(year);
+  await syncRefundsQuietly(admin); // refunds made in the Stripe Dashboard (gives up after a few seconds)
+  const rows = await taxRowsForYear(admin, selectedYear);
+  const filteredRows = filterTaxRows(rows, { month: selectedMonth, quarter, state: stateFilter, type: typeFilter });
 
   // Aggregates across the filtered set
   const totalRevenue = filteredRows.reduce((s, r) => s + r.total_cents, 0);
   const njRows = filteredRows.filter((r) => r.is_nj);
+  const njOrders = njRows.filter((r) => r.is_order).length;
   const njTaxableRevenue = njRows.reduce((s, r) => s + r.subtotal_cents, 0);
   const njTaxCollected = njRows.reduce((s, r) => s + r.tax_cents, 0);
   const njShipping = njRows.reduce((s, r) => s + r.shipping_cents, 0);
 
   // Quarter breakdown for NJ (full year, not affected by quarter filter)
   const njAllYear = rows.filter((r) => r.is_nj);
-  const quarters = ["Q1", "Q2", "Q3", "Q4"].map((q, qi) => {
-    const [startM, endM] = [[0,3],[3,6],[6,9],[9,12]][qi];
-    const qRows = njAllYear.filter((r) => {
-      const m = new Date(r.date).getMonth();
-      return m >= startM && m < endM;
-    });
+  const quarters = ["Q1", "Q2", "Q3", "Q4"].map((q) => {
+    const [startM, endM] = quarterMonths(q);
+    const qRows = njAllYear.filter((r) => rowMonth(r) >= startM && rowMonth(r) < endM);
     return {
       label: q,
       taxable: qRows.reduce((s, r) => s + r.subtotal_cents, 0),
@@ -319,7 +184,7 @@ export default async function TaxPage({
           <div className="bg-white rounded-xl border border-border p-5">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">NJ Taxable</p>
             <p className="font-heading font-black text-2xl text-foreground">{fmt(njTaxableRevenue)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{njRows.length} NJ orders</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{njOrders} NJ orders</p>
           </div>
           <div className="bg-white rounded-xl border border-border p-5">
             <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">NJ Tax (6.625%)</p>
@@ -411,7 +276,7 @@ export default async function TaxPage({
                 {filteredRows.map((row, i) => (
                   <tr
                     key={i}
-                    className={`border-b border-border last:border-0 transition-colors ${row.is_nj ? "bg-blue-50/60 hover:bg-blue-50" : "hover:bg-secondary/30"}`}
+                    className={`border-b border-border last:border-0 transition-colors ${row.kind === "refund" ? "bg-red-50/40 hover:bg-red-50/70" : row.is_nj ? "bg-blue-50/60 hover:bg-blue-50" : "hover:bg-secondary/30"}`}
                   >
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(row.date)}</td>
                     <td className="px-4 py-3">
@@ -434,11 +299,11 @@ export default async function TaxPage({
                         {row.is_nj && (
                           <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">NJ</span>
                         )}
-                        {row.country !== "US" && (
+                        {row.country && row.country !== "US" && (
                           <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{row.country}</span>
                         )}
                         <span className="text-xs text-muted-foreground">
-                          {[row.city, row.state].filter(Boolean).join(", ") || row.country}
+                          {[row.city, row.state].filter(Boolean).join(", ") || row.country || "—"}
                         </span>
                       </div>
                     </td>
@@ -450,6 +315,9 @@ export default async function TaxPage({
                       }`}>
                         {row.service}
                       </span>
+                      {row.note && (
+                        <p className={`text-[11px] mt-1 ${row.kind === "refund" ? "font-semibold text-red-700" : "text-muted-foreground"}`}>{row.note}</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-xs font-semibold text-foreground tabular-nums">{fmt(row.subtotal_cents)}</td>
                     <td className="px-4 py-3 text-right text-xs text-muted-foreground tabular-nums">{fmt(row.shipping_cents)}</td>
@@ -481,6 +349,9 @@ export default async function TaxPage({
 
         <p className="text-xs text-muted-foreground mt-4 text-center">
           NJ Tax computed at 6.625% of service/product subtotal for customers with a New Jersey shipping address. Shipping charges are non-taxable. Consult your accountant for filing.
+        </p>
+        <p className="text-xs text-muted-foreground mt-1 text-center">
+          Dates are New York time. A sale counts on the day it was paid. A refund counts on the day the money went back, as a negative row that takes back the same share of the order&apos;s subtotal, shipping and tax.
         </p>
       </div>
     </div>

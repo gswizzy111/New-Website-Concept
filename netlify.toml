@@ -3,7 +3,7 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
 
 # ── Production is live ──────────────────────────────────────────────────────
 # Real keys (Supabase, Stripe, Shippo, Resend, CRON_SECRET, ...) come from

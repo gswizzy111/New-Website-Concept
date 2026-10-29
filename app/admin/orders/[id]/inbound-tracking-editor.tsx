@@ -13,19 +13,31 @@ export function InboundTrackingEditor({
   const [value, setValue] = useState(currentTracking ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
   const router = useRouter();
 
   async function save() {
     setSaving(true);
-    await fetch(`/api/admin/orders/${orderId}/inbound-tracking`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tracking_number: value.trim().toUpperCase() }),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    router.refresh();
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/inbound-tracking`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tracking_number: value.trim().toUpperCase() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "Not saved. Try again.");
+        return;
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      router.refresh();
+    } catch {
+      setError("Network error. Not saved.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -40,7 +52,7 @@ export function InboundTrackingEditor({
         <input
           type="text"
           value={value}
-          onChange={(e) => { setValue(e.target.value.toUpperCase()); setSaved(false); }}
+          onChange={(e) => { setValue(e.target.value.toUpperCase()); setSaved(false); setError(""); }}
           placeholder="Enter inbound tracking number"
           className="flex-1 h-9 border border-border rounded-lg px-3 text-sm font-mono focus:outline-none focus:border-primary transition-colors"
         />
@@ -52,6 +64,7 @@ export function InboundTrackingEditor({
           {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
         </button>
       </div>
+      {error && <p role="alert" className="text-xs font-medium text-red-600">{error}</p>}
       <p className="text-xs text-muted-foreground">This is the tracking number on the inbound label — the one the customer uses to ship cards to you.</p>
     </div>
   );

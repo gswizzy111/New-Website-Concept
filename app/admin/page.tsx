@@ -17,6 +17,8 @@ import { INQUIRY_TYPE, OPEN_CASE_STATUSES, orderLabel } from "@/lib/card-inquiri
 import { addDays, etToday, getBacklogDays, getBacklogNow, getRevenueSeries } from "@/lib/dashboard-metrics";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { fetchAll } from "@/lib/fetch-all";
+import { INSTAGRAM_FEATURE_CENTS } from "@/lib/order-totals";
+import { trackingCarrier } from "@/lib/tracking-carrier";
 
 // Whole days since a customer asked for an update (the page renders per request)
 function daysWaiting(askedAt: string) {
@@ -59,51 +61,77 @@ const FULFILLMENT_STATUS_STYLES: Record<string, { label: string; cls: string }> 
   in_progress: { label: "In Progress",    cls: "bg-rx text-white" },
 };
 
-function businessDaysSince(dateStr: string): number {
-  const start = new Date(dateStr);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(0, 0, 0, 0);
+// Day math works on New York calendar days (YYYY-MM-DD), not the server's
+// clock (UTC on Netlify), so an order that arrives in the New York evening
+// counts on its own day.
+
+/** The New York calendar day of a timestamp. */
+function nyDay(iso: string): string {
+  return etToday(new Date(iso));
+}
+
+function isWeekday(day: string): boolean {
+  const w = new Date(`${day}T12:00:00Z`).getUTCDay();
+  return w !== 0 && w !== 6;
+}
+
+/** Weekdays after `from`, up to and including `to` (0 when `to` isn't later). */
+function businessDaysBetween(from: string, to: string): number {
   let count = 0;
-  const d = new Date(start);
-  while (d < end) {
-    d.setDate(d.getDate() + 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
+  for (let d = from; d < to; ) {
+    d = addDays(d, 1);
+    if (isWeekday(d)) count++;
   }
   return count;
 }
 
-function addBusinessDays(date: Date, days: number): Date {
-  const result = new Date(date);
+function businessDaysSince(iso: string, today: string): number {
+  return businessDaysBetween(nyDay(iso), today);
+}
+
+function addBusinessDays(day: string, days: number): string {
+  let result = day;
   let remaining = Math.abs(days);
   const dir = days >= 0 ? 1 : -1;
   while (remaining > 0) {
-    result.setDate(result.getDate() + dir);
-    const day = result.getDay();
-    if (day !== 0 && day !== 6) remaining--;
+    result = addDays(result, dir);
+    if (isWeekday(result)) remaining--;
   }
   return result;
 }
 
-function businessDaysUntil(target: Date): number {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const t = new Date(target);
-  t.setHours(0, 0, 0, 0);
-  if (now.getTime() === t.getTime()) return 0;
-  const overdue = t < now;
-  const from = overdue ? new Date(t) : new Date(now);
-  const to = overdue ? new Date(now) : new Date(t);
-  let count = 0;
-  const d = new Date(from);
-  while (d < to) {
-    d.setDate(d.getDate() + 1);
-    const day = d.getDay();
-    if (day !== 0 && day !== 6) count++;
-  }
-  return overdue ? -count : count;
+/** Business days from today to `target`; negative when it's past. */
+function businessDaysUntil(target: string, today: string): number {
+  if (target === today) return 0;
+  return target > today ? businessDaysBetween(today, target) : -businessDaysBetween(target, today);
 }
+
+/**
+ * A case-insensitive regex (PostgREST imatch, Postgres ~*) that finds `text`
+ * anywhere, every character taken literally: the ***= prefix makes Postgres
+ * read the rest as plain text. Not ilike: PostgREST turns every * in a like
+ * pattern into %, and that can't be escaped.
+ */
+function literalPattern(text: string): string {
+  return `***=${text}`;
+}
+
+// Paid orders in these statuses make up the Fulfillment Queue
+const FULFILLMENT_STATUSES = ["received", "in_progress", "awaiting_restoration"];
+
+// Columns the search results list shows
+const SEARCH_COLUMNS = "id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, restoration_tier";
+type SearchRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string | null;
+  total_cents: number;
+  status: string;
+  created_at: string;
+  restoration_tier: string | null;
+};
 
 // Max business days per tier (used to compute due date from cards-received timestamp).
 // regular/expedited promise "months" of calendar time; converted here to approx business days
@@ -129,39 +157,56 @@ export default async function AdminPage({
   const activePeriod = shippedPeriod === "week" ? "week" : shippedPeriod === "month" ? "month" : shippedPeriod === "all" ? "all" : "today";
 
   const admin = createAdminClient();
+  // New York's date: the Shipped Out periods, due dates and dashboard all use New York days
+  const today = etToday();
 
   // ── Card/name search mode ─────────────────────────────────────────────────
   if (query) {
-    const [{ data: matchingCards }, { data: nameMatches }] = await Promise.all([
-      admin.from("cards").select("order_id, card_name").ilike("card_name", `%${query}%`),
-      admin
+    // One plain filter per column (no .or() string, so commas, dots and
+    // parentheses in the search are just text), every match read in pages, and
+    // card matches joined through the cards table instead of a long list of IDs
+    const pattern = literalPattern(query);
+    const settle = <T,>(what: string, rows: Promise<T[]>) => rows.then(
+      (r) => ({ rows: r, ok: true }),
+      (e: unknown) => { console.error(`[admin] search ${what}:`, e); return { rows: [] as T[], ok: false }; },
+    );
+    const [names, emails, cardHits] = await Promise.all([
+      settle("names", fetchAll<SearchRow>((from, to) => admin
         .from("orders")
-        .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, restoration_tier")
-        .or(`customer_name.ilike.%${query}%,customer_email.ilike.%${query}%`)
-        .order("created_at", { ascending: false }),
+        .select(SEARCH_COLUMNS)
+        .regexIMatch("customer_name", pattern)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to))),
+      settle("emails", fetchAll<SearchRow>((from, to) => admin
+        .from("orders")
+        .select(SEARCH_COLUMNS)
+        .regexIMatch("customer_email", pattern)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to))),
+      settle("cards", fetchAll<SearchRow & { cards: { card_name: string }[] | null }>((from, to) => admin
+        .from("orders")
+        .select(`${SEARCH_COLUMNS}, cards!inner(card_name)`)
+        .regexIMatch("cards.card_name", pattern)
+        .order("created_at", { ascending: false })
+        .order("id")
+        .range(from, to))),
     ]);
-
-    const cardOrderIds = [...new Set((matchingCards ?? []).map((c) => c.order_id))];
-
-    const { data: cardOrders } = cardOrderIds.length > 0
-      ? await admin
-          .from("orders")
-          .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, restoration_tier")
-          .in("id", cardOrderIds)
-          .order("created_at", { ascending: false })
-      : { data: [] };
+    const searchFailed = !names.ok || !emails.ok || !cardHits.ok;
+    const cardMatches = cardHits.rows;
 
     const seen = new Set<string>();
-    const matchedOrders: typeof nameMatches = [];
-    for (const o of [...(nameMatches ?? []), ...(cardOrders ?? [])]) {
+    const matchedOrders: SearchRow[] = [];
+    for (const o of [...names.rows, ...emails.rows, ...cardMatches]) {
       if (!seen.has(o.id)) { seen.add(o.id); matchedOrders.push(o); }
     }
     matchedOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+    // The matching cards come back embedded in their order (only the ones that match)
     const hitsByOrder: Record<string, string[]> = {};
-    for (const c of matchingCards ?? []) {
-      if (!hitsByOrder[c.order_id]) hitsByOrder[c.order_id] = [];
-      hitsByOrder[c.order_id].push(c.card_name);
+    for (const o of cardMatches) {
+      hitsByOrder[o.id] = (o.cards ?? []).map((c) => c.card_name);
     }
 
     return (
@@ -188,6 +233,11 @@ export default async function AdminPage({
             </div>
           </div>
 
+          {searchFailed && (
+            <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm font-semibold text-red-700">
+              Part of the search couldn&apos;t run, so some matches may be missing. Try again.
+            </div>
+          )}
           {(!matchedOrders || matchedOrders.length === 0) ? (
             <div className="bg-white rounded-xl border border-border p-12 text-center text-muted-foreground">
               No orders found matching &ldquo;{query}&rdquo;.
@@ -267,7 +317,7 @@ export default async function AdminPage({
     // Every row: the API returns at most 1,000 per request
     fetchAll((from, to) => admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, inbound_method, restoration_tier, admin_notes, payment_method, instagram_feature")
+      .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, inbound_method, restoration_tier, admin_notes, payment_method, instagram_feature, insurance_declared_value_cents")
       .neq("status", "awaiting_payment")
       .order("created_at", { ascending: false })
       .order("id")
@@ -280,12 +330,12 @@ export default async function AdminPage({
     admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, created_at, status, restoration_tier, total_cents, instagram_feature, inbound_method")
-      .in("status", ["received", "in_progress", "awaiting_restoration"])
+      .in("status", FULFILLMENT_STATUSES)
       .eq("payment_status", "paid")
       .order("created_at", { ascending: true }),
     admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes")
+      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes, outbound_tracking_number, outbound_carrier")
       .eq("status", "shipped_back")
       .order("updated_at", { ascending: false }),
     admin
@@ -303,7 +353,7 @@ export default async function AdminPage({
       .order("created_at", { ascending: false }),
     admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, status, created_at, total_cents, restoration_tier")
+      .select("id, order_number, customer_name, customer_email, status, created_at, total_cents, restoration_tier, order_services(service_id, price_cents)")
       .eq("instagram_feature", true)
       .neq("status", "awaiting_payment")
       .order("created_at", { ascending: false }),
@@ -336,7 +386,9 @@ export default async function AdminPage({
         let track: Track | null = null;
         if (o.tracking_number) {
           try {
-            track = await shippo.trackingStatus.get(o.tracking_number, "usps");
+            // The label's saved carrier while it goes with this number, else told from the number
+            const carrier = trackingCarrier(o.tracking_number, o.outbound_tracking_number === o.tracking_number ? o.outbound_carrier : null);
+            track = await shippo.trackingStatus.get(o.tracking_number, carrier.token);
           } catch { /* fail silently per order */ }
         }
         return { ...o, track };
@@ -347,17 +399,15 @@ export default async function AdminPage({
       .map((r) => r.value);
   }
 
-  // Date-filter shipped orders by when they were updated (shipped out)
+  // Date-filter shipped orders by when they were updated (shipped out), in New York days
   function filterByPeriod<T extends { updated_at: string }>(list: T[], period: string): T[] {
-    const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const todayStart = new Date(nowET.getFullYear(), nowET.getMonth(), nowET.getDate());
-    const weekStart = new Date(todayStart.getTime() - 6 * 86400000);
-    const monthStart = new Date(nowET.getFullYear(), nowET.getMonth(), 1);
+    const weekStart = addDays(today, -6);
+    const monthStart = `${today.slice(0, 7)}-01`;
     return list.filter((o) => {
-      const d = new Date(o.updated_at);
-      if (period === "today") return d >= todayStart;
-      if (period === "week") return d >= weekStart;
-      if (period === "month") return d >= monthStart;
+      const day = nyDay(o.updated_at);
+      if (period === "today") return day >= today;
+      if (period === "week") return day >= weekStart;
+      if (period === "month") return day >= monthStart;
       return true;
     });
   }
@@ -385,14 +435,23 @@ export default async function AdminPage({
     }
   }
 
-  // Cards for awaiting queue (names + photos)
-  const awaitingIds = (awaitingOrders ?? []).map((o) => o.id);
-  const { data: awaitingCards } = awaitingIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls").in("order_id", awaitingIds)
-    : { data: [] };
+  // Cards for awaiting queue (names + photos). Found by joining their order with
+  // the queue's own filter, not a list of order IDs: a few hundred IDs make the
+  // request URL too long for the API gateway. Every row, read in pages.
+  const awaitingCards: { order_id: string; card_name: string; photo_urls: unknown }[] = (awaitingOrders ?? []).length > 0
+    ? await fetchAll<{ order_id: string; card_name: string; photo_urls: unknown }>((from, to) => admin
+        .from("cards")
+        .select("id, order_id, card_name, photo_urls, orders!inner(status, payment_status)")
+        .eq("orders.status", "awaiting_cards")
+        .eq("orders.payment_status", "paid")
+        .order("created_at")
+        .order("id")
+        .range(from, to))
+        .catch((e) => { console.error("[admin] awaiting cards:", e); return []; })
+    : [];
 
   const awaitingCardsByOrder: Record<string, { name: string; photos: string[] }[]> = {};
-  for (const card of awaitingCards ?? []) {
+  for (const card of awaitingCards) {
     if (!awaitingCardsByOrder[card.order_id]) awaitingCardsByOrder[card.order_id] = [];
     awaitingCardsByOrder[card.order_id].push({
       name: card.card_name,
@@ -400,31 +459,53 @@ export default async function AdminPage({
     });
   }
 
-  // Card counts + completion for fulfillment queue
-  const fulfillmentIds = (fulfillmentOrders ?? []).map((o) => o.id);
-  const { data: fulfillmentCards } = fulfillmentIds.length > 0
-    ? await admin.from("cards").select("order_id, completed").in("order_id", fulfillmentIds)
-    : { data: [] };
+  // Card counts + completion for fulfillment queue (every row: the queue is counted
+  // in cards). Found by joining their order with the queue's own filter, not a list
+  // of order IDs: a few hundred IDs make the request URL too long for the API gateway.
+  const hasFulfillmentOrders = (fulfillmentOrders ?? []).length > 0;
+  const fulfillmentCards: { order_id: string; completed: boolean | null }[] = hasFulfillmentOrders
+    ? await fetchAll<{ order_id: string; completed: boolean | null }>((from, to) => admin
+        .from("cards")
+        .select("id, order_id, completed, orders!inner(status, payment_status)")
+        .in("orders.status", FULFILLMENT_STATUSES)
+        .eq("orders.payment_status", "paid")
+        .order("id")
+        .range(from, to))
+        .catch((e) => { console.error("[admin] fulfillment cards:", e); return []; })
+    : [];
 
   const cardCountByOrder: Record<string, number> = {};
   const completedCountByOrder: Record<string, number> = {};
-  for (const row of fulfillmentCards ?? []) {
+  for (const row of fulfillmentCards) {
     cardCountByOrder[row.order_id] = (cardCountByOrder[row.order_id] ?? 0) + 1;
     if (row.completed) completedCountByOrder[row.order_id] = (completedCountByOrder[row.order_id] ?? 0) + 1;
   }
 
-  // Find when each fulfillment order was marked received (for accurate "days since received")
-  const { data: receivedEvents } = fulfillmentIds.length > 0
-    ? await admin.from("order_events")
-        .select("order_id, created_at")
-        .in("order_id", fulfillmentIds)
+  // Find when each fulfillment order was marked received (for accurate "days since
+  // received"), joined to the queue's orders the same way
+  const receivedEvents: { order_id: string; created_at: string }[] = hasFulfillmentOrders
+    ? await fetchAll<{ order_id: string; created_at: string }>((from, to) => admin
+        .from("order_events")
+        .select("id, order_id, created_at, orders!inner(status, payment_status)")
+        .in("orders.status", FULFILLMENT_STATUSES)
+        .eq("orders.payment_status", "paid")
         .like("description", "%Cards Received%")
         .order("created_at", { ascending: true })
-    : { data: [] };
+        .order("id")
+        .range(from, to))
+        .catch((e) => { console.error("[admin] received events:", e); return []; })
+    : [];
 
   const receivedAtByOrder: Record<string, string> = {};
-  for (const ev of receivedEvents ?? []) {
+  for (const ev of receivedEvents) {
     if (!receivedAtByOrder[ev.order_id]) receivedAtByOrder[ev.order_id] = ev.created_at;
+  }
+
+  // Due date (New York day) per fulfillment order, counted from when its cards arrived
+  const dueDayByOrder: Record<string, string> = {};
+  for (const o of fulfillmentOrders ?? []) {
+    const rec = receivedAtByOrder[o.id] ?? o.created_at;
+    dueDayByOrder[o.id] = addBusinessDays(nyDay(rec), TIER_TURNAROUND_DAYS[(o.restoration_tier as string) ?? "regular"] ?? 20);
   }
 
   // Sort fulfillment orders by due date (default) or completion progress
@@ -439,13 +520,13 @@ export default async function AdminPage({
       if (pctB !== pctA) return pctB - pctA; // most complete first
       return doneB - doneA;
     }
+    const dueA = dueDayByOrder[a.id];
+    const dueB = dueDayByOrder[b.id];
+    if (dueA !== dueB) return dueA < dueB ? -1 : 1;
+    // Same due day: the cards that arrived first go first
     const recA = receivedAtByOrder[a.id] ?? a.created_at;
     const recB = receivedAtByOrder[b.id] ?? b.created_at;
-    const daysA = TIER_TURNAROUND_DAYS[(a.restoration_tier as string) ?? "regular"] ?? 20;
-    const daysB = TIER_TURNAROUND_DAYS[(b.restoration_tier as string) ?? "regular"] ?? 20;
-    const dueA = addBusinessDays(new Date(recA), daysA).getTime();
-    const dueB = addBusinessDays(new Date(recB), daysB).getTime();
-    return dueA - dueB;
+    return new Date(recA).getTime() - new Date(recB).getTime();
   }).filter((o) => !tierFilter || tierFilter === "all" || o.restoration_tier === tierFilter);
 
   const PAST_STATUSES = ["shipped_back", "delivered"];
@@ -468,21 +549,21 @@ export default async function AdminPage({
   // Dashboard numbers (lib/dashboard-metrics.ts): sales by the day paid, refunds by
   // the day refunded (from the refund ledger, synced with Stripe first), backlog in
   // unfinished cards. All days are New York days.
-  const today = etToday();
-  const [backlogNow, metrics] = activeTab === "orders"
-    ? await Promise.all([
-        getBacklogNow(admin).catch((e) => { console.error("[admin] backlog_now:", e); return null; }),
-        (async () => {
+  const [backlogNow, metrics] = await Promise.all([
+    getBacklogNow(admin).catch((e) => { console.error("[admin] backlog_now:", e); return null; }),
+    activeTab === "orders"
+      ? (async () => {
           await syncRefundsQuietly(admin);
           const [series, backlogDays] = await Promise.all([
             getRevenueSeries(admin),
             getBacklogDays(admin, addDays(today, -29), today),
           ]);
           return { series, backlogDays };
-        })().catch((e) => { console.error("[admin] dashboard metrics:", e); return null; }),
-      ])
-    : [null, null];
+        })().catch((e) => { console.error("[admin] dashboard metrics:", e); return null; })
+      : null,
+  ]);
   const totalOrderCount = (orders?.length ?? 0) + (shopOrders?.length ?? 0);
+  const currentBacklogCardCount = backlogNow?.total ?? 0;
   const month = (() => {
     if (!metrics) return null;
     const days = metrics.series.daily.filter((d) => d.day.slice(0, 7) === today.slice(0, 7));
@@ -491,7 +572,9 @@ export default async function AdminPage({
     return { orders: days.reduce((s, d) => s + d.orders, 0), sales, refunds, net: sales - refunds.cents };
   })();
 
-  const fulfillmentCount = fulfillmentOrders?.length ?? 0;
+  // The Fulfillment Queue tab counts cards; the empty state checks orders
+  const fulfillmentCount = fulfillmentCards.length;
+  const fulfillmentOrderCount = fulfillmentOrders?.length ?? 0;
   const shippedCount = shippedRaw?.length ?? 0;
   const awaitingCount = awaitingOrders?.length ?? 0;
   const insuredCount = insuredOrders?.length ?? 0;
@@ -507,10 +590,15 @@ export default async function AdminPage({
             <h1 className="font-heading font-black text-3xl text-foreground">
               {activeTab === "fulfillment" ? "Fulfillment Queue" : "Orders"}
             </h1>
-            <p className="text-muted-foreground text-sm mt-1">
+            <p className="text-muted-foreground text-sm mt-1 flex items-center gap-2 flex-wrap">
               {activeTab === "fulfillment"
                 ? "Cards in your hands — sorted oldest first"
                 : `${totalOrderCount} total`}
+              {activeTab !== "fulfillment" && currentBacklogCardCount > 0 && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
+                  {currentBacklogCardCount} card{currentBacklogCardCount !== 1 ? "s" : ""} in backlog
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -788,9 +876,9 @@ export default async function AdminPage({
                             {TIER_BADGES[order.restoration_tier as RestorationTierId].label}
                           </span>
                         )}
-                        {(order as any).insurance_declared_value_cents > 0 && (
+                        {(order.insurance_declared_value_cents ?? 0) > 0 && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                            Insured ${((order as any).insurance_declared_value_cents / 100).toFixed(0)}
+                            Insured ${(order.insurance_declared_value_cents / 100).toFixed(0)}
                           </span>
                         )}
                         {(order as any).instagram_feature && (
@@ -858,9 +946,9 @@ export default async function AdminPage({
                               {TIER_BADGES[order.restoration_tier as RestorationTierId].label}
                             </span>
                           )}
-                          {(order as any).insurance_declared_value_cents > 0 && (
+                          {(order.insurance_declared_value_cents ?? 0) > 0 && (
                             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                              Insured ${((order as any).insurance_declared_value_cents / 100).toFixed(0)}
+                              Insured ${(order.insurance_declared_value_cents / 100).toFixed(0)}
                             </span>
                           )}
                           {videoOrderIds.includes(order.id) && (
@@ -1007,7 +1095,7 @@ export default async function AdminPage({
               })}
             </div>
 
-            {fulfillmentCount === 0 ? (
+            {fulfillmentOrderCount === 0 ? (
               <div className="bg-white rounded-xl border border-border p-16 text-center">
                 <p className="text-2xl mb-2">✅</p>
                 <p className="font-heading font-black text-lg text-foreground">All caught up!</p>
@@ -1041,10 +1129,10 @@ export default async function AdminPage({
                       // Mail-in orders start the clock when "Cards Received" is pressed.
                       const isDropoff = (order as Record<string,unknown>).inbound_method === "dropoff";
                       const receivedAt = receivedAtByOrder[order.id] ?? (isDropoff ? order.created_at : null);
-                      const bizDaysIn = receivedAt ? businessDaysSince(receivedAt) : null;
+                      const bizDaysIn = receivedAt ? businessDaysSince(receivedAt, today) : null;
                       const turnaround = TIER_TURNAROUND_DAYS[tier] ?? 20;
-                      const dueDate = receivedAt ? addBusinessDays(new Date(receivedAt), turnaround) : null;
-                      const daysUntilDue = dueDate ? businessDaysUntil(dueDate) : null;
+                      const dueDay = receivedAt ? addBusinessDays(nyDay(receivedAt), turnaround) : null;
+                      const daysUntilDue = dueDay ? businessDaysUntil(dueDay, today) : null;
                       const isOverdue = daysUntilDue !== null && daysUntilDue < 0;
                       const isDueSoon = daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 2;
                       const cards = cardCountByOrder[order.id] ?? 0;
@@ -1510,7 +1598,7 @@ export default async function AdminPage({
             <div className="bg-pink-50 border border-pink-200 rounded-xl p-4 mb-5">
               <p className="font-bold text-pink-900 text-sm">Instagram Feature Orders</p>
               <p className="text-xs text-pink-700 mt-0.5">
-                These customers paid $100 to have their card featured in an Instagram video. Film and post before shipping their cards back.
+                These customers paid to have their card featured in an Instagram video (now {formatCurrency(INSTAGRAM_FEATURE_CENTS).replace(/\.00$/, "")}). Film and post before shipping their cards back.
               </p>
             </div>
             {videosCount === 0 ? (
@@ -1524,6 +1612,9 @@ export default async function AdminPage({
                 {(videoOrders ?? []).map((order) => {
                   const tier = order.restoration_tier ? TIER_STYLES[order.restoration_tier] : null;
                   const cards = videoCardsByOrder[order.id] ?? [];
+                  // What this order paid for the feature ($100 before Sept 29, 2026, $250 after)
+                  const services = (order.order_services ?? []) as { service_id: string; price_cents: number | null }[];
+                  const paidCents = services.find((s) => s.service_id === "instagram_feature")?.price_cents ?? null;
                   return (
                     <Link
                       key={order.id}
@@ -1540,6 +1631,11 @@ export default async function AdminPage({
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tier.cls}`}>{tier.label}</span>
                           )}
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">Instagram Video</span>
+                          {paidCents !== null && (
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              Paid {formatCurrency(paidCents).replace(/\.00$/, "")}
+                            </span>
+                          )}
                         </div>
                         <p className="font-medium text-foreground">{order.customer_name}</p>
                         <p className="text-sm text-muted-foreground mb-3">{order.customer_email}</p>

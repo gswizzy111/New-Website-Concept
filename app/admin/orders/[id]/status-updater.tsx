@@ -26,24 +26,50 @@ export function StatusUpdater({
 }) {
   const [status, setStatus] = useState(currentStatus);
   const [trackingNumber, setTrackingNumber] = useState(currentTrackingNumber ?? "");
+  // Follow the saved values after a refresh (the page can change them too)
+  const [shown, setShown] = useState({ currentStatus, currentTrackingNumber });
+  if (shown.currentStatus !== currentStatus || shown.currentTrackingNumber !== currentTrackingNumber) {
+    setShown({ currentStatus, currentTrackingNumber });
+    setStatus(currentStatus);
+    setTrackingNumber(currentTrackingNumber ?? "");
+  }
   const [loading, setLoading] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   const [pendingTracking, setPendingTracking] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const router = useRouter();
 
   async function updateStatus(newStatus: string, tracking?: string) {
     setLoading(true);
-    await fetch(`/api/admin/orders/${orderId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: newStatus, tracking_number: tracking ?? undefined }),
-    });
-    setStatus(newStatus);
-    if (tracking) setTrackingNumber(tracking);
-    setPendingStatus(null);
-    setPendingTracking("");
-    setLoading(false);
-    router.refresh();
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus, tracking_number: tracking ?? undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "The status wasn't saved. Try again.");
+        return;
+      }
+      setStatus(newStatus);
+      if (tracking) setTrackingNumber(tracking);
+      setPendingStatus(null);
+      setPendingTracking("");
+      const notices = [
+        data.emailFailed ? "Status saved, but the email to the customer failed." : "",
+        data.notesEmailed === "failed" ? "The notes email to the customer failed. Click Save Notes to send it again." : "",
+      ].filter(Boolean);
+      if (notices.length) setNotice(notices.join(" "));
+      router.refresh();
+    } catch {
+      setError("Network error. The status may not have saved: reload to check.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleStatusClick(newStatus: string) {
@@ -55,8 +81,10 @@ export function StatusUpdater({
     }
   }
 
+  // Off the timeline (Cancelled) there's no next step: without this check the
+  // button would offer "Mark as Awaiting Payment"
   const currentIndex = STATUS_TIMELINE.indexOf(status as OrderStatus);
-  const nextStatus = STATUS_TIMELINE[currentIndex + 1] as OrderStatus | undefined;
+  const nextStatus = currentIndex >= 0 ? (STATUS_TIMELINE[currentIndex + 1] as OrderStatus | undefined) : undefined;
 
   return (
     <div className="flex flex-col gap-4">
@@ -120,6 +148,9 @@ export function StatusUpdater({
           </div>
         </div>
       )}
+
+      {error && <p role="alert" className="text-sm font-medium text-red-600">{error}</p>}
+      {notice && <p role="status" className="text-sm font-medium text-amber-700">{notice}</p>}
 
       {/* Quick advance button */}
       {nextStatus && pendingStatus === null && (

@@ -3,13 +3,24 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { OrderBuilder } from "@/components/order-builder/builder";
 import { isSoldOut, TIER_SELECTION_ENABLED } from "@/lib/site-config";
+import { getRestorationsOpen } from "@/lib/store-config";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+export const dynamic = "force-dynamic";
+
 export default async function OrderPage({ searchParams }: PageProps) {
+  // Same master toggle as /restoration (and the checkout API): when restorations
+  // are closed, send the customer to tier-selection (prices + waitlist) before
+  // they fill in the whole order
+  const restorationsOpen = await getRestorationsOpen();
+  if (!restorationsOpen) {
+    redirect("/tier-selection");
+  }
+
   // Get tier from query params
   const params = await searchParams;
   const tierParam = params.tier as string | undefined;

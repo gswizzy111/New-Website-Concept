@@ -4,10 +4,9 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { fbq } from "@/lib/pixel";
 
-type TrackingWindow = Window & { __noTrack?: boolean; __noTrackPath?: RegExp };
-
-// Fires PageView on every client-side navigation.
-// The initial PageView is handled by the inline script in <head>, so we skip the first mount.
+// Fires PageView on every client-side navigation (the pixel's own page views
+// on navigation are off; see lib/tracking-guard.ts).
+// The initial PageView is sent by the first script in <head>, so we skip the first mount.
 export function MetaPixelRouteTracker() {
   const pathname = usePathname();
   const isFirst = useRef(true);
@@ -17,10 +16,9 @@ export function MetaPixelRouteTracker() {
       isFirst.current = false;
       return;
     }
-    const w = window as TrackingWindow;
-    // The pixel wasn't started on a page holding a one-time link (root
-    // layout), and such a page is never reported
-    if (w.__noTrack || w.__noTrackPath?.test(pathname)) return;
+    // No page view once a private page has been opened in this tab: the
+    // guard sets window.__noTrack before the address changes, and fbq()
+    // (lib/pixel.ts) sends nothing after that
     fbq("track", "PageView");
   }, [pathname]);
 

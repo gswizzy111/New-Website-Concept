@@ -1,38 +1,30 @@
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { stripe } from "@/lib/stripe";
-import { sendCancellationEmail } from "@/lib/subscription-emails";
 import { likeExact } from "@/lib/like-exact";
+import { cancelKitClubSubscription, signedInEmail, type KitClubSubscription } from "@/lib/kit-club-link";
 
+// Cancels the signed-in customer's Kit Club subscription (their account's
+// confirmed email). Same steps as the manage page: Stripe first, then the
+// record, and the dated confirmation email only when this request's Stripe
+// cancel went through.
 export async function POST() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const email = await signedInEmail();
+  if (!email) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const admin = createAdminClient();
-
-  const { data: sub } = await admin
+  const { data, error } = await createAdminClient()
     .from("subscriptions")
-    .select("id, stripe_subscription_id, status, customer_email, customer_name")
-    .ilike("customer_email", likeExact(user.email!))
+    .select("id, stripe_subscription_id, status, customer_email, customer_name, created_at, cancelled_at")
+    .ilike("customer_email", likeExact(email))
     .eq("status", "active")
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) console.error("Account Kit Club cancel lookup failed:", error.message);
+  const sub = (data?.[0] ?? null) as KitClubSubscription | null;
 
   if (!sub) return Response.json({ error: "No active subscription found." }, { status: 404 });
 
-  try {
-    await stripe.subscriptions.cancel(sub.stripe_subscription_id);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Failed to cancel with payment provider.";
-    return Response.json({ error: msg }, { status: 500 });
-  }
-
-  const cancelledAt = new Date();
-  await admin
-    .from("subscriptions")
-    .update({ status: "cancelled", cancelled_at: cancelledAt.toISOString() })
-    .eq("id", sub.id);
-  await sendCancellationEmail(sub.customer_email, sub.customer_name, cancelledAt);
-
+  const result = await cancelKitClubSubscription(sub);
+  if ("error" in result) return Response.json({ error: result.error }, { status: 500 });
+  // The cancellation stands even when its email didn't go out
+  // (cancelKitClubSubscription logs that)
   return Response.json({ ok: true });
 }

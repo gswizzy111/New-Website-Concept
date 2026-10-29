@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { stripe } from "@/lib/stripe";
+import { siteUrl } from "@/lib/site-url";
 import { getSubscriptionPriceCents } from "@/lib/store-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordConsents, requestOrigin } from "@/lib/signatures";
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
 
   const { name, email, phone, street1, street2, city, state, zip } = parsed.data;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   const priceCents = await getSubscriptionPriceCents();
 
   try {
@@ -53,7 +54,9 @@ export async function POST(request: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${appUrl}/subscribe/success`,
+      // The success page reads the session for the Meta Purchase event; the
+      // page's first script takes the ID out of the address (lib/tracking-guard.ts)
+      success_url: `${appUrl}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/subscribe`,
       metadata: {
         type: "subscription",

@@ -1,9 +1,8 @@
 import { getTierById, getCardPriceCents } from "@/lib/restoration-tiers";
-import { getPriceCents } from "@/lib/pricing";
 import { SIGNATURE_FEE_CENTS } from "@/lib/site-config";
 import { bulkDiscountPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import type { CardEntry, ShippingRate } from "@/lib/types";
-import type { RestorationTierId } from "@/lib/restoration-tiers";
+import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 
 // Add-on prices. Must match what app/api/checkout/route.ts charges.
 export const SLAB_CRACK_CENTS = 700;
@@ -11,9 +10,33 @@ export const PREGRADE_CENTS = 2500;
 export const INSTAGRAM_FEATURE_CENTS = 25000;
 export const TAX_RATE = 0.06625;
 
+/** The optional tip at checkout: preset amounts and the most it can be (as on the old site). */
+export const TIP_PRESETS_CENTS = [500, 1000, 2000, 5000];
+export const MAX_TIP_CENTS = 50000;
+
+/** Stripe can't charge less than this. */
+export const STRIPE_MIN_CHARGE_CENTS = 50;
+
+/**
+ * What a gift card takes off an order: `wantedCents` (its balance, capped at
+ * what it may cover), except that Stripe can't charge 1-49 cents, so when the
+ * card would leave that little to pay it takes less and leaves 50 cents (the
+ * rest stays on the card). An order it covers in full costs $0. `dueCents` is
+ * the order total before the gift card. The checkout routes and the database
+ * (hold_gift_card, supabase/migrations/20261027_checkout.sql) use the same rule.
+ */
+export function giftCardCents(wantedCents: number, dueCents: number): number {
+  const wanted = Math.max(0, wantedCents);
+  const left = dueCents - wanted;
+  if (left > 0 && left < STRIPE_MIN_CHARGE_CENTS) return Math.max(0, dueCents - STRIPE_MIN_CHARGE_CENTS);
+  return wanted;
+}
+
 interface OrderTotalsInput {
   cards: CardEntry[];
   selectedTier?: RestorationTierId;
+  /** The tiers with the admin's prices (lib/live-tiers.ts); missing: the defaults */
+  tiers?: RestorationTier[];
   shippingMethod: "buy_label" | "self_ship" | null;
   selectedRate: ShippingRate | null;
   discountPercent: number; // the higher of the affiliate and loyalty discounts
@@ -21,6 +44,12 @@ interface OrderTotalsInput {
   addSignatureConfirmation: boolean;
   instagramFeature: boolean;
   giftCardAmountCents: number;
+  tipCents?: number;
+}
+
+/** A tier with the admin's prices when they're known, else its defaults. */
+export function tierFor(id: RestorationTierId, tiers?: RestorationTier[]): RestorationTier | undefined {
+  return tiers?.find((t) => t.id === id) ?? getTierById(id);
 }
 
 // One calculation for the order builder's sidebar and review step, following
@@ -28,19 +57,17 @@ interface OrderTotalsInput {
 export function computeOrderTotals(input: OrderTotalsInput) {
   const { cards, selectedTier } = input;
 
+  // Every card needs a tier (the checkout refuses a card without one)
   let subtotal = 0;
   let bulkBase = 0; // the per-card prices the bulk discount applies to (not Diamond)
   for (const card of cards) {
     const tierId = card.tier ?? selectedTier;
-    if (!tierId) {
-      subtotal = getPriceCents(cards.length);
-      bulkBase = 0;
-      break;
-    }
+    const tier = tierId ? tierFor(tierId, input.tiers) : undefined;
+    if (!tierId || !tier) continue;
     const valueCents = card.estimated_value
       ? Math.round(parseFloat(card.estimated_value.replace(/[$,]/g, "")) * 100) || 0
       : 0;
-    const price = getCardPriceCents(getTierById(tierId), valueCents);
+    const price = getCardPriceCents(tier, valueCents);
     subtotal += price;
     if (isBulkEligible(tierId)) bulkBase += price;
   }
@@ -62,16 +89,15 @@ export function computeOrderTotals(input: OrderTotalsInput) {
   const pregradeCount = cards.filter((c) => c.needs_pregrade).length;
   const pregradeCents = pregradeCount * PREGRADE_CENTS;
   const instagramCents = input.instagramFeature ? INSTAGRAM_FEATURE_CENTS : 0;
+  const tipCents = Math.min(Math.max(0, Math.round(input.tipCents ?? 0)), MAX_TIP_CENTS);
 
   // The checkout route caps a gift card at the total before the Instagram
-  // feature and signature fee.
+  // feature, the signature fee and the tip, and leaves Stripe at least 50 cents.
   const giftCardCap = subtotal - discountCents + taxCents + shippingCents + input.insuranceCents + slabCrackCents + pregradeCents;
-  const giftCardCents = Math.min(input.giftCardAmountCents, Math.max(0, giftCardCap));
+  const beforeGiftCard = giftCardCap + instagramCents + signatureCents + tipCents;
+  const giftCardCents = giftCardCentsFor(input.giftCardAmountCents, giftCardCap, beforeGiftCard);
 
-  const total = Math.max(
-    0,
-    giftCardCap + instagramCents + signatureCents - giftCardCents
-  );
+  const total = Math.max(0, beforeGiftCard - giftCardCents);
 
   return {
     subtotal,
@@ -88,7 +114,13 @@ export function computeOrderTotals(input: OrderTotalsInput) {
     pregradeCount,
     pregradeCents,
     instagramCents,
+    tipCents,
     giftCardCents,
     total,
   };
+}
+
+function giftCardCentsFor(balanceCents: number, capCents: number, dueCents: number): number {
+  if (balanceCents <= 0) return 0;
+  return giftCardCents(Math.min(balanceCents, Math.max(0, capCents)), dueCents);
 }

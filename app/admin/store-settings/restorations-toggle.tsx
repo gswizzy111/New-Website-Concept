@@ -28,7 +28,7 @@ export function RestorationsToggle({ initialOpen }: { initialOpen: boolean }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className={`flex items-center justify-between p-4 rounded-xl border ${open ? "border-green-200 bg-green-50/40" : "border-red-200 bg-red-50/40"}`}>
+      <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-xl border ${open ? "border-green-200 bg-green-50/40" : "border-red-200 bg-red-50/40"}`}>
         <div>
           <p className="font-bold text-foreground">
             Restorations are currently{" "}
@@ -43,7 +43,7 @@ export function RestorationsToggle({ initialOpen }: { initialOpen: boolean }) {
         <button
           onClick={toggle}
           disabled={saving}
-          className={`ml-4 shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 ${
+          className={`self-start sm:self-auto sm:ml-4 shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 ${
             open
               ? "bg-red-100 text-red-700 hover:bg-red-200"
               : "bg-green-100 text-green-700 hover:bg-green-200"

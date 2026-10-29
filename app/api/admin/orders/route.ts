@@ -1,8 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents, type RestorationTier, type RestorationTierId, type TierDbOverride } from "@/lib/restoration-tiers";
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
+import { siteUrl } from "@/lib/site-url";
 
 const TIER_IDS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
 
@@ -17,7 +18,7 @@ const BodySchema = z.object({
   state: z.string().optional().default(""),
   zip: z.string().optional().default(""),
   inbound_method: z.enum(["self_ship", "buy_label", "dropoff"]).optional().default("self_ship"),
-  order_date: z.string().optional(),
+  order_date: z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/).optional(),
   restoration_tier: z.enum(TIER_IDS).optional(),
   price_per_card_cents: z.number().int().positive().optional(),
   due_date: z.string().optional(),
@@ -45,10 +46,29 @@ export async function POST(request: Request) {
   const d = parsed.data;
   const admin = createAdminClient();
 
+  // Tier prices as the admin set them (restoration_settings over the
+  // defaults), like checkout. Never priced without them.
+  const usedTiers = [...new Set([d.restoration_tier, ...d.cards.map((c) => c.tier)].filter(Boolean))] as RestorationTierId[];
+  const liveTiers: Partial<Record<RestorationTierId, RestorationTier>> = {};
+  if (usedTiers.length > 0) {
+    const { data: tierSettings, error: tierSettingsError } = await admin
+      .from("restoration_settings")
+      .select("tier, display_name, price_cents, pricing_rate, min_card_value_cents")
+      .in("tier", usedTiers);
+    if (tierSettingsError) {
+      console.error("Tier settings unavailable:", tierSettingsError.message);
+      return Response.json({ error: "Couldn't load the tier prices. Please try again in a moment." }, { status: 503 });
+    }
+    const byTier = new Map((tierSettings ?? []).map((s) => [s.tier as string, s as TierDbOverride]));
+    for (const id of usedTiers) liveTiers[id] = applyDbOverride(RESTORATION_TIERS[id], byTier.get(id) ?? null);
+  }
+  // A manual order has no declared values, so Diamond (a share of value) is $0, as before
+  const tierPriceCents = (id: RestorationTierId) => getCardPriceCents(liveTiers[id] ?? RESTORATION_TIERS[id]);
+
   function cardPriceCents(card: typeof d.cards[number]): number {
-    if (card.tier) return RESTORATION_TIERS[card.tier].price_cents;
+    if (card.tier) return tierPriceCents(card.tier);
     if (card.price_per_card_cents) return card.price_per_card_cents;
-    if (d.restoration_tier) return RESTORATION_TIERS[d.restoration_tier].price_cents;
+    if (d.restoration_tier) return tierPriceCents(d.restoration_tier);
     if (d.price_per_card_cents) return d.price_per_card_cents;
     return 0;
   }
@@ -180,7 +200,10 @@ export async function POST(request: Request) {
     payment_status: "paid",
   };
 
-  if (d.order_date) {
+  // A backdated order is stamped at noon UTC, which is the same calendar day in
+  // New York (the business's day). Today's date keeps the real time of entry.
+  const todayInNewYork = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  if (d.order_date && d.order_date !== todayInNewYork) {
     orderPayload.created_at = `${d.order_date}T12:00:00.000Z`;
   }
   if (shippingLabelUrl) orderPayload.shipping_label_url = shippingLabelUrl;
@@ -248,7 +271,7 @@ export async function POST(request: Request) {
 
   // Send emails for online orders
   if (d.order_type === "online" && d.customer_email) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+    const appUrl = siteUrl();
     const trackingUrl = `${appUrl}/orders/${order.order_number}`;
     const firstName = d.customer_name?.split(" ")[0] || "there";
 

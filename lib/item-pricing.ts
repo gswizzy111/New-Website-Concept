@@ -1,7 +1,7 @@
 /**
  * Splits an order-level discount across its cards so each card knows what it
- * actually cost (its service price, its share of the discount and the tax on
- * the rest). Used to refund a single card's service fee (lib/item-refunds.ts).
+ * actually cost (its service price, its share of the discount and its share
+ * of the tax on the rest). Used to refund a single card's service fee (lib/item-refunds.ts).
  */
 export const TAX_RATE = 0.06625;
 
@@ -24,13 +24,17 @@ export function allocate(total: number, weights: number[]): number[] {
 /**
  * Per-card discount and tax. `eligible` marks the cards the discount applies
  * to (bulk pricing skips Diamond); a code or loyalty discount covers them all.
+ * The tax is charged once, on the total after discount (rounded once), so it
+ * is split across the cards the same way: the shares add up to it exactly.
  */
 export function itemAmounts(prices: number[], discountCents: number, eligible?: boolean[], taxRate = TAX_RATE) {
   const weights = prices.map((p, i) => (eligible && !eligible[i] ? 0 : p));
   const discounts = allocate(discountCents, weights);
+  const nets = prices.map((price, i) => Math.max(0, price - discounts[i]));
+  const taxes = allocate(Math.round(nets.reduce((s, n) => s + n, 0) * taxRate), nets);
   return prices.map((price, i) => ({
     service_price_cents: price,
     discount_cents: discounts[i],
-    tax_cents: Math.round((price - discounts[i]) * taxRate),
+    tax_cents: taxes[i],
   }));
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export function CardCompletionToggle({
   cardId,
@@ -10,17 +11,27 @@ export function CardCompletionToggle({
   initialCompleted: boolean;
 }) {
   const [completed, setCompleted] = useState(initialCompleted);
+  // The same card can show twice (card list and stage tracker): follow the
+  // server's value after a refresh so both stay in step
+  const [shown, setShown] = useState(initialCompleted);
+  if (shown !== initialCompleted) {
+    setShown(initialCompleted);
+    setCompleted(initialCompleted);
+  }
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const router = useRouter();
 
   async function toggle() {
     setLoading(true);
     setErr(null);
     try {
       const res = await fetch(`/api/admin/cards/${cardId}/complete`, { method: "POST" });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setCompleted(data.completed);
+        // Refresh so the done counts and the other sections update
+        router.refresh();
       } else {
         setErr(data.error ?? "Failed");
       }

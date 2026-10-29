@@ -1,11 +1,15 @@
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 
 /**
- * Bulk restoration pricing: an order of 10+ cards gets 10% off the per-card
- * price, 20+ cards 15% off. Diamond (priced as a share of the card's value)
- * is excluded. Like creator and loyalty codes, it never stacks: an order gets
- * whichever discount is biggest. The Restorations page, the order builder and
- * the checkout API all price from here.
+ * Bulk pricing: an order of 10+ cards gets 10% off the per-card price, 20+
+ * cards 15% off. Restoration: Diamond (priced as a share of the card's value)
+ * is excluded. PSA Prep: off the per-card prep fee of cards under $1,500 only;
+ * cards $1,500 and over (2% of value) are excluded the same way, and neither
+ * are the add-ons (Pre-Grade Assessment, slab removal), shipping or insurance.
+ * Excluded cards still count toward the 10 or 20. Like creator
+ * and loyalty codes, it never stacks: an order gets whichever discount is
+ * biggest. The Restorations and Prep pages, the order builder, the prep order
+ * form and both checkout APIs all price from here.
  */
 export const BULK_TIERS = [
   { minCards: 20, percent: 15 },
@@ -29,6 +33,11 @@ export function isBulkEligible(tierId: RestorationTierId | string | null | undef
 /** The bulk discount percent for an order with this many cards (0 below 10). */
 export function bulkDiscountPercent(cardCount: number): number {
   return BULK_TIERS.find((t) => cardCount >= t.minCards)?.percent ?? 0;
+}
+
+/** The bulk discount on `baseCents` (the per-card prices it applies to), rounded once for the order. */
+export function bulkDiscountCentsOf(baseCents: number, percent: number): number {
+  return percent > 0 ? Math.round(baseCents * percent / 100) : 0;
 }
 
 /** A per-card price after a bulk discount, in cents. */

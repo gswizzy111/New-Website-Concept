@@ -1,5 +1,7 @@
 "use client";
 
+import { csvText } from "@/lib/csv";
+
 type Customer = {
   name: string;
   email: string;
@@ -17,21 +19,18 @@ export function ExportButton({ customers }: { customers: Customer[] }) {
       c.email,
       c.phone,
       c.source,
-      new Date(c.firstOrder).toLocaleDateString("en-US"),
+      new Date(c.firstOrder).toLocaleDateString("en-US", { timeZone: "America/New_York" }),
       c.totalOrders != null ? String(c.totalOrders) : "",
     ]);
 
-    const csv = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv" });
+    // Guarded against spreadsheet formulas (a name or phone typed at checkout can start with = or +)
+    const blob = new Blob([csvText([headers, ...rows])], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `customers-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   return (

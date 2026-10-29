@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { shippo, businessAddress } from "@/lib/shippo";
-import { resend, fromEmail, businessName } from "@/lib/resend";
+import { resend, fromEmail, businessName, replyToAddress } from "@/lib/resend";
+import { escapeHtml } from "@/lib/card-inquiries";
+import { shippoRateCarrier } from "@/lib/tracking-carrier";
 import { WeightUnitEnum, DistanceUnitEnum } from "shippo/models/components";
 import { isAdmin } from "@/lib/admin-auth";
 
@@ -26,6 +28,9 @@ type ShippingAddress = {
 export type SavedLabel = {
   labelUrl: string;
   trackingNumber: string | null;
+  /** The label's carrier and Shippo's tracking page (read by lib/tracking-carrier.ts) */
+  carrier?: string | null;
+  trackingUrl?: string | null;
   createdAt: string;
 };
 
@@ -109,6 +114,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const order = await getOrder(id);
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
+  // Cancelled and refunded: no postage, and the order must not become shipped
+  if (order.status === "cancelled") return Response.json({ error: "This order was cancelled." }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const { rateObjectId, insuranceDeclaredValueCents } = body;
@@ -153,9 +160,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const trackingNumber = (transaction.tracking_number as string) ?? null;
   const trackingUrl = (transaction.tracking_url_provider as string) ?? null;
 
+  const { provider } = await shippoRateCarrier(rateObjectId);
   const newLabel: SavedLabel = {
     labelUrl: transaction.label_url as string,
     trackingNumber,
+    ...(provider ? { carrier: provider } : {}),
+    ...(trackingUrl ? { trackingUrl } : {}),
     createdAt: new Date().toISOString(),
   };
 
@@ -190,10 +200,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   // Send shipping notification email on first label only
   if (existingLabels.length === 0 && order.customer_email && trackingNumber) {
-    const firstName = (order.customer_name as string)?.split(" ")[0] ?? "there";
+    const firstName = escapeHtml((order.customer_name as string)?.split(" ")[0] || "there");
+    const contact = escapeHtml(replyToAddress);
 
     try {
-      await resend.emails.send({
+      const { error: emailError } = await resend.emails.send({
         from: fromEmail,
         to: order.customer_email as string,
         subject: `Your order is on the way! — ${businessName}`,
@@ -204,18 +215,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
             <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
               <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Tracking Number</p>
-              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${trackingNumber}</p>
+              <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${escapeHtml(trackingNumber)}</p>
               ${trackingUrl
-                ? `<a href="${trackingUrl}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
+                ? `<a href="${escapeHtml(trackingUrl)}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
                 : ""}
             </div>
 
             <p style="font-size:14px;color:#666;">You can also copy the tracking number above and paste it on your carrier's website to follow your package.</p>
-            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}" style="color:#c34104">${process.env.CONTACT_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL}</a></p>
+            <p style="font-size:13px;color:#666;margin-top:24px">Questions? Email us at <a href="mailto:${contact}" style="color:#c34104">${contact}</a></p>
             <p style="font-size:13px;color:#999">${businessName}</p>
           </div>
         `,
       });
+      if (emailError) console.error("Failed to send shipping email:", emailError.message);
     } catch (err) {
       console.error("Failed to send shipping email:", err);
     }

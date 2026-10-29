@@ -20,7 +20,8 @@ interface Props {
   isOpen: boolean;
   maxSlots: number | null;
   displaySlotsRemaining: number | null;
-  slotsUsed: number;
+  /** Paid orders since the slots opened; null: the count couldn't be read */
+  slotsUsed: number | null;
   // Whether the DB has the extended columns yet
   hasExtendedColumns: boolean;
 }
@@ -50,8 +51,8 @@ export function TierRow({
   const [open, setOpen] = useState(isOpen);
   const [slots, setSlots] = useState(maxSlots !== null ? String(maxSlots) : "");
   const parsedSlots = slots === "" ? null : parseInt(slots) || null;
-  const autoSoldOut = parsedSlots !== null && slotsUsed >= parsedSlots;
-  const slotsLeft = parsedSlots !== null ? Math.max(0, parsedSlots - slotsUsed) : null;
+  const autoSoldOut = parsedSlots !== null && slotsUsed !== null && slotsUsed >= parsedSlots;
+  const slotsLeft = parsedSlots !== null && slotsUsed !== null ? Math.max(0, parsedSlots - slotsUsed) : null;
 
   // Detail fields state
   const [displayName, setDisplayName] = useState(name);
@@ -137,7 +138,9 @@ export function TierRow({
             <span className="text-sm text-muted-foreground">{minDays}–{maxDays} days</span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap mt-0.5">
-            <span>{slotsUsed} paid order{slotsUsed !== 1 ? "s" : ""}</span>
+            {slotsUsed === null
+              ? <span className="text-red-600 font-semibold">Couldn&apos;t count slots</span>
+              : <span>{slotsUsed} paid order{slotsUsed !== 1 ? "s" : ""}</span>}
             {slotsLeft !== null && (
               <span className={slotsLeft <= 2 ? "text-red-600 font-bold" : "text-orange-600 font-semibold"}>
                 {slotsLeft} slot{slotsLeft !== 1 ? "s" : ""} remaining
@@ -321,7 +324,7 @@ export function TierRow({
                   onBlur={handleSlotsBlur}
                   className="w-32 h-9 border border-border rounded-lg px-3 text-sm text-center focus:outline-none focus:border-primary bg-white"
                 />
-                {parsedSlots !== null && (
+                {parsedSlots !== null && slotsUsed !== null && (
                   <span className="text-sm text-muted-foreground">
                     <span className={slotsLeft === 0 ? "text-red-600 font-bold" : slotsLeft !== null && slotsLeft <= 3 ? "text-orange-600 font-semibold" : "text-green-700 font-semibold"}>
                       {slotsLeft} remaining
@@ -335,7 +338,7 @@ export function TierRow({
                 <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden w-48">
                   <div
                     className={`h-full rounded-full transition-all ${slotsLeft === 0 ? "bg-red-500" : slotsLeft <= 3 ? "bg-orange-500" : "bg-green-500"}`}
-                    style={{ width: `${Math.min(100, (slotsUsed / parsedSlots) * 100)}%` }}
+                    style={{ width: `${Math.min(100, ((slotsUsed ?? 0) / parsedSlots) * 100)}%` }}
                   />
                 </div>
               )}

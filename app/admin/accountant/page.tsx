@@ -6,8 +6,8 @@ type Accountant = {
   id: string;
   name: string;
   email: string;
-  password_hash: string | null;
-  invite_token: string | null;
+  /** A password is set (the hash itself never leaves the server) */
+  has_password: boolean;
   invite_token_expires_at: string | null;
   created_at: string;
   last_login_at: string | null;
@@ -145,7 +145,7 @@ export default function AccountantAccessPage() {
           )}
 
           {!loading && accountants.map((a) => {
-            const isPending = !a.password_hash;
+            const isPending = !a.has_password;
             const tokenExpired = a.invite_token_expires_at && new Date(a.invite_token_expires_at) < new Date();
             return (
               <div key={a.id} className="px-5 py-4 border-b border-border last:border-0 flex items-center gap-4">

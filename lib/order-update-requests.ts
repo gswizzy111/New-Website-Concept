@@ -1,6 +1,7 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { resend, fromEmail } from "@/lib/resend";
 import { INQUIRY_TYPE, OPEN_CASE_STATUSES, escapeHtml } from "@/lib/card-inquiries";
+import { siteUrl } from "@/lib/site-url";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -102,10 +103,10 @@ export async function createUpdateRequest(
   }
 
   const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL ?? "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://thecarddoc1.com";
+  const appUrl = siteUrl();
   if (adminEmail) {
     try {
-      await resend.emails.send({
+      const { error: sendError } = await resend.emails.send({
         from: fromEmail,
         to: adminEmail,
         subject: `Update request — Order ${req.label}`,
@@ -119,6 +120,7 @@ export async function createUpdateRequest(
           </div>
         `,
       });
+      if (sendError) console.error("Failed to send update request admin email:", sendError);
     } catch (err) {
       console.error("Failed to send update request admin email:", err);
     }

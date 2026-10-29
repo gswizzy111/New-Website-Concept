@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ManualOrderForm } from "./manual-order-form";
 import { isAdmin } from "@/lib/admin-auth";
+import { getLiveTiers } from "@/lib/live-tiers";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export default async function NewManualOrderPage() {
   if (!(await isAdmin())) {
     redirect("/admin/login");
   }
+  // The admin's tier names and prices, so the preview matches what is saved
+  const tiers = await getLiveTiers();
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -22,7 +25,7 @@ export default async function NewManualOrderPage() {
           <h1 className="font-heading font-black text-3xl text-foreground">Create Manual Order</h1>
           <p className="text-muted-foreground text-sm mt-1">Add a restoration order manually — no Stripe payment required.</p>
         </div>
-        <ManualOrderForm />
+        <ManualOrderForm tiers={tiers} />
       </div>
     </div>
   );

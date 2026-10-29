@@ -1,16 +1,24 @@
 import { CheckCircle } from "lucide-react";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Button } from "@/components/ui/button";
+import { OpenFileButton } from "@/components/open-file-button";
+import { PurchasePixel } from "@/components/purchase-pixel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { PurchasePixel } from "./purchase-pixel";
+import { CHECKOUT_SESSION_COOKIE, CHECKOUT_SESSION_ID } from "@/lib/tracking-guard";
 
 export default async function CheckoutSuccessPage({
   searchParams,
 }: {
   searchParams: Promise<{ session_id?: string }>;
 }) {
-  const { session_id } = await searchParams;
+  // Stripe adds ?session_id=; the first script on the page then takes it out
+  // of the address (analytics must never see it) and keeps it in a cookie for
+  // this page, so a reload still finds the order (lib/tracking-guard.ts)
+  const fromUrl = (await searchParams).session_id;
+  const candidate = fromUrl ?? (await cookies()).get(CHECKOUT_SESSION_COOKIE)?.value;
+  const session_id = candidate && CHECKOUT_SESSION_ID.test(candidate) ? candidate : undefined;
   let order: {
     id: string;
     order_number: string | number;
@@ -19,6 +27,7 @@ export default async function CheckoutSuccessPage({
     shipping_label_url: string | null;
   } | null = null;
   let amountTotal: number | null = null;
+  let currency = "usd";
 
   if (session_id) {
     const admin = createAdminClient();
@@ -36,8 +45,10 @@ export default async function CheckoutSuccessPage({
     const bySession = bySessionResult.status === "fulfilled" ? bySessionResult.value.data : null;
     const stripeSession = stripeResult.status === "fulfilled" ? stripeResult.value : null;
 
-    if (stripeSession?.amount_total != null) {
+    // Only a completed checkout is a purchase
+    if (stripeSession?.status === "complete" && stripeSession.amount_total != null) {
       amountTotal = stripeSession.amount_total;
+      currency = stripeSession.currency ?? "usd";
     }
 
     if (bySession) {
@@ -67,7 +78,7 @@ export default async function CheckoutSuccessPage({
 
   return (
     <section className="flex-1 flex items-center justify-center min-h-[70vh] px-6">
-      <PurchasePixel sessionId={session_id} amountCents={amountTotal} orderId={order?.id} />
+      <PurchasePixel sessionId={session_id} amountCents={amountTotal} currency={currency} orderId={order?.id} />
       <div className="max-w-sm w-full text-center flex flex-col items-center gap-6">
         <CheckCircle className="h-16 w-16 text-primary" />
         <div>
@@ -92,14 +103,13 @@ export default async function CheckoutSuccessPage({
                 <p className="text-blue-800 text-sm mb-3">
                   Print this label, attach it to your package, and drop it off at the carrier.
                 </p>
-                <a
-                  href={order.shipping_label_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
+                <OpenFileButton
+                  url={order.shipping_label_url}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors cursor-pointer"
                 >
                   Download Label (PDF)
-                </a>
+                </OpenFileButton>
               </>
             ) : (
               <p className="text-blue-800 text-sm">

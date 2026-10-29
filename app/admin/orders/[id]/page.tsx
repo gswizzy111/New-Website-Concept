@@ -19,6 +19,9 @@ import { CardCompletionToggle } from "./card-completion-toggle";
 import { AdminCardEditor } from "./admin-card-editor";
 import { AddCardButton } from "./add-card-button";
 import { RefundButton } from "./refund-button";
+import { RestorationStageUpdater } from "./restoration-stage-updater";
+import { stagesByCard } from "./stages";
+import { trackingCarrier } from "@/lib/tracking-carrier";
 import { ResendConfirmationButton } from "./resend-confirmation-button";
 import { PaymentMethodEditor } from "./payment-method-editor";
 import { RegenerateLabelButton } from "./regenerate-label-button";
@@ -64,6 +67,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   let order = orderRes.data;
   if (!order) notFound();
 
+  // Per-card restoration stages from stage_update events (newest first)
+  const stageByCard = stagesByCard(events ?? []);
+
   // Terms of Service v1.0 and later: signatures, consents and each card's work gates
   // ...and emails to this customer that didn't arrive (Resend's webhook, lib/email-problems.ts)
   const [{ data: sigRows }, { data: consentRows }, facts, emailProblems] = await Promise.all([
@@ -77,6 +83,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const versionOf = new Map((versionRows ?? []).map((v) => [v.id, v.version as string]));
   // The latest choice of each consent type
   const latestConsents = [...new Map((consentRows ?? []).map((c) => [c.type, c])).values()];
+  // What a card refund can still take from the order, as the card refund route
+  // checks it: nothing unless the order is still paid through Stripe, and never
+  // more than the order has left
+  const orderStillPaid = (order.payment_status === "paid" || order.payment_status === "partially_refunded")
+    && !!(order.stripe_payment_intent_id || order.stripe_session_id);
+  const orderLeftCents = orderStillPaid
+    ? Math.max(0, ((order.total_cents as number) ?? 0) - ((order.refunded_cents as number) ?? 0))
+    : 0;
   const panelCards: PanelCard[] = (cards ?? []).map((c) => {
     const gate = cardGate(c as GateCard, facts);
     return {
@@ -91,6 +105,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
       slabBy: c.slab_opening_started_by ?? null,
       slabSignatureId: (sigRows ?? []).find((s) => s.type === "slab_removal" && s.order_item_id === c.id)?.id ?? null,
       ...gate,
+      refundableCents: Math.min(gate.refundableCents, orderLeftCents),
     };
   });
 
@@ -129,11 +144,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     } catch { /* fail silently */ }
   }
 
-  // Live return tracking (when shipped back)
+  // Live return tracking (when shipped back), with the label's carrier
   let returnTrack: Track | null = null;
-  if (order.status === "shipped_back" && order.tracking_number) {
+  // The carrier saved with the bought return label counts only while the order still has that label's number
+  const savedReturnCarrier = order.outbound_tracking_number === order.tracking_number ? (order.outbound_carrier as string | null) : null;
+  const returnCarrier = order.tracking_number ? trackingCarrier(order.tracking_number, savedReturnCarrier) : null;
+  if (order.status === "shipped_back" && order.tracking_number && returnCarrier) {
     try {
-      returnTrack = await shippo.trackingStatus.get(order.tracking_number, "usps");
+      returnTrack = await shippo.trackingStatus.get(order.tracking_number, returnCarrier.token);
     } catch { /* fail silently */ }
 
     // Auto-advance to delivered if Shippo confirms delivery
@@ -143,7 +161,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         admin.from("order_events").insert({
           order_id: id,
           event_type: "status_updated",
-          description: "Marked Delivered — USPS confirmed delivery of return package.",
+          description: `Marked Delivered — ${returnCarrier?.name ?? "USPS"} confirmed delivery of return package.`,
           is_customer_visible: true,
         }),
       ]);
@@ -246,6 +264,15 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               <h2 className="font-heading font-black text-lg text-foreground mb-4">Order Status</h2>
               <StatusUpdater orderId={order.id} currentStatus={order.status} currentTrackingNumber={order.tracking_number as string | null} />
             </div>
+
+            {/* Restoration stage tracker — only while in progress */}
+            {order.status === "in_progress" && (
+              <RestorationStageUpdater
+                orderId={order.id}
+                cards={(cards ?? []).map((c) => ({ id: c.id, card_name: c.card_name, completed: !!c.completed }))}
+                stageByCard={stageByCard}
+              />
+            )}
 
             {/* Inbound tracking — only for buy_label orders */}
             {order.inbound_method === "buy_label" && (
@@ -476,6 +503,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 <h2 className="font-heading font-black text-lg text-foreground">Services</h2>
                 <OrderEditor
                   orderId={order.id}
+                  paidThroughStripe={!!order.stripe_session_id}
                   totalCents={order.total_cents}
                   dueDate={orderDueDate}
                   customerNotes={order.customer_notes as string | null}

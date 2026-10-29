@@ -24,7 +24,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (channel === "other" && !note) return Response.json({ error: "Say how and when the notice was sent." }, { status: 400 });
   if (channel === "email") {
     try {
-      await sendNoticeEmail(order, kind, note);
+      // Resend reports a refused email in its result instead of throwing: the
+      // log must only say "emailed" when the email actually went out
+      const sent: unknown = await sendNoticeEmail(order, kind, note);
+      const refused = sent && typeof sent === "object" && "error" in sent ? (sent as { error: unknown }).error : null;
+      if (refused) throw new Error(typeof refused === "object" && refused && "message" in refused ? String((refused as { message: unknown }).message) : String(refused));
     } catch (err) {
       console.error("Notice email failed:", err);
       return Response.json({ error: "The email could not be sent." }, { status: 502 });

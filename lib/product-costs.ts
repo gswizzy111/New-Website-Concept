@@ -42,26 +42,56 @@ async function ensureBucket(admin: ReturnType<typeof createAdminClient>) {
   await admin.storage.createBucket(BUCKET, { public: false }).catch(() => {});
 }
 
+/** Supabase Storage's answer when the file has never been saved. */
+function isMissingFile(error: { message?: string; status?: number; statusCode?: string }): boolean {
+  return error.status === 404 || error.statusCode === "404" || /object not found|NoSuchKey/i.test(`${error.statusCode ?? ""} ${error.message ?? ""}`);
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * The saved config, or the empty default only when it has never been saved.
+ * Throws when it can't be read or parsed, so nothing is ever saved over a
+ * config that wasn't read (GET /api/admin/product-costs answers 500).
+ */
 export async function getProductCosts(): Promise<ProductCostsConfig> {
   const admin = createAdminClient();
   await ensureBucket(admin);
   const { data, error } = await admin.storage.from(BUCKET).download(FILE);
-  if (error || !data) return DEFAULT;
-  try {
-    const parsed = JSON.parse(await data.text());
-    return {
-      products: parsed.products ?? {},
-      restoration: { ...DEFAULT.restoration, ...(parsed.restoration ?? {}) },
-      presets: parsed.presets ?? [],
-    };
-  } catch {
-    return DEFAULT;
+  if (error) {
+    if (isMissingFile(error as { message?: string; status?: number; statusCode?: string })) return structuredClone(DEFAULT);
+    throw new Error(`Product costs could not be read: ${error.message}`);
   }
+  if (!data) throw new Error("Product costs could not be read: empty answer");
+  const parsed: unknown = JSON.parse(await data.text());
+  if (!isRecord(parsed)) throw new Error("Product costs could not be read: the saved file is not a config");
+  return {
+    products: isRecord(parsed.products) ? (parsed.products as ProductCostsConfig["products"]) : {},
+    restoration: { ...DEFAULT.restoration, ...(isRecord(parsed.restoration) ? parsed.restoration : {}) },
+    presets: Array.isArray(parsed.presets) ? (parsed.presets as ComponentPreset[]) : [],
+  };
 }
 
-export async function saveProductCosts(config: ProductCostsConfig): Promise<void> {
+/**
+ * Saves the whole config. Throws if the save fails. Every product's costs and
+ * presets live in this one file, so only updateProductCosts() calls it.
+ */
+async function saveProductCosts(config: ProductCostsConfig): Promise<void> {
   const admin = createAdminClient();
   await ensureBucket(admin);
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
-  await admin.storage.from(BUCKET).upload(FILE, blob, { upsert: true, contentType: "application/json" });
+  const { error } = await admin.storage.from(BUCKET).upload(FILE, blob, { upsert: true, contentType: "application/json" });
+  if (error) throw new Error(`Product costs could not be saved: ${error.message}`);
+}
+
+/**
+ * Reads the saved config, applies one change and saves it, all on the
+ * server: a change to one product or preset never replaces the rest with
+ * what a browser happened to have. Throws if the read or the save fails.
+ */
+export async function updateProductCosts(change: (config: ProductCostsConfig) => void): Promise<ProductCostsConfig> {
+  const config = await getProductCosts();
+  change(config);
+  await saveProductCosts(config);
+  return config;
 }

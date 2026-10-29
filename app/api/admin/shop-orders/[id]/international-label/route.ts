@@ -112,6 +112,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const admin = createAdminClient();
   const { data: order } = await admin.from("shop_orders").select("*").eq("id", id).single();
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
+  // Cancelled and refunded: no postage, and the order must not become shipped
+  if (order.status === "cancelled") return Response.json({ error: "This order was cancelled." }, { status: 409 });
 
   const transaction = await shippo.transactions.create({
     rate: rateObjectId,

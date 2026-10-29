@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CurrentYear } from "@/components/marketing/current-year";
 
 export function Footer() {
   return (
@@ -20,7 +21,7 @@ export function Footer() {
               Expert PSA prep and card restoration. Every card treated like it&apos;s worth a fortune.
             </p>
             <p className="font-mono text-xs text-stage-muted mt-auto pt-4">
-              &copy; {new Date().getFullYear()} The Card Doc. All rights reserved.
+              &copy; <CurrentYear builtYear={new Date().getFullYear()} /> The Card Doc. All rights reserved.
             </p>
           </div>
 

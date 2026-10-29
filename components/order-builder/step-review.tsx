@@ -5,9 +5,9 @@ import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/utils";
-import { computeOrderTotals, INSTAGRAM_FEATURE_CENTS } from "@/lib/order-totals";
+import { computeOrderTotals, INSTAGRAM_FEATURE_CENTS, MAX_TIP_CENTS, TIP_PRESETS_CENTS } from "@/lib/order-totals";
 import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection } from "@/lib/types";
-import type { RestorationTierId } from "@/lib/restoration-tiers";
+import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { INSURANCE_ENABLED } from "@/lib/site-config";
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
 import { Req } from "@/components/checkout/required";
@@ -39,8 +39,13 @@ interface StepReviewProps {
   onGiftCardAmountChange: (cents: number) => void;
   instagramFeature: boolean;
   onInstagramFeatureChange: (v: boolean) => void;
+  /** The optional tip (as on the old site) */
+  tipCents: number;
+  onTipCentsChange: (cents: number) => void;
   onEditStep: (step: number) => void;
   selectedTier?: RestorationTierId;
+  /** The tiers with the admin's names and prices (lib/live-tiers.ts) */
+  tiers?: RestorationTier[];
   /** The slab authorizations, permissions, e-sign consent and master signature (components/checkout/signing-section.tsx) */
   signingSlot?: React.ReactNode;
   /** The customer pressed sign with something missing: outline it in red */
@@ -72,8 +77,11 @@ export function StepReview({
   onGiftCardAmountChange,
   instagramFeature,
   onInstagramFeatureChange,
+  tipCents,
+  onTipCentsChange,
   onEditStep,
   selectedTier,
+  tiers,
   insurance,
   signingSlot,
   showMissing = false,
@@ -93,11 +101,20 @@ export function StepReview({
   const [insuranceDollars, setInsuranceDollars] = useState(
     insurance.declaredValueCents > 0 ? String(insurance.declaredValueCents / 100) : ""
   );
+  // What the customer typed as a custom tip (kept as typed, so "50" can be entered)
+  const [customTip, setCustomTip] = useState(
+    tipCents > 0 && !TIP_PRESETS_CENTS.includes(tipCents) ? String(tipCents / 100) : ""
+  );
 
   // Auto-detect loyalty discount when review step loads
   useEffect(() => {
     if (!customer.email) return;
-    fetch(`/api/loyalty?email=${encodeURIComponent(customer.email)}`)
+    // POST: the email stays out of the URL
+    fetch("/api/loyalty", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: customer.email }),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (data.discountPercent > 0) onLoyaltyDiscountChange(data.discountPercent);
@@ -193,6 +210,7 @@ export function StepReview({
   const totals = computeOrderTotals({
     cards,
     selectedTier,
+    tiers,
     shippingMethod,
     selectedRate,
     discountPercent: effectiveDiscountPct,
@@ -200,8 +218,9 @@ export function StepReview({
     addSignatureConfirmation,
     instagramFeature,
     giftCardAmountCents,
+    tipCents,
   });
-  // The totals themselves are in the order summary beside this step
+  // The totals themselves (with any tip) are in the order summary beside this step
   const { discountKind, discountPercentApplied, bulkPercent } = totals;
   const gcApplied = totals.giftCardCents;
 
@@ -349,6 +368,52 @@ export function StepReview({
             </p>
           </div>
         </label>
+      </div>
+
+      {/* Tip */}
+      <div className="border border-border rounded-lg p-5">
+        <p className="font-medium text-foreground mb-1">Add a tip <span className="text-xs text-muted-foreground font-normal">(optional)</span></p>
+        <p className="text-sm text-muted-foreground mb-3">100% goes to the technician working on your cards. Thank you!</p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {[0, ...TIP_PRESETS_CENTS].map((cents) => (
+            <button
+              key={cents}
+              type="button"
+              aria-pressed={tipCents === cents}
+              onClick={() => {
+                setCustomTip("");
+                onTipCentsChange(cents);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                tipCents === cents
+                  ? "border-rx bg-rx-soft text-ink ring-1 ring-rx"
+                  : "bg-white border-rule text-muted-foreground hover:border-ink/40"
+              }`}
+            >
+              {cents === 0 ? "No tip" : formatCurrency(cents)}
+            </button>
+          ))}
+        </div>
+        <div className="relative max-w-xs">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+          <input
+            type="number"
+            min={0}
+            max={MAX_TIP_CENTS / 100}
+            step={1}
+            inputMode="decimal"
+            placeholder="Custom amount"
+            aria-label="Custom tip amount"
+            value={customTip}
+            onChange={(e) => {
+              const v = Math.round((parseFloat(e.target.value) || 0) * 100);
+              // Up to $500, as on the old site
+              setCustomTip(v > MAX_TIP_CENTS ? String(MAX_TIP_CENTS / 100) : e.target.value);
+              onTipCentsChange(Math.min(Math.max(v, 0), MAX_TIP_CENTS));
+            }}
+            className="w-full h-9 border border-border rounded-lg pl-6 pr-3 text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </div>
       </div>
 
       {/* Notes */}

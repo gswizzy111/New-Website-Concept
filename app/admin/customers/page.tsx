@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ExportButton } from "./export-button";
+import { fetchAll } from "@/lib/fetch-all";
 
 export const dynamic = "force-dynamic";
 
@@ -18,23 +19,31 @@ export default async function CustomersPage() {
 
   const admin = createAdminClient();
 
-  const [{ data: restorationOrders }, { data: shopOrders }, { data: waitlistRows }] = await Promise.all([
-    admin.from("orders")
+  // Every row, in pages of 1,000 (the API's limit per request)
+  type Contact = { customer_name: string | null; customer_email: string | null; customer_phone: string | null; created_at: string };
+  const [restorationOrders, shopOrders, waitlistRows] = await Promise.all([
+    fetchAll<Contact>((from, to) => admin.from("orders")
       .select("customer_name, customer_email, customer_phone, created_at")
       .neq("status", "awaiting_payment")
-      .order("created_at", { ascending: true }),
-    admin.from("shop_orders")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)),
+    fetchAll<Contact>((from, to) => admin.from("shop_orders")
       .select("customer_name, customer_email, customer_phone, created_at")
-      .order("created_at", { ascending: true }),
-    admin.from("waitlist")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)),
+    fetchAll<{ email: string | null; created_at: string }>((from, to) => admin.from("waitlist")
       .select("email, created_at")
-      .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)),
   ]);
 
   // Merge all rows and deduplicate by email, keeping earliest order date + counting all orders
   const map = new Map<string, Customer>();
 
-  for (const o of restorationOrders ?? []) {
+  for (const o of restorationOrders) {
     const email = (o.customer_email ?? "").toLowerCase().trim();
     if (!email) continue;
     const existing = map.get(email);
@@ -54,7 +63,7 @@ export default async function CustomersPage() {
     }
   }
 
-  for (const o of shopOrders ?? []) {
+  for (const o of shopOrders) {
     const email = (o.customer_email ?? "").toLowerCase().trim();
     if (!email) continue;
     const existing = map.get(email);
@@ -75,7 +84,7 @@ export default async function CustomersPage() {
   }
 
   // Add waitlist signups (only if not already a customer)
-  for (const w of waitlistRows ?? []) {
+  for (const w of waitlistRows) {
     const email = (w.email ?? "").toLowerCase().trim();
     if (!email || map.has(email)) continue;
     map.set(email, {
@@ -136,7 +145,7 @@ export default async function CustomersPage() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-muted-foreground hidden lg:table-cell">
-                      {new Date(c.firstOrder).toLocaleDateString("en-US")}
+                      {new Date(c.firstOrder).toLocaleDateString("en-US", { timeZone: "America/New_York" })}
                     </td>
                     <td className="px-5 py-3 text-right font-bold text-foreground">{c.totalOrders ?? "—"}</td>
                   </tr>

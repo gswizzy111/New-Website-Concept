@@ -7,8 +7,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const { id } = await params;
-  const { tracking_number } = await request.json();
-  if (!tracking_number) return Response.json({ error: "Missing tracking_number" }, { status: 400 });
+  const { tracking_number } = await request.json().catch(() => ({}));
+  if (typeof tracking_number !== "string" || !tracking_number.trim()) return Response.json({ error: "Missing tracking_number" }, { status: 400 });
 
   const admin = createAdminClient();
   const { error } = await admin
