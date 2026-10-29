@@ -106,9 +106,12 @@ export default async function PrepPage() {
                     {/* The examples per plan; the switch above shows the chosen one */}
                     {BULK_PLANS.map((p) => (
                       <p key={p.id} data-plan={p.id} className="text-sm text-muted-foreground mt-0.5">
-                        {/* Each example stays on one line; a wrap falls after the dot */}
-                        e.g. <span className="whitespace-nowrap">$2,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[0], p.percent))}</span> &nbsp;·{" "}
-                        <span className="whitespace-nowrap">$5,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[1], p.percent))}</span>
+                        {/* One inline box (the shown plan's <p> is display: flex): a wrap
+                            falls after the dot, never before it; from md up each example stays on one line */}
+                        <span>
+                          e.g. <span className="md:whitespace-nowrap">$2,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[0], p.percent))}&nbsp;&nbsp;·</span>{" "}
+                          <span className="md:whitespace-nowrap">$5,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[1], p.percent))}</span>
+                        </span>
                       </p>
                     ))}
                   </div>
