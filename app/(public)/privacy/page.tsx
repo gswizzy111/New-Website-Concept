@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPage() {
-  const EFFECTIVE_DATE = "October 22, 2026";
+  const EFFECTIVE_DATE = "October 29, 2026";
   const CONTACT_EMAIL = "thecarddoc1@gmail.com";
 
   return (
