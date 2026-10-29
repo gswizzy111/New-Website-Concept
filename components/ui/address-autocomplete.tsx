@@ -14,6 +14,31 @@ const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 // Street-level results only (a house number), like the old "address" type
 const ADDRESS_TYPES = ["street_address", "premise", "subpremise"];
 
+/** Google finds nothing for "C&O" but finds "C & O": space out ampersands. */
+const forGoogle = (input: string) => input.replace(/\s*&\s*/g, " & ");
+
+// Words that don't tell two streets apart (suffixes, directions, rural routes)
+const COMMON_WORDS = new Set(
+  "and the of rd road st street ave avenue av dr drive ln lane ct court blvd hwy highway way pl place cir circle trl pkwy ter n s e w ne nw se sw north south east west apt unit ste suite po box rr hc rte route co cr county us sr".split(" "),
+);
+const words = (s: string) => s.toLowerCase().replace(/&/g, " and ").split(/[^a-z0-9]+/).filter(Boolean);
+
+/**
+ * Whether a suggestion is for the street being typed: same house number and,
+ * when a street name word was typed, one of those words. Google answers an
+ * unmatched street with other streets that share the number ("1999 C&O Dam Rd"
+ * got four "1999 ... Road"s in AL, KS and CO); listing those only invites a
+ * wrong pick, since the list covers the fields below it.
+ */
+function matchesTyped(typed: string, suggestion: string): boolean {
+  const t = words(typed);
+  const s = words(suggestion);
+  const number = t.find((w) => /^\d+$/.test(w));
+  if (number && !s.some((w) => w.startsWith(number))) return false;
+  const name = t.filter((w) => !/^\d+$/.test(w) && w.length >= 2 && !COMMON_WORDS.has(w));
+  return name.length === 0 || name.some((n) => s.some((w) => w.startsWith(n)));
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlacesLibrary = any;
 let placesPromise: Promise<PlacesLibrary> | null = null;
@@ -67,7 +92,9 @@ function toFields(components: AddressComponent[]): PlaceFields {
   };
   return {
     street1: [get("street_number"), get("route")].filter(Boolean).join(" "),
-    city: get("locality") || get("postal_town") || get("sublocality_level_1") || get("sublocality"),
+    // Rural places can have no locality, only a neighborhood or township
+    city: get("locality") || get("postal_town") || get("sublocality_level_1") || get("sublocality")
+      || get("neighborhood") || get("administrative_area_level_3"),
     state: get("administrative_area_level_1", true),
     zip: get("postal_code"),
     country: get("country", true) || "US",
@@ -129,7 +156,7 @@ export function AddressAutocomplete({
         sessionToken.current ??= new places.AutocompleteSessionToken();
         const regions = countriesKey ? countriesKey.split(",") : [];
         const { suggestions: found } = await places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-          input: query,
+          input: forGoogle(query),
           sessionToken: sessionToken.current,
           includedPrimaryTypes: ADDRESS_TYPES,
           ...(regions.length ? { includedRegionCodes: regions } : {}),
@@ -137,12 +164,12 @@ export function AddressAutocomplete({
         });
         if (id !== requestId.current) return; // a newer keystroke won
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const list: Suggestion[] = (found ?? []).filter((s: any) => s.placePrediction).slice(0, 5).map((s: any) => ({
+        const list: Suggestion[] = (found ?? []).filter((s: any) => s.placePrediction).map((s: any) => ({
           id: s.placePrediction.placeId,
           main: s.placePrediction.mainText?.text ?? s.placePrediction.text.text,
           secondary: s.placePrediction.secondaryText?.text ?? "",
           prediction: s.placePrediction,
-        }));
+        })).filter((s: Suggestion) => matchesTyped(query, s.main)).slice(0, 5);
         setSuggestions(list);
         setActive(-1);
         setOpen(list.length > 0);
