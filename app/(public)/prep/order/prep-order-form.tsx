@@ -569,7 +569,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               </div>
 
               {/* City / state / ZIP */}
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 <Need missing={miss(city)} className="col-span-2">
                   <label className={labelCls}>City<Req /></label>
                   <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
@@ -581,7 +581,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
                   </select>
                 </Need>
-                <Need missing={miss(zip)} className="col-span-2">
+                <Need missing={miss(zip)} className="sm:col-span-2">
                   <label className={labelCls}>ZIP Code<Req /></label>
                   <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
                 </Need>

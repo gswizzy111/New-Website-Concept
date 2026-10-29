@@ -59,10 +59,12 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
     tipCents: tip,
   });
 
+  // Same wording as the tier's card on the booking page (lib/live-tiers.ts tierTurnaround)
+  const turnaroundOf = (t: RestorationTier) => t.turnaround_label ?? `${t.turnaround_min_days}–${t.turnaround_max_days} days`;
   const turnaroundText = isMixed
     ? "Turnaround varies by tier"
     : tierEntries[0]
-    ? `Est. turnaround: ${tierOf(tierEntries[0][0]).turnaround_min_days}–${tierOf(tierEntries[0][0]).turnaround_max_days} days from receipt`
+    ? `Est. turnaround: ${turnaroundOf(tierOf(tierEntries[0][0]))} from receipt`
     : "Est. turnaround: 15–20 days from receipt";
 
   return (
