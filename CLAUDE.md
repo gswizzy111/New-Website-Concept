@@ -177,8 +177,8 @@ Rules for this repo:
 - **Product costs** change only by PATCH `/api/admin/product-costs` (one change,
   applied on the server). **Prep** is US and Puerto Rico only, and gets the
   restoration bulk pricing (`lib/bulk-pricing.ts`, 10+ cards 10%, 20+ 15%) on
-  the per-card prep fee of cards under $1,500 (2%-of-value cards count toward
-  the total but aren't discounted, like Diamond); add-ons and shipping never are.
+  the per-card prep fee of every card (including 2%-of-value cards); add-ons
+  and shipping never are.
 - **Migrations `20261027_*.sql`** are additive and rerunnable; apply them to
   production before the code (`attempt_limits` before `security_data`). A new
   function in `public` sets its own `search_path`.

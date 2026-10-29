@@ -3,10 +3,10 @@ import type { RestorationTierId } from "@/lib/restoration-tiers";
 /**
  * Bulk pricing: an order of 10+ cards gets 10% off the per-card price, 20+
  * cards 15% off. Restoration: Diamond (priced as a share of the card's value)
- * is excluded. PSA Prep: off the per-card prep fee of cards under $1,500 only;
- * cards $1,500 and over (2% of value) are excluded the same way, and neither
- * are the add-ons (Pre-Grade Assessment, slab removal), shipping or insurance.
- * Excluded cards still count toward the 10 or 20. Like creator
+ * is excluded (it still counts toward the 10 or 20). PSA Prep: off the
+ * per-card prep fee of every card, including cards $1,500 and over (2% of
+ * value), but never the add-ons (Pre-Grade Assessment, slab removal),
+ * shipping or insurance. Like creator
  * and loyalty codes, it never stacks: an order gets whichever discount is
  * biggest. The Restorations and Prep pages, the order builder, the prep order
  * form and both checkout APIs all price from here.

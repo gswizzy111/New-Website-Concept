@@ -175,11 +175,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const slabCrackSubtotal = slabCrackCount * slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
   // Bulk pricing, as the checkout charges it: 10+ cards 10% off, 20+ 15% off
-  // the per-card prep price of cards under $1,500 (every card counts toward
-  // the 10 or 20; not the add-ons or shipping), taxed after the discount
+  // the per-card prep price of every card, including cards $1,500 and over
+  // (not the add-ons or shipping), taxed after the discount
   const bulkPercent = bulkDiscountPercent(filledCards.length);
-  const bulkExcluded = filledCards.some((c) => cardValueCents(c) >= HIGH_VALUE_THRESHOLD_CENTS);
-  const bulkDiscountCents = bulkDiscountCentsOf(filledCards.filter((c) => cardValueCents(c) < HIGH_VALUE_THRESHOLD_CENTS).length * standardPriceCents, bulkPercent);
+  const bulkDiscountCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
   const taxCents = Math.round((serviceSubtotal - bulkDiscountCents) * NJ_TAX_RATE);
   // The prepaid label pays the rate twice (to us and back); shipping your own
   // way pays it once, for the trip back to you
@@ -487,7 +486,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <div>
                 <p className="font-bold text-ink text-sm">{bulkPercent}% bulk discount applied!</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {filledCards.length} cards: {bulkPercent}% off the per-card price{bulkExcluded ? " (cards $1,500 and over excluded)" : ""}.
+                  {filledCards.length} cards: {bulkPercent}% off the per-card price.
                 </p>
               </div>
             </div>

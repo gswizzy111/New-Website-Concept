@@ -153,7 +153,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           </div>
         )}
         {giftCardCents > 0 && (
-          <div className="flex justify-between text-green-600 font-semibold">
+          <div className="flex justify-between text-green-700 font-semibold">
             <span>Gift Card</span>
             <span>−{formatCurrency(giftCardCents)}</span>
           </div>

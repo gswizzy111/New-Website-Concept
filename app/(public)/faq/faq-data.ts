@@ -66,7 +66,7 @@ export const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: "Do you offer a bulk discount?",
-        a: "Yes — 10% off restoration orders of 10 or more cards, and 15% off orders of 20 or more cards. Diamond is excluded, and the bulk discount doesn't combine with other codes: you get whichever discount is bigger.",
+        a: "Yes — 10% off restoration and PSA Prep orders of 10 or more cards, and 15% off orders of 20 or more cards. Diamond is excluded, and the bulk discount doesn't combine with other codes: you get whichever discount is bigger.",
       },
       {
         q: "Do you charge extra to crack a slab?",
