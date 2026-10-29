@@ -38,6 +38,14 @@ function fmt(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Cards $1,500 and over are priced at 2% of declared value; bulk pricing takes
+// its percent off that too (10% off 2% = 1.8%, 15% off = 1.7%)
+const HIGH_VALUE_EXAMPLES_CENTS = [Math.round(200000 * 0.02), Math.round(500000 * 0.02)] as const;
+
+function valueRate(percent: number) {
+  return `${Number((2 * (100 - percent) / 100).toFixed(2))}%`;
+}
+
 export default async function PrepPage() {
   const prices = await getPrepPrices();
 
@@ -64,7 +72,7 @@ export default async function PrepPage() {
         <div className="grid gap-8 lg:grid-cols-[1.25fr_1fr] lg:items-start hero-in" style={{ ["--d" as string]: 120 }}>
           <div className="flex flex-col gap-8">
             {/* Pricing, per number of cards (bulk pricing, lib/bulk-pricing.ts), as on the Restorations page */}
-            <BulkSwitch stacked note="Bulk pricing is applied automatically at checkout to cards under $1,500. Cards $1,500 and over, add-ons and shipping aren't discounted.">
+            <BulkSwitch stacked note="Bulk pricing is applied automatically at checkout to every card. Add-ons and shipping aren't discounted.">
             <div className="lit-border relative bg-white border border-ink/70 rounded-xl shadow-[0_40px_70px_-50px_oklch(0.25_0.006_70/0.6)]">
               <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-5 border-b border-ink/70 border-t-[6px] border-t-rx rounded-t-xl">
                 <div>
@@ -95,13 +103,28 @@ export default async function PrepPage() {
                 <div className="flex items-center justify-between gap-4 px-6 md:px-7 py-6">
                   <div>
                     <p className="font-semibold text-ink">Cards $1,500 and over</p>
-                    {/* Not bulk discounted (priced as a share of value, as Diamond is), so the same on every plan */}
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      e.g. $2,000 card = $40.00 &nbsp;·&nbsp; $5,000 card = $100.00
-                    </p>
+                    {/* The examples per plan; the switch above shows the chosen one */}
+                    {BULK_PLANS.map((p) => (
+                      <p key={p.id} data-plan={p.id} className="text-sm text-muted-foreground mt-0.5">
+                        {/* One inline box (the shown plan's <p> is display: flex): a wrap
+                            falls after the dot, never before it; from md up each example stays on one line */}
+                        <span>
+                          e.g. <span className="md:whitespace-nowrap">$2,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[0], p.percent))}&nbsp;&nbsp;·</span>{" "}
+                          <span className="md:whitespace-nowrap">$5,000 card = {fmt(bulkPriceCents(HIGH_VALUE_EXAMPLES_CENTS[1], p.percent))}</span>
+                        </span>
+                      </p>
+                    ))}
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">2%</p>
+                    {/* One rate per plan (2% of value, less the bulk percent) */}
+                    {BULK_PLANS.map((p) => (
+                      <div key={p.id} data-plan={p.id} className="flex flex-wrap items-baseline justify-end gap-x-2">
+                        {p.percent > 0 && (
+                          <span className="text-sm text-muted-foreground line-through tabular-nums" aria-label="was 2%">2%</span>
+                        )}
+                        <span className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{valueRate(p.percent)}</span>
+                      </div>
+                    ))}
                     <p className="font-mono text-xs text-muted-foreground">of declared value</p>
                   </div>
                 </div>

@@ -81,7 +81,9 @@ export type Statement = {
   subtotal: number;
 };
 
-const estTax = (subtotal: number, discounts: number) => Math.round(Math.max(0, subtotal - discounts) * TAX_RATE);
+// Tax as checkout charged it: on the subtotal less the order's discount (bulk,
+// code or loyalty). A gift card is applied after tax, so it never lowers the tax.
+const estTax = (subtotal: number, discount: number) => Math.round(Math.max(0, subtotal - discount) * TAX_RATE);
 
 export async function loadStatement(admin: SupabaseClient, range: Range): Promise<Statement> {
   const [data, tierName] = await Promise.all([loadReport(admin, range, { kits: false }), tierNames()]);
@@ -106,7 +108,7 @@ export async function loadStatement(admin: SupabaseClient, range: Range): Promis
       discount_cents: discount,
       gift_card_discount_cents: giftCard,
       shipping_cents: s.shipping_cents,
-      tax_cents: estTax(s.subtotal_cents, discount + giftCard),
+      tax_cents: estTax(s.subtotal_cents, discount),
       total_cents: s.total_cents,
       refunded_cents: 0,
       affiliate_code: own ? o.affiliate_code ?? "" : "",
@@ -117,7 +119,7 @@ export async function loadStatement(admin: SupabaseClient, range: Range): Promis
   for (const r of data.refunds) {
     if (r.kind !== "service") continue;
     const o = r.order;
-    const orderTax = o ? estTax(o.subtotal_cents ?? 0, (o.discount_cents ?? 0) + (o.gift_card_discount_cents ?? 0)) : 0;
+    const orderTax = o ? estTax(o.subtotal_cents ?? 0, o.discount_cents ?? 0) : 0;
     rows.push({
       key: `refund-${r.id}`,
       kind: "refund",

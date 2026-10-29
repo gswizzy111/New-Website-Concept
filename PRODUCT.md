@@ -110,9 +110,8 @@ state any.)
   already paid keep their price); a tier upgrade pays the difference with the
   order's bulk percent off.
 - **Prep bulk pricing** (new site only; the old site's prep stays full price):
-  the same 10+ / 20+ percents off the per-card prep fee of cards under
-  $1,500. Cards $1,500 and over (2% of value) count toward the 10 or 20 but
-  are not discounted, as Diamond isn't. Pre-Grade, slab removal, shipping
+  the same 10+ / 20+ percents off the per-card prep fee of every card,
+  including cards $1,500 and over (2% of value). Pre-Grade, slab removal, shipping
   and insurance are never discounted, and tax is charged after the discount.
   Prep takes no creator, loyalty or gift card codes, so bulk is its only
   discount. The Prep page has the same Individual / 10+ / 20+ switch.

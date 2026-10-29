@@ -156,15 +156,13 @@ export async function POST(request: Request) {
   const slabCrackSubtotal = slabCrackCount * prices.slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
 
-  // Bulk pricing (10+ cards 10% off, 20+ 15% off; lib/bulk-pricing.ts), as on
-  // restoration orders: off the per-card prep fees only, never the add-ons
-  // (Pre-Grade Assessment, slab removal), shipping or insurance. Cards $1,500
-  // and over (2% of value) count toward the 10 or 20 but take no discount, as
-  // restoration leaves out Diamond. Discounts don't combine; prep takes no
-  // creator, coupon or loyalty code, so bulk is the only one that can apply here.
+  // Bulk pricing (10+ cards 10% off, 20+ 15% off; lib/bulk-pricing.ts): off
+  // the per-card prep fee of every card, including cards $1,500 and over (2% of
+  // value), never the add-ons (Pre-Grade Assessment, slab removal), shipping or
+  // insurance. Discounts don't combine; prep takes no creator, coupon or
+  // loyalty code, so bulk is the only one that can apply here.
   const bulkPercent = bulkDiscountPercent(d.cards.length);
-  const bulkEligible = d.cards.map((c) => c.declared_value_cents < HIGH_VALUE_THRESHOLD_CENTS);
-  const discountCents = bulkDiscountCentsOf(cardPrices.reduce((sum, price, i) => (bulkEligible[i] ? sum + price : sum), 0), bulkPercent);
+  const discountCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
   const discountPercent = discountCents > 0 ? bulkPercent : 0;
   // Sales tax on what is charged for the services, after the discount (as at the restoration checkout)
   const taxCents = Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
@@ -241,7 +239,7 @@ export async function POST(request: Request) {
 
   // Insert cards (the order's items), each with what it cost: its prep price
   // and its share of the discount and of the tax on the rest, for per-card refunds
-  const amounts = itemAmounts(cardPrices, discountCents, bulkEligible);
+  const amounts = itemAmounts(cardPrices, discountCents);
   const cardIds = d.cards.map(() => randomUUID());
   const { error: cardsErr } = await admin.from("cards").insert(
     d.cards.map((c, i) => ({
