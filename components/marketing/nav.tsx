@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, ChevronDown, Menu, ShoppingCart, X } from "lucide-react";
+import { ChevronDown, Menu, ShoppingCart, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { AnimatePresence, motion } from "motion/react";
@@ -214,11 +214,6 @@ export function Nav() {
                           Restoration has real limits. Here&apos;s an honest breakdown.
                         </span>
                       </span>
-                      <ArrowRight
-                        className="h-5 w-5 shrink-0 text-rx transition-transform duration-200 group-data-[highlighted]/fix:translate-x-1"
-                        strokeWidth={2}
-                        aria-hidden
-                      />
                     </MenuPrimitive.LinkItem>
                   </div>
 
@@ -367,9 +362,6 @@ export function Nav() {
                             </span>
                             <span className="mt-2 block font-mono text-xs text-paper/55">{TAB_HINTS[tab.href]}</span>
                           </span>
-                          <span aria-hidden className="mb-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 text-paper/80">
-                            →
-                          </span>
                         </Link>
                       </motion.div>
                     </li>
@@ -398,11 +390,6 @@ export function Nav() {
                           <span className={`font-heading text-[1.375rem] tracking-[-0.01em] ${current ? "text-rx-bright" : "text-paper"}`}>
                             {l.label}
                           </span>
-                          <ArrowRight
-                            className={`h-4 w-4 shrink-0 ${l === FIX_PAGE ? "text-rx-bright" : "text-paper/55"}`}
-                            strokeWidth={2}
-                            aria-hidden
-                          />
                         </Link>
                       </li>
                     );

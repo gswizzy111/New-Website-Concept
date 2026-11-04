@@ -76,12 +76,9 @@ export function RestorationBubble() {
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/card-doctor.jpg" alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-white/15" />
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block font-heading text-[17px] font-bold tracking-[-0.01em]">Book a Restoration</span>
-              <span className="block font-mono text-[11px] text-paper/60">From $75 / card</span>
-            </span>
-            <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rx text-lg text-primary-foreground">
-              →
+            <span className="min-w-0 flex-1 font-heading text-[17px] font-bold leading-tight tracking-[-0.01em]">Book a Restoration</span>
+            <span className="flex h-11 shrink-0 items-center rounded-xl bg-rx px-3.5 font-mono text-[13px] font-semibold tabular-nums text-primary-foreground">
+              From $75 / card
             </span>
           </Link>
         </motion.div>
