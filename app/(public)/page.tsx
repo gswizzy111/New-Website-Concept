@@ -262,10 +262,10 @@ export default async function HomePage() {
               className="wordmark-pattern absolute -inset-x-4 -top-6 -bottom-16 rounded-[2.5rem] border-[3px] border-ink sm:-inset-x-10 lg:inset-y-[-7rem] lg:left-6 lg:-right-[40vw] lg:rounded-[46%_0_0_42%/58%_0_0_44%] lg:border-r-0"
             />
             <div className="relative mx-auto flex min-h-[25rem] max-w-[34rem] items-center justify-center py-8 sm:min-h-[30rem] lg:min-h-[34rem] lg:py-0">
-              <div className="absolute -top-2 right-0 z-0 w-[44%] sm:right-2 lg:-top-4 lg:-right-4">
+              <div className="absolute -top-2 left-0 z-0 w-[44%] sm:left-2 lg:-top-4 lg:-left-2">
                 <div className="fan-in">
-                  <ScrollFan>
-                    <figure className="rotate-[9deg] rounded-xl comic-border bg-peach p-2.5 comic-shadow-sm">
+                  <ScrollFan side="left">
+                    <figure className="-rotate-[9deg] rounded-xl comic-border bg-peach p-2.5 comic-shadow-sm">
                       <Image
                         src={charmander}
                         alt="A Charmander card before and after restoration"
@@ -293,8 +293,8 @@ export default async function HomePage() {
                 </figcaption>
               </figure>
 
-              <div className="absolute top-6 left-0 z-20 h-20 w-20 sm:top-4 sm:h-28 sm:w-28 lg:top-2 lg:-left-4">
-                <div className="sticker relative h-full w-full overflow-hidden bg-bone -rotate-6">
+              <div className="absolute top-6 right-0 z-20 h-20 w-20 sm:top-4 sm:h-28 sm:w-28 lg:top-2 lg:-right-4">
+                <div className="sticker relative h-full w-full overflow-hidden bg-bone rotate-6">
                   <Image src={doctor} alt="" sizes="112px" className="h-full w-full object-cover object-[50%_18%]" />
                 </div>
               </div>
