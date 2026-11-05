@@ -950,6 +950,28 @@ html [data-sonner-toaster][data-sonner-theme="light"] {
   box-shadow: 1px 1px 0 var(--ink);
 }
 
+.comic-btn.comic-btn-sm {
+  height: 2.25rem;
+  padding: 0 0.95rem;
+  border-width: 2px;
+  border-radius: 0.55rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .comic-btn.comic-btn-sm:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+}
+
+.comic-btn.comic-btn-sm:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
 .halftone {
   background-image: radial-gradient(oklch(0.19 0.004 70 / 0.13) 1.3px, transparent 1.7px);
   background-size: 15px 15px;

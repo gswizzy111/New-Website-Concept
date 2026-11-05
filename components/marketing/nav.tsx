@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Menu, ShoppingCart, X } from "lucide-react";
+import { ChevronDown, CircleUserRound, Menu, ShoppingCart, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { AnimatePresence, motion } from "motion/react";
@@ -101,9 +101,9 @@ export function Nav() {
     <Link
       href="/cart"
       aria-label="Cart"
-      className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.05] transition-colors"
+      className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.06] transition-colors"
     >
-      <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.75} />
+      <ShoppingCart className="h-5 w-5" strokeWidth={2} />
       {itemCount > 0 && (
         <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-rx text-primary-foreground font-mono text-[10px] font-medium rounded-full flex items-center justify-center">
           {itemCount}
@@ -114,20 +114,20 @@ export function Nav() {
 
   return (
     <header className="relative bg-paper/90 backdrop-blur-xl backdrop-saturate-150 border-b-2 border-ink">
-      <nav className="max-w-7xl mx-auto px-4 md:px-10 h-16 flex items-center justify-between gap-4 lg:gap-6">
+      <nav className="max-w-7xl mx-auto px-4 md:px-10 h-16 flex items-center justify-between gap-4 md:grid md:grid-cols-[1fr_auto_1fr] lg:gap-6">
         {/* Logo */}
-        <Link href="/" className="group flex items-center gap-2.5 shrink-0">
+        <Link href="/" className="group flex items-center gap-2.5 shrink-0 justify-self-start rounded-md">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/card-doctor.jpg"
             alt="The Card Doc"
-            className="w-8 h-8 rounded-md object-cover ring-1 ring-rule transition-transform duration-300 ease-[var(--ease-out)] group-hover:-rotate-6"
+            className="w-8 h-8 rounded-md object-cover border-2 border-ink transition-transform duration-300 ease-[var(--ease-out)] group-hover:-rotate-6"
           />
-          <span className="font-heading text-lg font-extrabold tracking-[-0.01em] text-ink">The Card Doc</span>
+          <span className="font-heading text-lg font-extrabold tracking-[-0.01em] text-ink whitespace-nowrap">The Card Doc</span>
         </Link>
 
         {/* Desktop — three service tabs */}
-        <div className="hidden md:flex items-center gap-1 self-stretch" onMouseLeave={() => setHovered(null)}>
+        <div className="hidden md:flex items-center gap-0.5 self-stretch" onMouseLeave={() => setHovered(null)}>
           {TABS.map((tab) => {
             const active = isTabActive(tab);
             return (
@@ -137,7 +137,7 @@ export function Nav() {
                 aria-current={active ? "page" : undefined}
                 onMouseEnter={() => setHovered(tab.href)}
                 className={`relative flex items-center px-3.5 text-[15px] font-semibold transition-colors duration-150 ${
-                  active ? "text-ink" : "text-muted-foreground hover:text-ink"
+                  active ? "text-ink" : "text-ink/65 hover:text-ink"
                 }`}
               >
                 {hovered === tab.href && (
@@ -169,7 +169,7 @@ export function Nav() {
               closeDelay={120}
               onMouseEnter={() => setHovered("explore")}
               className={`group relative flex items-center gap-1 px-3.5 text-[15px] font-semibold outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-rx focus-visible:ring-offset-2 focus-visible:ring-offset-paper rounded-md ${
-                exploreActive || exploreOpen ? "text-ink" : "text-muted-foreground hover:text-ink"
+                exploreActive || exploreOpen ? "text-ink" : "text-ink/65 hover:text-ink"
               }`}
             >
               {exploreHighlighted && (
@@ -263,27 +263,21 @@ export function Nav() {
           </MenuPrimitive.Root>
         </div>
 
-        {/* Desktop right (Track Order and Gift Cards move into Explore below lg) */}
-        <div className="hidden md:flex items-center gap-5 shrink-0">
-          {SEC_LINKS.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="draw-underline hidden lg:inline pb-0.5 text-sm font-medium text-muted-foreground hover:text-ink transition-colors duration-150"
-            >
-              {l.label}
-            </Link>
-          ))}
+        <div className="hidden md:flex items-center justify-self-end gap-1 shrink-0">
           {cartLink}
           <Link
             href="/account"
-            className="inline-flex h-9 items-center rounded-md border-2 border-ink bg-bone px-3.5 text-sm font-semibold text-ink hover:bg-white transition-colors duration-150"
+            aria-label="My Account"
+            title="My Account"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.06] transition-colors"
           >
-            My Account
+            <CircleUserRound className="h-5 w-5" strokeWidth={2} />
           </Link>
-          <Link href="/restoration" className="comic-btn press hidden xl:inline-flex h-9 px-4 text-[12px] shadow-[3px_3px_0_var(--ink)]">
-            Book a Restoration
-          </Link>
+          <div className="ml-2 hidden lg:block">
+            <Link href="/restoration" className="comic-btn comic-btn-sm press">
+              Book a Restoration
+            </Link>
+          </div>
         </div>
 
         {/* Mobile right */}
