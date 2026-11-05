@@ -992,8 +992,8 @@ html [data-sonner-toaster][data-sonner-theme="light"] {
 
 .wordmark-pattern {
   background-color: var(--ink);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='190'><g transform='rotate(-14 210 95)' font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='46' fill='none' stroke='white' stroke-opacity='0.11' stroke-width='1.6'><text x='-30' y='70'>THE CARD DOC</text><text x='180' y='170'>THE CARD DOC</text></g></svg>");
-  background-size: 420px 190px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='480' height='220'><g font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='44' fill='none' stroke='white' stroke-opacity='0.1' stroke-width='1.5'><text x='30' y='80' textLength='400' lengthAdjust='spacingAndGlyphs'>THE CARD DOC</text><text x='270' y='190' textLength='400' lengthAdjust='spacingAndGlyphs'>THE CARD DOC</text><text x='-210' y='190' textLength='400' lengthAdjust='spacingAndGlyphs'>THE CARD DOC</text></g></svg>");
+  background-size: 480px 220px;
 }
 
 .outline-word {

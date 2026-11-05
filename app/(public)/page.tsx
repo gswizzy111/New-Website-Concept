@@ -18,7 +18,6 @@ import {
   X,
 } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
-import { ScrollFan } from "@/components/motion/scroll-fan";
 import { VelocityMarquee } from "@/components/motion/velocity-marquee";
 import { BeforeAfter } from "@/components/motion/before-after";
 import { TrustedBy } from "@/components/marketing/trusted-by";
@@ -262,23 +261,7 @@ export default async function HomePage() {
               className="wordmark-pattern absolute -inset-x-4 -top-6 -bottom-16 rounded-[2.5rem] border-[3px] border-ink sm:-inset-x-10 lg:inset-y-[-7rem] lg:left-6 lg:-right-[40vw] lg:rounded-[46%_0_0_42%/58%_0_0_44%] lg:border-r-0"
             />
             <div className="relative mx-auto flex min-h-[25rem] max-w-[34rem] items-center justify-center py-8 sm:min-h-[30rem] lg:min-h-[34rem] lg:py-0">
-              <div className="absolute -top-2 left-0 z-0 w-[44%] sm:left-2 lg:-top-4 lg:-left-2">
-                <div className="fan-in">
-                  <ScrollFan side="left">
-                    <figure className="-rotate-[9deg] rounded-xl comic-border bg-peach p-2.5 comic-shadow-sm">
-                      <Image
-                        src={charmander}
-                        alt="A Charmander card before and after restoration"
-                        sizes="(min-width: 1024px) 240px, 44vw"
-                        className="h-auto w-full"
-                        loading="eager"
-                      />
-                    </figure>
-                  </ScrollFan>
-                </div>
-              </div>
-
-              <figure className="specimen-land relative z-10 mt-24 w-[94%] -rotate-[2.5deg] rounded-2xl bg-white comic-border comic-shadow sm:mt-28 lg:mt-24">
+              <figure className="specimen-land relative z-10 mt-10 w-[94%] -rotate-[2.5deg] sm:w-full rounded-2xl bg-white comic-border comic-shadow sm:mt-12 lg:mt-0">
                 <div className="overflow-hidden rounded-t-[13px] bg-white">
                   <Image
                     src={mantlePair}

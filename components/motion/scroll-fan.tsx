@@ -11,16 +11,16 @@ import { useSettleOnReturn } from "@/components/motion/use-scroll-once";
  * outward on whichever side it sits: right on desktop, left on phones.
  * Scrolling back up settles it home on a spring rather than rewinding.
  */
-export function ScrollFan({ children, side = "auto" }: { children: React.ReactNode; side?: "auto" | "left" }) {
+export function ScrollFan({ children }: { children: React.ReactNode }) {
   const reduce = usePrefersReducedMotion();
   const [dir, setDir] = useState(1);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 640px)");
-    const update = () => setDir(side === "left" ? (mq.matches ? -1 : 1) : mq.matches ? 1 : -1);
+    const update = () => setDir(mq.matches ? 1 : -1);
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
-  }, [side]);
+  }, []);
 
   const { scrollY } = useScroll();
   const scrolled = useTransform(scrollY, (v) => Math.min(Math.max(v, 0) / 700, 1));
