@@ -3,7 +3,7 @@ import { canonical } from "@/lib/seo";
 import { TrackForm } from "./track-form";
 
 export const metadata: Metadata = {
-  title: "Track My Order | The Card Doc",
+  title: "Track Order | The Card Doc",
   description: "Enter your order number and email to view status.",
   alternates: canonical("/track"),
 };
