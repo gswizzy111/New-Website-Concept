@@ -7,14 +7,11 @@ import {
   Clock,
   Eye,
   Hand,
-  Microscope,
   Plus,
   ShieldAlert,
   ShieldCheck,
-  Sparkles,
   Truck,
   Users,
-  Wrench,
   X,
 } from "lucide-react";
 import { CountUp } from "@/components/motion/count-up";
@@ -26,13 +23,14 @@ import { ORG_ID, SITE, INSTAGRAM_URL, canonical } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ReviewsBand } from "@/components/marketing/comic-reviews";
 import { TrustPills } from "@/components/marketing/trust-pills";
+import { SERVICE_CARDS } from "@/lib/service-cards";
+import { CardSlot } from "@/components/marketing/card-slot";
 import { HERO, PROCESS, REASONS, RESULTS } from "@/lib/about";
 import mantleBefore from "@/public/specimen-mantle-before.jpg";
 import mantleAfter from "@/public/specimen-mantle-after.jpg";
 import mantlePair from "@/public/before-after-mickey-mantle.png";
 import charmander from "@/public/specimen-charmander.png";
 import garchomp from "@/public/before-after-garchomp.png";
-import doctor from "@/public/card-doctor.jpg";
 
 export const dynamic = "force-dynamic";
 
@@ -91,41 +89,7 @@ const TOS_HIGHLIGHTS = [
   },
 ];
 
-const SERVICES = [
-  {
-    href: "/tier-selection",
-    code: "Service",
-    name: "Restoration",
-    line: "Surfaces, corners & edges — cleaned and restored to their best.",
-    price: "From $75 / card",
-    action: "View Tiers",
-    Icon: Sparkles,
-    band: "bg-rx text-white",
-    dots: "halftone-light",
-  },
-  {
-    href: "/prep",
-    code: "Service",
-    name: "Prep",
-    line: "Grade-ready submission prep for PSA, BGS & CGC.",
-    price: "From $25 / card",
-    action: "View Pricing",
-    Icon: Microscope,
-    band: "bg-ink text-white",
-    dots: "halftone-light",
-  },
-  {
-    href: "/shop",
-    code: "Shop",
-    name: "DIY Kits",
-    line: "The same pro-grade tools The Card Doc uses — delivered to you.",
-    price: "US shipping at cost + $2 handling",
-    action: "Shop Now",
-    Icon: Wrench,
-    band: "bg-peach text-ink",
-    dots: "halftone",
-  },
-];
+const SERVICES = SERVICE_CARDS;
 
 const REASON_ICONS = [Users, BadgeCheck, Eye, ShieldCheck];
 
@@ -260,29 +224,25 @@ export default async function HomePage() {
               aria-hidden
               className="wordmark-pattern absolute -inset-x-4 -top-6 -bottom-16 rounded-[2.5rem] border-[3px] border-ink sm:-inset-x-10 lg:inset-y-[-7rem] lg:left-6 lg:-right-[40vw] lg:rounded-[46%_0_0_42%/58%_0_0_44%] lg:border-r-0"
             />
-            <div className="relative mx-auto flex min-h-[25rem] max-w-[34rem] items-center justify-center py-8 sm:min-h-[30rem] lg:min-h-[34rem] lg:py-0">
-              <figure className="specimen-land relative z-10 mt-10 w-[94%] -rotate-[2.5deg] sm:w-full rounded-2xl bg-white comic-border comic-shadow sm:mt-12 lg:mt-0">
+            <div className="relative mx-auto max-w-[36rem] pt-8 pb-14 sm:pt-10 lg:min-h-[37rem] lg:py-0">
+              <figure className="specimen-land relative z-10 mx-auto w-[94%] rotate-[2deg] rounded-2xl bg-white comic-border comic-shadow lg:mt-4 lg:mr-[-1.5rem] lg:w-[82%]">
                 <div className="overflow-hidden rounded-t-[13px] bg-white">
                   <Image
                     src={mantlePair}
                     alt="A cracked Mickey Mantle card in a black glove next to the same card after restoration in a blue glove"
-                    sizes="(min-width: 1024px) 520px, 92vw"
+                    sizes="(min-width: 1024px) 480px, 92vw"
                     className="h-auto w-full"
                     priority
                   />
                 </div>
-                <figcaption className="rounded-b-[13px] border-t-[3px] border-ink bg-rx px-4 py-2.5">
-                  <span className="font-heading text-sm font-extrabold uppercase tracking-[0.04em] text-white">{mantle?.card ?? "Mickey Mantle"}</span>
+                <figcaption className="rounded-b-[13px] border-t-[3px] border-ink bg-peach px-4 py-2.5 text-right">
+                  <span className="font-heading text-sm font-extrabold uppercase tracking-[0.04em] text-ink">{mantle?.card ?? "Mickey Mantle"}</span>
                 </figcaption>
               </figure>
 
-              <div className="absolute top-6 right-0 z-20 h-20 w-20 sm:top-4 sm:h-28 sm:w-28 lg:top-2 lg:-right-4">
-                <div className="sticker relative h-full w-full overflow-hidden bg-bone rotate-6">
-                  <Image src={doctor} alt="" sizes="112px" className="h-full w-full object-cover object-[50%_18%]" />
-                </div>
-              </div>
+              <CardSlot className="z-20 -mt-16 ml-1 w-[47%] max-w-[15rem] sm:-mt-24 sm:ml-4 lg:absolute lg:bottom-2 lg:left-[-1rem] lg:mt-0 lg:ml-0 lg:w-[41%] lg:max-w-none" />
 
-              <div className="absolute -bottom-10 right-0 z-20 rotate-[8deg] sm:-bottom-8 sm:right-2 lg:-bottom-12 lg:-right-4">
+              <div className="absolute bottom-0 right-0 z-20 rotate-[8deg] sm:right-2 lg:bottom-10 lg:-right-4">
                 <div className="burst grid h-[7.5rem] w-[7.5rem] place-items-center bg-ink sm:h-32 sm:w-32">
                   <div className="burst grid h-[6.9rem] w-[6.9rem] place-items-center bg-rx-pop sm:h-[7.4rem] sm:w-[7.4rem]">
                     <span className="px-4 text-center font-heading text-[13px] font-black uppercase leading-[1.05] text-ink sm:text-sm">
