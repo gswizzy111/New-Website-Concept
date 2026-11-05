@@ -214,9 +214,9 @@
 }
 
 :root {
-  /* --font-heading (Young Serif) and --font-sans (Schibsted Grotesk) are set
+  /* --font-heading (Poppins) and --font-sans (Schibsted Grotesk) are set
      by next/font in app/layout.tsx. */
-  --paper: oklch(0.97 0.0035 85);            /* warm grey paper, #f6f5f2 */
+  --paper: oklch(0.958 0.02 80);
   --ink: oklch(0.19 0.004 70);               /* near-black, 16.9:1 on paper */
   --rx: oklch(0.555 0.176 39);               /* signal orange: 4.7:1 on paper, 5.2:1 under white text */
   --rx-soft: oklch(0.962 0.02 55);           /* orange wash; rx text on it is 4.6:1 */
@@ -869,3 +869,193 @@ html [data-sonner-toaster][data-sonner-theme="light"] {
 [data-bulk="single"] [data-plan="single"],
 [data-bulk="10"] [data-plan="10"],
 [data-bulk="20"] [data-plan="20"] { display: flex; }
+
+:root {
+  --cream: oklch(0.958 0.02 80);
+  --peach: oklch(0.875 0.068 58);
+  --bone: oklch(0.99 0.006 85);
+  --rx-pop: oklch(0.66 0.19 44);
+}
+
+@theme inline {
+  --color-cream: var(--cream);
+  --color-peach: var(--peach);
+  --color-bone: var(--bone);
+  --color-rx-pop: var(--rx-pop);
+}
+
+@layer base {
+  :where(.font-heading) {
+    font-weight: 800;
+  }
+}
+
+.comic-border {
+  border: 3px solid var(--ink);
+}
+
+.comic-shadow {
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.comic-shadow-sm {
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.comic-shadow-rx {
+  box-shadow: 6px 6px 0 var(--rx);
+}
+
+.comic-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 3.5rem;
+  padding: 0 1.6rem;
+  border: 2.5px solid var(--ink);
+  border-radius: 0.7rem;
+  background: var(--rx);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 4px 4px 0 var(--ink);
+  transition: transform 160ms var(--ease-out), box-shadow 160ms var(--ease-out), background-color 160ms;
+}
+
+.comic-btn-light {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--rx);
+}
+
+.comic-btn-ink {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  box-shadow: 4px 4px 0 #fff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .comic-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 var(--ink);
+  }
+  .comic-btn-light:hover {
+    box-shadow: 6px 6px 0 var(--rx);
+  }
+  .comic-btn-ink:hover {
+    box-shadow: 6px 6px 0 #fff;
+  }
+  .comic-lift {
+    transition: transform 200ms var(--ease-out), box-shadow 200ms var(--ease-out);
+  }
+  .comic-lift:hover {
+    transform: translate(-3px, -3px) rotate(var(--tilt, 0deg));
+    box-shadow: 9px 9px 0 var(--ink);
+  }
+}
+
+.comic-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.halftone {
+  background-image: radial-gradient(oklch(0.19 0.004 70 / 0.13) 1.3px, transparent 1.7px);
+  background-size: 15px 15px;
+}
+
+.halftone-light {
+  background-image: radial-gradient(oklch(1 0 0 / 0.16) 1.3px, transparent 1.7px);
+  background-size: 15px 15px;
+}
+
+.halftone-fade {
+  mask-image: radial-gradient(70% 80% at 0% 100%, #000 10%, transparent 75%);
+}
+
+.halftone-fade-r {
+  mask-image: radial-gradient(70% 90% at 100% 0%, #000 10%, transparent 75%);
+}
+
+.wordmark-pattern {
+  background-color: var(--ink);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='190'><g transform='rotate(-14 210 95)' font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='46' fill='none' stroke='white' stroke-opacity='0.11' stroke-width='1.6'><text x='-30' y='70'>THE CARD DOC</text><text x='180' y='170'>THE CARD DOC</text></g></svg>");
+  background-size: 420px 190px;
+}
+
+.outline-word {
+  color: transparent;
+  -webkit-text-stroke: 2px oklch(1 0 0 / 0.85);
+}
+
+.speech {
+  position: relative;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 1.1rem;
+  box-shadow: 5px 5px 0 var(--ink);
+}
+
+.speech::before,
+.speech::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  width: 0;
+  height: 0;
+}
+
+.speech::before {
+  left: 1.6rem;
+  border-right: 26px solid transparent;
+  border-top: 22px solid var(--ink);
+}
+
+.speech::after {
+  left: calc(1.6rem + 3.5px);
+  top: calc(100% - 1px);
+  border-right: 16px solid transparent;
+  border-top: 14px solid #fff;
+}
+
+.sticker {
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  text-align: center;
+}
+
+.sticker-ring {
+  position: absolute;
+  inset: 5px;
+  border-radius: 9999px;
+  border: 1.5px dashed currentColor;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.burst {
+  clip-path: polygon(50% 0%, 57% 13%, 70% 4%, 72% 19%, 87% 15%, 82% 29%, 97% 31%, 87% 43%, 100% 50%, 87% 57%, 97% 69%, 82% 71%, 87% 85%, 72% 81%, 70% 96%, 57% 87%, 50% 100%, 43% 87%, 30% 96%, 28% 81%, 13% 85%, 18% 71%, 3% 69%, 13% 57%, 0% 50%, 13% 43%, 3% 31%, 18% 29%, 13% 15%, 28% 19%, 30% 4%, 43% 13%);
+}
+
+.ticker-word {
+  font-family: var(--font-heading);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-btn,
+  .comic-lift {
+    transition: none;
+  }
+}

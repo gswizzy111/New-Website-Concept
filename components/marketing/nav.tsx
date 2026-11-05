@@ -113,7 +113,7 @@ export function Nav() {
   );
 
   return (
-    <header className="relative bg-paper/90 backdrop-blur-xl backdrop-saturate-150 border-b border-rule/80">
+    <header className="relative bg-paper/90 backdrop-blur-xl backdrop-saturate-150 border-b-2 border-ink">
       <nav className="max-w-7xl mx-auto px-4 md:px-10 h-16 flex items-center justify-between gap-4 lg:gap-6">
         {/* Logo */}
         <Link href="/" className="group flex items-center gap-2.5 shrink-0">

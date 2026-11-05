@@ -1,6 +1,6 @@
 ---
 name: The Card Doc
-description: Card restoration, grading prep and DIY kits, dispensed like a prescription label in vintage card print, neutral greys with one signal orange, presented like a specimen on a light table.
+description: Card restoration, grading prep and DIY kits in a bold comic-workshop style, heavy uppercase Poppins, cream and peach grounds, ink panels and signal orange, with hard offset shadows, halftone dots and real before and after photos front and center.
 colors:
   rx: "oklch(0.555 0.176 39)"
   rx-soft: "oklch(0.962 0.02 55)"
@@ -20,42 +20,42 @@ colors:
   stage-muted: "oklch(0.75 0.006 80)"
 typography:
   display:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(6rem, 8.6vw, 8.25rem)"
     fontWeight: 400
     lineHeight: 0.84
     letterSpacing: "-0.025em"
     fontFeature: "'lnum' 1"
   headline:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(2.9rem, 6vw, 5.75rem)"
     fontWeight: 400
     lineHeight: 0.9
     letterSpacing: "-0.022em"
     fontFeature: "'lnum' 1"
   section:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(2.25rem, 5vw, 3.75rem)"
     fontWeight: 400
     lineHeight: 0.95
     letterSpacing: "-0.02em"
     fontFeature: "'lnum' 1"
   title:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "1.75rem"
     fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.01em"
     fontFeature: "'lnum' 1"
   figure:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "3rem"
     fontWeight: 400
     lineHeight: 1
     letterSpacing: "-0.02em"
     fontFeature: "'lnum' 1, 'tnum' 1"
   stat:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(4.5rem, 9vw, 7.5rem)"
     fontWeight: 400
     lineHeight: 0.9
@@ -154,6 +154,22 @@ components:
 ---
 
 # Design System: The Card Doc
+
+## Direction update (November 2026): Comic Workshop
+
+This section overrides anything below it that disagrees. The owner asked for a bolder, more comic look in the spirit of the reference they chose, in The Card Doc's own colors. The home page is the first page built this way; other pages move over one at a time.
+
+- **Type.** Headings are Poppins (600 to 900, `--font-heading`), set heavy (800 to 900) and uppercase for section titles, with tight tracking (-0.02em to -0.025em). Body stays Schibsted Grotesk. Young Serif is gone.
+- **Grounds.** Cream (`--cream`, also `--paper`) is the page. Peach (`--peach`) is the second ground for alternating bands. Bone (`--bone`) is for cards and panels. Ink panels carry features and stats. Orange (`rx`) fills the reviews band and the closing call to action.
+- **Comic outline.** Panels, cards, buttons and photos take a 2.5 to 3px ink border and a hard offset shadow with no blur (`.comic-border`, `.comic-shadow`, `.comic-shadow-sm`, `.comic-shadow-rx`). Photos and cards sit at a slight tilt (about 1 to 3 degrees) and straighten a little and lift on hover (`.comic-lift`).
+- **Buttons.** `.comic-btn` is orange, uppercase Poppins 800, with an ink border and a 4px ink shadow that grows on hover and collapses on press. `.comic-btn-light` is white with an orange shadow. `.comic-btn-ink` is ink with a white shadow for use on orange. One orange and one light button per group, never two orange.
+- **Texture.** Halftone dots (`.halftone` on light grounds, `.halftone-light` on dark or orange), faded with `.halftone-fade` / `.halftone-fade-r`. The hero's ink panel carries an outlined "THE CARD DOC" wordmark pattern (`.wordmark-pattern`).
+- **Stickers.** Round stickers (`.sticker`) for the Doc's mark, starbursts (`.burst`, two layers: ink behind, `rx-pop` in front) for one short fact, small ink tabs for labels, rounded-full ink-outlined pills for facts under the nav.
+- **Reviews.** Every quote is a speech bubble (`.speech`, white, ink outline, tail at the bottom left) on the orange band, tilted slightly, with "Repeat customer" under the tail. The featured quote is the large bubble; the Charizard case is a bone card with an ink header.
+- **Ticker.** A full-width ink band of the fixable damage types (from What We Can Fix) in huge Poppins 900, alternating filled white and outlined, divided by orange dots, on the scroll-velocity marquee.
+- **Photos first.** The hero shows the owner's Mickey Mantle before and after photo in a comic frame, with the Charmander pair fanned behind. Proven Results shows the draggable Mantle comparison large, beside the Charmander and Garchomp panels.
+- **Home order.** Fact pills, hero, Trusted by, reviews (orange), damage ticker, Proven Results with stats, Why collectors choose us (ink panel on peach), Services (three comic cards), FAQ, Terms summary, closing call to action (orange panel on peach), footer.
+- **Still true.** The owner's wording is kept word for word. No arrows on buttons or links. Status colors keep their meaning, amber notices stay as they are. Every motion keeps a reduced-motion state.
 
 ## Overview
 
