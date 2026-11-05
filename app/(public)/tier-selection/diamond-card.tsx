@@ -25,32 +25,32 @@ export function DiamondCard({
 
   // Same structure as the other tiers: the badge in the corner, slots in the facts
   const bannerLabel = isSoldOut ? "SOLD OUT" : "White Glove";
-  const bannerCls = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-rx-soft text-rx";
+  const bannerCls = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-ink text-white";
   const showSlots = !isSoldOut && slotsLeft !== null && restorationsOpen;
 
   return (
-    <div className={`lift spotlight holo-ring relative h-full rounded-xl border border-transparent bg-card flex flex-col shadow-[0_24px_50px_-34px_oklch(0.25_0.006_70/0.55)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`comic-lift relative h-full rounded-2xl border-[2.5px] border-ink bg-bone flex flex-col comic-shadow-rx ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       {/* Foil wash: Diamond is the one tier printed on holo stock */}
-      <div aria-hidden className="holo-bands pointer-events-none absolute inset-x-0 top-0 h-28 rounded-t-xl opacity-[0.16] [background-position:30%_40%] [mask-image:linear-gradient(to_bottom,#000,transparent)]" />
+      <div aria-hidden className="holo-bands pointer-events-none absolute inset-x-0 top-0 h-28 rounded-t-[13px] opacity-[0.22] [background-position:30%_40%] [mask-image:linear-gradient(to_bottom,#000,transparent)]" />
       <div className="relative flex h-12 items-end justify-between gap-3 px-6">
         <span className="metal metal-diamond mb-[5px] h-3.5 w-11 rounded-[3px]" aria-hidden />
-        <span className={`whitespace-nowrap font-mono text-[11px] leading-4 uppercase tracking-wide rounded-full px-2.5 py-1 ${bannerCls}`}>
+        <span className={`whitespace-nowrap font-heading font-extrabold text-[10px] leading-4 uppercase tracking-[0.08em] rounded-full border-2 border-ink px-2.5 py-0.5 ${bannerCls}`}>
           {bannerLabel}
         </span>
       </div>
 
       <div className="relative p-6 pt-4 flex flex-col flex-1">
         <div className="flex items-start gap-3 mb-5">
-          <Gem className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
+          <Gem className="w-5 h-5 flex-shrink-0 mt-0.5 text-rx" strokeWidth={2} />
           <div>
-            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">Diamond</h3>
+            <h3 className="font-heading text-[1.6rem] font-black uppercase tracking-[-0.015em] text-ink leading-none">Diamond</h3>
             <p className="text-sm text-muted-foreground mt-0.5 min-h-10">White-glove service for high-value cards</p>
           </div>
         </div>
 
         {/* Dynamic price display */}
         <div className="mb-6">
-          <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">
+          <div className="font-heading text-5xl font-black tracking-[-0.03em] text-ink tabular-nums">
             {priceDollars ? `$${priceDollars}` : "7%"}
           </div>
           <p className="font-mono text-xs text-muted-foreground mt-1">
@@ -62,7 +62,7 @@ export function DiamondCard({
 
         {/* Facts, then the value field as one more row of them */}
         <div className="@container">
-          <dl className="divide-y divide-rule border-t border-rule">
+          <dl className="divide-y-2 divide-dashed divide-ink/15 border-t-2 border-ink">
             <div className={FACT_ROW}>
               <dt className="rx-label @min-[16.5rem]:self-center">Turnaround</dt>
               <dd className="font-medium text-ink @min-[16.5rem]:text-right">5–10 business days <span className="text-xs text-muted-foreground">(est.)</span></dd>
@@ -123,17 +123,17 @@ export function DiamondCard({
         {/* The action sits on the card's floor, level with the other tiers */}
         <div className="mt-auto pt-6">
         {isSoldOut ? (
-          <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
+          <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
             Sold Out
           </div>
         ) : !restorationsOpen ? (
-          <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
+          <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
             Currently Closed
           </div>
         ) : (
           <Link
             href="/restoration?tier=elite"
-            className="btn-depth btn-sheen w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
+            className="comic-btn press w-full h-12 text-[13px]"
           >
             Select Diamond
           </Link>

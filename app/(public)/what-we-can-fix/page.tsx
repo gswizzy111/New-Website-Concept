@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { canonical } from "@/lib/seo";
 import { ArrowDown, Check, X } from "lucide-react";
 import { PageHero } from "@/components/marketing/page-hero";
 
 export const metadata: Metadata = {
+  alternates: canonical("/what-we-can-fix"),
   title: "What We Can Fix | The Card Doc",
   description:
     "What The Card Doc can and can't fix on sports cards and TCG cards like Pokémon, One Piece, Magic and Yu-Gi-Oh!.",

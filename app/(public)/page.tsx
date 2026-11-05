@@ -7,10 +7,8 @@ import {
   Clock,
   Eye,
   Hand,
-  MessageCircle,
   Microscope,
   Plus,
-  ScanSearch,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
@@ -25,8 +23,10 @@ import { VelocityMarquee } from "@/components/motion/velocity-marquee";
 import { BeforeAfter } from "@/components/motion/before-after";
 import { TrustedBy } from "@/components/marketing/trusted-by";
 import { getCardsRestoredStat } from "@/lib/site-stats";
-import { SITE_URL_FALLBACK } from "@/lib/site-url";
-import { CASE_STUDY, FEATURED_REVIEW, REVIEWS } from "@/lib/reviews";
+import { ORG_ID, SITE, INSTAGRAM_URL, canonical } from "@/lib/seo";
+import { JsonLd } from "@/components/seo/json-ld";
+import { ReviewsBand } from "@/components/marketing/comic-reviews";
+import { TrustPills } from "@/components/marketing/trust-pills";
 import { HERO, PROCESS, REASONS, RESULTS } from "@/lib/about";
 import mantleBefore from "@/public/specimen-mantle-before.jpg";
 import mantleAfter from "@/public/specimen-mantle-after.jpg";
@@ -38,11 +38,11 @@ import doctor from "@/public/card-doctor.jpg";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  alternates: { canonical: `${SITE_URL_FALLBACK}/` },
+  alternates: canonical("/"),
 };
 
 const TAGLINE = "Expert card restoration & PSA prep — every card treated like it's worth a fortune.";
-const INSTAGRAM = "https://www.instagram.com/the_card_doc";
+const INSTAGRAM = INSTAGRAM_URL;
 
 const FIXES = ["Creases", "Dents", "Dimples", "Edge lifts", "Corner lifts", "Minor bends", "Holo polishing", "Surface cleaning"];
 
@@ -130,40 +130,17 @@ const SERVICES = [
 
 const REASON_ICONS = [Users, BadgeCheck, Eye, ShieldCheck];
 
-const TILTS = ["-1.2deg", "0.9deg", "-0.6deg", "1.3deg", "-1deg", "0.7deg", "-0.8deg", "1deg", "-1.1deg"];
-
-const PHONE_LIMIT = 6;
-
 function structuredData() {
-  const base = SITE_URL_FALLBACK;
-  const org = `${base}/#organization`;
-  const graph = {
+  return {
     "@context": "https://schema.org",
     "@graph": [
-      {
-        "@type": "Organization",
-        "@id": org,
-        name: "The Card Doc",
-        url: `${base}/`,
-        logo: `${base}/card-doctor.jpg`,
-        image: `${base}/og-image.png`,
-        description: TAGLINE,
-        sameAs: [INSTAGRAM],
-      },
-      {
-        "@type": "WebSite",
-        "@id": `${base}/#website`,
-        name: "The Card Doc",
-        url: `${base}/`,
-        publisher: { "@id": org },
-      },
       {
         "@type": "Service",
         name: "Card Restoration",
         serviceType: "Trading card restoration",
         description: SERVICES[0].line,
-        url: `${base}/tier-selection`,
-        provider: { "@id": org },
+        url: `${SITE}/tier-selection`,
+        provider: { "@id": ORG_ID },
         areaServed: ["US", "PR"],
         offers: {
           "@type": "Offer",
@@ -175,8 +152,8 @@ function structuredData() {
         name: "PSA Prep",
         serviceType: "Trading card grading submission prep",
         description: SERVICES[1].line,
-        url: `${base}/prep`,
-        provider: { "@id": org },
+        url: `${SITE}/prep`,
+        provider: { "@id": ORG_ID },
         areaServed: ["US", "PR"],
         offers: {
           "@type": "Offer",
@@ -185,7 +162,7 @@ function structuredData() {
       },
       {
         "@type": "FAQPage",
-        "@id": `${base}/#faq`,
+        "@id": `${SITE}/#faq`,
         mainEntity: FAQ.map(({ q, a }) => ({
           "@type": "Question",
           name: q,
@@ -194,7 +171,6 @@ function structuredData() {
       },
     ],
   };
-  return JSON.stringify(graph).replace(/</g, "\\u003c");
 }
 
 function Eyebrow({ children, tone = "rx" }: { children: React.ReactNode; tone?: "rx" | "light" }) {
@@ -237,37 +213,18 @@ export default async function HomePage() {
   const cardsRestored = await getCardsRestoredStat();
   const mantle = RESULTS.find((r) => r.id === "mickey-mantle");
   const charmanderCase = RESULTS.find((r) => r.id === "charmander");
-  const pills = [
-    { Icon: BadgeCheck, text: `${cardsRestored} Cards Restored` },
-    { Icon: ScanSearch, text: "Free Photo Review" },
-    { Icon: MessageCircle, text: "We reply within 1 business day." },
-    { Icon: Users, text: REASONS.items[1].title },
-  ];
-  const caseRows = [
-    { label: "Bought for", value: CASE_STUDY.paid },
-    { label: "Came back", value: CASE_STUDY.grade },
-    { label: "Worth over", value: CASE_STUDY.worth },
-  ];
-
   return (
     <div className="min-h-screen bg-cream">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredData() }} />
+      <JsonLd data={structuredData()} />
 
       <section className="relative overflow-hidden border-b-[3px] border-ink bg-cream">
         <div aria-hidden className="pointer-events-none absolute inset-0 halftone halftone-fade" />
 
-        <ul aria-label="Why collectors trust The Card Doc" className="hero-in relative z-20 mx-auto flex max-w-7xl flex-wrap justify-center gap-2 px-4 pt-5 md:px-10 md:pt-6">
-          {pills.map(({ Icon, text }) => (
-            <li key={text} className="flex items-center gap-2 rounded-full border-2 border-ink bg-bone px-3.5 py-1.5 text-[12px] md:text-[13px] font-semibold text-ink">
-              <Icon className="h-3.5 w-3.5 text-rx" strokeWidth={2.25} />
-              {text}
-            </li>
-          ))}
-        </ul>
+        <TrustPills cardsRestored={cardsRestored} className="hero-in relative z-20 mx-auto max-w-7xl px-4 pt-5 md:px-10 md:pt-6" />
 
         <div className="relative mx-auto grid max-w-7xl gap-x-10 gap-y-14 px-4 pt-10 pb-16 md:px-10 md:pt-14 lg:grid-cols-12 lg:items-center lg:pb-24">
           <div className="relative z-10 lg:col-span-6">
-            <h1 className="hero-in font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-[clamp(2.35rem,10.2vw,4.6rem)] lg:text-[clamp(3.4rem,5.1vw,4.75rem)]">
+            <h1 className="hero-in font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-[clamp(2.5rem,11vw,4.6rem)] lg:text-[clamp(3.4rem,5.1vw,4.75rem)]">
               <span className="block text-ink">{HERO.headline[0]}</span>
               <span className="block text-rx">{HERO.headline[1]}</span>
             </h1>
@@ -288,11 +245,11 @@ export default async function HomePage() {
               <span className="absolute -top-3.5 left-4 z-10 rounded-md border-2 border-ink bg-ink px-2.5 py-0.5 font-heading text-[11px] font-extrabold uppercase tracking-[0.12em] text-white">
                 We never
               </span>
-              <ul className="grid grid-cols-3 rounded-xl border-[2.5px] border-ink bg-bone">
+              <ul className="grid rounded-xl border-[2.5px] border-ink bg-bone pt-3 sm:grid-cols-3 sm:pt-0">
                 {PROCESS.never.map((item, i) => (
-                  <li key={item} className={`flex flex-col gap-2 px-3 pt-6 pb-4 sm:flex-row sm:items-center sm:gap-2.5 sm:px-4 ${i > 0 ? "border-l-[2.5px] border-ink" : ""}`}>
+                  <li key={item} className={`flex items-center gap-2.5 px-4 py-3 sm:pt-6 sm:pb-4 ${i > 0 ? "border-t-2 border-ink/15 sm:border-t-0 sm:border-l-[2.5px] sm:border-ink" : ""}`}>
                     <X className="h-4 w-4 shrink-0 text-rx" strokeWidth={3} />
-                    <span className="font-heading text-[11px] sm:text-xs font-extrabold uppercase leading-tight tracking-[0.03em] text-ink">{item}</span>
+                    <span className="font-heading text-xs font-extrabold uppercase leading-tight tracking-[0.03em] text-ink">{item}</span>
                   </li>
                 ))}
               </ul>
@@ -358,79 +315,7 @@ export default async function HomePage() {
 
       <TrustedBy />
 
-      <section aria-labelledby="reviews-heading" className="relative overflow-hidden border-y-[3px] border-ink bg-rx text-white">
-        <div aria-hidden className="pointer-events-none absolute inset-0 halftone-light" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 md:px-10 md:py-28">
-          <h2
-            id="reviews-heading"
-            data-reveal
-            className="font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-[clamp(2.6rem,8vw,5.5rem)] [text-shadow:4px_4px_0_var(--ink)]"
-          >
-            What our customers say
-          </h2>
-
-          <div className="mt-12 grid gap-10 md:mt-16 lg:grid-cols-12 lg:items-start lg:gap-12">
-            <figure data-reveal className="lg:col-span-7">
-              <blockquote className="speech px-6 py-8 text-ink md:px-10 md:py-12">
-                <p className="font-heading text-[1.7rem] font-extrabold leading-[1.12] tracking-[-0.015em] sm:text-[2.2rem] lg:text-[2.6rem] [text-wrap:pretty]">
-                  <span className="text-ink/55">“{FEATURED_REVIEW.lead}</span>
-                  <span>{FEATURED_REVIEW.emphasis}”</span>
-                </p>
-              </blockquote>
-              <figcaption className="mt-8 ml-14 flex items-center gap-3 font-heading text-sm font-extrabold uppercase tracking-[0.08em]">
-                {FEATURED_REVIEW.from}
-              </figcaption>
-            </figure>
-
-            <figure data-reveal style={{ transitionDelay: "120ms" }} className="rotate-[1.5deg] overflow-hidden rounded-2xl comic-border comic-shadow bg-bone text-ink lg:col-span-5">
-              <div className="relative border-b-[3px] border-ink bg-ink px-6 py-5 text-white">
-                <div aria-hidden className="absolute inset-0 halftone-light" />
-                <h3 className="relative font-heading text-2xl font-black uppercase leading-none tracking-[-0.01em] md:text-[1.9rem]">
-                  The {CASE_STUDY.paid} {CASE_STUDY.card}
-                </h3>
-                <p className="relative mt-2 text-[15px] leading-relaxed text-white/75">
-                  Bought “damaged” with an edge lift. Sent it in. Got back a {CASE_STUDY.grade}.
-                </p>
-              </div>
-              <dl className="px-6 py-2">
-                {caseRows.map((row, i) => (
-                  <div key={row.label} className={`flex items-baseline justify-between gap-4 py-4 ${i > 0 ? "border-t-2 border-dashed border-ink/25" : ""}`}>
-                    <dt className="font-heading text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">{row.label}</dt>
-                    <dd className={`font-heading text-4xl font-black leading-none tracking-[-0.02em] tabular-nums md:text-5xl ${i === 0 ? "text-ink/45 line-through decoration-rx decoration-[3px]" : i === 2 ? "text-rx" : "text-ink"}`}>
-                      <CountUp value={row.value} />
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </figure>
-          </div>
-
-          <ul className="mt-16 columns-1 gap-6 sm:columns-2 md:mt-20 lg:columns-3">
-            {REVIEWS.map((r, i) => (
-              <li
-                key={r.quote}
-                data-reveal
-                style={{ transitionDelay: `${(i % 3) * 80}ms` }}
-                className={`mb-12 inline-block w-full break-inside-avoid align-top ${i >= PHONE_LIMIT ? "max-sm:hidden" : ""}`}
-              >
-                <figure style={{ transform: `rotate(${TILTS[i % TILTS.length]})` }}>
-                  <blockquote className="speech p-5 text-ink md:p-6">
-                    {r.card && (
-                      <p className="mb-3 inline-block rounded-md bg-ink px-2 py-0.5 font-heading text-[11px] font-extrabold uppercase tracking-[0.1em] text-white">
-                        {r.card}
-                      </p>
-                    )}
-                    <p className="text-base font-medium leading-relaxed md:text-[17px]">“{r.quote}”</p>
-                  </blockquote>
-                  <figcaption className="mt-7 ml-14 font-heading text-xs font-extrabold uppercase tracking-[0.1em] text-white">
-                    {r.from}
-                  </figcaption>
-                </figure>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
+      <ReviewsBand title="What our customers say" />
 
       <section aria-label="What we can fix" className="overflow-hidden border-b-[3px] border-ink bg-ink py-6 md:py-9">
         <VelocityMarquee>

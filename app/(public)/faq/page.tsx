@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { canonical } from "@/lib/seo";
 import { PageHero } from "@/components/marketing/page-hero";
 import { FAQ_SECTIONS } from "./faq-data";
 import { FaqSearch } from "./faq-search";
 
 export const metadata: Metadata = {
+  alternates: canonical("/faq"),
   title: "FAQ | The Card Doc",
   description: "Answers about restoration and prep: tiers, declared value, slabs, grading, shipping, drop-off and the cards we work on.",
 };

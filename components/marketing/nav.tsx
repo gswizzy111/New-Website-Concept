@@ -277,9 +277,12 @@ export function Nav() {
           {cartLink}
           <Link
             href="/account"
-            className="inline-flex h-9 items-center rounded-md border border-rule bg-white/60 px-3.5 text-sm font-semibold text-ink hover:border-ink/40 hover:bg-white transition-colors duration-150"
+            className="inline-flex h-9 items-center rounded-md border-2 border-ink bg-bone px-3.5 text-sm font-semibold text-ink hover:bg-white transition-colors duration-150"
           >
             My Account
+          </Link>
+          <Link href="/restoration" className="comic-btn press hidden xl:inline-flex h-9 px-4 text-[12px] shadow-[3px_3px_0_var(--ink)]">
+            Book a Restoration
           </Link>
         </div>
 

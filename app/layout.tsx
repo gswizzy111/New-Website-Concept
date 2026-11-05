@@ -5,6 +5,8 @@ import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
 import { trackingGuardScript } from "@/lib/tracking-guard";
 import { siteUrl } from "@/lib/site-url";
+import { JsonLd } from "@/components/seo/json-ld";
+import { ORGANIZATION } from "@/lib/seo";
 
 const poppins = Poppins({
   variable: "--font-heading",
@@ -74,6 +76,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: trackingGuardScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
+        <JsonLd data={ORGANIZATION} />
         <MetaPixelRouteTracker />
         {children}
         <Toaster richColors position="bottom-right" />
