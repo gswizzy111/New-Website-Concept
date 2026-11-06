@@ -96,19 +96,3 @@ export function CustomerReviews({ compact = false }: { compact?: boolean }) {
     </div>
   );
 }
-
-/**
- * The reviews for a service page (paper): one inset ink-stage panel, so the
- * evidence sits on the stage like it does on the home page, with the compact
- * set of quotes. Used identically on Restorations and Prep.
- */
-export function ReviewsPanel({ title }: { title: string }) {
-  return (
-    <section className="stage stage-light overflow-hidden rounded-2xl px-5 py-14 sm:px-8 md:px-12 md:py-20">
-      <h2 data-reveal className="max-w-6xl mx-auto font-heading text-4xl md:text-6xl font-extrabold tracking-[-0.02em] leading-[0.95] text-stage-fg mb-10 md:mb-14">
-        {title}
-      </h2>
-      <CustomerReviews compact />
-    </section>
-  );
-}

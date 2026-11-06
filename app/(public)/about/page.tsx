@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
+import { canonical } from "@/lib/seo";
 import { ArrowUpRight, X } from "lucide-react";
 import { SplitReveal } from "@/components/motion/split-reveal";
 import { ExpandingStage } from "@/components/motion/expanding-stage";
@@ -25,6 +26,7 @@ const DESCRIPTION =
   "Built by collectors, trusted with collections. Meet Owen and Gavin, the collectors behind The Card Doc, with 30+ years of combined collecting experience.";
 
 export const metadata: Metadata = {
+  alternates: canonical("/about"),
   title: "About Us | The Card Doc",
   description: DESCRIPTION,
   openGraph: {

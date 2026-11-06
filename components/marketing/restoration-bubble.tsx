@@ -72,16 +72,13 @@ export function RestorationBubble() {
         >
           <Link
             href="/restoration"
-            className="press flex items-center gap-3 rounded-2xl border border-white/10 bg-ink/85 p-2 pr-2.5 text-paper shadow-[0_18px_40px_-14px_oklch(0.2_0.006_70/0.7)] backdrop-blur-xl backdrop-saturate-150"
+            className="press flex items-center gap-3 rounded-2xl border-[2.5px] border-ink bg-ink p-2 pr-2.5 text-paper shadow-[4px_4px_0_var(--rx)]"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/card-doctor.jpg" alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-white/15" />
-            <span className="min-w-0 flex-1 leading-tight">
-              <span className="block font-heading text-[17px] font-bold tracking-[-0.01em]">Book a Restoration</span>
-              <span className="block font-mono text-[11px] text-paper/60">From $75 / card</span>
-            </span>
-            <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rx text-lg text-primary-foreground">
-              →
+            <img src="/card-doctor.jpg" alt="" className="h-11 w-11 shrink-0 rounded-full border-2 border-white object-cover object-[50%_18%]" />
+            <span className="min-w-0 flex-1 font-heading text-[15px] font-black uppercase leading-tight tracking-[-0.005em]">Book a Restoration</span>
+            <span className="flex h-11 shrink-0 items-center rounded-xl border-2 border-white bg-rx px-3 font-heading text-[12px] font-extrabold tabular-nums text-white">
+              From $75 / card
             </span>
           </Link>
         </motion.div>

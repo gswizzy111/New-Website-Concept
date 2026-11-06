@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { PageHero } from "@/components/marketing/page-hero";
+import { JsonLd } from "@/components/seo/json-ld";
+import { SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
@@ -6,6 +9,12 @@ import { AddToCartButton } from "./add-to-cart-button";
 import { isSoldOut } from "@/lib/site-config";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Shop Kits | The Card Doc",
+  description: "The same pro-grade tools The Card Doc uses — delivered to you. US shipping at cost + $2 handling.",
+  alternates: canonical("/shop"),
+};
 
 type Product = {
   id: string;
@@ -129,6 +138,21 @@ export default async function ShopPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-10 py-12 md:py-16 pb-28 md:pb-16">
+      <JsonLd
+        data={[
+          breadcrumbs([{ name: "Shop Kits", path: "/shop" }]),
+          {
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            itemListElement: products.map((p, i) => ({
+              "@type": "ListItem",
+              position: i + 1,
+              name: p.name,
+              url: `${SITE}/shop/${p.slug}`,
+            })),
+          },
+        ]}
+      />
       {/* Header */}
       <PageHero className="mb-12 md:mb-16" eyebrow="The Card Doc" title="Shop" />
 

@@ -1,17 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Schibsted_Grotesk, Young_Serif } from "next/font/google";
+import { Poppins, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
 import { trackingGuardScript } from "@/lib/tracking-guard";
 import { siteUrl } from "@/lib/site-url";
+import { JsonLd } from "@/components/seo/json-ld";
+import { ORGANIZATION } from "@/lib/seo";
 
-// Headings: a soft, heavy old-style serif with the feel of vintage card print.
-// It ships in one weight; globals.css turns off faux bold for it.
-const youngSerif = Young_Serif({
+const poppins = Poppins({
   variable: "--font-heading",
   subsets: ["latin"],
-  weight: "400",
+  weight: ["600", "700", "800", "900"],
   display: "swap",
 });
 
@@ -28,7 +28,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
   // Matches the paper header at the top of every page.
-  themeColor: "#f6f5f2",
+  themeColor: "#f7efe1",
 };
 
 export const metadata: Metadata = {
@@ -62,7 +62,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${youngSerif.variable} ${schibsted.variable} h-full antialiased`}>
+    <html lang="en" className={`${poppins.variable} ${schibsted.variable} h-full antialiased`}>
       <head>
         <meta name="facebook-domain-verification" content="ihjnpqbitwq29e5kx3x0dujilxh1n9" />
         {/* Runs before anything else on the page and loads Google Analytics
@@ -76,6 +76,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: trackingGuardScript() }} />
       </head>
       <body className="min-h-full flex flex-col">
+        <JsonLd data={ORGANIZATION} />
         <MetaPixelRouteTracker />
         {children}
         <Toaster richColors position="bottom-right" />

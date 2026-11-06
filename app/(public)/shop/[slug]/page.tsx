@@ -1,4 +1,8 @@
+import { cache } from "react";
+import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { JsonLd } from "@/components/seo/json-ld";
+import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -9,6 +13,26 @@ import { PixelViewContent } from "@/components/pixel-view-content";
 import { getSubscriptionPriceCents } from "@/lib/store-config";
 
 export const dynamic = "force-dynamic";
+
+const getProduct = cache(async (slug: string) => {
+  const admin = createAdminClient();
+  const { data } = await admin.from("products").select("*").eq("slug", slug).eq("active", true).single();
+  return data;
+});
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const product = await getProduct(slug);
+  if (!product) return {};
+  const description = typeof product.description === "string" ? product.description.slice(0, 160) : undefined;
+  const image = product.images?.[0];
+  return {
+    title: `${product.name} | The Card Doc`,
+    description,
+    alternates: canonical(`/shop/${slug}`),
+    openGraph: image ? { images: [image] } : undefined,
+  };
+}
 
 function DescriptionBlock({ text }: { text: string }) {
   // If description contains "includes:" pull out the items after it and render as bullets
@@ -35,26 +59,43 @@ function DescriptionBlock({ text }: { text: string }) {
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const admin = createAdminClient();
-
-  const [{ data: product }, subscriptionPriceCents] = await Promise.all([
-    admin
-      .from("products")
-      .select("*")
-      .eq("slug", slug)
-      .eq("active", true)
-      .single(),
-    getSubscriptionPriceCents(),
-  ]);
+  const [product, subscriptionPriceCents] = await Promise.all([getProduct(slug), getSubscriptionPriceCents()]);
 
   if (!product) notFound();
 
+  const inStock = !isSoldOut() && (product.inventory_count === null || product.inventory_count === undefined || product.inventory_count > 0);
+  const structured = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      name: product.name,
+      description: product.description ?? undefined,
+      image: product.images?.length ? product.images : undefined,
+      sku: String(product.id),
+      category: product.category ?? undefined,
+      brand: { "@type": "Brand", name: "The Card Doc" },
+      offers: {
+        "@type": "Offer",
+        price: (product.price_cents / 100).toFixed(2),
+        priceCurrency: "USD",
+        availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+        url: `${SITE}/shop/${product.slug}`,
+        seller: { "@id": ORG_ID },
+      },
+    },
+    breadcrumbs([
+      { name: "Shop Kits", path: "/shop" },
+      { name: product.name, path: `/shop/${product.slug}` },
+    ]),
+  ];
+
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-10 py-10 md:py-14">
+      <JsonLd data={structured} />
       <PixelViewContent contentName={product.name} contentCategory={product.category ?? "Shop"} />
-      <a href="/shop" className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 block">
+      <Link href="/shop" className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 block">
         &larr; Back to Shop
-      </a>
+      </Link>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20">
         {/* Images */}

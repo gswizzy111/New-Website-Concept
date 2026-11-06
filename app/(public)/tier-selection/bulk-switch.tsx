@@ -33,7 +33,7 @@ export function BulkSwitch({ children, note, stacked = false }: { children: Reac
     <div data-bulk={plan}>
       <div className={stacked ? "mb-6 flex flex-col gap-3" : "mb-6 md:mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"}>
         {/* A segmented control, so on phones it doesn't read as another row of tier chips */}
-        <div role="radiogroup" aria-label="Number of cards" className={`grid w-full grid-cols-3 rounded-full border border-rule bg-white p-1${stacked ? "" : " md:inline-grid md:w-auto"}`}>
+        <div role="radiogroup" aria-label="Number of cards" className={`grid w-full grid-cols-3 rounded-full border-[2.5px] border-ink bg-bone p-1 shadow-[3px_3px_0_var(--ink)]${stacked ? "" : " md:inline-grid md:w-auto"}`}>
           {BULK_PLANS.map((p, i) => {
             const active = p.id === plan;
             return (
@@ -50,7 +50,7 @@ export function BulkSwitch({ children, note, stacked = false }: { children: Reac
                   active ? "bg-ink text-paper" : "text-muted-foreground hover:text-ink"
                 }`}
               >
-                <span className="text-sm font-semibold leading-tight">{p.label}</span>
+                <span className="font-heading text-sm font-extrabold leading-tight">{p.label}</span>
                 <span className={`font-mono text-[10px] uppercase leading-tight tracking-wide ${
                   p.percent > 0 ? (active ? "text-rx-bright" : "text-rx") : active ? "text-paper/70" : "text-muted-foreground"
                 }`}>

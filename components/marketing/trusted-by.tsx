@@ -1,4 +1,3 @@
-import { ArrowUpRight } from "lucide-react";
 import { VelocityMarquee } from "@/components/motion/velocity-marquee";
 import { TRUSTED_BY, type TrustedPage } from "@/lib/trusted-by";
 
@@ -25,11 +24,6 @@ function Entry({ page, decorative }: { page: TrustedPage; decorative: boolean })
           <span className="font-semibold text-ink">{page.handle}</span>
           {page.followers && <> {page.followers} followers</>}
         </span>
-        <ArrowUpRight
-          aria-hidden
-          strokeWidth={1.75}
-          className="h-4 w-4 self-center text-muted-foreground transition-transform duration-300 ease-[var(--ease-out)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-rx"
-        />
       </a>
       <span aria-hidden className="h-5 w-px bg-rule" />
     </li>

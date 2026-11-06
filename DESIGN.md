@@ -1,6 +1,6 @@
 ---
 name: The Card Doc
-description: Card restoration, grading prep and DIY kits, dispensed like a prescription label in vintage card print, neutral greys with one signal orange, presented like a specimen on a light table.
+description: Card restoration, grading prep and DIY kits in a bold comic-workshop style, heavy uppercase Poppins, cream and peach grounds, ink panels and signal orange, with hard offset shadows, halftone dots and real before and after photos front and center.
 colors:
   rx: "oklch(0.555 0.176 39)"
   rx-soft: "oklch(0.962 0.02 55)"
@@ -20,42 +20,42 @@ colors:
   stage-muted: "oklch(0.75 0.006 80)"
 typography:
   display:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(6rem, 8.6vw, 8.25rem)"
     fontWeight: 400
     lineHeight: 0.84
     letterSpacing: "-0.025em"
     fontFeature: "'lnum' 1"
   headline:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(2.9rem, 6vw, 5.75rem)"
     fontWeight: 400
     lineHeight: 0.9
     letterSpacing: "-0.022em"
     fontFeature: "'lnum' 1"
   section:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(2.25rem, 5vw, 3.75rem)"
     fontWeight: 400
     lineHeight: 0.95
     letterSpacing: "-0.02em"
     fontFeature: "'lnum' 1"
   title:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "1.75rem"
     fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.01em"
     fontFeature: "'lnum' 1"
   figure:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "3rem"
     fontWeight: 400
     lineHeight: 1
     letterSpacing: "-0.02em"
     fontFeature: "'lnum' 1, 'tnum' 1"
   stat:
-    fontFamily: "Young Serif, ui-serif, Georgia, serif"
+    fontFamily: "Poppins, ui-sans-serif, system-ui, sans-serif"
     fontSize: "clamp(4.5rem, 9vw, 7.5rem)"
     fontWeight: 400
     lineHeight: 0.9
@@ -155,6 +155,25 @@ components:
 
 # Design System: The Card Doc
 
+## Direction update (November 2026): Comic Workshop
+
+This section overrides anything below it that disagrees. The owner asked for a bolder, more comic look in the spirit of the reference they chose, in The Card Doc's own colors. The home page is the first page built this way; other pages move over one at a time.
+
+- **Type.** Headings are Poppins (600 to 900, `--font-heading`), set heavy (800 to 900) and uppercase for section titles, with tight tracking (-0.02em to -0.025em). Body stays Schibsted Grotesk. Young Serif is gone.
+- **Grounds.** Cream (`--cream`, also `--paper`) is the page. Peach (`--peach`) is the second ground for alternating bands. Bone (`--bone`) is for cards and panels. Ink panels carry features and stats. Orange (`rx`) fills the reviews band and the closing call to action.
+- **Comic outline.** Panels, cards, buttons and photos take a 2.5 to 3px ink border and a hard offset shadow with no blur (`.comic-border`, `.comic-shadow`, `.comic-shadow-sm`, `.comic-shadow-rx`). Photos and cards sit at a slight tilt (about 1 to 3 degrees) and straighten a little and lift on hover (`.comic-lift`).
+- **Buttons.** `.comic-btn` is orange, uppercase Poppins 800, with an ink border and a 4px ink shadow that grows on hover and collapses on press. `.comic-btn-light` is white with an orange shadow. `.comic-btn-ink` is ink with a white shadow for use on orange. One orange and one light button per group, never two orange.
+- **Texture.** Halftone dots (`.halftone` on light grounds, `.halftone-light` on dark or orange), faded with `.halftone-fade` / `.halftone-fade-r`. The hero's ink panel carries an outlined "THE CARD DOC" wordmark pattern (`.wordmark-pattern`).
+- **Stickers.** Round stickers (`.sticker`) for the Doc's mark, starbursts (`.burst`, two layers: ink behind, `rx-pop` in front) for one short fact, small ink tabs for labels, rounded-full ink-outlined pills for facts under the nav.
+- **Reviews.** Every quote is a speech bubble (`.speech`, white, ink outline, tail at the bottom left) on the orange band, tilted slightly, with "Repeat customer" under the tail. The featured quote is the large bubble; the Charizard case is a bone card with an ink header.
+- **Ticker.** A full-width ink band of the fixable damage types (from What We Can Fix) in huge Poppins 900, alternating filled white and outlined, divided by orange dots, on the scroll-velocity marquee.
+- **Photos first.** The hero shows the owner's Mickey Mantle before and after photo in a comic frame, with the Charmander pair fanned behind. Proven Results shows the draggable Mantle comparison large, beside the Charmander and Garchomp panels.
+- **Home order.** Fact pills, hero, Trusted by, reviews (orange), damage ticker, Proven Results with stats, Why collectors choose us (ink panel on peach), Services (three comic cards), FAQ, Terms summary, closing call to action (orange panel on peach), footer.
+- **Shared pieces.** `<PageHero/>` sets every inner page title in Poppins 900 uppercase with a dashed rx eyebrow. `<TrustPills/>` (owner facts, one swipeable row on phones) sits under the home, Restorations and Prep heroes. `<ReviewsBand/>` (`components/marketing/comic-reviews.tsx`) is the orange speech-bubble reviews section on home (full) and Restorations and Prep (compact). `.btn-depth` now draws the comic ink outline and hard shadow, so every older primary button matches. `.page-glow` is cream with halftone in the top right.
+- **Restorations and Prep.** Tier cards, the Diamond card and the prep pricing panel are bone panels with a 2.5 to 3px ink outline and hard shadow, uppercase Poppins names, Poppins 900 prices, dashed fact dividers, owner badges as filled pills, and `.comic-btn` actions. The bulk switch is an ink-outlined pill track.
+- **Header.** 2px ink rule under the nav, "My Account" outlined in ink, and from `xl` a "Book a Restoration" comic button (the phone dock's wording) as the always-visible primary action.
+- **Still true.** The owner's wording is kept word for word. No arrows on buttons or links. Status colors keep their meaning, amber notices stay as they are. Every motion keeps a reduced-motion state.
+
 ## Overview
 
 **Creative North Star: "The Prescription Label, on the Light Table"**
@@ -244,9 +263,9 @@ Young Serif ships one weight, so `html` sets `font-synthesis-weight: none`: `fon
 
 A centered column with generous gutters: `max-w-7xl` for nav, hero, footer and the review wall; `max-w-6xl` for most sections; `max-w-5xl` for prep and how it works. Gutters 16px phone, 40px from md. Sections breathe at 80px phone and 128px desktop.
 
-The home hero is a 12-column grid: title and service rows on 7 columns, the specimen stack on 5, spanning both rows. On phone it stacks title, subline, specimen stack, service rows. The whole hero fits a 1440 x 900 viewport with all three service rows visible.
+The home hero is a 12-column grid: title, subline and the two hero actions on 7 columns with the proof strip under them, the specimen stack on 5, spanning both rows. On phone it stacks title, subline, actions, specimen stack, proof strip. The whole hero fits a 1440 x 900 viewport with both actions and the proof strip visible. Home order: hero, Trusted by, the ink stage (customer reviews first, then Proven Results and the stats), services, FAQ, terms summary, link index.
 
-Two-column fact grids (terms on About, how it works) stay rule-divided. The home terms summary uses four panels with icons; the link index is a 3-column grid of large rows with an arrow at each row's end and a 56px column gap so arrows never read as belonging to the next column.
+Two-column fact grids (terms on About, how it works) stay rule-divided. The home terms summary uses four panels with icons; the link index is a 3-column grid of large rows with a 56px column gap; rows carry no arrows and turn orange on hover.
 
 ## Elevation & Depth
 
@@ -277,10 +296,10 @@ Base radius stays 6px (`--radius: 0.375rem`); panels now use `rounded-xl` (about
 - **Focus:** 2px rx outline on paper, rx-bright on the stage.
 
 ### Rx Label (signature)
-Unchanged structure: 6px orange top band, ink bottom rule, hairline rows. On the home hero each row has a 24px serif service name, a 15px line, a small from-price and a compact primary action; rows tint to white on hover.
+Unchanged structure: 6px orange top band, hairline dividers. On home the services sit in their own section after the stage as one white label of three columns (stacked on phones): icon and rx-label, a 30 to 36px serif service name, a 15px line, a small from-price and a full-width primary action on the column's floor; columns tint to paper on hover.
 
 ### Ink Stage (`.stage .stage-light`)
-The dark light box. On home it arrives as an inset rounded panel and opens to full bleed as it scrolls up (`<ExpandingStage/>`). It holds the proof headline and CTA, the scan-developed before/after photo, the two stats (Cards Restored and Photo Review; the owner removed the rating) and the customer reviews. The stats sit in a two-column row divided by a white/12 hairline, and their size comes from the row's width in container units (`clamp(2.75rem, 9cqi, 6.75rem)` from `sm`, stacked and `clamp(4rem, 21cqi, 6rem)` on phones), so a live figure like "2,321+" never runs into the next one. The screenshot wall (`<ParallaxWall/>`) is no longer on the home page.
+The dark light box. On home it arrives as an inset rounded panel and opens to full bleed as it scrolls up (`<ExpandingStage/>`). It holds the customer reviews first, then a hairline and the proof headline and CTA, the scan-developed before/after photo and the two stats (Cards Restored and Photo Review; the owner removed the rating). The stats sit in a two-column row divided by a white/12 hairline, and their size comes from the row's width in container units (`clamp(2.75rem, 9cqi, 6.75rem)` from `sm`, stacked and `clamp(4rem, 21cqi, 6rem)` on phones), so a live figure like "2,321+" never runs into the next one. The screenshot wall (`<ParallaxWall/>`) is no longer on the home page.
 
 ### Customer Reviews (`<CustomerReviews/>`, on the stage)
 Under "What our customers say": the featured quote ("…you are the best of the best when it comes to card restoration.") in Young Serif (1.85rem phone, 2.35rem tablet, 2.75rem desktop; a documented step between title and section), hanging open quote, a short white/30 rule before the attribution. Every attribution on the site reads "Repeat customer" (no individual names, the owner's call). It lights up word by word as it scrolls in (`<ScrollLitText/>`): every word starts at 18% opacity, the lead settles at 62% (stage grey) and the closing phrase at 100% (stage white), emphasis by brightness within one face, never orange. Forward only, so it stays lit when the page scrolls back; under reduced motion it rests in the final state. Beside it, the Charizard case: the page's one raised panel (`bg-stage-raise`, white/10 ring, the featured shadow), a 28px serif title, one line, then three rule-divided rows (small caps label left, 3 to 3.75rem serif figure right; the price paid in stage grey, the grade and value in white). The figures count up once on reveal (`<CountUp/>`). Below, the other messages as a 1/2/3-column masonry of flat hairline cards (white/12 ring, no shadow): small caps card tag, 16 to 17px quote, 13px attribution. Under a mouse the card's edge lights rx-bright at the pointer (`.lit-border`, stage variant) and the card lifts to white/2.5. Phones show the first six. Each rises in on scroll.
@@ -350,7 +369,7 @@ Marketing pages only; cart, checkout, order builder and account screens get no n
 - **Count-up, scroll reveals, FAQ height, step walkthrough:** as before (step numeral now 9rem); the walkthrough's progress rule and step markers keep how far the reader got. The FAQ page's fix panels stagger in and each question group rises in.
 - **Scrolling:** native browser scrolling everywhere (the owner asked for normal scrolling, so there is no smooth-scroll library). `scroll-padding-top: 8rem` on `html` keeps in-page links clear of the sticky header.
 - **Page transitions (`app/(public)/template.tsx`):** React `<ViewTransition>` with Next's `experimental.viewTransition`. The old page lifts 12px and fades in 180ms; the new page rises 28px over 620ms, 110ms later. The header, phone menu, booking dock and grain are named only while a transition runs (a permanent name would flatten the header's frosted blur) and hold still above the page. The loading skeleton fills the screen, so the footer never flashes up, and dissolves into the page in 260ms.
-- **Trusted by marquee (`<VelocityMarquee/>`):** a thin strip (about 150px desktop, 125px phone): serif names (24px phone, 36px desktop) each followed on the same baseline by one 13px meta line (role, bold handle, followers), an arrow and a short hairline divider; the name turns orange and the arrow nudges on hover. Each copy of the row repeats the list until it holds at least four names, so a short list still loops without a gap. Drifts one copy-width every 38s, always drifts left and surges with scroll speed in either direction (up to 5x); pauses under a mouse and while off screen; edge-faded. Reduced motion: still, one of each name, wrapping.
+- **Trusted by marquee (`<VelocityMarquee/>`):** a thin strip (about 150px desktop, 125px phone): serif names (24px phone, 36px desktop) each followed on the same baseline by one 13px meta line (role, bold handle, followers) and a short hairline divider; the name turns orange on hover. Each copy of the row repeats the list until it holds at least four names, so a short list still loops without a gap. Drifts one copy-width every 38s, always drifts left and surges with scroll speed in either direction (up to 5x); pauses under a mouse and while off screen; edge-faded. Reduced motion: still, one of each name, wrapping.
 - **Nav:** a hover highlight glides between tabs and the active underline glides between routes (Motion `layoutId`, spring bounce 0.15, 0.45s); the phone menu is a full-screen ink sheet portaled to `<body>`, revealed by a clip-path circle growing from the menu button (600ms), with the three services set huge and rising out of their clips 70ms apart; the menu icon cross-fades with a 45 degree turn.
 - **Hover details (mouse only):** `.lift`, `.nudge-arrow`, `.draw-underline`, `.btn-sheen`, metal swatch highlight slide (900ms), `.lit-border`, link-index arrow nudge.
 - **Footer wordmark:** rises 65 percent out of its clip over 1400ms once in view (the observed parent never moves, so it always triggers).
@@ -359,8 +378,8 @@ Marketing pages only; cart, checkout, order builder and account screens get no n
 ### Phone layer
 Phones are the primary surface (social-media first visits).
 - **Platform baseline:** `viewport-fit=cover`, `interactive-widget=resizes-content`, `theme-color` matching the paper header; no tap highlight; no text inflation; 16px inputs on coarse pointers (no focus zoom, zoom never disabled); `touch-action: manipulation` and `user-select: none` on controls only; `.press` scales to 0.97 on `:active`.
-- **Booking dock (`RestorationBubble`):** a frosted ink bar pinned to the bottom with safe-area padding (logo, "Book a Restoration", "From $75 / card", orange arrow). It slides in once the hero is passed, hides over the footer, and is absent on the booking and checkout pages (`hidesBookingButton()`: tier selection, the restoration and prep order forms, cart, checkout, gift cards, subscriptions and the order-confirmed page) and from `md` up.
-- **Trust strip:** two facts the owner states (cards restored, reply time) as bare icons, the count as a serif figure: one fact per row on phones, so the reply time stays on one line, and one row of two from 640px.
+- **Booking dock (`RestorationBubble`):** a frosted ink bar pinned to the bottom with safe-area padding (logo, "Book a Restoration", and "From $75 / card" in an orange pill on the right). It slides in once the hero is passed, hides over the footer, and is absent on the booking and checkout pages (`hidesBookingButton()`: tier selection, the restoration and prep order forms, cart, checkout, gift cards, subscriptions and the order-confirmed page) and from `md` up.
+- **Proof strip (home hero):** three facts the owner states (cards restored, free photo review, reply time) in one white hairline panel under the hero actions, each a bare icon beside a serif figure over a small label: two cells over one full-width cell on phones, one row of three from 640px.
 - **Snap deck (`<SnapDeck/>`):** on phones, grids of options (tiers) become a horizontal scroll-snap track at 88% card width (cards keep their natural height), with tier-name chips above and dots below, both tracking the visible card. From `md` up it is the normal grid.
 - **Route loading:** a thin orange progress bar plus skeleton blocks with a soft sheen (static under reduced motion).
 
@@ -373,9 +392,11 @@ Phones are the primary surface (social-media first visits).
 - **Do** set prices and stats in the heading face with lining figures, units in the small grotesque.
 - **Do** keep holo foil on cards only, and light enough that the photo underneath stays legible.
 - **Do** give every scroll-linked or perpetual effect a static reduced-motion state, and read the preference with `usePrefersReducedMotion()`.
-- **Do** check the hero fits 1440 x 900 with all three service rows visible.
+- **Do** check the hero fits 1440 x 900 with both hero actions and the proof strip visible.
+- **Do** give the home hero one primary action (orange) and one secondary (white, ink stroke); never stack competing orange buttons in the hero.
 
 ### Don't:
+- **Don't** put arrow glyphs or arrow icons on buttons, links or rows. The only directional marks left are the Explore menu's dropdown caret and the before/after handle, which are controls.
 - **Don't** use colored gradients other than holo foil, and never on text, buttons or page backgrounds.
 - **Don't** put forms, prices, terms or amber notices on the ink stage.
 - **Don't** add more than one stage block of content per page (the footer is separate).

@@ -1,4 +1,10 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+import { getCardsRestoredStat } from "@/lib/site-stats";
+import { TrustPills } from "@/components/marketing/trust-pills";
+import { ReviewsBand } from "@/components/marketing/comic-reviews";
+import { JsonLd } from "@/components/seo/json-ld";
+import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restoration-tiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
@@ -11,11 +17,16 @@ import { FACT_ROW } from "./fact-row";
 import { BulkSwitch } from "./bulk-switch";
 import { BULK_PLANS, bulkPriceCents, isBulkEligible } from "@/lib/bulk-pricing";
 import { SnapDeck } from "@/components/motion/snap-deck";
-import { ReviewsPanel } from "@/components/marketing/customer-reviews";
 import { PixelViewContent } from "@/components/pixel-view-content";
 import { PageHero } from "@/components/marketing/page-hero";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Restoration Pricing | The Card Doc",
+  description: "Surfaces, corners & edges — cleaned and restored to their best. From $75 / card.",
+  alternates: canonical("/tier-selection"),
+};
 
 const ICON_MAP = {
   regular:       CheckCircle,
@@ -66,7 +77,7 @@ function TierCard({
   // Corner pill: sold out, else the owner's badge (or the card's own label).
   // Slots left sit in the facts beside the action, the same row on every card.
   const bannerLabel: React.ReactNode = isSoldOut ? "SOLD OUT" : (label ?? tier.badge ?? null);
-  const bannerCls: string = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-rx-soft text-rx";
+  const bannerCls: string = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-rx text-white";
   const showSlots = !isSoldOut && slotsLeft !== null && restorationsOpen;
 
   const price = tier.pricing_type === "percentage"
@@ -80,24 +91,24 @@ function TierCard({
     : "per card";
 
   const action = isSoldOut ? (
-    <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
+    <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
       Sold Out
     </div>
   ) : !restorationsOpen ? (
-    <div className="w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-secondary text-muted-foreground cursor-not-allowed">
+    <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
       Currently Closed
     </div>
   ) : (
     <Link
       href={`/restoration?tier=${tier.id}`}
-      className="btn-depth btn-sheen w-full h-12 flex items-center justify-center rounded-md font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 transition-colors duration-150"
+      className="comic-btn press w-full h-12 text-[13px]"
     >
       Select {tier.name}
     </Link>
   );
 
   const facts = (
-    <dl className="@container divide-y divide-rule border-t border-rule">
+    <dl className="@container divide-y-2 divide-dashed divide-ink/15 border-t-2 border-ink">
       <div className={FACT_ROW}>
         <dt className="rx-label @min-[16.5rem]:self-center">Turnaround</dt>
         <dd className="font-medium text-ink @min-[16.5rem]:text-right">
@@ -139,12 +150,12 @@ function TierCard({
   );
 
   return (
-    <div className={`lift spotlight lit-border relative h-full rounded-xl border border-rule bg-card flex flex-col shadow-[0_1px_2px_oklch(0.25_0.006_70/0.06)] ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
+    <div className={`comic-lift relative h-full rounded-2xl border-[2.5px] border-ink bg-bone flex flex-col comic-shadow-sm ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
       {/* Fixed height, so a card with a corner pill lines up with one without */}
       <div className="flex h-12 items-end justify-between gap-3 px-6">
         <span className={`metal mb-[5px] h-3.5 w-11 rounded-[3px] ${swatch}`} aria-hidden />
         {bannerLabel && (
-          <span className={`inline-flex items-center gap-1 whitespace-nowrap font-mono text-[11px] leading-4 uppercase tracking-wide rounded-full px-2.5 py-1 ${bannerCls}`}>
+          <span className={`inline-flex items-center gap-1 whitespace-nowrap font-heading font-extrabold text-[10px] leading-4 uppercase tracking-[0.08em] rounded-full border-2 border-ink px-2.5 py-0.5 ${bannerCls}`}>
             {bannerLabel}
           </span>
         )}
@@ -152,9 +163,9 @@ function TierCard({
 
       <div className="p-6 pt-4 flex flex-col flex-1">
         <div className="flex items-start gap-3 mb-5">
-          <Icon className="w-5 h-5 flex-shrink-0 mt-1.5 text-muted-foreground" strokeWidth={1.75} />
+          <Icon className="w-5 h-5 flex-shrink-0 mt-0.5 text-rx" strokeWidth={2} />
           <div className="min-w-0">
-            <h3 className="font-heading text-[1.75rem] font-extrabold tracking-[-0.01em] text-ink leading-tight">{tier.name}</h3>
+            <h3 className="font-heading text-[1.6rem] font-black uppercase tracking-[-0.015em] text-ink leading-none">{tier.name}</h3>
             {/* Two lines reserved, so prices line up across a row */}
             <p className="text-sm text-muted-foreground mt-0.5 min-h-10">{tier.description}</p>
           </div>
@@ -165,7 +176,7 @@ function TierCard({
             // One price per plan; the BulkSwitch above the grid shows the chosen one
             BULK_PLANS.map((p) => (
               <div key={p.id} data-plan={p.id} className="flex flex-wrap items-baseline gap-x-2.5">
-                <span className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">
+                <span className="font-heading text-5xl font-black tracking-[-0.03em] text-ink tabular-nums">
                   ${(bulkPriceCents(tier.price_cents, p.percent) / 100).toFixed(2)}
                 </span>
                 {p.percent > 0 && (
@@ -174,7 +185,7 @@ function TierCard({
               </div>
             ))
           ) : (
-            <div className="font-heading text-5xl font-extrabold tracking-[-0.02em] text-ink tabular-nums">{price}</div>
+            <div className="font-heading text-5xl font-black tracking-[-0.03em] text-ink tabular-nums">{price}</div>
           )}
           <p className="font-mono text-xs text-muted-foreground mt-1">{priceNote}</p>
         </div>
@@ -189,9 +200,10 @@ function TierCard({
 }
 
 export default async function TierSelectionPage() {
-  const [restorationsOpen, slotsOpenedAt] = await Promise.all([
+  const [restorationsOpen, slotsOpenedAt, cardsRestored] = await Promise.all([
     getRestorationsOpen(),
     getSlotsOpenedAt(),
+    getCardsRestoredStat(),
   ]);
   const defaultTiers = getAllTiers();
   const admin = createAdminClient();
@@ -236,8 +248,36 @@ export default async function TierSelectionPage() {
   const eliteSlotsLeft = eliteMaxSlots !== null && slotCounts ? Math.max(0, eliteMaxSlots - (slotCounts["elite"] ?? 0)) : null;
   const eliteIsSoldOut = settingsMap["elite"]?.is_open === false || (eliteSlotsLeft !== null && eliteSlotsLeft === 0);
 
+  const offerTiers = [...topTiers, ...midTiers, ...(fastPass ? [fastPass] : [])].filter((t) => t.pricing_type !== "percentage");
+  const structured = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      name: "Card Restoration",
+      serviceType: "Trading card restoration",
+      description: "Surfaces, corners & edges — cleaned and restored to their best.",
+      url: `${SITE}/tier-selection`,
+      provider: { "@id": ORG_ID },
+      areaServed: ["US", "PR"],
+      hasOfferCatalog: {
+        "@type": "OfferCatalog",
+        name: "Restoration tiers",
+        itemListElement: offerTiers.map((t) => ({
+          "@type": "Offer",
+          name: t.name,
+          description: t.description,
+          price: (t.price_cents / 100).toFixed(2),
+          priceCurrency: "USD",
+          url: `${SITE}/tier-selection`,
+        })),
+      },
+    },
+    breadcrumbs([{ name: "Restoration Pricing", path: "/tier-selection" }]),
+  ];
+
   return (
     <div className="min-h-screen page-glow">
+      <JsonLd data={structured} />
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
       {/* Closed text banner */}
       {!restorationsOpen && (
@@ -253,13 +293,15 @@ export default async function TierSelectionPage() {
 
       <div className="max-w-6xl mx-auto px-4 md:px-10 py-12 md:py-20">
         <PageHero
-          className="mb-12 md:mb-16"
+          className="mb-8"
           title="Choose Your Restoration Level"
           lines={["Choose Your", "Restoration Level"]}
           lead={restorationsOpen
             ? "Select the tier that best fits your cards' needs."
             : "We're temporarily closed. Browse our pricing below and join the waitlist to be notified when we reopen."}
         />
+
+        <TrustPills cardsRestored={cardsRestored} align="start" className="hero-in mb-12 md:mb-14" />
 
         {/* All six tiers on one track, equal heights per row: 3 x 2 from 1072px (where
             a card's facts fit side by side, see fact-row.ts), 2 x 3 below that */}
@@ -321,7 +363,7 @@ export default async function TierSelectionPage() {
         {!restorationsOpen && <WaitlistModal />}
 
         {/* Footer info */}
-        <div className="mt-8 border-y border-rule py-6">
+        <div className="mt-8 border-y-2 border-ink py-6">
           <p className="text-muted-foreground">
             Not sure which tier fits?{" "}
             <Link href="/how-it-works" className="text-rx hover:underline font-semibold">
@@ -331,11 +373,8 @@ export default async function TierSelectionPage() {
           </p>
         </div>
 
-        {/* Customer Reviews */}
-        <div className="mt-24 md:mt-32">
-          <ReviewsPanel title="What Our Customers Say" />
-        </div>
       </div>
+      <ReviewsBand title="What Our Customers Say" compact id="tier-reviews-heading" />
     </div>
   );
 }

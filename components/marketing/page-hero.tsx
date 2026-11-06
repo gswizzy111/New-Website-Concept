@@ -1,10 +1,5 @@
 import { SplitReveal } from "@/components/motion/split-reveal";
 
-/**
- * The opening of every marketing page: optional rx-label, an oversized
- * narrowed headline whose words rise out of their clips, and the lead line.
- * Copy is passed through untouched.
- */
 export function PageHero({
   eyebrow,
   title,
@@ -20,12 +15,17 @@ export function PageHero({
 }) {
   return (
     <div className={className}>
-      {eyebrow && <p className="hero-in rx-label text-rx mb-5">{eyebrow}</p>}
-      <h1 className="font-heading font-extrabold text-ink tracking-[-0.022em] leading-[0.9] text-[2.9rem] sm:text-6xl md:text-7xl lg:text-[5.75rem] max-w-5xl">
+      {eyebrow && (
+        <p className="hero-in mb-5 flex items-center gap-3 font-heading text-xs font-extrabold uppercase tracking-[0.14em] text-rx md:text-[13px]">
+          <span aria-hidden className="h-[3px] w-8 rounded-full bg-rx" />
+          {eyebrow}
+        </p>
+      )}
+      <h1 className="max-w-5xl font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-ink text-[clamp(2.5rem,10.5vw,3.75rem)] md:text-6xl lg:text-[5.25rem]">
         <SplitReveal text={title} lines={lines} step={70} />
       </h1>
       {lead && (
-        <p className="hero-in mt-6 md:mt-7 text-lg md:text-xl text-muted-foreground max-w-2xl leading-relaxed" style={{ ["--d" as string]: 280 }}>
+        <p className="hero-in mt-6 max-w-2xl text-lg font-medium leading-relaxed text-ink/75 md:mt-7 md:text-xl" style={{ ["--d" as string]: 280 }}>
           {lead}
         </p>
       )}

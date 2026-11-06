@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // The business domain, as in public/robots.txt and the /privacy canonical,
 // whichever address serves this copy of the site (not NEXT_PUBLIC_APP_URL:
@@ -7,13 +8,23 @@ const BASE = "https://thecarddoc1.com";
 
 // No lastModified: the site doesn't track when each page last changed, and a
 // date that is always "now" teaches search engines to ignore it.
-export default function sitemap(): MetadataRoute.Sitemap {
+export const revalidate = 86400;
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  let products: { slug: string }[] = [];
+  try {
+    const { data } = await createAdminClient().from("products").select("slug").eq("active", true);
+    products = data ?? [];
+  } catch {
+    products = [];
+  }
   return [
     { url: `${BASE}/`, changeFrequency: "weekly", priority: 1.0 },
-    { url: `${BASE}/privacy`, changeFrequency: "monthly", priority: 1.0 },
+    { url: `${BASE}/privacy`, changeFrequency: "yearly", priority: 0.3 },
     { url: `${BASE}/tier-selection`, changeFrequency: "weekly", priority: 0.9 },
     { url: `${BASE}/shop`, changeFrequency: "weekly", priority: 0.8 },
     { url: `${BASE}/prep`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${BASE}/start`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${BASE}/how-it-works`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${BASE}/terms`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${BASE}/faq`, changeFrequency: "monthly", priority: 0.7 },
@@ -21,5 +32,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${BASE}/about`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${BASE}/gift-cards`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${BASE}/track`, changeFrequency: "monthly", priority: 0.5 },
+    ...products.map((p) => ({ url: `${BASE}/shop/${p.slug}`, changeFrequency: "weekly" as const, priority: 0.7 })),
   ];
 }
