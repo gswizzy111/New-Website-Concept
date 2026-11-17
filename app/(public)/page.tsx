@@ -115,7 +115,7 @@ const TOS_HIGHLIGHTS: { title: string; body: string; icon: LucideIcon }[] = [
 /** The six steps of /how-it-works, titles and notes word for word. */
 const STEPS: { title: string; note: string }[] = [
   { title: "Choose Your Service, Tier, and Add-Ons", note: "(Tiers, services, and add-ons lock at checkout and cannot be changed afterward)" },
-  { title: "Book Your Order at theonethatsaveditall.com", note: "(Payment is collected in full at checkout)" },
+  { title: "Book Your Order at thecarddoc1.com", note: "(Payment is collected in full at checkout)" },
   { title: "Pack and Ship Your Cards", note: "(US & Puerto Rico orders only)" },
   { title: "Arrival, Check-In, and Evaluation", note: "(Allow 1–3 business days after carrier delivery for check-in)" },
   { title: "Hands-On Work", note: "(Order status: In Progress to Completed)" },

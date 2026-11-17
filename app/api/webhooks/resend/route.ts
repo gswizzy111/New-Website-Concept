@@ -9,7 +9,7 @@ import { bareAddress, type EmailProblemType } from "@/lib/email-problem-labels";
  * send through the same Resend account.
  *
  * Set up in the Resend dashboard (Webhooks): endpoint
- * https://theonethatsaveditall.com/api/webhooks/resend with the events
+ * https://thecarddoc1.com/api/webhooks/resend with the events
  * email.bounced, email.complained, email.suppressed and email.failed; its
  * signing secret goes in RESEND_WEBHOOK_SECRET. Every request is checked
  * against that secret (Svix signature and timestamp).
