@@ -658,6 +658,10 @@
 /* Sizes */
 .btn-sm { min-height: 44px; padding-inline: 18px; font-size: 0.9375rem; }
 .btn-lg { min-height: 58px; padding-inline: 30px; font-size: 1.0625rem; }
+/* The home page's two main actions (Restoration / PSA Prep Pricing): the
+   biggest buttons on the site, so the way to buy is the first thing seen. */
+.btn-xl { min-height: 68px; padding-inline: 26px; font-size: 1.25rem; }
+@media (min-width: 768px) { .btn-xl { min-height: 76px; font-size: 1.3125rem; } }
 .btn-icon { padding-inline: 0; width: 48px; }
 
 /* Text link with a thick underline that turns sun on hover. */

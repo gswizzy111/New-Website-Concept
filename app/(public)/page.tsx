@@ -231,13 +231,14 @@ export default function HomePage() {
             <p className="max-w-[34rem] text-[clamp(1.125rem,1.6vw,1.375rem)] font-medium leading-[1.5] text-[#e6ebff] [text-wrap:pretty]">
               {TAGLINE}
             </p>
-            <div className="mt-8 flex flex-col gap-3.5 sm:flex-row sm:flex-wrap sm:gap-4">
-              <Link href="/tier-selection" className={cta({ size: "lg" })}>
+            <div className="mt-8 grid gap-3.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-1 2xl:grid-cols-2">
+              <Link href="/tier-selection" className={cta({ size: "xl", className: "w-full" })}>
                 Restoration Pricing
-                <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+                <ArrowRight aria-hidden className="size-6" strokeWidth={2} />
               </Link>
-              <Link href="/prep" className={cta({ tone: "white", size: "lg" })}>
+              <Link href="/prep" className={cta({ tone: "white", size: "xl", className: "w-full" })}>
                 PSA Prep Pricing
+                <ArrowRight aria-hidden className="size-6" strokeWidth={2} />
               </Link>
             </div>
             <div className="mt-9 flex flex-wrap items-center gap-x-3 gap-y-2.5">
