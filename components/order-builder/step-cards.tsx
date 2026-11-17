@@ -172,7 +172,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
                 <Need missing={missing.has("value")} className="sm:col-span-2 flex flex-col gap-1.5">
                   <div className="flex items-start justify-between gap-3">
-                    <Label htmlFor={`value-${uid}-${i}`} className="block">Declared value (USD)<Req /></Label>
+                    <Label htmlFor={`value-${uid}-${i}`} className="block">Declared Value (Estimated Current Card Value)<Req /></Label>
                     {activeTier && (
                       <span className="text-right text-xs text-muted-foreground">
                         {activeTier.max_card_value_cents === null
@@ -183,7 +183,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   </div>
                   <Input
                     id={`value-${uid}-${i}`}
-                    placeholder="e.g. 500"
+                    placeholder="e.g. $500"
                     inputMode="decimal"
                     value={card.estimated_value}
                     onChange={(e) => updateCard(card.id, { estimated_value: e.target.value })}

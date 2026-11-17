@@ -45,21 +45,16 @@ export function CardIdentityFields({
   const graded = !!value.grading_company;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Two boxes instead of four: set and year together, number and
+          variation together. They are saved in card_set and variation
+          (card_year and card_number stay as they were on older orders). */}
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-set`}>Set</Label>
-        <Input id={`${idPrefix}-set`} placeholder="e.g. Base Set" value={value.card_set} onChange={(e) => onChange({ card_set: e.target.value })} />
+        <Label htmlFor={`${idPrefix}-set`}>Set &amp; year</Label>
+        <Input id={`${idPrefix}-set`} placeholder="e.g. Base Set 1999" value={value.card_set} onChange={(e) => onChange({ card_set: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-year`}>Year</Label>
-        <Input id={`${idPrefix}-year`} placeholder="e.g. 1999" inputMode="numeric" value={value.card_year} onChange={(e) => onChange({ card_year: e.target.value })} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-num`}>Card number</Label>
-        <Input id={`${idPrefix}-num`} placeholder="e.g. 4/102" value={value.card_number} onChange={(e) => onChange({ card_number: e.target.value })} />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor={`${idPrefix}-var`}>Variation</Label>
-        <Input id={`${idPrefix}-var`} placeholder="e.g. 1st Edition, Holo, Refractor" value={value.variation} onChange={(e) => onChange({ variation: e.target.value })} />
+        <Label htmlFor={`${idPrefix}-var`}>Card number &amp; variation</Label>
+        <Input id={`${idPrefix}-var`} placeholder="e.g. 4/102, 1st Edition Holo" value={value.variation} onChange={(e) => onChange({ variation: e.target.value })} />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={`${idPrefix}-company`}>Grading company</Label>
