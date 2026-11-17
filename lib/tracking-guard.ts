@@ -65,7 +65,7 @@ export function trackingGuardScript(): string {
   var w = window, d = document, h = history, l = location;
   w.__gpc = navigator.globalPrivacyControl === true;
 
-  var KEY_PATH = new RegExp('^/(admin|accountant|account/(confirm|reset-password)|affiliates/setup|cases|email/unsubscribe|subscribe/manage|orders)(/|$)');
+  var KEY_PATH = new RegExp('^/(admin|accountant|account/(confirm|reset-password)|affiliates/setup|support/setup|cases|email/unsubscribe|subscribe/manage|orders)(/|$)');
   var KEY_PARAM = /^(email|token|token_hash|access_token|refresh_token|session_id|uid|code)$/i;
   function keyParams(params) {
     var key = false;

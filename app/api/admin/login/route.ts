@@ -2,20 +2,22 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyPassword } from "@/lib/crypto";
-import { ADMIN_SESSION_COOKIE, LEGACY_ADMIN_COOKIE, createAdminSession } from "@/lib/admin-session";
+import { ADMIN_SESSION_COOKIE, LEGACY_ADMIN_COOKIE, createAdminSession, type SessionOwner } from "@/lib/admin-session";
 import { clearAttempts, takeAttempt, waitMessage } from "@/lib/attempt-limit";
 
 const Body = z.object({
   username: z.string().trim().max(100).optional(),
   email: z.string().trim().max(320).optional(),
   password: z.string().min(1).max(200),
+  // Which email login: accountants (the default) or customer support
+  as: z.enum(["accountant", "support"]).optional(),
 });
 
 // A hash that matches nothing, so an unknown username takes as long to refuse
 // as a wrong password (no telling which usernames exist)
 const NO_MATCH_HASH = "AAAAAAAAAAAAAAAAAAAAAA==:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-// Failed sign-ins allowed per username (or accountant email) before it has to
+// Failed sign-ins allowed per username (or accountant or support email) before it has to
 // wait. Counted per name, never per IP. Each try reserves its place before the
 // password is checked, and is counted together with the others (its own
 // included), so a burst of tries at once can't slip past (takeAttempt). A
@@ -26,10 +28,7 @@ function tooMany(minutes: number) {
   return Response.json({ error: waitMessage(minutes) }, { status: 429 });
 }
 
-async function startSession(
-  who: { role: "admin"; adminUserId: string } | { role: "accountant"; accountantId: string },
-  request: Request
-) {
+async function startSession(who: SessionOwner, request: Request) {
   const token = await createAdminSession(who, request.headers.get("user-agent"));
   const jar = await cookies();
   // No max-age: the session ends when the browser closes (and after 12 hours at most)
@@ -40,8 +39,29 @@ async function startSession(
 export async function POST(request: Request) {
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ error: "Enter your username and password." }, { status: 400 });
-  const { username, email, password } = parsed.data;
+  const { username, email, password, as } = parsed.data;
   const admin = createAdminClient();
+
+  // ── Customer support login (email + password) ────────────────────────────
+  if (email && as === "support") {
+    const login = email.toLowerCase();
+    const { wait } = await takeAttempt("support-login", login, LOGIN_RULE);
+    if (wait > 0) return tooMany(wait);
+    const { data: member } = await admin
+      .from("support_access")
+      .select("id, password_hash")
+      .eq("email", login)
+      .not("password_hash", "is", null)
+      .maybeSingle();
+    const valid = await verifyPassword(password, member?.password_hash ?? NO_MATCH_HASH);
+    if (!member || !valid) {
+      return Response.json({ error: "Incorrect email or password." }, { status: 401 });
+    }
+    await clearAttempts("support-login", login);
+    await startSession({ role: "support", supportId: member.id }, request);
+    await admin.from("support_access").update({ last_login_at: new Date().toISOString() }).eq("id", member.id);
+    return Response.json({ ok: true, role: "support" });
+  }
 
   // ── Accountant login (email + password) ──────────────────────────────────
   if (email) {
