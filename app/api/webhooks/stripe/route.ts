@@ -902,7 +902,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           const pendingMeta = pending?.metadata as { cards?: AddedCard[]; prices?: unknown } | null;
           const pendingCards = pendingMeta?.cards;
           if (!pendingCards?.length) {
-            problems.push(`${pendingId ? `the card details saved when the customer signed (order event ${pendingId}) were not found` : "the card details were not saved when the customer signed"}, so the cards were added from the checkout's short details: no tier, per-card prices, number, variation, grade, cert number or known defects, and a very long name or set may be cut short`);
+            problems.push(`${pendingId ? `the card details saved when the customer signed (order event ${pendingId}) were not found` : "the card details were not saved when the customer signed"}, so the cards were added from the checkout's short details (the order's tier and the default price): no per-card prices, number, variation, grade, cert number or known defects, and a very long name or set may be cut short`);
           }
           const addTier = RESTORATION_TIERS[tierName as RestorationTierId] ?? RESTORATION_TIERS.regular;
           // What each card was charged: the admin's tier price the add-cards
@@ -960,6 +960,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
               if (c.s) row.card_set = c.s;
               if (c.y) row.card_year = c.y;
               if (c.v) row.estimated_value_cents = c.v;
+              row.tier = addTier.id;
               newCardRows.push(row);
             } catch { /* skip malformed card */ }
           }
@@ -1329,6 +1330,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
     let shippingLabelUrl: string | null = null;
     let inboundCustomsFormUrl: string | null = null;
     let inboundTrackingNumber: string | null = null;
+    let inboundTransactionId: string | null = null;
     let inboundTrackingUrl: string | null = null;
     const inboundEta: string | null = null; // no ETA source yet
     // Why the prepaid label could not be bought, for the admin (order timeline + email)
@@ -1385,6 +1387,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           if (transaction.status === "SUCCESS" && transaction.label_url) {
             shippingLabelUrl = transaction.label_url as string;
             inboundTrackingNumber = (transaction.tracking_number as string) ?? null;
+            inboundTransactionId = (transaction.object_id as string) ?? null;
             inboundTrackingUrl = (transaction.tracking_url_provider as string) ?? null;
             // For international shipments, extract customs form URL
             if (isInternational) {
@@ -1414,7 +1417,14 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
         const labelPatch: Record<string, unknown> = { shipping_label_url: shippingLabelUrl };
         if (inboundTrackingNumber) labelPatch.inbound_tracking_number = inboundTrackingNumber;
         if (inboundCustomsFormUrl) labelPatch.inbound_customs_form_url = inboundCustomsFormUrl;
-        const { error: labelSaveError } = await admin.from("orders").update(labelPatch).eq("id", orderId);
+        // Lets the permanent label link re-sign the label later (lib/label-link.ts)
+        if (inboundTransactionId) labelPatch.inbound_shippo_transaction_id = inboundTransactionId;
+        let { error: labelSaveError } = await admin.from("orders").update(labelPatch).eq("id", orderId);
+        if (labelSaveError && inboundTransactionId && (labelSaveError.code === "42703" || labelSaveError.code === "PGRST204" || labelSaveError.message.includes("inbound_shippo_transaction_id"))) {
+          // A database without the column still gets the label itself
+          delete labelPatch.inbound_shippo_transaction_id;
+          ({ error: labelSaveError } = await admin.from("orders").update(labelPatch).eq("id", orderId));
+        }
         if (labelSaveError) {
           console.error(`Prepaid label bought but not saved (order ${orderId}):`, labelSaveError.message, shippingLabelUrl);
           await alertAdmin(session, "LABEL_NOT_SAVED", `Order #${updated[0].order_number}: the prepaid label was bought but could not be saved on the order (${labelSaveError.message}). Label: ${shippingLabelUrl}${inboundTrackingNumber ? `, tracking ${inboundTrackingNumber}` : ""}${inboundCustomsFormUrl ? `, customs form ${inboundCustomsFormUrl}` : ""}. Add it to the order by hand; don't buy another. The customer's email still has the label.`);

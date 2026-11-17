@@ -107,13 +107,19 @@ export async function POST(
   const labelUrl = tx.label_url as string;
   const trackingNumber = (tx.tracking_number as string) ?? null;
 
-  await admin
-    .from("orders")
-    .update({
-      shipping_label_url: labelUrl,
-      ...(trackingNumber ? { inbound_tracking_number: trackingNumber } : {}),
-    })
-    .eq("id", id);
+  const labelPatch: Record<string, unknown> = {
+    shipping_label_url: labelUrl,
+    // Lets the permanent label link re-sign the label later (lib/label-link.ts)
+    ...(typeof tx.object_id === "string" ? { inbound_shippo_transaction_id: tx.object_id } : {}),
+    ...(trackingNumber ? { inbound_tracking_number: trackingNumber } : {}),
+  };
+  let { error: labelSaveError } = await admin.from("orders").update(labelPatch).eq("id", id);
+  if (labelSaveError && "inbound_shippo_transaction_id" in labelPatch && (labelSaveError.code === "42703" || labelSaveError.code === "PGRST204" || labelSaveError.message.includes("inbound_shippo_transaction_id"))) {
+    // A database without the column still gets the label itself
+    delete labelPatch.inbound_shippo_transaction_id;
+    ({ error: labelSaveError } = await admin.from("orders").update(labelPatch).eq("id", id));
+  }
+  if (labelSaveError) console.error("Regenerated label not saved on order", id, labelSaveError.message, labelUrl);
 
   await admin.from("order_events").insert({
     order_id: id,
@@ -129,6 +135,8 @@ export async function POST(
   if (order.customer_email) {
     try {
       await sendOrderConfirmationEmail({
+        // The permanent link serves the saved label; if saving failed, the email links the new label itself
+        ...(labelSaveError ? {} : { id: order.id as string }),
         order_number: order.order_number as string,
         customer_name: (order.customer_name as string | null) ?? null,
         customer_email: order.customer_email as string,

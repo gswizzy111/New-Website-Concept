@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  env: {
+    // Netlify builds serve resized photo thumbnails (lib/thumbnail.ts)
+    IMAGE_CDN: process.env.NETLIFY === "true" ? "netlify" : "",
+  },
   experimental: {
     // Animates route changes through React's <ViewTransition> (app/(public)/template.tsx).
     viewTransition: true,
