@@ -128,6 +128,10 @@ export function StepReview({
 
   // Only the latest quote counts (a prefilled amount and a quick edit can overlap)
   const quoteSeq = useRef(0);
+  // The coverage as it is when a quote comes back (the customer may have
+  // declined or picked another coverage while it was on its way)
+  const latestInsurance = useRef(insurance);
+  useEffect(() => { latestInsurance.current = insurance; });
   async function fetchInsuranceQuote(declaredValueCents: number) {
     const seq = ++quoteSeq.current;
     if (declaredValueCents < 100) { setInsuranceQuote(null); setQuotingInsurance(false); return; }
@@ -138,13 +142,16 @@ export function StepReview({
       if (seq !== quoteSeq.current) return;
       if (res.ok) {
         setInsuranceQuote({ customerChargeCents: data.customerChargeCents, roundTripChargeCents: data.roundTripChargeCents });
-        if (insurance.type !== "none" && insuranceOptions.includes(insurance.type)) {
-          const charge = insurance.type === "round_trip" ? data.roundTripChargeCents : data.customerChargeCents;
-          onInsuranceChange({ ...insurance, declaredValueCents, chargeCents: charge });
+        const current = latestInsurance.current;
+        if (current.type !== "none" && insuranceOptions.includes(current.type)) {
+          const charge = current.type === "round_trip" ? data.roundTripChargeCents : data.customerChargeCents;
+          onInsuranceChange({ ...current, declaredValueCents, chargeCents: charge });
         } else {
           onInsuranceChange({ declaredValueCents, type: "none", chargeCents: 0 });
         }
       }
+    } catch {
+      // No quote (offline, or the rate service failed): the coverage choices stay hidden
     } finally {
       if (seq === quoteSeq.current) setQuotingInsurance(false);
     }
