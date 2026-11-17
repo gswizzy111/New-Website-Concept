@@ -1,16 +1,10 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import type { StaticImageData } from "next/image";
 import { ArrowRight, Clock, MessageCircle, Package, ShieldAlert, type LucideIcon } from "lucide-react";
 import { canonical, withOg } from "@/lib/seo";
 import { PageHero } from "@/components/marketing/page-hero";
 import { CtaPanel, Print, cta } from "@/components/brand";
-import { SeamlessPrint } from "../seamless-print";
-import { StickyStepPhoto } from "./sticky-step-photo";
-import mantlePair from "@/public/home/mantle-pair.jpg";
-import garchomp from "@/public/home/garchomp.jpg";
 import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
-import charmanderPair from "@/public/home/charmander-pair.jpg";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
 
 export const metadata: Metadata = withOg("/how-it-works", {
@@ -142,24 +136,6 @@ const POLICIES: { icon: LucideIcon; title: string; body: string }[] = [
 ];
 
 
-// A real card beside some steps (decorative; the photos never stand in for a
-// step they don't show). Each photo is used once. `steps` is the run of steps
-// the sticky desktop column shows it for; the phone shows it inline at the
-// first of those steps.
-type StepPhoto = { src: StaticImageData; alt: string; aspect: string; cutout?: boolean; steps: string[] };
-const STEP_PHOTOS: StepPhoto[] = [
-  { src: charmanderPair, alt: "A Charmander card before and after restoration, side by side", aspect: "576/513", steps: ["1", "2", "3"] },
-  { src: garchomp, alt: "A Garchomp holo card corner, before and after", aspect: "538/520", cutout: true, steps: ["4"] },
-  { src: mantlePair, alt: "A Mickey Mantle card cracked in a black glove, and the same card restored in a blue glove", aspect: "1446/902", cutout: true, steps: ["5", "6"] },
-];
-
-function StepPhotoPrint({ photo, tilt, aspect, sizes }: { photo: StepPhoto; tilt: number; aspect?: string; sizes: string }) {
-  return photo.cutout ? (
-    <SeamlessPrint src={photo.src} alt={photo.alt} aspect={aspect ?? photo.aspect} inset={aspect ? "4%" : "0"} tilt={tilt} dark sizes={sizes} />
-  ) : (
-    <Print src={photo.src} alt={photo.alt} aspect={aspect ?? photo.aspect} tilt={tilt} surface="dark" border="lg" sizes={sizes} />
-  );
-}
 
 export default function HowItWorksPage() {
   return (
@@ -216,10 +192,9 @@ export default function HowItWorksPage() {
             The <span className="whitespace-nowrap">Step-by-Step</span> Process
           </h2>
 
-          <div className="mt-12 grid gap-x-14 md:mt-16 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="mt-12 md:mt-16">
             <ol id="steps-list" className="border-t border-line-dark">
               {STEPS.map((step, i) => {
-                const photo = STEP_PHOTOS.find((p) => p.steps[0] === step.n);
                 return (
                   <li
                     key={step.n}
@@ -240,27 +215,10 @@ export default function HowItWorksPage() {
                         {typeof step.body === "string" ? <p>{step.body}</p> : step.body}
                       </div>
                     </div>
-                    {photo && (
-                      <div className="md:col-start-2 lg:hidden">
-                        <StepPhotoPrint photo={photo} tilt={0} aspect="4/3" sizes="(min-width: 768px) 80vw, 92vw" />
-                      </div>
-                    )}
                   </li>
                 );
               })}
             </ol>
-
-            <aside aria-label="Cards from our bench" className="hidden lg:block">
-              <div className="sticky top-28 pt-14">
-                <StickyStepPhoto
-                  listId="steps-list"
-                  layers={STEP_PHOTOS.map((photo, i) => ({
-                    steps: photo.steps,
-                    node: <StepPhotoPrint photo={photo} tilt={i % 2 ? 3 : -3} sizes="380px" />,
-                  }))}
-                />
-              </div>
-            </aside>
           </div>
 
           <div className="mt-12 flex flex-col gap-4 sm:flex-row sm:flex-wrap md:mt-14">
