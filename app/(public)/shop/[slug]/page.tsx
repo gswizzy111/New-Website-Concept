@@ -161,7 +161,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                   {shelfName(product.category)}
                 </p>
               )}
-              <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[4.25rem]">{product.name}</h1>
+              <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[2.75rem] lg:text-[4.25rem]">{product.name}</h1>
 
               {rating && (
                 <p className="mt-4 flex items-center gap-2 text-sm text-ink-soft">
