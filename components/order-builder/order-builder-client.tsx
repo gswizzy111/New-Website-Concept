@@ -346,7 +346,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       } else {
         const msg = typeof data.error === "string" ? data.error : "Something went wrong. Please try again.";
         const code = typeof data.code === "string" ? data.code : "CHECKOUT_ERROR";
-        track("rejected", { code: /^[A-Za-z0-9_-]{1,64}$/.test(code) ? code : `HTTP_${res.status}` });
+        track("rejected", { code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}` });
         // Use server-generated ref if available; fall back to client-generated
         const ref = typeof data.ref === "string" ? data.ref : `${code}-${Date.now().toString(36).toUpperCase()}`;
         setCheckoutError({ message: msg, ref });

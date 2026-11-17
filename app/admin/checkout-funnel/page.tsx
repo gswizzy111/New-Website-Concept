@@ -36,7 +36,6 @@ const CODE_LABELS: Record<string, string> = {
   missing_fields: "Something required missing or wrong",
   slab_unsigned: "Slab authorization not signed",
   NETWORK_ERROR: "Couldn't reach the server",
-  CHECKOUT_ERROR: "Error with no code",
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -319,6 +318,7 @@ export default async function CheckoutFunnelPage({ searchParams }: { searchParam
                 <Link
                   key={r.key}
                   href={`/admin/checkout-funnel?range=${r.key}`}
+                  aria-current={range === r.key ? "page" : undefined}
                   className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap transition-colors ${
                     range === r.key ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
                   }`}
