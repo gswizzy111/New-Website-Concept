@@ -134,6 +134,8 @@ const MAX_RESUME_CARDS = 50;
 const MAX_FIELD_CHARS = 300;
 /** The last link applied in this tab, so a reload never puts older cards back. */
 const RESUME_SEEN_KEY = "carddoc:order-builder:resume-seen";
+/** Where lib/tracking-guard.ts parks a #resume= value it took out of the address (same key there). */
+export const RESUME_PENDING_KEY = "carddoc:order-builder:resume-pending";
 
 function toBase64Url(text: string): string {
   let bin = "";
@@ -252,12 +254,20 @@ function takeResumeLink(): SavedOrder | null {
   let value: string;
   try {
     const match = /^#(?:[^&]*&)*resume=([^&]*)/.exec(window.location.hash);
-    if (!match) return null;
-    value = match[1];
+    if (match) {
+      value = match[1];
+      stripResumeFromAddress();
+    } else {
+      // The first script on the page (lib/tracking-guard.ts) usually moves the
+      // link's cards here before analytics load, so they never reach them
+      const pending = window.sessionStorage.getItem(RESUME_PENDING_KEY);
+      if (!pending) return null;
+      window.sessionStorage.removeItem(RESUME_PENDING_KEY);
+      value = pending;
+    }
   } catch {
     return null;
   }
-  stripResumeFromAddress();
   try {
     // Already applied in this tab: what's kept here is newer
     if (window.sessionStorage.getItem(RESUME_SEEN_KEY) === value) return null;

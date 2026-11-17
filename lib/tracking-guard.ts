@@ -100,6 +100,21 @@ export function trackingGuardScript(): string {
     }
   }
 
+  // A #resume= link (components/order-builder/saved-order.ts) carries the
+  // cards someone typed from an in-app browser to Safari or Chrome. It holds
+  // no personal data, but it stays out of analytics too: parked for this tab
+  // and taken out of the address before either tracker loads.
+  if (/(^#|&)resume=/.test(here.hash)) {
+    try {
+      var rest = here.hash.slice(1).split('&').filter(function (part) {
+        if (part.indexOf('resume=') === 0) { w.sessionStorage.setItem('carddoc:order-builder:resume-pending', part.slice(7)); return false; }
+        return part !== '';
+      }).join('&');
+      h.replaceState(h.state, '', here.pathname + here.search + (rest ? '#' + rest : ''));
+      here = new URL(l.href);
+    } catch (e) {}
+  }
+
   function stop() {
     w.__noTrack = true;
     w['ga-disable-${GA_ID}'] = true;
