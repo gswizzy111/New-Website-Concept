@@ -285,7 +285,8 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               )}
 
               {/* Photos — required */}
-              <Need missing={missing.has("photos")} note="Upload at least one photo." className="flex flex-col gap-1.5">
+              {/* The red note waits until Continue is pressed (showMissing) */}
+              <Need missing={missing.has("photos")} note="Upload at least one photo to continue." className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label>
                     Photos<Req />
@@ -298,9 +299,6 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   photoUrls={card.photo_urls}
                   onChange={(urls) => updateCard(card.id, { photo_urls: urls })}
                 />
-                {card.photo_urls.length === 0 && !missing.has("photos") && (
-                  <p className="text-xs text-destructive font-medium">Upload at least one photo to continue.</p>
-                )}
               </Need>
 
               {/* Slab cracking */}
