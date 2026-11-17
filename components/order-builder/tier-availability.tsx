@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { getTierById, type RestorationTier, type RestorationTierId } from "@/lib/restoration-tiers";
 
@@ -32,12 +32,18 @@ function parseAvailability(data: unknown): TierAvailability | null {
   return { restorationsOpen: d.restorations_open, tiers };
 }
 
+const NOTICE_ID = "tier-availability-notice";
+
 /**
  * The tiers' availability: read on load, and again whenever the customer
- * reaches (or leaves) the review step. null while unknown.
+ * reaches (or leaves) the review step. `availability` is null while unknown.
+ * `recheck()` is for a Sign press the notice stopped: it reads the tiers again
+ * (a slot held by a checkout someone left frees up within 30 minutes) and
+ * takes the focus to the notice, so a screen reader says why nothing happened.
  */
-export function useTierAvailability(atReview: boolean): TierAvailability | null {
+export function useTierAvailability(atReview: boolean): { availability: TierAvailability | null; recheck: () => void } {
   const [availability, setAvailability] = useState<TierAvailability | null>(null);
+  const [checks, setChecks] = useState(0);
   useEffect(() => {
     const ctrl = new AbortController();
     fetch("/api/tiers/availability", { cache: "no-store", signal: ctrl.signal })
@@ -46,8 +52,15 @@ export function useTierAvailability(atReview: boolean): TierAvailability | null 
       // Unknown: block nothing
       .catch(() => { if (!ctrl.signal.aborted) setAvailability(null); });
     return () => ctrl.abort();
-  }, [atReview]);
-  return availability;
+  }, [atReview, checks]);
+  const recheck = useCallback(() => {
+    setChecks((n) => n + 1);
+    // After revealMissing() has scrolled it into view
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      document.getElementById(NOTICE_ID)?.focus({ preventScroll: true });
+    }));
+  }, []);
+  return { availability, recheck };
 }
 
 export type TierProblem =
@@ -95,7 +108,7 @@ export function TierAvailabilityNotice({ problems, onChooseTier }: { problems: T
   const canSwitch = problems.some((p) => p.kind !== "shop_closed");
   return (
     // data-missing: a Sign press scrolls here when this is all that's left (revealMissing)
-    <div data-missing className="mt-8 rounded-[22px] bg-white p-5 text-ink shadow-[inset_6px_0_0_var(--danger),0_0_0_1px_var(--line),var(--panel-shadow)] sm:p-6">
+    <div id={NOTICE_ID} tabIndex={-1} data-missing className="mt-8 rounded-[22px] bg-white p-5 text-ink shadow-[inset_6px_0_0_var(--danger),0_0_0_1px_var(--line),var(--panel-shadow)] outline-offset-4 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-cobalt sm:p-6">
       <div className="flex gap-3">
         <AlertTriangle aria-hidden className="mt-0.5 size-6 shrink-0 text-destructive" strokeWidth={1.75} />
         <div className="min-w-0 flex-1">

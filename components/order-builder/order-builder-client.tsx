@@ -250,7 +250,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   const tierAvailability = useTierAvailability(step === 4);
   const tierProblems = tierAvailabilityProblems(
     cards.map((c) => ({ tier: c.tier ?? selectedTier, name: c.card_name })),
-    tierAvailability,
+    tierAvailability.availability,
     tiers,
   );
   function trySign() {
@@ -262,6 +262,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     }
     setShowMissing(true);
     revealMissing();
+    // Only the tier notice stopped it: check the tiers again and focus the notice
+    if (readyToSign) tierAvailability.recheck();
   }
 
   async function handleSubmit() {
