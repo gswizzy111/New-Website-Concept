@@ -149,7 +149,17 @@ function TextPicks({ picks = COMPACT_PICKS, className = "" }: { picks?: string[]
   return (
     <ul
       aria-label="Customer messages"
-      className={cn("grid gap-4 md:gap-6", list.length === 1 ? "max-w-2xl" : "md:grid-cols-3", className)}
+      // One message sits centred; three go two across on tablets (the third
+      // full width under them) and three across from lg.
+      className={cn(
+        "grid gap-4 md:gap-6",
+        list.length === 1
+          ? "mx-auto max-w-2xl"
+          : list.length === 2
+            ? "md:grid-cols-2"
+            : "md:grid-cols-2 lg:grid-cols-3 md:[&>li:nth-child(3)]:col-span-2 lg:[&>li:nth-child(3)]:col-span-1",
+        className
+      )}
     >
       {list.map((r) => (
         <li key={r.quote}>

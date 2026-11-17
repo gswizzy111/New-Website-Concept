@@ -38,12 +38,17 @@ export function Footer(_props: { sprite?: React.ReactNode } = {}) {
               rel="noopener noreferrer"
               className="group self-start rounded-md font-heading text-[34px] leading-[0.95] font-black text-white transition-colors duration-200 hover:text-sun md:text-[44px] lg:whitespace-nowrap"
             >
-              <span className="draw-underline pb-1">DM us on @the_card_doc</span>
-              <ArrowUpRight
-                aria-hidden
-                className="ml-2 inline-block h-7 w-7 align-[-0.05em] text-sun transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] group-hover:translate-x-1 group-hover:-translate-y-1 md:h-9 md:w-9"
-                strokeWidth={1.75}
-              />
+              {/* The arrow stays on the handle's line: the handle and arrow
+                  don't wrap apart, and the whole link draws one underline. */}
+              <span className="draw-underline pb-1 group-hover:[background-size:100%_2px]">DM us on </span>
+              <span className="whitespace-nowrap">
+                <span className="draw-underline pb-1 group-hover:[background-size:100%_2px]">@the_card_doc</span>
+                <ArrowUpRight
+                  aria-hidden
+                  className="ml-2 inline-block h-7 w-7 align-[-0.05em] text-sun transition-transform duration-300 ease-[cubic-bezier(.16,1,.3,1)] group-hover:translate-x-1 group-hover:-translate-y-1 md:h-9 md:w-9"
+                  strokeWidth={1.75}
+                />
+              </span>
             </a>
             <a
               href="mailto:thecarddoc1@gmail.com"

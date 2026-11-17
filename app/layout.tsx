@@ -6,7 +6,7 @@ import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
 import { trackingGuardScript } from "@/lib/tracking-guard";
 import { siteUrl } from "@/lib/site-url";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ORGANIZATION } from "@/lib/seo";
+import { OG_IMAGE, ORGANIZATION } from "@/lib/seo";
 
 // Display: headlines, step numerals, stickers and short uppercase labels.
 // Big Shoulders is the merged Google family; its optical-size axis gives the
@@ -45,18 +45,16 @@ export const metadata: Metadata = {
   title: "The Card Doc — Card Cleaning Kits & Restoration",
   description:
     "Professional card cleaning kits and PSA prep restoration service for trading card collectors.",
-  icons: {
-    icon: "/icon.png",
-    apple: "/apple-icon.png",
-  },
+  // Tab and home-screen icons are the small files app/icon.png (64px),
+  // app/apple-icon.png (180px) and app/favicon.ico, linked by Next itself.
   openGraph: {
     title: "The Card Doc — Card Cleaning Kits & Restoration",
     description: "Professional card cleaning kits and PSA prep restoration service for trading card collectors.",
-    images: [{ url: "/og-image.png", width: 1080, height: 1080 }],
+    images: [OG_IMAGE],
   },
   twitter: {
     card: "summary",
-    images: ["/og-image.png"],
+    images: [OG_IMAGE.url],
   },
 };
 

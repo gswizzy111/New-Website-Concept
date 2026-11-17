@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
+import { thumbnail } from "@/lib/thumbnail";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Package, Plus } from "lucide-react";
 import { cta } from "@/components/brand";
@@ -109,7 +110,7 @@ function UpsellInner() {
                   <div className="size-24 shrink-0 overflow-hidden rounded-[14px] bg-chalk">
                     {product.images?.[0] ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={product.images[0]} alt={product.name} className="h-full w-full object-cover" />
+                      <img src={thumbnail(product.images[0], 96)} alt={product.name} decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <div aria-hidden className="grid h-full w-full place-items-center text-ink/25">
                         <Package className="size-8" strokeWidth={1.25} />

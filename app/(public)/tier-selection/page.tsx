@@ -4,7 +4,7 @@ import { ArrowRight, Check, Clock, Plus, Zap } from "lucide-react";
 import { TrustPills } from "@/components/marketing/trust-pills";
 import { ReviewsBand } from "@/components/marketing/comic-reviews";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
+import { ORG_ID, SITE, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restoration-tiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
@@ -24,11 +24,11 @@ import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/tier-selection", {
   title: "Restoration Pricing | The Card Doc",
   description: "Surfaces, corners & edges — cleaned and restored to their best. From $75 / card.",
   alternates: canonical("/tier-selection"),
-};
+});
 
 // A tier fact on phones: label over value, two facts to a row. From md, the
 // shared FACT_ROW behaviour (side by side when the card is wide enough).

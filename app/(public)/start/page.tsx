@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ArrowRight, Camera } from "lucide-react";
 import { TrustPills } from "@/components/marketing/trust-pills";
 import { JsonLd } from "@/components/seo/json-ld";
-import { INSTAGRAM_URL, breadcrumbs, canonical } from "@/lib/seo";
+import { INSTAGRAM_URL, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { SERVICE_CARDS } from "@/lib/service-cards";
 import { Print, cta } from "@/components/brand";
 import { cn } from "@/lib/utils";
@@ -13,11 +13,11 @@ import garchomp from "@/public/home/garchomp.jpg";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/start", {
   title: "What Are You Sending? | The Card Doc",
   description: "Expert card restoration & PSA prep — every card treated like it's worth a fortune.",
   alternates: canonical("/start"),
-};
+});
 
 const STEPS = [
   "Choose Your Service, Tier, and Add-Ons",

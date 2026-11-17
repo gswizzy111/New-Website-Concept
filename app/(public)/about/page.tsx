@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { canonical } from "@/lib/seo";
+import { OG_IMAGE as SHARE_IMAGE, canonical } from "@/lib/seo";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -36,7 +36,7 @@ export const revalidate = 3600;
 // data point at the domain the page is served from.
 const SITE = siteUrl();
 // The root layout has no metadataBase, so the share image needs a full URL.
-const OG_IMAGE = { url: `${SITE}/og-image.png`, width: 1254, height: 1254 };
+const OG_IMAGE = { ...SHARE_IMAGE, url: `${SITE}${SHARE_IMAGE.url}` };
 const INSTAGRAM = "https://www.instagram.com/the_card_doc";
 const DESCRIPTION =
   "Built by collectors, trusted with collections. Meet Owen and Gavin, the collectors behind The Card Doc, with 30+ years of combined collecting experience.";

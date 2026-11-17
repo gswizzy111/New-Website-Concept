@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { canonical } from "@/lib/seo";
+import { canonical, withOg } from "@/lib/seo";
 import { TrackForm } from "./track-form";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/track", {
   title: "Track Order | The Card Doc",
   description: "Enter your order number and email to view status.",
   alternates: canonical("/track"),
-};
+});
 
 export default async function TrackPage({
   searchParams,

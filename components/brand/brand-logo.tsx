@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils";
 export type BrandLogoProps = {
   /** Frame size in px (nav 44-48, footer 56). */
   size?: number;
+  /** Frame size from md up, when it differs (one image, resized by CSS). */
+  mdSize?: number;
   /** "light" frames in ink (white/chalk surfaces); "dark" frames in white (ink surfaces). */
   surface?: "light" | "dark";
   /** Show "The Card Doc" beside the mark. */
@@ -22,6 +24,7 @@ export type BrandLogoProps = {
  */
 export function BrandLogo({
   size = 46,
+  mdSize,
   surface = "light",
   wordmark = true,
   wordmarkClassName,
@@ -29,14 +32,17 @@ export function BrandLogo({
   priority,
   className,
 }: BrandLogoProps) {
+  const largest = Math.max(size, mdSize ?? size);
   return (
     <span className={cn("inline-flex items-center gap-3", className)}>
       <span
-        className="relative block shrink-0 overflow-hidden bg-white"
+        className={cn(
+          "relative block size-[var(--logo)] shrink-0 overflow-hidden rounded-[calc(var(--logo)/4)] bg-white",
+          mdSize && "md:size-[var(--logo-md)] md:rounded-[calc(var(--logo-md)/4)]"
+        )}
         style={{
-          width: size,
-          height: size,
-          borderRadius: Math.round(size / 4),
+          ["--logo" as string]: `${size}px`,
+          ...(mdSize ? { ["--logo-md" as string]: `${mdSize}px` } : {}),
           boxShadow:
             surface === "dark"
               ? "0 0 0 2px var(--ink), 0 0 0 4px var(--white)"
@@ -47,7 +53,9 @@ export function BrandLogo({
           src="/card-doctor.jpg"
           alt={alt}
           fill
-          sizes={`${size * 2}px`}
+          // The photo is 1.4x wider than tall, cropped square, then scaled
+          // 1.9x to the face: ask for a file that wide, so it stays sharp.
+          sizes={`${Math.round(largest * 1.4 * 1.9)}px`}
           priority={priority}
           className="object-cover"
           style={{ objectPosition: "52% 0%", transform: "scale(1.9)", transformOrigin: "52% 12%" }}

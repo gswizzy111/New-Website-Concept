@@ -7,7 +7,7 @@ import { PageHero } from "@/components/marketing/page-hero";
 import { ReviewsBand } from "@/components/marketing/comic-reviews";
 import { TrustPills } from "@/components/marketing/trust-pills";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
+import { ORG_ID, SITE, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { BulkSwitch } from "@/app/(public)/tier-selection/bulk-switch";
 import { BULK_PLANS, bulkPriceCents } from "@/lib/bulk-pricing";
 import { Print, cta } from "@/components/brand";
@@ -16,11 +16,11 @@ import bulbasaurDelta from "@/public/home/prep-bulbasaur-delta.jpg";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/prep", {
   title: "PSA Prep Pricing | The Card Doc",
   description: "Professional card submission prep. $25/card for cards under $1,500. 2% of declared value for high-value cards.",
   alternates: canonical("/prep"),
-};
+});
 
 async function getPrepPrices() {
   try {
