@@ -14,12 +14,15 @@ import { cn } from "@/lib/utils";
  * which block photo uploads and payments. Everyone else sees nothing.
  *
  * Ways out:
+ * - Instagram on iPhone/iPad: "Open in Safari", Instagram's own
+ *   instagram://extbrowser/?url= link. Instagram asks once, then opens the
+ *   page in the phone's browser. It is undocumented, so if the page is still
+ *   here a few seconds after the tap, a line points to the ··· menu.
+ *   (x-safari-https:// is blocked inside Instagram.)
  * - Android: "Open in Chrome", an intent:// link for this page
  *   (developer.chrome.com/docs/android/intents).
  * - Everywhere: "Copy link", to paste into Safari or Chrome.
- * - The app's own ··· menu, always written out. iOS gets no "Open in Safari"
- *   button: the x-safari-https:// trick is undocumented and Instagram and
- *   TikTok are reported to block it.
+ * - The app's own ··· menu, always written out.
  * On the restoration builder (carryProgress) both links carry the cards
  * entered so far (#resume=, components/order-builder/saved-order.ts).
  */
@@ -27,6 +30,12 @@ import { cn } from "@/lib/utils";
 // The user agent never changes while the page is open
 const noSubscription = () => () => {};
 const isAndroid = () => /Android/i.test(navigator.userAgent);
+const isInstagramIOS = () => /Instagram/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+/** Instagram's own "open outside Instagram" link for `href` (asks the customer once). */
+function instagramExternalUrl(href: string): string {
+  return `instagram://extbrowser/?url=${encodeURIComponent(href)}`;
+}
 
 /** This page's address; with carryProgress, the cards entered so far ride along in its hash. */
 function pageHref(carryProgress: boolean): string {
@@ -60,13 +69,18 @@ async function copyText(text: string): Promise<boolean> {
   try {
     area.value = text;
     area.setAttribute("aria-hidden", "true");
-    // Read-only, so phones don't open the keyboard while it is selected
-    area.setAttribute("readonly", "");
     // 16px, so iOS doesn't zoom in while it is selected
     area.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;";
+    // iOS only selects text in an editable field (a read-only one copies
+    // nothing), so it stays editable; inputMode none keeps the keyboard down
+    area.setAttribute("inputmode", "none");
     document.body.appendChild(area);
     area.focus({ preventScroll: true });
-    area.select();
+    const range = document.createRange();
+    range.selectNodeContents(area);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
     area.setSelectionRange(0, text.length);
     return document.execCommand("copy");
   } catch {
@@ -91,6 +105,10 @@ export function InAppBrowserNotice({
   // Read in the browser only (the server render shows nothing)
   const show = useSyncExternalStore(noSubscription, isInAppBrowser, () => false);
   const android = useSyncExternalStore(noSubscription, isAndroid, () => false);
+  const instagramIOS = useSyncExternalStore(noSubscription, isInstagramIOS, () => false);
+  // "Open in Safari" was tapped but the page is still here: point to the ··· menu
+  const [stillHere, setStillHere] = useState(false);
+  const stillHereTimer = useRef<number | undefined>(undefined);
   const [copied, setCopied] = useState<"no" | "yes" | "failed">("no");
   const [manualHref, setManualHref] = useState("");
   const tracked = useRef(false);
@@ -111,9 +129,22 @@ export function InAppBrowserNotice({
     trackCheckout(flow, "in_app_notice");
   }, [show, flow]);
 
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => () => {
+    window.clearTimeout(timer.current);
+    window.clearTimeout(stillHereTimer.current);
+  }, []);
 
   if (!show) return null;
+
+  /** Points the tapped link at this page with the latest cards, then watches whether the page is left. */
+  function openOutside(e: React.MouseEvent<HTMLAnchorElement>) {
+    e.currentTarget.href = instagramExternalUrl(pageHref(carryProgress));
+    window.clearTimeout(stillHereTimer.current);
+    setStillHere(false);
+    stillHereTimer.current = window.setTimeout(() => {
+      if (document.visibilityState === "visible") setStillHere(true);
+    }, 2500);
+  }
 
   async function copyLink() {
     const href = pageHref(carryProgress);
@@ -139,6 +170,19 @@ export function InAppBrowserNotice({
       </p>
 
       <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
+        {instagramIOS && (
+          <a
+            href={instagramExternalUrl(window.location.href)}
+            onClick={openOutside}
+            // A long-press or keyboard focus gets the link with the latest cards too
+            onPointerDown={(e) => { e.currentTarget.href = instagramExternalUrl(pageHref(carryProgress)); }}
+            onFocus={(e) => { e.currentTarget.href = instagramExternalUrl(pageHref(carryProgress)); }}
+            className={cta({ tone: "ink", size: "lg", className: "w-full sm:w-auto" })}
+          >
+            <ExternalLink aria-hidden className="size-5" strokeWidth={1.75} />
+            Open in Safari
+          </a>
+        )}
         {android && (
           <a
             // Rebuilt on tap, so it carries the cards entered by then
@@ -153,7 +197,7 @@ export function InAppBrowserNotice({
             Open in Chrome
           </a>
         )}
-        <button type="button" onClick={copyLink} className={cta({ tone: android ? "outline" : "ink", className: "w-full sm:w-auto" })}>
+        <button type="button" onClick={copyLink} className={cta({ tone: android || instagramIOS ? "outline" : "ink", className: "w-full sm:w-auto" })}>
           {copied === "yes" ? (
             <Check aria-hidden className="size-[18px]" strokeWidth={1.75} />
           ) : (
@@ -162,6 +206,11 @@ export function InAppBrowserNotice({
           {copied === "yes" ? "Link copied" : "Copy link"}
         </button>
       </div>
+      {stillHere && (
+        <p className="mt-2.5 text-[13px] font-semibold leading-relaxed text-ink">
+          If nothing happened, tap ··· (top right) → Open in browser.
+        </p>
+      )}
       {carryProgress && <p className="mt-2.5 text-[13px] leading-relaxed text-ink-soft">The link keeps the cards you&apos;ve entered.</p>}
 
       {copied === "failed" && (

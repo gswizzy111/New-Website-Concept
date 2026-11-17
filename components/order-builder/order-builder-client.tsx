@@ -24,7 +24,8 @@ import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection
 import { diamondMinCents, type RestorationTier, type RestorationTierId } from "@/lib/restoration-tiers";
 import { fbq } from "@/lib/pixel";
 import { trackCheckout, type CheckoutEvent, type CheckoutEventData } from "@/lib/checkout-funnel";
-import { loadSavedOrder, saveOrder } from "./saved-order";
+import { loadSavedOrder, resumeLinkHash, saveOrder } from "./saved-order";
+import { isInAppBrowser } from "@/lib/in-app-browser";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
 import { contactOk } from "@/lib/checkout-validation";
 import { TierAvailabilityNotice, tierAvailabilityProblems, useTierAvailability } from "./tier-availability";
@@ -134,6 +135,26 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       addSignatureConfirmation,
     });
   }, [restored, selectedTier, step, cards, customer, shippingMethod, selectedRate, customerNotes, affiliateCode, discountPercent, giftCardCode, giftCardAmountCents, tipCents, insuranceElection, insurance, addSignatureConfirmation]);
+
+  // Inside Instagram / Facebook / TikTok the address itself carries the cards
+  // (#resume=, ./saved-order.ts), so the app's own "Open in browser" and copy
+  // link bring them along too. Cards only, never contact details. Analytics
+  // stop for that tab once the address holds it (lib/tracking-guard.ts).
+  useEffect(() => {
+    if (!restored || !isInAppBrowser()) return;
+    const t = window.setTimeout(() => {
+      try {
+        const url = new URL(window.location.href);
+        const want = resumeLinkHash() ?? "";
+        if (url.hash === want) return;
+        url.hash = want;
+        window.history.replaceState(window.history.state, "", url.href);
+      } catch {
+        // The address keeps what it had; Copy link still carries the cards
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [restored, selectedTier, cards]);
 
   // Checkout funnel (lib/checkout-funnel.ts): each step as it comes into view, once the saved order is restored
   const track = (event: CheckoutEvent, data: CheckoutEventData = {}) => trackCheckout("restoration", event, { step, tier: selectedTier, cards: cards.length, ...data });
@@ -253,14 +274,15 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   /** Back to the cards step, at the first card whose tier can't take the order, with focus on its tier choices. */
   function chooseAnotherTier() {
     const unavailable = new Set(tierProblems.flatMap((p) => (p.kind === "shop_closed" ? [] : [p.tierId])));
-    const target = cards.find((c) => {
+    // By position: card ids are made in the browser, so the server's differ
+    const target = cards.findIndex((c) => {
       const t = c.tier ?? selectedTier;
       return !!t && unavailable.has(t);
     });
     goToStep(1);
-    if (!target) return;
+    if (target < 0) return;
     window.setTimeout(() => {
-      const picker = document.querySelector<HTMLElement>(`[data-tier-picker="${CSS.escape(target.id)}"]`);
+      const picker = document.querySelector<HTMLElement>(`[data-tier-picker="${target}"]`);
       if (!picker) return;
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       picker.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
