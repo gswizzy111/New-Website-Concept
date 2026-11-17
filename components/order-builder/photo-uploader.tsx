@@ -353,12 +353,13 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS, flow
             <p className="font-heading text-[1.35rem] leading-tight font-extrabold text-ink">{heading}</p>
             {counter}
           </div>
-          <div className="grid gap-2.5 min-[480px]:grid-cols-2">
-            <button type="button" onClick={() => cameraRef.current?.click()} className={cta({ tone: "cobalt", className: "w-full" })}>
+          {/* Side by side only when both fit (the labels don't wrap), else stacked */}
+          <div className="flex flex-wrap gap-2.5">
+            <button type="button" onClick={() => cameraRef.current?.click()} className={cta({ tone: "cobalt", className: "w-full min-[480px]:w-auto min-[480px]:flex-1" })}>
               <Camera aria-hidden className="size-5" strokeWidth={1.75} />
               Take photo
             </button>
-            <button type="button" onClick={() => libraryRef.current?.click()} className={cta({ tone: "outline", className: "w-full" })}>
+            <button type="button" onClick={() => libraryRef.current?.click()} className={cta({ tone: "outline", className: "w-full min-[480px]:w-auto min-[480px]:flex-1" })}>
               <Images aria-hidden className="size-5" strokeWidth={1.75} />
               Choose from library
             </button>
