@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Trophy } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/utils";
@@ -125,12 +125,16 @@ export function StepReview({
       .catch(() => {});
   }, [customer.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Only the latest quote counts (a prefilled amount and a quick edit can overlap)
+  const quoteSeq = useRef(0);
   async function fetchInsuranceQuote(declaredValueCents: number) {
-    if (declaredValueCents < 100) { setInsuranceQuote(null); return; }
+    const seq = ++quoteSeq.current;
+    if (declaredValueCents < 100) { setInsuranceQuote(null); setQuotingInsurance(false); return; }
     setQuotingInsurance(true);
     try {
       const res = await fetch(`/api/insurance/quote?declared_value_cents=${declaredValueCents}`);
       const data = await res.json();
+      if (seq !== quoteSeq.current) return;
       if (res.ok) {
         setInsuranceQuote({ customerChargeCents: data.customerChargeCents, roundTripChargeCents: data.roundTripChargeCents });
         if (insurance.type !== "none" && insuranceOptions.includes(insurance.type)) {
@@ -141,21 +145,22 @@ export function StepReview({
         }
       }
     } finally {
-      setQuotingInsurance(false);
+      if (seq === quoteSeq.current) setQuotingInsurance(false);
     }
   }
 
   function handleDeclaredValueBlur() {
-    const raw = insuranceDollars.replace(/[^0-9.]/g, "");
+    applyInsuranceAmount(insuranceDollars);
+  }
+
+  /** Sets the amount to insure from what was typed (whole dollars, $1 to $10,000) and prices it. */
+  function applyInsuranceAmount(text: string) {
+    const raw = text.replace(/[^0-9.]/g, "");
     const dollars = parseFloat(raw);
-    if (!raw || isNaN(dollars) || dollars < 1) {
-      setInsuranceDollars("");
-      onInsuranceChange({ declaredValueCents: 0, type: "none", chargeCents: 0 });
-      setInsuranceQuote(null);
-      return;
-    }
     const clamped = Math.min(Math.floor(dollars), 10000);
-    if (clamped < 1) {
+    if (!raw || isNaN(dollars) || dollars < 1 || clamped < 1) {
+      quoteSeq.current++; // a quote still on its way no longer counts
+      setQuotingInsurance(false);
       setInsuranceDollars("");
       onInsuranceChange({ declaredValueCents: 0, type: "none", chargeCents: 0 });
       setInsuranceQuote(null);
@@ -164,6 +169,29 @@ export function StepReview({
     setInsuranceDollars(String(clamped));
     fetchInsuranceQuote(clamped * 100);
   }
+
+  // Buying insurance with no amount yet: start from the cards' declared
+  // values, as prep does. The customer can still change it.
+  const totalDeclaredValueCents = cards.reduce(
+    (sum, c) => sum + (c.estimated_value ? Math.round(parseFloat(c.estimated_value.replace(/[$,]/g, "")) * 100) || 0 : 0),
+    0
+  );
+  function prefillInsuranceAmount() {
+    if (insuranceDollars.trim() === "" && insurance.declaredValueCents <= 0 && totalDeclaredValueCents > 0) {
+      applyInsuranceAmount((totalDeclaredValueCents / 100).toFixed(0));
+    }
+  }
+  function chooseInsurance(e: Exclude<InsuranceElection, null>) {
+    onInsuranceElectionChange(e);
+    if (e === "purchased") prefillInsuranceAmount();
+  }
+  // Back on this step having chosen to buy: price the amount again so the
+  // coverage choices show, or prefill it if it's still empty
+  useEffect(() => {
+    if (!INSURANCE_ENABLED || insuranceElection !== "purchased") return;
+    if (insurance.declaredValueCents > 0) fetchInsuranceQuote(insurance.declaredValueCents);
+    else prefillInsuranceAmount();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleInsuranceTypeChange(type: InsuranceType) {
     if (type === "none") {
@@ -295,7 +323,7 @@ export function StepReview({
         <div className={FORM_PANEL}>
         <InsuranceElectionBox
           election={insuranceElection}
-          onElection={onInsuranceElectionChange}
+          onElection={chooseInsurance}
           showMissing={showMissing}
           purchaseMissing={!(insurance.declaredValueCents > 0 && insurance.type !== "none")}
         >
