@@ -64,7 +64,8 @@ export function ProcessSteps({
   steps: ProcessStep[];
   /** One photo index per step (into `photos`). */
   photos: { list: StepPhoto[]; forStep: number[] };
-  phonePhoto: StepPhoto;
+  /** Optional photo shown after step 3 on phones. */
+  phonePhoto?: StepPhoto;
 }) {
   const [active, setActive] = useState(0);
   const current = photos.forStep[active] ?? 0;
@@ -72,7 +73,7 @@ export function ProcessSteps({
     <div className="grid gap-x-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] xl:grid-cols-[minmax(0,1fr)_minmax(0,27rem)]">
       <ol className="border-b border-line-dark">
         {steps.map((step, i) => (
-          <StepWithPhoto key={step.title} show={i === 2} photo={phonePhoto}>
+          <StepWithPhoto key={step.title} show={i === 2 && !!phonePhoto} photo={phonePhoto}>
             <Step step={step} index={i} active={i === active} onActive={setActive} />
           </StepWithPhoto>
         ))}
@@ -104,8 +105,8 @@ export function ProcessSteps({
   );
 }
 
-function StepWithPhoto({ show, photo, children }: { show: boolean; photo: StepPhoto; children: React.ReactNode }) {
-  if (!show) return <>{children}</>;
+function StepWithPhoto({ show, photo, children }: { show: boolean; photo?: StepPhoto; children: React.ReactNode }) {
+  if (!show || !photo) return <>{children}</>;
   return (
     <>
       {children}
