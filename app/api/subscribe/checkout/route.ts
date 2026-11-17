@@ -5,6 +5,7 @@ import { getSubscriptionPriceCents } from "@/lib/store-config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordConsents, requestOrigin } from "@/lib/signatures";
 import { subscriptionDisclosures, subscriptionEnrollLabel } from "@/lib/subscription-terms";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -19,7 +20,12 @@ const schema = z.object({
   enroll: z.literal(true, { message: "Please check the box to enroll in the Monthly Kit Club." }),
 });
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(request: Request) {
+  return withRefusalTracking("kit_club", request, () => createKitClubCheckout(request));
+}
+
+async function createKitClubCheckout(request: Request) {
   let body: unknown;
   try {
     body = await request.json();

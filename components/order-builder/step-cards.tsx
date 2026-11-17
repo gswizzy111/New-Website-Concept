@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type Dispatch, type SetStateAction } from "react";
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,7 +33,9 @@ interface StepCardsProps {
   cards: CardEntry[];
   services: Service[];
   selectedServiceIds: string[];
-  onChange: (cards: CardEntry[]) => void;
+  /** The builder's setCards: updates are applied to the latest cards, so two
+   *  photo uploads finishing together can't overwrite each other. */
+  onChange: Dispatch<SetStateAction<CardEntry[]>>;
   defaultTier?: RestorationTierId;
   /** The tiers with the admin's names and prices (lib/live-tiers.ts) */
   tiers?: RestorationTier[];
@@ -81,7 +83,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
   const availableServices = services.filter((s) => selectedServiceIds.includes(s.id));
 
   function updateCard(id: string, patch: Partial<CardEntry>) {
-    onChange(cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    onChange((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
   function addCard() {
@@ -95,11 +97,11 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
       service_ids: [...selectedServiceIds],
       tier: defaultTier,
     };
-    onChange([...cards, newCard]);
+    onChange((prev) => [...prev, newCard]);
   }
 
   function removeCard(id: string) {
-    onChange(cards.filter((c) => c.id !== id));
+    onChange((prev) => prev.filter((c) => c.id !== id));
   }
 
   function toggleService(cardId: string, serviceId: string) {
@@ -216,7 +218,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               {/* Per-card tier selector */}
               <Need missing={missing.has("tier")} note={activeTier ? "Pick a tier that allows this card's value." : "Pick a service level."} className="flex flex-col gap-2">
                 <Label>Service Level<Req /></Label>
-                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                <div data-tier-picker={card.id} className="grid grid-cols-2 gap-2.5 sm:gap-3">
                   {tiers.map((t) => {
                     const selected = (card.tier ?? defaultTier) === t.id;
                     const available = tierAvailable(t, estimatedValueCents);
@@ -285,7 +287,8 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               )}
 
               {/* Photos — required */}
-              <Need missing={missing.has("photos")} note="Upload at least one photo." className="flex flex-col gap-1.5">
+              {/* The red note waits until Continue is pressed (showMissing) */}
+              <Need missing={missing.has("photos")} note="Upload at least one photo to continue." className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between">
                   <Label>
                     Photos<Req />
@@ -298,9 +301,6 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   photoUrls={card.photo_urls}
                   onChange={(urls) => updateCard(card.id, { photo_urls: urls })}
                 />
-                {card.photo_urls.length === 0 && !missing.has("photos") && (
-                  <p className="text-xs text-destructive font-medium">Upload at least one photo to continue.</p>
-                )}
               </Need>
 
               {/* Slab cracking */}

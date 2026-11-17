@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ArrowLeft, ArrowRight, Copy, Gem } from "lucide-react";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useEffect, useState, useRef, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ProgressIndicator } from "./progress-indicator";
@@ -14,6 +14,7 @@ import { YourInformation } from "./your-information";
 import { StepReview } from "./step-review";
 import { SigningSection, emptySigning, signingReady, slabSigned, submittedSigning, type SigningState, type SlabCard } from "@/components/checkout/signing-section";
 import { SlabAuthorizationDialog } from "@/components/checkout/slab-authorization-dialog";
+import { InAppBrowserNotice } from "@/components/checkout/in-app-browser-notice";
 import { MissingNote, Need, revealMissing } from "@/components/checkout/required";
 import { emptyIdentity, identityPayload } from "@/components/checkout/card-identity-fields";
 import type { InsuranceElection } from "@/components/checkout/insurance-election";
@@ -22,8 +23,11 @@ import { cardProblems } from "./step-cards";
 import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection } from "@/lib/types";
 import { diamondMinCents, type RestorationTier, type RestorationTierId } from "@/lib/restoration-tiers";
 import { fbq } from "@/lib/pixel";
+import { trackCheckout, type CheckoutEvent, type CheckoutEventData } from "@/lib/checkout-funnel";
 import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
+import { contactOk } from "@/lib/checkout-validation";
+import { TierAvailabilityNotice, tierAvailabilityProblems, useTierAvailability } from "./tier-availability";
 
 function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
   return {
@@ -40,29 +44,6 @@ function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
 
 function emptyCustomer(): CustomerInfo {
   return { name: "", email: "", phone: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
-}
-
-const noSubscription = () => () => {};
-
-function InAppBrowserBanner() {
-  // Read in the browser only (the server render shows nothing)
-  const show = useSyncExternalStore(
-    noSubscription,
-    () => /Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok/i.test(navigator.userAgent),
-    () => false,
-  );
-  if (!show) return null;
-  return (
-    <div className="mb-8 rounded-[18px] bg-white p-5 text-sm text-ink shadow-[inset_6px_0_0_var(--danger),0_0_0_1px_var(--line),var(--panel-shadow)]">
-      <p className="mb-2 flex items-center gap-2 font-heading text-[1.5rem] leading-tight font-extrabold text-destructive"><AlertTriangle className="h-5 w-5 shrink-0" strokeWidth={2.25} />You must open this in Safari or Chrome</p>
-      <p className="mb-3 leading-relaxed text-ink">
-        Instagram&apos;s built-in browser <strong>blocks photo uploads and payments</strong>. You won&apos;t be able to complete your order here.
-      </p>
-      <p className="font-bold text-ink">
-        Tap the <strong>···</strong> menu (top right) → <strong>&quot;Open in browser&quot;</strong>
-      </p>
-    </div>
-  );
 }
 
 // Steps: 1=Cards, 2=Customer, 3=Shipping, 4=Review
@@ -154,6 +135,13 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     });
   }, [restored, selectedTier, step, cards, customer, shippingMethod, selectedRate, customerNotes, affiliateCode, discountPercent, giftCardCode, giftCardAmountCents, tipCents, insuranceElection, insurance, addSignatureConfirmation]);
 
+  // Checkout funnel (lib/checkout-funnel.ts): each step as it comes into view, once the saved order is restored
+  const track = (event: CheckoutEvent, data: CheckoutEventData = {}) => trackCheckout("restoration", event, { step, tier: selectedTier, cards: cards.length, ...data });
+  useEffect(() => {
+    if (restored) track("step_view");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per step, not on every edit
+  }, [restored, step]);
+
   // Each Diamond card must itself be declared at the Diamond minimum or more
   // (the admin's setting, else $5,000); other tiers in the order are unaffected
   const diamondMin = diamondMinCents("elite", tiers.find((t) => t.id === "elite")) ?? 500_000;
@@ -193,6 +181,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     const unsigned = slabCards.find((c) => !slabSigned(signing, c));
     if (!unsigned) return false;
     setSlabDialogId(cards[unsigned.index]?.id ?? null);
+    track("blocked", { code: "slab_unsigned" });
     return true;
   }
   function changeInsuranceElection(e: Exclude<InsuranceElection, null>) {
@@ -209,10 +198,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       return cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
     }
     if (step === 2) {
-      const c = customer;
-      const isUS = !c.country || c.country === "US";
-      if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-      return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
+      // Filled in, and as /api/checkout will check it (email format, phone length)
+      return contactOk(customer);
     }
     if (step === 3) {
       // Both ways need a rate: the prepaid label's, or the trip back for self-ship
@@ -228,12 +215,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   // The cards and contact steps must still pass when a later step is reached
   // some other way (a restored order, or rules changed since it was saved).
   const cardsStepOk = cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
-  const contactStepOk = (() => {
-    const c = customer;
-    const isUS = !c.country || c.country === "US";
-    if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-    return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
-  })();
+  const contactStepOk = contactOk(customer);
   /** Sends the customer back to the first earlier step that no longer passes. */
   function backToFailingStep(): boolean {
     const target = step > 1 && !cardsStepOk ? 1 : step > 2 && !contactStepOk ? 2 : null;
@@ -248,21 +230,51 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     if (step === 1 && openUnsignedSlab()) return;
     if (canAdvance()) return goToStep(step + 1);
     setShowMissing(true);
+    track("blocked", { code: "missing_fields" });
     revealMissing();
+  }
+  // A tier on the order that closed or sold out since step 1: caught before
+  // signing (./tier-availability.tsx; the server still checks at checkout)
+  const tierAvailability = useTierAvailability(step === 4);
+  const tierProblems = tierAvailabilityProblems(
+    cards.map((c) => ({ tier: c.tier ?? selectedTier, name: c.card_name })),
+    tierAvailability.availability,
+    tiers,
+  );
+  /** Back to the cards step, at the first card whose tier can't take the order, with focus on its tier choices. */
+  function chooseAnotherTier() {
+    const unavailable = new Set(tierProblems.flatMap((p) => (p.kind === "shop_closed" ? [] : [p.tierId])));
+    const target = cards.find((c) => {
+      const t = c.tier ?? selectedTier;
+      return !!t && unavailable.has(t);
+    });
+    goToStep(1);
+    if (!target) return;
+    window.setTimeout(() => {
+      const picker = document.querySelector<HTMLElement>(`[data-tier-picker="${CSS.escape(target.id)}"]`);
+      if (!picker) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      picker.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+      picker.querySelector<HTMLElement>("button:not([disabled])")?.focus({ preventScroll: true });
+    }, 60);
   }
   function trySign() {
     if (backToFailingStep()) return;
     if (openUnsignedSlab()) return;
-    if (readyToSign) {
+    if (readyToSign && tierProblems.length === 0) {
       setShowMissing(false);
       return handleSubmit();
     }
     setShowMissing(true);
+    track("blocked", { code: readyToSign ? "tier_unavailable" : "missing_fields" });
     revealMissing();
+    // Only the tier notice stopped it: check the tiers again and focus the notice
+    if (readyToSign) tierAvailability.recheck();
   }
 
   async function handleSubmit() {
     fbq("track", "InitiateCheckout", { num_items: cards.length, currency: "USD" });
+    track("submit");
     setSubmitting(true);
     setCheckoutError(null);
     try {
@@ -329,10 +341,15 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
 
       const data = await res.json();
       if (data.url) {
+        track("redirect");
         window.location.href = data.url;
       } else {
         const msg = typeof data.error === "string" ? data.error : "Something went wrong. Please try again.";
         const code = typeof data.code === "string" ? data.code : "CHECKOUT_ERROR";
+        track("rejected", { code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}` });
+        // A tier that sold out or closed between the last check and Sign: read the
+        // tiers again so the notice with "Choose another tier" shows too
+        if (code === "TIER_SOLD_OUT" || code === "TIER_CLOSED" || code === "TIER_FULL") tierAvailability.recheck();
         // Use server-generated ref if available; fall back to client-generated
         const ref = typeof data.ref === "string" ? data.ref : `${code}-${Date.now().toString(36).toUpperCase()}`;
         setCheckoutError({ message: msg, ref });
@@ -342,6 +359,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     } catch (err) {
       console.error("Checkout fetch error:", err);
       const ref = `NETWORK_ERROR-${Date.now().toString(36).toUpperCase()}`;
+      track("rejected", { code: "NETWORK_ERROR" });
       setCheckoutError({
         message: "Could not reach our server. Please check your internet connection and try again.",
         ref,
@@ -355,7 +373,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     <div className="wrap py-8 md:py-12">
       {/* The steps start at h2; this gives the page its heading. */}
       <h1 className="sr-only">Restoration order</h1>
-      <InAppBrowserBanner />
+      <InAppBrowserNotice flow="restoration" carryProgress className="mb-8" />
       <SlabAuthorizationDialog
         card={slabDialogCard}
         state={signing}
@@ -501,7 +519,10 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
             </Need>
           )}
 
-          <div className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
+          {/* A tier on the order closed or sold out: pick another before signing */}
+          {step === 4 && <TierAvailabilityNotice problems={tierProblems} onChooseTier={chooseAnotherTier} />}
+
+          <div data-total-bar-avoid className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
             <Button
               variant="outline"
               size="lg"
@@ -542,6 +563,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
               giftCardAmountCents={giftCardAmountCents}
               tipCents={tipCents}
               tiers={tiers}
+              // Phones: the total pinned to the bottom of the screen (./mobile-total-bar.tsx)
+              phoneBar
             />
             {step === 4 && (
               <div className="mt-4">

@@ -111,6 +111,9 @@ interface Props {
   /** Countries Google suggests from (ISO codes, up to 15); US by default,
    *  any country when empty. */
   countries?: string[];
+  /** Marks the field as needing a fix (aria-invalid) and points to its note. */
+  invalid?: boolean;
+  describedBy?: string;
 }
 
 export function AddressAutocomplete({
@@ -121,6 +124,8 @@ export function AddressAutocomplete({
   placeholder = "123 Main St",
   className,
   countries = ["us"],
+  invalid,
+  describedBy,
 }: Props) {
   const listId = useId();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -224,6 +229,8 @@ export function AddressAutocomplete({
         placeholder={placeholder}
         className={className}
         autoComplete="address-line1"
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
       />
     );
   }
@@ -245,6 +252,8 @@ export function AddressAutocomplete({
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
       />
       {open && (
         <div className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-white shadow-lg">

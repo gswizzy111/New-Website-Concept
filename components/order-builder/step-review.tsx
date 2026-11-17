@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Trophy } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/utils";
@@ -10,6 +10,7 @@ import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { INSURANCE_ENABLED } from "@/lib/site-config";
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
+import { ItemError, MISSING_TILE } from "@/components/checkout/signing-section";
 import { Req } from "@/components/checkout/required";
 import type { InsuranceType } from "@/lib/types";
 import { CHOICE, CHOICE_FOCUS, CHOICE_ON, FORM_PANEL, BLOCK_TITLE, NOTE_OK, STEP_TITLE, TEXT_ACTION } from "@/components/checkout/form-styles";
@@ -125,37 +126,49 @@ export function StepReview({
       .catch(() => {});
   }, [customer.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Only the latest quote counts (a prefilled amount and a quick edit can overlap)
+  const quoteSeq = useRef(0);
+  // The coverage as it is when a quote comes back (the customer may have
+  // declined or picked another coverage while it was on its way)
+  const latestInsurance = useRef(insurance);
+  useEffect(() => { latestInsurance.current = insurance; });
   async function fetchInsuranceQuote(declaredValueCents: number) {
-    if (declaredValueCents < 100) { setInsuranceQuote(null); return; }
+    const seq = ++quoteSeq.current;
+    if (declaredValueCents < 100) { setInsuranceQuote(null); setQuotingInsurance(false); return; }
     setQuotingInsurance(true);
     try {
       const res = await fetch(`/api/insurance/quote?declared_value_cents=${declaredValueCents}`);
       const data = await res.json();
+      if (seq !== quoteSeq.current) return;
       if (res.ok) {
         setInsuranceQuote({ customerChargeCents: data.customerChargeCents, roundTripChargeCents: data.roundTripChargeCents });
-        if (insurance.type !== "none" && insuranceOptions.includes(insurance.type)) {
-          const charge = insurance.type === "round_trip" ? data.roundTripChargeCents : data.customerChargeCents;
-          onInsuranceChange({ ...insurance, declaredValueCents, chargeCents: charge });
+        const current = latestInsurance.current;
+        if (current.type !== "none" && insuranceOptions.includes(current.type)) {
+          const charge = current.type === "round_trip" ? data.roundTripChargeCents : data.customerChargeCents;
+          onInsuranceChange({ ...current, declaredValueCents, chargeCents: charge });
         } else {
           onInsuranceChange({ declaredValueCents, type: "none", chargeCents: 0 });
         }
       }
+    } catch {
+      // No quote (offline, or the rate service failed): the coverage choices stay hidden
     } finally {
-      setQuotingInsurance(false);
+      if (seq === quoteSeq.current) setQuotingInsurance(false);
     }
   }
 
   function handleDeclaredValueBlur() {
-    const raw = insuranceDollars.replace(/[^0-9.]/g, "");
+    applyInsuranceAmount(insuranceDollars);
+  }
+
+  /** Sets the amount to insure from what was typed (whole dollars, $1 to $10,000) and prices it. */
+  function applyInsuranceAmount(text: string) {
+    const raw = text.replace(/[^0-9.]/g, "");
     const dollars = parseFloat(raw);
-    if (!raw || isNaN(dollars) || dollars < 1) {
-      setInsuranceDollars("");
-      onInsuranceChange({ declaredValueCents: 0, type: "none", chargeCents: 0 });
-      setInsuranceQuote(null);
-      return;
-    }
     const clamped = Math.min(Math.floor(dollars), 10000);
-    if (clamped < 1) {
+    if (!raw || isNaN(dollars) || dollars < 1 || clamped < 1) {
+      quoteSeq.current++; // a quote still on its way no longer counts
+      setQuotingInsurance(false);
       setInsuranceDollars("");
       onInsuranceChange({ declaredValueCents: 0, type: "none", chargeCents: 0 });
       setInsuranceQuote(null);
@@ -164,6 +177,32 @@ export function StepReview({
     setInsuranceDollars(String(clamped));
     fetchInsuranceQuote(clamped * 100);
   }
+
+  // Buying insurance with no amount yet: start from the cards' declared
+  // values, as prep does. The customer can still change it.
+  const totalDeclaredValueCents = cards.reduce(
+    (sum, c) => sum + (c.estimated_value ? Math.round(parseFloat(c.estimated_value.replace(/[$,]/g, "")) * 100) || 0 : 0),
+    0
+  );
+  function prefillInsuranceAmount() {
+    if (insuranceDollars.trim() === "" && insurance.declaredValueCents <= 0 && totalDeclaredValueCents > 0) {
+      applyInsuranceAmount((totalDeclaredValueCents / 100).toFixed(0));
+    }
+  }
+  function chooseInsurance(e: Exclude<InsuranceElection, null>) {
+    onInsuranceElectionChange(e);
+    if (e === "purchased") prefillInsuranceAmount();
+  }
+  // Back on this step having chosen to buy: price the amount again so the
+  // coverage choices show, or prefill it if it's still empty (once, after mount)
+  useEffect(() => {
+    if (!INSURANCE_ENABLED || insuranceElection !== "purchased") return;
+    const t = setTimeout(() => {
+      if (insurance.declaredValueCents > 0) fetchInsuranceQuote(insurance.declaredValueCents);
+      else prefillInsuranceAmount();
+    }, 0);
+    return () => clearTimeout(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleInsuranceTypeChange(type: InsuranceType) {
     if (type === "none") {
@@ -208,6 +247,10 @@ export function StepReview({
 
   // We can only insure the trip to us when we buy that label
   const insuranceOptions: Exclude<InsuranceType, "none">[] = shippingMethod === "buy_label" ? ["inbound", "round_trip"] : ["return"];
+
+  // "Buy" is chosen: each missing piece (the amount, then the coverage) gets its own red note
+  const insuranceAmountMissing = showMissing && insuranceElection === "purchased" && insurance.declaredValueCents <= 0;
+  const insuranceTypeMissing = showMissing && insuranceElection === "purchased" && insurance.declaredValueCents > 0 && insurance.type === "none";
 
   const effectiveDiscountPct = Math.max(discountPercent, loyaltyDiscountPercent);
   const totals = computeOrderTotals({
@@ -295,11 +338,10 @@ export function StepReview({
         <div className={FORM_PANEL}>
         <InsuranceElectionBox
           election={insuranceElection}
-          onElection={onInsuranceElectionChange}
+          onElection={chooseInsurance}
           showMissing={showMissing}
-          purchaseMissing={!(insurance.declaredValueCents > 0 && insurance.type !== "none")}
         >
-          <div className="flex flex-col gap-1.5">
+          <div data-missing={insuranceAmountMissing || undefined} className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-ink" htmlFor="insurance-amount">Amount to insure<Req /></label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">$</span>
@@ -313,26 +355,31 @@ export function StepReview({
                 onChange={(e) => setInsuranceDollars(e.target.value)}
                 onBlur={handleDeclaredValueBlur}
                 placeholder="e.g. 500"
-                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                aria-required="true"
+                aria-invalid={insuranceAmountMissing || undefined}
+                aria-describedby={insuranceAmountMissing ? "insurance-amount-error insurance-amount-hint" : "insurance-amount-hint"}
+                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt aria-invalid:border-destructive aria-invalid:bg-red-50 md:text-[15px]"
               />
               {quotingInsurance && <span className="text-xs text-muted-foreground">Getting rate...</span>}
             </div>
-            <p className="text-xs text-muted-foreground">The value of the cards in the package ($1 to $10,000)</p>
+            {insuranceAmountMissing && <ItemError id="insurance-amount-error" className="mt-0">Enter the amount to insure.</ItemError>}
+            <p id="insurance-amount-hint" className="text-xs text-muted-foreground">The value of the cards in the package ($1 to $10,000)</p>
           </div>
 
-          {insuranceQuote && insurance.declaredValueCents > 0 && (
-            <div className="flex flex-col gap-2">
-              {insuranceOptions.map((type) => {
+          {((insuranceQuote && insurance.declaredValueCents > 0) || insuranceTypeMissing) && (
+            <div data-missing={insuranceTypeMissing || undefined} className="flex flex-col gap-2">
+              {insuranceQuote && insurance.declaredValueCents > 0 && insuranceOptions.map((type) => {
                 const { label, sub } = INSURANCE_OPTION_LABELS[type];
                 const price = type === "round_trip" ? insuranceQuote.roundTripChargeCents : insuranceQuote.customerChargeCents;
                 return (
-                  <label key={type} className={cn("flex cursor-pointer items-start gap-3 p-3.5", CHOICE, CHOICE_FOCUS, insurance.type === type && CHOICE_ON)}>
+                  <label key={type} className={cn("flex cursor-pointer items-start gap-3 p-3.5", CHOICE, CHOICE_FOCUS, insurance.type === type && CHOICE_ON, insuranceTypeMissing && MISSING_TILE)}>
                     <input
                       type="radio"
                       name="insurance-type"
                       checked={insurance.type === type}
                       onChange={() => handleInsuranceTypeChange(type)}
                       className="mt-0.5"
+                      aria-describedby={insuranceTypeMissing ? "insurance-type-error" : undefined}
                     />
                     <div className="flex-1">
                       <span className="text-sm font-bold text-ink">{label}</span>
@@ -342,10 +389,11 @@ export function StepReview({
                   </label>
                 );
               })}
+              {insuranceTypeMissing && <ItemError id="insurance-type-error" className="mt-0 px-1">Pick a coverage.</ItemError>}
             </div>
           )}
 
-          {!insuranceQuote && insurance.declaredValueCents === 0 && (
+          {!insuranceQuote && insurance.declaredValueCents === 0 && !insuranceAmountMissing && (
             <p className="text-xs text-muted-foreground italic">Enter the amount to insure to see the price.</p>
           )}
         </InsuranceElectionBox>

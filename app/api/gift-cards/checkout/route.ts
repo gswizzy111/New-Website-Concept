@@ -2,6 +2,7 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { siteUrl } from "@/lib/site-url";
 import { logCheckoutError } from "@/lib/checkout-error-log";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const Schema = z.object({
   amount_cents: z.number().int().min(1000).max(100000),
@@ -12,7 +13,12 @@ const Schema = z.object({
   personal_message: z.string().max(500).optional(),
 });
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(req: Request) {
+  return withRefusalTracking("gift_card", req, () => createGiftCardCheckout(req));
+}
+
+async function createGiftCardCheckout(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = Schema.safeParse(body);
   if (!parsed.success) {
@@ -41,6 +47,11 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
+      // Payment methods come from the Stripe Dashboard. Klarna's and Afterpay's
+      // rules forbid selling gift cards with them, so this page never offers
+      // them, even when they are switched on for orders and kits
+      // (docs/payments/turn-on-payment-methods.md)
+      excluded_payment_method_types: ["klarna", "afterpay_clearpay"],
       // The success page reads the session for the Meta Purchase event; the
       // page's first script takes the ID out of the address (lib/tracking-guard.ts)
       success_url: `${appUrl}/gift-cards/success?session_id={CHECKOUT_SESSION_ID}`,

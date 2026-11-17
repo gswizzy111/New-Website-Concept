@@ -16,6 +16,7 @@ import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { US_STATES } from "@/lib/constants";
 import { siteUrl } from "@/lib/site-url";
 import { findCode } from "@/lib/creator-portal";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const CardSchema = z.object({
   card_name: z.string().trim().min(1).max(200),
@@ -81,7 +82,12 @@ function estimateInsuranceCents(declaredValueCents: number): number {
   return Math.max(100, Math.round(declaredValueCents * 0.015));
 }
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(request: Request) {
+  return withRefusalTracking("prep", request, () => createPrepCheckout(request));
+}
+
+async function createPrepCheckout(request: Request) {
   const body = await request.json().catch(() => null);
   if (!body) return Response.json({ error: "Invalid request body" }, { status: 400 });
 

@@ -4,6 +4,7 @@ import { Check, Globe, Info, Lock } from "lucide-react";
 import { EmptyCart } from "../empty-cart";
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
+import { trackCheckout } from "@/lib/checkout-funnel";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSearchParams } from "next/navigation";
@@ -85,6 +86,10 @@ function CheckoutInner() {
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
+  // Checkout funnel (lib/checkout-funnel.ts): this page is kits step 3
+  const hasItems = items.length > 0;
+  const itemCount = items.reduce((n, i) => n + i.quantity, 0);
+  useEffect(() => { if (hasItems) trackCheckout("kits", "step_view", { step: 3 }); }, [hasItems]);
   // Pressed pay (or see shipping) with something missing: outline it in red
   const [showMissing, setShowMissing] = useState(false);
   const miss = (v: string | undefined) => showMissing && !v?.trim();
@@ -247,8 +252,10 @@ function CheckoutInner() {
   }
 
   async function handleCheckout() {
+    if (!canPay()) trackCheckout("kits", "blocked", { step: 3, code: "missing_fields", cards: itemCount });
     if (!canPay()) return showWhatsMissing();
     setSubmitting(true);
+    trackCheckout("kits", "submit", { step: 3, cards: itemCount });
     try {
       const body: Record<string, unknown> = {
         items: items.map((i) => ({ id: i.id, quantity: i.quantity, slug: i.slug, size: i.size ?? undefined })),
@@ -275,13 +282,16 @@ function CheckoutInner() {
       if (data.url) {
         // Keep the cart until the payment goes through: cancelling on Stripe comes
         // back to /cart, and the order-confirmed page empties it after paying
+        trackCheckout("kits", "redirect", { step: 3, cards: itemCount });
         window.location.href = data.url;
       } else {
+        trackCheckout("kits", "rejected", { step: 3, code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}`, cards: itemCount });
         toast.error(typeof data.error === "string" ? data.error : "Something went wrong.");
         if (typeof data.error === "string" && /recalculate shipping/i.test(data.error)) resetRates();
         setSubmitting(false);
       }
     } catch {
+      trackCheckout("kits", "rejected", { step: 3, code: "NETWORK_ERROR", cards: itemCount });
       toast.error("Network error. Please try again.");
       setSubmitting(false);
     }

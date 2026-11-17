@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
+import { trackCheckout } from "@/lib/checkout-funnel";
 import { formatCurrency } from "@/lib/utils";
 import { thumbnail } from "@/lib/thumbnail";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -57,6 +58,11 @@ function UpsellInner() {
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Checkout funnel (lib/checkout-funnel.ts): the add-ons page is kits step 2
+  // (counted once the add-ons have loaded, so a straight pass-through to checkout isn't)
+  const hasItems = items.length > 0;
+  const showsAddOns = !loading && products.length > 0;
+  useEffect(() => { if (hasItems && showsAddOns) trackCheckout("kits", "step_view", { step: 2 }); }, [hasItems, showsAddOns]);
 
   function handleAdd(product: UpsellProduct) {
     const isGlove = product.name.toLowerCase().includes("glove");

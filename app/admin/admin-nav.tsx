@@ -34,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/admin/accountant",      label: "Accountant Access", icon: "🔐" },
   { href: "/admin/support-team",    label: "Support Access", icon: "🪪" },
   { href: "/admin/checkout-errors", label: "Checkout Errors", icon: "🚨" },
+  { href: "/admin/checkout-funnel", label: "Checkout Funnel", icon: "📉" },
 ];
 
 const ACCOUNTANT_NAV_ITEMS = [
