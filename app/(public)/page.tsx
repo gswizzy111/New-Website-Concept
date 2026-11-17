@@ -493,7 +493,6 @@ export default function HomePage() {
                 ],
                 forStep: [0, 0, 0, 0, 1, 1],
               }}
-              phonePhoto={{ src: gyaradosProcessBefore, alt: "", aspect: "4/3" }}
             />
           </div>
         </div>
