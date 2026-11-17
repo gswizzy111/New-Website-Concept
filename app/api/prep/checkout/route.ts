@@ -15,6 +15,7 @@ import { shippingRate } from "@/lib/inbound-rate";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { US_STATES } from "@/lib/constants";
 import { siteUrl } from "@/lib/site-url";
+import { findCode } from "@/lib/creator-portal";
 
 const CardSchema = z.object({
   card_name: z.string().trim().min(1).max(200),
@@ -49,6 +50,7 @@ const Body = z.object({
   insurance_amount_cents: z.number().int().min(0).max(1_000_000).optional().default(0),
   social_handle: z.string().optional(),
   customer_notes: z.string().optional(),
+  affiliate_code: z.string().optional(),
 }).extend(SigningSchema.shape);
 
 async function getPrepPrices(admin: ReturnType<typeof createAdminClient>) {
@@ -110,17 +112,14 @@ export async function POST(request: Request) {
   const slabCrackCount = slabSigned.filter(Boolean).length;
   const droppedSlabs = d.cards.filter((c, i) => c.needs_slab_crack && !slabSigned[i]).map((c) => c.card_name.trim());
 
-  // Prep takes orders from the United States and Puerto Rico only (Puerto Rico
-  // is a US state code here, as at the restoration checkout)
-  if ((d.country ?? "US").toUpperCase() !== "US") {
-    return Response.json(
-      { error: "We currently only accept orders from within the United States and Puerto Rico.", code: "INTERNATIONAL_NOT_ACCEPTED" },
-      { status: 400 }
-    );
-  }
+  // Prep takes international orders, as on thecarddoc1.com (customs forms come
+  // with the prepaid label; no NJ sales tax). Puerto Rico is a US state code.
+  const country = (d.country ?? "US").toUpperCase();
+  const isInternational = country !== "US";
 
   // Server-side address validation: the prepaid label ships from it, and the
-  // cards come back to it either way.
+  // cards come back to it either way. State is required for US, optional for
+  // international.
   if (!d.street1?.trim() || !d.city?.trim() || !d.zip?.trim()) {
     return Response.json({
       error: d.shipping_method === "buy_label"
@@ -128,10 +127,10 @@ export async function POST(request: Request) {
         : "Full address is required so we can ship your cards back.",
     }, { status: 400 });
   }
-  if (!d.state?.trim()) {
+  if (!isInternational && !d.state?.trim()) {
     return Response.json({ error: "State is required for US addresses." }, { status: 400 });
   }
-  if (!US_STATES.some((s) => s.value === d.state!.trim().toUpperCase())) {
+  if (!isInternational && !US_STATES.some((s) => s.value === d.state!.trim().toUpperCase())) {
     return Response.json({ error: "Choose your state." }, { status: 400 });
   }
 
@@ -156,23 +155,41 @@ export async function POST(request: Request) {
   const slabCrackSubtotal = slabCrackCount * prices.slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
 
+  // Creator or coupon code: discount looked up server-side, off the service
+  // subtotal (prep, Pre-Grade Assessment and slab removal), as on thecarddoc1.com
+  let validatedAffiliateCode: string | null = null;
+  let codePercent = 0;
+  if (d.affiliate_code?.trim()) {
+    const affiliate = await findCode(d.affiliate_code);
+    if (!affiliate) return Response.json({ error: "That creator or coupon code isn't valid." }, { status: 400 });
+    validatedAffiliateCode = affiliate.code;
+    codePercent = affiliate.discount_percent;
+  }
+  const codeDiscountCents = codePercent > 0 ? Math.round(serviceSubtotal * codePercent / 100) : 0;
+
   // Bulk pricing (10+ cards 10% off, 20+ 15% off; lib/bulk-pricing.ts): off
   // the per-card prep fee of every card, including cards $1,500 and over (2% of
   // value), never the add-ons (Pre-Grade Assessment, slab removal), shipping or
-  // insurance. Discounts don't combine; prep takes no creator, coupon or
-  // loyalty code, so bulk is the only one that can apply here.
+  // insurance. Discounts don't combine: as at the restoration checkout, the
+  // bulk discount applies only when it is bigger than the code's. A valid code
+  // stays on the order either way (the creator is credited, as at restoration).
   const bulkPercent = bulkDiscountPercent(d.cards.length);
-  const discountCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
-  const discountPercent = discountCents > 0 ? bulkPercent : 0;
-  // Sales tax on what is charged for the services, after the discount (as at the restoration checkout)
-  const taxCents = Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
+  const bulkCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
+  const bulkWon = bulkCents > codeDiscountCents;
+  const discountCents = bulkWon ? bulkCents : codeDiscountCents;
+  const discountPercent = discountCents > 0 ? (bulkWon ? bulkPercent : codePercent) : 0;
+  const discountLabel = bulkWon ? null : validatedAffiliateCode;
+  // NJ sales tax only applies to US domestic orders, on what is charged for the
+  // services after the discount (as at the restoration checkout)
+  const taxRate = isInternational ? 0 : NJ_TAX_RATE;
+  const taxCents = Math.round((serviceSubtotal - discountCents) * taxRate);
 
   // Shipping is priced from the Shippo rate quoted for this address (never the
   // browser's price). The prepaid label's rate (to us) is paid twice, to us and
   // back; sending the cards in your own way still pays for the trip back, once,
   // at the rate quoted from us to you.
   const rate = d.shipping_rate_object_id
-    ? await shippingRate(d.shipping_rate_object_id, d.zip ?? "", d.shipping_method === "buy_label" ? "in" : "back", "US")
+    ? await shippingRate(d.shipping_rate_object_id, d.zip ?? "", d.shipping_method === "buy_label" ? "in" : "back", country)
     : null;
   if (!rate) {
     return Response.json(
@@ -196,7 +213,7 @@ export async function POST(request: Request) {
     city: d.city,
     state: d.state ?? null,
     zip: d.zip,
-    country: "US",
+    country,
   } : {};
 
   // Create draft order in DB
@@ -230,6 +247,8 @@ export async function POST(request: Request) {
     insurance_election: d.insurance_election,
     // Read by the admin breakdown and the reports, as on restoration orders
     ...(discountCents > 0 ? { discount_cents: discountCents, discount_percent: discountPercent } : {}),
+    // Credits the creator (lib/creator-portal.ts and the admin Affiliates page count it)
+    ...(validatedAffiliateCode ? { affiliate_code: validatedAffiliateCode } : {}),
   }).select("id, order_number").single();
 
   if (orderErr || !order) {
@@ -239,7 +258,10 @@ export async function POST(request: Request) {
 
   // Insert cards (the order's items), each with what it cost: its prep price
   // and its share of the discount and of the tax on the rest, for per-card refunds
-  const amounts = itemAmounts(cardPrices, discountCents);
+  // A code's discount also covers the add-ons; the cards carry only the prep
+  // fee's share of it (as on thecarddoc1.com). Bulk is only on the prep fee.
+  const cardDiscountCents = bulkWon ? discountCents : (codePercent > 0 ? Math.round(prepSubtotal * codePercent / 100) : 0);
+  const amounts = itemAmounts(cardPrices, cardDiscountCents, undefined, taxRate);
   const cardIds = d.cards.map(() => randomUUID());
   const { error: cardsErr } = await admin.from("cards").insert(
     d.cards.map((c, i) => ({
@@ -277,7 +299,7 @@ export async function POST(request: Request) {
       ],
     })),
     order_lines: [
-      ...(discountCents > 0 ? [{ name: "Discount", cents: -discountCents }] : []),
+      ...(discountCents > 0 ? [{ name: discountLabel ? `Discount (${discountLabel})` : "Discount", cents: -discountCents }] : []),
       ...(d.shipping_method === "buy_label"
         ? [{ name: "Prepaid shipping label, to us and back", cents: shippingAmountCents }]
         : [
@@ -415,10 +437,10 @@ export async function POST(request: Request) {
     });
   }
 
-  // The bulk discount goes to Stripe as a fixed-amount coupon, as at the
+  // The discount goes to Stripe as a fixed-amount coupon, as at the
   // restoration checkout: Stripe refuses negative line items, and a percent
-  // coupon would also come off the add-ons, tax and shipping, so the charge
-  // would not match totalCents.
+  // coupon would also come off tax and shipping (and, for bulk, the add-ons),
+  // so the charge would not match totalCents.
   let stripeDiscounts: Stripe.Checkout.SessionCreateParams["discounts"] = undefined;
   if (discountCents > 0) {
     try {
@@ -426,7 +448,9 @@ export async function POST(request: Request) {
         amount_off: discountCents,
         currency: "usd",
         duration: "once",
-        name: `Bulk discount (${discountPercent}% off, ${d.cards.length} cards)`.slice(0, 40),
+        name: (discountLabel
+          ? `${discountPercent}% Off — ${discountLabel}`
+          : `Bulk discount (${discountPercent}% off, ${d.cards.length} cards)`).slice(0, 40),
       });
       stripeDiscounts = [{ coupon: coupon.id }];
     } catch (err) {
@@ -453,9 +477,10 @@ export async function POST(request: Request) {
         order_id: order.id,
         slab_crack_count: String(slabCrackCount),
         add_pre_grade: d.add_pre_grade ? "true" : "false",
-        is_international: "false",
+        is_international: isInternational ? "true" : "false",
+        affiliate_code: validatedAffiliateCode ?? "",
         // For the record in Stripe; neither site's webhook changes a prep order's totals
-        ...(discountCents > 0 ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(discountCents) } : {}),
+        ...(bulkWon ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(discountCents) } : {}),
         ...(shippingRateObjectId ? { shipping_rate_object_id: shippingRateObjectId } : {}),
         ...(hasInsurance ? {
           insurance_declared_value_cents: String(d.insurance_amount_cents),

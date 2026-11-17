@@ -20,7 +20,7 @@ import { AdminCardEditor } from "./admin-card-editor";
 import { AddCardButton } from "./add-card-button";
 import { RefundButton } from "./refund-button";
 import { RestorationStageUpdater } from "./restoration-stage-updater";
-import { stagesByCard } from "./stages";
+import { currentStages } from "@/lib/restoration-stages";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 import { ResendConfirmationButton } from "./resend-confirmation-button";
 import { PaymentMethodEditor } from "./payment-method-editor";
@@ -67,8 +67,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   let order = orderRes.data;
   if (!order) notFound();
 
-  // Per-card restoration stages from stage_update events (newest first)
-  const stageByCard = stagesByCard(events ?? []);
+  // Each card's current restoration stage in its current round (events are newest first)
+  const roundByCard: Record<string, number> = Object.fromEntries((cards ?? []).map((c) => [c.id, c.current_round ?? 1]));
+  const stageByCard = currentStages(events ?? [], roundByCard);
 
   // Terms of Service v1.0 and later: signatures, consents and each card's work gates
   // ...and emails to this customer that didn't arrive (Resend's webhook, lib/email-problems.ts)
@@ -265,11 +266,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               <StatusUpdater orderId={order.id} currentStatus={order.status} currentTrackingNumber={order.tracking_number as string | null} />
             </div>
 
-            {/* Restoration stage tracker — only while in progress */}
-            {order.status === "in_progress" && (
+            {/* Restoration stage tracker — while in progress, and once completed (to start another round) */}
+            {(order.status === "in_progress" || order.status === "completed") && (
               <RestorationStageUpdater
                 orderId={order.id}
-                cards={(cards ?? []).map((c) => ({ id: c.id, card_name: c.card_name, completed: !!c.completed }))}
+                cards={(cards ?? []).map((c) => ({ id: c.id, card_name: c.card_name, completed: !!c.completed, round: c.current_round ?? 1 }))}
                 stageByCard={stageByCard}
               />
             )}
@@ -386,8 +387,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                         {anyChanged && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Edited</span>
                         )}
+                        {(card.current_round ?? 1) > 1 && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white">Round {card.current_round}</span>
+                        )}
                       </div>
-                      <CardCompletionToggle cardId={card.id} initialCompleted={!!card.completed} />
+                      <CardCompletionToggle key={`${card.id}:${card.current_round ?? 1}`} cardId={card.id} initialCompleted={!!card.completed} />
                     </div>
 
                     {/* Side-by-side diff — only when admin has edited */}
