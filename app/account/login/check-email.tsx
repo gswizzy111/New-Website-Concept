@@ -91,7 +91,7 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
       <span aria-hidden className="mx-auto mb-5 grid size-14 place-items-center rounded-[18px] bg-sun text-ink shadow-[var(--cut-edge),0_8px_16px_-8px_rgba(8,12,40,0.5)]">
         <MailCheck className="size-7" strokeWidth={1.75} />
       </span>
-      <h1 ref={heading} tabIndex={-1} className="text-center font-heading text-[2.25rem] leading-[0.95] font-black text-ink outline-none">
+      <h1 ref={heading} tabIndex={-1} className="text-center font-heading text-[2.25rem] leading-[0.95] font-black text-ink outline-hidden">
         {state.sent ? "Check your email" : "We couldn't send your link"}
       </h1>
 

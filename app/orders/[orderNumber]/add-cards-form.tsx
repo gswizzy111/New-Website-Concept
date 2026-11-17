@@ -37,7 +37,7 @@ function emptyCard(): CardEntry {
 const valueCents = (c: CardEntry) => Math.round((parseFloat(c.declaredValue.replace(/[^0-9.]/g, "")) || 0) * 100);
 
 const inputCls =
-  "w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-2 min-h-11 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
+  "w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-2 min-h-11 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
 
 export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrder }: Props) {
   const tier = tierInfo.id;

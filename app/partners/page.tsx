@@ -30,7 +30,7 @@ export default function PartnerLoginPage() {
   }
 
   return (
-    <PortalCard width="max-w-sm">
+    <PortalCard>
         <h1 className="mb-1 font-heading text-[2.25rem] leading-[0.95] font-black text-ink">Partner Portal</h1>
         <p className="mb-6 text-sm text-ink-soft">The Card Doc</p>
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
@@ -44,7 +44,7 @@ export default function PartnerLoginPage() {
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
               placeholder="Enter your passcode"
-              className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+              className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
               required
             />
           </div>

@@ -399,7 +399,9 @@
 
   /* Layout */
   --wrap: 1280px;
-  --gut: clamp(20px, 4vw, 40px);
+  /* With viewport-fit=cover (app/layout.tsx), never less than the side
+     safe-area insets, so content clears the notch in phone landscape. */
+  --gut: max(clamp(20px, 4vw, 40px), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px));
   --section-y: clamp(72px, 9vw, 128px);
   --header-h: 64px;
 

@@ -4,7 +4,7 @@ import { FIELD_LABEL, PORTAL_BUTTON, PortalCard as Card } from "@/components/acc
 /** The creator portal's centered card: sign-in and password setup. */
 export function PortalCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Card title={title} width="max-w-sm">
+    <Card title={title}>
       {children}
     </Card>
   );

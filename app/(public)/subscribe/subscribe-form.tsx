@@ -11,7 +11,7 @@ import { ArrowRight, CalendarClock, Package, Truck } from "lucide-react";
 
 // The field look: 48px tall, 12px corners, a 1.5px edge, cobalt focus.
 const FIELD =
-  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
+  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-hidden transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
 const LABEL = "mb-2 block text-[15px] font-bold text-ink";
 
 function formatPrice(cents: number) {
