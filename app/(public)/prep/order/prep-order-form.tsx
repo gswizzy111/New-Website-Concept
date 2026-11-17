@@ -16,6 +16,8 @@ import { MobileTotalBar } from "@/components/order-builder/mobile-total-bar";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { US_STATES } from "@/lib/constants";
 import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
+import { FIELD_MESSAGES, isUSState, isValidEmail, isValidPhone } from "@/lib/checkout-validation";
+import { FieldNote } from "@/components/order-builder/step-customer";
 
 type CardRow = CardIdentity & {
   id: string;
@@ -74,6 +76,9 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // Email and phone are checked once the customer has typed in them and moved on
+  const [leftEmail, setLeftEmail] = useState(false);
+  const [leftPhone, setLeftPhone] = useState(false);
 
   // Cards
   const [cards, setCards] = useState<CardRow[]>([emptyCard()]);
@@ -297,43 +302,79 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [street1, street2, city, stateCode, zip, country, addressFingerprint, filledCards.length, totalDeclaredValueCents, shippingMethod]);
 
+  // Field ids, so the list of problems can take the customer to each one
+  const cardNameId = (i: number) => `prep-${cardsUid}-${i}-card-name`;
+  const cardValueId = (i: number) => `prep-${cardsUid}-${i}-declared`;
+  // A card needs its name once it has a declared value; with no card named yet, the first one does
+  const cardNeedsName = (c: CardRow, i: number) => !c.name.trim() && (!!c.declaredValueDollars.trim() || (i === 0 && filledCards.length === 0));
+  // What /api/prep/checkout checks, on the trimmed values it is sent (lib/checkout-validation.ts)
+  const emailIssue = !email.trim() ? "Required" : !isValidEmail(email.trim()) ? FIELD_MESSAGES.emailInvalid : null;
+  const phoneIssue = !phone.trim() ? "Required" : !isValidPhone(phone) ? FIELD_MESSAGES.phoneInvalid : null;
+  const emailNote = showMissing || leftEmail ? emailIssue : null;
+  const phoneNote = showMissing || leftPhone ? phoneIssue : null;
+
+  // Everything missing or invalid, in the form's order, shown together by the
+  // sign button (with the owner's wording where a message already existed)
+  type Problem = { key: string; text: string; target?: string; cards?: { label: string; target: string }[] };
+  const problems: Problem[] = [];
+  if (!name.trim()) problems.push({ key: "name", text: "Name is required.", target: "prep-name" });
+  if (!email.trim()) problems.push({ key: "email", text: "Email is required.", target: "prep-email" });
+  else if (emailIssue) problems.push({ key: "email", text: `${FIELD_MESSAGES.emailInvalid}.`, target: "prep-email" });
+  if (!phone.trim()) problems.push({ key: "phone", text: "Phone is required.", target: "prep-phone" });
+  else if (phoneIssue) problems.push({ key: "phone", text: `${FIELD_MESSAGES.phoneInvalid}.`, target: "prep-phone" });
+  if (filledCards.length < 1) {
+    problems.push({ key: "cards", text: "Please add at least one card.", target: cardNameId(0) });
+  } else {
+    cards.forEach((c, i) => {
+      if (cardNeedsName(c, i)) problems.push({ key: `name-${c.id}`, text: `Card ${i + 1}: Enter the card name.`, target: cardNameId(i) });
+    });
+  }
+  // Every card needs a declared value, whatever its worth: name each card still without one
+  const unvalued = cards.flatMap((c, i) => (c.name.trim() && cardValueCents(c) <= 0 ? [{ label: `Card ${i + 1}: ${c.name.trim()}`, target: cardValueId(i) }] : []));
+  if (unvalued.length > 0) problems.push({ key: "values", text: "Please enter a declared value for every card.", target: unvalued[0].target, cards: unvalued });
+  // The cards come back to this address either way
+  if (!street1.trim() || !city.trim() || !zip.trim()) {
+    problems.push({
+      key: "address",
+      text: shippingMethod === "buy_label"
+        ? "Full address is required to generate a prepaid label."
+        : "Full address is required so we can ship your cards back.",
+      target: !street1.trim() ? "prep-street1" : !city.trim() ? "prep-city" : "prep-zip",
+    });
+  }
+  if (!stateCode) problems.push({ key: "state", text: "State is required for US addresses.", target: "prep-state" });
+  else if (!isUSState(stateCode)) problems.push({ key: "state", text: "Choose your state.", target: "prep-state" });
+  if (!selectedRate) problems.push({ key: "rate", text: "Please check shipping rates and select an option before continuing." });
+  if (insuranceElection === null) problems.push({ key: "insurance", text: "Please choose whether to buy or decline shipping insurance.", target: "insurance-election" });
+  else if (addInsurance && insuranceDeclaredValueCents <= 0) problems.push({ key: "insurance", text: "Enter the amount to insure, or decline shipping insurance.", target: "prep-insure" });
+  if (!signingReady(signing, slabCards)) {
+    problems.push({ key: "signing", text: "Please check both boxes under Sign to confirm your order, and type your full legal name." });
+  }
+
+  /** Scrolls to a field from the list and puts the cursor in it. */
+  function goToField(id: string) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    const focusable = el.matches("input, select, textarea, button") ? el : el.querySelector<HTMLElement>("input:not([disabled]), select, textarea, button");
+    focusable?.focus({ preventScroll: true });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    // Says what's wrong, outlines the missing fields in red and scrolls to the first
-    const fail = (message: string) => {
-      setError(message);
-      setShowMissing(true);
-      trackCheckout("prep", "blocked", { step: 1, code: "missing_fields", cards: filledCards.length });
-      revealMissing();
-    };
 
     // A ticked slab whose card changed after signing: its authorization pops up again
     const unsignedSlab = slabCards.find((c) => !slabSigned(signing, c));
     if (unsignedSlab) trackCheckout("prep", "blocked", { step: 1, code: "slab_unsigned", cards: filledCards.length });
     if (unsignedSlab) { setSlabDialogId(unsignedSlab.id ?? null); return; }
-    if (filledCards.length < 1) { return fail("Please add at least one card."); }
-    if (filledCards.some((c) => cardValueCents(c) <= 0)) { return fail("Please enter a declared value for every card."); }
-    if (!name.trim()) { return fail("Name is required."); }
-    if (!email.trim()) { return fail("Email is required."); }
-    if (!phone.trim()) { return fail("Phone is required."); }
-    // The cards come back to this address either way
-    if (!street1.trim() || !city.trim() || !zip.trim()) {
-      return fail(shippingMethod === "buy_label"
-        ? "Full address is required to generate a prepaid label."
-        : "Full address is required so we can ship your cards back.");
-    }
-    if (!stateCode) {
-      return fail("State is required for US addresses.");
-    }
-    if (!selectedRate) {
-      return fail("Please check shipping rates and select an option before continuing.");
-    }
-
-    if (insuranceElection === null) { return fail("Please choose whether to buy or decline shipping insurance."); }
-    if (addInsurance && insuranceDeclaredValueCents <= 0) { return fail("Enter the amount to insure, or decline shipping insurance."); }
-    if (!signingReady(signing, slabCards)) {
-      return fail("Please check both boxes under Sign to confirm your order, and type your full legal name.");
+    // Lists everything to fix by the button, outlines each field in red and scrolls to the first
+    if (problems.length > 0) {
+      setShowMissing(true);
+      trackCheckout("prep", "blocked", { step: 1, code: `missing_${problems[0].key}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64), cards: filledCards.length });
+      revealMissing();
+      return;
     }
 
     setShowMissing(false);
@@ -446,16 +487,20 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <h2 className={h2Cls}>Your Info</h2>
           <Need missing={miss(name)}>
             <label htmlFor="prep-name" className={labelCls}>Full Name<Req /></label>
-            <input id="prep-name" className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
+            <input id="prep-name" className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" aria-invalid={miss(name) || undefined} />
           </Need>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-3">
-            <Need missing={miss(email)}>
+            <Need missing={!!emailNote} note={null}>
               <label htmlFor="prep-email" className={labelCls}>Email<Req /></label>
-              <input id="prep-email" className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
+              <input id="prep-email" className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} onBlur={(e) => { if (e.target.value.trim()) setLeftEmail(true); }} placeholder="john@example.com"
+                aria-invalid={emailNote ? true : undefined} aria-describedby={emailNote ? "prep-email-note" : undefined} />
+              <FieldNote id="prep-email-note" text={emailNote} />
             </Need>
-            <Need missing={miss(phone)}>
+            <Need missing={!!phoneNote} note={null}>
               <label htmlFor="prep-phone" className={labelCls}>Phone<Req /></label>
-              <input id="prep-phone" className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
+              <input id="prep-phone" className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} onBlur={(e) => { if (e.target.value.trim()) setLeftPhone(true); }} placeholder="+1 (555) 555-5555"
+                aria-invalid={phoneNote ? true : undefined} aria-describedby={phoneNote ? "prep-phone-note" : undefined} />
+              <FieldNote id="prep-phone-note" text={phoneNote} />
             </Need>
           </div>
         </div>
@@ -474,11 +519,14 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
           {cards.map((card, i) => (
             <div key={card.id} className="flex flex-col gap-3 rounded-xl bg-chalk p-3.5 shadow-[inset_0_0_0_1px_var(--line)] sm:p-4">
-              <Need missing={showMissing && !card.name.trim() && (i === 0 || !!card.declaredValueDollars)} note="Enter the card name." className="">
+              <Need missing={showMissing && cardNeedsName(card, i)} note="Enter the card name." className="">
               <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink font-display text-[15px] font-black text-sun tabular-nums">{i + 1}</span>
                 <input
+                  id={cardNameId(i)}
                   aria-label={`Card ${i + 1} name`}
+                  aria-invalid={(showMissing && cardNeedsName(card, i)) || undefined}
+                  maxLength={200}
                   className={`${input} order-last basis-full sm:order-none sm:basis-auto sm:flex-1`}
                   value={card.name}
                   onChange={(e) => updateCardName(card.id, e.target.value)}
@@ -496,7 +544,9 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   <input
                     className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
                     type="number" min="0" step="1"
+                    id={cardValueId(i)}
                     aria-label={`Card ${i + 1} declared value`}
+                    aria-invalid={(showMissing && !!card.name.trim() && cardValueCents(card) <= 0) || undefined}
                     value={card.declaredValueDollars}
                     onChange={(e) => updateCardValue(card.id, e.target.value)}
                     placeholder="Declared value (required)"
@@ -533,7 +583,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               </label>
               <div className="sm:pl-9">
                 <p className="mb-1.5 text-sm font-semibold text-ink">Photos <span className="font-normal text-ink-soft">(optional)</span></p>
-                <PhotoUploader photoUrls={card.photoUrls} onChange={(urls) => updateCardPhotos(card.id, urls)} />
+                <PhotoUploader flow="prep" photoUrls={card.photoUrls} onChange={(urls) => updateCardPhotos(card.id, urls)} />
               </div>
             </div>
           ))}
@@ -634,18 +684,18 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                 <Need missing={miss(city)} className="col-span-2">
                   <label htmlFor="prep-city" className={labelCls}>City<Req /></label>
-                  <input id="prep-city" className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                  <input id="prep-city" className={input} aria-invalid={miss(city) || undefined} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
                 </Need>
-                <Need missing={miss(stateCode)}>
+                <Need missing={showMissing && (!stateCode || !isUSState(stateCode))}>
                   <label htmlFor="prep-state" className={labelCls}>State<Req /></label>
-                  <select id="prep-state" className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                  <select id="prep-state" className={selectCls} aria-invalid={(showMissing && (!stateCode || !isUSState(stateCode))) || undefined} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
                     <option value="">—</option>
                     {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
                   </select>
                 </Need>
                 <Need missing={miss(zip)} className="sm:col-span-2">
                   <label htmlFor="prep-zip" className={labelCls}>ZIP Code<Req /></label>
-                  <input id="prep-zip" className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                  <input id="prep-zip" className={input} aria-invalid={miss(zip) || undefined} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
                 </Need>
               </div>
             </div>
@@ -892,6 +942,38 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             showMissing={showMissing}
           />
         </div>
+
+        {/* Everything still to fix, together; each item takes the customer to its field.
+            Read out when it appears, as the single message it replaces was */}
+        {showMissing && problems.length > 0 && (
+          <div role="alert" className="rounded-xl bg-red-50 px-4 py-3.5 text-sm text-red-700 shadow-[inset_0_0_0_1.5px_#b42318]">
+            <p className="font-bold">Please fix {problems.length === 1 ? "this" : "these"} to continue:</p>
+            <ul className="mt-1.5 flex flex-col">
+              {problems.map((p) => (
+                <li key={p.key}>
+                  {p.target ? (
+                    <button type="button" onClick={() => goToField(p.target!)} className="-mx-1 min-h-11 rounded-md px-1 py-1.5 text-left font-semibold underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
+                      {p.text}
+                    </button>
+                  ) : (
+                    <p className="py-1.5 font-semibold">{p.text}</p>
+                  )}
+                  {p.cards && (
+                    <ul className="mb-1 flex flex-col pl-4">
+                      {p.cards.map((c) => (
+                        <li key={c.target}>
+                          <button type="button" onClick={() => goToField(c.target)} className="-mx-1 min-h-11 rounded-md px-1 py-1.5 text-left underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
+                            {c.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {error && (
           <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-[inset_0_0_0_1.5px_#b42318]">{error}</div>

@@ -57,7 +57,7 @@ export function ReportProblem({ orderRef, email }: { orderRef: string; email: st
           />
           <div>
             <p className="mb-1.5 text-sm font-semibold text-ink">Photos of the item and the packaging</p>
-            <PhotoUploader photoUrls={photos} onChange={setPhotos} max={6} />
+            <PhotoUploader flow={null} photoUrls={photos} onChange={setPhotos} max={6} />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <button type="button" onClick={send} disabled={busy || description.trim().length < 10} className={cta({ tone: "sun", size: "md", className: "self-start" })}>

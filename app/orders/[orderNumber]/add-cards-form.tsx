@@ -195,6 +195,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-ink">Photos (optional)</label>
                 <PhotoUploader
+                  flow={null}
                   photoUrls={card.photoUrls}
                   onChange={(urls) => updateCard(i, { photoUrls: urls })}
                 />

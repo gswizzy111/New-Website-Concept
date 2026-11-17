@@ -26,6 +26,8 @@ import { fbq } from "@/lib/pixel";
 import { trackCheckout, type CheckoutEvent, type CheckoutEventData } from "@/lib/checkout-funnel";
 import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
+import { contactOk } from "@/lib/checkout-validation";
+import { TierAvailabilityNotice, tierAvailabilityProblems, useTierAvailability } from "./tier-availability";
 
 function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
   return {
@@ -196,10 +198,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       return cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
     }
     if (step === 2) {
-      const c = customer;
-      const isUS = !c.country || c.country === "US";
-      if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-      return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
+      // Filled in, and as /api/checkout will check it (email format, phone length)
+      return contactOk(customer);
     }
     if (step === 3) {
       // Both ways need a rate: the prepaid label's, or the trip back for self-ship
@@ -215,12 +215,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   // The cards and contact steps must still pass when a later step is reached
   // some other way (a restored order, or rules changed since it was saved).
   const cardsStepOk = cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
-  const contactStepOk = (() => {
-    const c = customer;
-    const isUS = !c.country || c.country === "US";
-    if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-    return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
-  })();
+  const contactStepOk = contactOk(customer);
   /** Sends the customer back to the first earlier step that no longer passes. */
   function backToFailingStep(): boolean {
     const target = step > 1 && !cardsStepOk ? 1 : step > 2 && !contactStepOk ? 2 : null;
@@ -238,16 +233,26 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     track("blocked", { code: "missing_fields" });
     revealMissing();
   }
+  // A tier on the order that closed or sold out since step 1: caught before
+  // signing (./tier-availability.tsx; the server still checks at checkout)
+  const tierAvailability = useTierAvailability(step === 4);
+  const tierProblems = tierAvailabilityProblems(
+    cards.map((c) => ({ tier: c.tier ?? selectedTier, name: c.card_name })),
+    tierAvailability.availability,
+    tiers,
+  );
   function trySign() {
     if (backToFailingStep()) return;
     if (openUnsignedSlab()) return;
-    if (readyToSign) {
+    if (readyToSign && tierProblems.length === 0) {
       setShowMissing(false);
       return handleSubmit();
     }
     setShowMissing(true);
-    track("blocked", { code: "missing_fields" });
+    track("blocked", { code: readyToSign ? "tier_unavailable" : "missing_fields" });
     revealMissing();
+    // Only the tier notice stopped it: check the tiers again and focus the notice
+    if (readyToSign) tierAvailability.recheck();
   }
 
   async function handleSubmit() {
@@ -493,6 +498,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
             </div>
             </Need>
           )}
+
+          {/* A tier on the order closed or sold out: pick another before signing */}
+          {step === 4 && <TierAvailabilityNotice problems={tierProblems} onChooseTier={() => goToStep(1)} />}
 
           <div className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
             <Button
