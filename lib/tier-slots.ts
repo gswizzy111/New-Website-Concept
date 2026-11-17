@@ -4,8 +4,15 @@ import { TIER_MAX_SLOTS } from "@/lib/site-config";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/** A checkout still pending in Stripe this long holds its slots; older ones are abandoned. */
-export const SLOT_HOLD_MINUTES = 30;
+/**
+ * A checkout still pending in Stripe this long holds its slots; older ones are
+ * abandoned. Restoration and prep Stripe pages close after the same time
+ * (CHECKOUT_SESSION_MINUTES), so nobody can pay after their slot was let go.
+ */
+export const SLOT_HOLD_MINUTES = 60;
+
+/** How long a restoration or prep Stripe payment page stays open (Stripe's minimum is 30). */
+export const CHECKOUT_SESSION_MINUTES = SLOT_HOLD_MINUTES;
 
 /**
  * A tier's slot limit in orders: the admin's max_slots (restoration_settings),
@@ -21,7 +28,7 @@ export function tierMaxSlots(tierId: string, dbMaxSlots: number | null | undefin
  * order with cards on several tiers (no restoration_tier) counts once in each
  * of its cards' tiers. Counted: paid orders (fully refunded ones are no longer
  * 'paid') and, unless `paidOnly`, checkouts still in progress (pending, not
- * cancelled, started in the last 30 minutes), placed since the slots last
+ * cancelled, started in the last SLOT_HOLD_MINUTES), placed since the slots last
  * opened (store_config slots_opened_at; null: all time). A tier's max_slots
  * (restoration_settings) is a number of orders. Throws if it can't be read.
  */

@@ -138,8 +138,10 @@ Rules for this repo:
   after their 60-minute session expires, and never leave 1-49 cents to pay.
 - **Tier slots** (`lib/tier-slots.ts`): one slot is one order and `max_slots`
   counts orders; a mixed-tier order counts once in each of its tiers. Counted
-  since `slots_opened_at`: paid orders, plus pending checkouts under 30 minutes
-  old for new orders. An upgrade takes a slot in the new tier; added cards take
+  since `slots_opened_at`: paid orders, plus pending checkouts under an hour
+  old for new orders (`SLOT_HOLD_MINUTES`); restoration and prep Stripe pages
+  close after the same hour (`CHECKOUT_SESSION_MINUTES`), so nobody pays after
+  their slot is let go. An upgrade takes a slot in the new tier; added cards take
   none, except the first Bronze card on a mixed-tier order (one Bronze slot).
   Prices come from `restoration_settings` (`getLiveTiers()`).
 - **Tip** (optional, restoration checkout): in `orders.total_cents`, the Stripe

@@ -234,7 +234,7 @@ export default async function TierSelectionPage() {
   const settingsMap = Object.fromEntries((settingsRaw as any[]).map((s) => [s.tier, s]));
 
   // Slots taken, one per order: paid orders plus checkouts in progress (under
-  // 30 minutes old), counted the way checkout enforces them (lib/tier-slots.ts).
+  // an hour old), counted the way checkout enforces them (lib/tier-slots.ts).
   // null: the count failed, so no tier shows a number of slots left.
   let slotCounts: Record<string, number> | null = {};
   if (restorationsOpen) {
