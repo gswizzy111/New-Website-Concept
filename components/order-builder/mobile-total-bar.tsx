@@ -59,6 +59,7 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
   const [focusInside, setFocusInside] = useState(false);
   const [summaryOnScreen, setSummaryOnScreen] = useState(false);
   const [atFooter, setAtFooter] = useState(false);
+  const [actionsOnScreen, setActionsOnScreen] = useState(false);
 
   const cards = `${cardCount} card${cardCount !== 1 ? "s" : ""}`;
 
@@ -75,6 +76,9 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
       const h = bar.offsetHeight;
       page.paddingBottom = h ? `${h}px` : before.padding;
       root.scrollPaddingBottom = h ? `${h + 16}px` : before.scroll;
+      // Phone toasts sit above the bar (app/layout.tsx Toaster mobileOffset)
+      if (h) root.setProperty("--total-bar-h", `${h}px`);
+      else root.removeProperty("--total-bar-h");
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -83,6 +87,7 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
       ro.disconnect();
       page.paddingBottom = before.padding;
       root.scrollPaddingBottom = before.scroll;
+      root.removeProperty("--total-bar-h");
     };
   }, [mounted, show]);
 
@@ -136,6 +141,23 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
     return () => io.disconnect();
   }, []);
 
+  // ...and while the page's main buttons (Back / Continue / Sign, marked
+  // data-total-bar-avoid) are on screen, so a tap meant for them never lands on the bar
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll("[data-total-bar-avoid]"));
+    if (els.length === 0) return;
+    const visible = new Set<Element>();
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) visible.add(e.target);
+        else visible.delete(e.target);
+      }
+      setActionsOnScreen(visible.size > 0);
+    });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [show]);
+
   // Screen readers hear the total once it stops changing (not on every
   // keystroke in a value field), and the line clears so it isn't read twice
   // when someone moves through the bar. Only where the bar applies: from lg
@@ -157,7 +179,7 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
     return () => clearTimeout(t);
   }, [spoken]);
 
-  const tucked = !open && !focusInside && (!show || typing || summaryOnScreen || atFooter);
+  const tucked = !open && !focusInside && (!show || typing || summaryOnScreen || atFooter || actionsOnScreen);
 
   if (!mounted) return null;
   return createPortal(

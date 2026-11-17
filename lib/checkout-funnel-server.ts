@@ -94,18 +94,32 @@ export function recordCheckoutEvent(ev: CheckoutEventRecord): void {
   inBackground(insertCheckoutEvent(ev));
 }
 
-/** True when this tab already sent DAILY_EVENTS_PER_TAB events in the last 24 hours. Fails open. */
+/**
+ * Browser events the whole site takes in 10 minutes. Real traffic is a few
+ * hundred at most; past this, someone is sending made-up tab IDs to flood the
+ * table, so new browser events are dropped until it calms down.
+ */
+const SITE_EVENTS_PER_10_MIN = 3000;
+
+/**
+ * True when this tab already sent DAILY_EVENTS_PER_TAB events in the last 24
+ * hours, or the whole site sent SITE_EVENTS_PER_10_MIN browser events in the
+ * last 10 minutes (a new tab ID per request gets past the first check, not
+ * this one). Fails open.
+ */
 export async function tabOverDailyCap(sid: string): Promise<boolean> {
   if (PREVIEW_MODE) return true;
   try {
+    const db = createAdminClient();
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count, error } = await createAdminClient()
-      .from("checkout_funnel_events")
-      .select("id", { count: "exact", head: true })
-      .eq("sid", sid)
-      .gte("created_at", since);
-    if (error) return false;
-    return (count ?? 0) >= DAILY_EVENTS_PER_TAB;
+    const recent = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const [tab, site] = await Promise.all([
+      db.from("checkout_funnel_events").select("id", { count: "exact", head: true }).eq("sid", sid).gte("created_at", since),
+      db.from("checkout_funnel_events").select("id", { count: "exact", head: true }).eq("source", "browser").gte("created_at", recent),
+    ]);
+    if (!tab.error && (tab.count ?? 0) >= DAILY_EVENTS_PER_TAB) return true;
+    if (!site.error && (site.count ?? 0) >= SITE_EVENTS_PER_10_MIN) return true;
+    return false;
   } catch {
     return false;
   }

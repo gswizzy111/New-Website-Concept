@@ -40,7 +40,11 @@ export function linkLifetimeText(minutes: number): string {
 export function checkoutReminderEmail(input: CheckoutReminderEmailInput): { subject: string; html: string; text: string } {
   const site = siteUrl();
   const siteHost = new URL(site).host;
-  const firstName = (input.customerName ?? "").trim().split(/\s+/)[0] || "there";
+  // Only something that looks like a first name is used; anything else (a
+  // link, an address, digits, a very long word) becomes "there", so the email
+  // can't be used to send someone else words of the sender's choosing
+  const firstWord = (input.customerName ?? "").trim().split(/\s+/)[0] ?? "";
+  const firstName = /^[\p{L}][\p{L}'’-]{0,29}$/u.test(firstWord) ? firstWord : "there";
   const kind = input.isPrep ? "prep order" : "restoration order";
   const cards = `${input.cardCount} ${input.cardCount === 1 ? "card" : "cards"}`;
   const summary = `You started a ${kind} (#${input.orderNumber}, ${cards}, ${money(input.totalCents)}) but didn't finish paying, so it isn't placed yet and you haven't been charged.`;

@@ -17,7 +17,7 @@ import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { US_STATES } from "@/lib/constants";
 import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
 import { FIELD_MESSAGES, isUSState, isValidEmail, isValidPhone } from "@/lib/checkout-validation";
-import { FieldNote } from "@/components/order-builder/step-customer";
+import { FieldNote } from "@/components/checkout/field-note";
 
 type CardRow = CardIdentity & {
   id: string;
@@ -372,7 +372,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     // Lists everything to fix by the button, outlines each field in red and scrolls to the first
     if (problems.length > 0) {
       setShowMissing(true);
-      trackCheckout("prep", "blocked", { step: 1, code: `missing_${problems[0].key}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64), cards: filledCards.length });
+      trackCheckout("prep", "blocked", { step: 1, code: `missing_${problems[0].key.split("-")[0]}`.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 64), cards: filledCards.length });
       revealMissing();
       return;
     }
@@ -673,6 +673,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
                   className={input}
                   placeholder="123 Main St"
+                  invalid={miss(street1)}
                 />
               </Need>
               <div>
@@ -952,17 +953,17 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               {problems.map((p) => (
                 <li key={p.key}>
                   {p.target ? (
-                    <button type="button" onClick={() => goToField(p.target!)} className="-mx-1 min-h-11 rounded-md px-1 py-1.5 text-left font-semibold underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
+                    <button type="button" onClick={() => goToField(p.target!)} className="-mx-1 min-h-11 max-w-full rounded-md px-1 py-1.5 text-left [overflow-wrap:anywhere] font-semibold underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
                       {p.text}
                     </button>
                   ) : (
-                    <p className="py-1.5 font-semibold">{p.text}</p>
+                    <p className="py-1.5 font-semibold [overflow-wrap:anywhere]">{p.text}</p>
                   )}
                   {p.cards && (
                     <ul className="mb-1 flex flex-col pl-4">
                       {p.cards.map((c) => (
                         <li key={c.target}>
-                          <button type="button" onClick={() => goToField(c.target)} className="-mx-1 min-h-11 rounded-md px-1 py-1.5 text-left underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
+                          <button type="button" onClick={() => goToField(c.target)} className="-mx-1 min-h-11 max-w-full rounded-md px-1 py-1.5 text-left [overflow-wrap:anywhere] underline underline-offset-4 decoration-red-700/40 hover:decoration-red-700 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-cobalt">
                             {c.label}
                           </button>
                         </li>
@@ -979,7 +980,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-[inset_0_0_0_1.5px_#b42318]">{error}</div>
         )}
 
-        <button type="submit" disabled={submitting}
+        <button type="submit" data-total-bar-avoid disabled={submitting}
           className="btn btn-sun btn-lg w-full whitespace-normal px-5 text-center disabled:opacity-60">
           {submitting ? "Redirecting to checkout…" : SIGN_BUTTON_LABEL}
         </button>

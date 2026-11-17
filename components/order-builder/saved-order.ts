@@ -260,9 +260,16 @@ function takeResumeLink(): SavedOrder | null {
     } else {
       // The first script on the page (lib/tracking-guard.ts) usually moves the
       // link's cards here before analytics load, so they never reach them
-      const pending = window.sessionStorage.getItem(RESUME_PENDING_KEY);
+      const w = window as unknown as { __resumePending?: string };
+      let pending: string | null = w.__resumePending ?? null;
+      delete w.__resumePending;
+      try {
+        pending = pending || window.sessionStorage.getItem(RESUME_PENDING_KEY);
+        window.sessionStorage.removeItem(RESUME_PENDING_KEY);
+      } catch {
+        // Storage blocked: the page variable is all there is
+      }
       if (!pending) return null;
-      window.sessionStorage.removeItem(RESUME_PENDING_KEY);
       value = pending;
     }
   } catch {

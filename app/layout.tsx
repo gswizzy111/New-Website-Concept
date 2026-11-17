@@ -81,7 +81,7 @@ export default function RootLayout({
         <JsonLd data={ORGANIZATION} />
         <MetaPixelRouteTracker />
         {children}
-        <Toaster richColors position="bottom-right" />
+        <Toaster richColors position="bottom-right" mobileOffset={{ bottom: "calc(var(--total-bar-h, 0px) + 16px)" }} />
       </body>
     </html>
   );

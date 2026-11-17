@@ -241,6 +241,23 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     tierAvailability.availability,
     tiers,
   );
+  /** Back to the cards step, at the first card whose tier can't take the order, with focus on its tier choices. */
+  function chooseAnotherTier() {
+    const unavailable = new Set(tierProblems.flatMap((p) => (p.kind === "shop_closed" ? [] : [p.tierId])));
+    const target = cards.find((c) => {
+      const t = c.tier ?? selectedTier;
+      return !!t && unavailable.has(t);
+    });
+    goToStep(1);
+    if (!target) return;
+    window.setTimeout(() => {
+      const picker = document.querySelector<HTMLElement>(`[data-tier-picker="${CSS.escape(target.id)}"]`);
+      if (!picker) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      picker.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+      picker.querySelector<HTMLElement>("button:not([disabled])")?.focus({ preventScroll: true });
+    }, 60);
+  }
   function trySign() {
     if (backToFailingStep()) return;
     if (openUnsignedSlab()) return;
@@ -330,6 +347,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
         const msg = typeof data.error === "string" ? data.error : "Something went wrong. Please try again.";
         const code = typeof data.code === "string" ? data.code : "CHECKOUT_ERROR";
         track("rejected", { code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}` });
+        // A tier that sold out or closed between the last check and Sign: read the
+        // tiers again so the notice with "Choose another tier" shows too
+        if (code === "TIER_SOLD_OUT" || code === "TIER_CLOSED" || code === "TIER_FULL") tierAvailability.recheck();
         // Use server-generated ref if available; fall back to client-generated
         const ref = typeof data.ref === "string" ? data.ref : `${code}-${Date.now().toString(36).toUpperCase()}`;
         setCheckoutError({ message: msg, ref });
@@ -500,9 +520,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
           )}
 
           {/* A tier on the order closed or sold out: pick another before signing */}
-          {step === 4 && <TierAvailabilityNotice problems={tierProblems} onChooseTier={() => goToStep(1)} />}
+          {step === 4 && <TierAvailabilityNotice problems={tierProblems} onChooseTier={chooseAnotherTier} />}
 
-          <div className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
+          <div data-total-bar-avoid className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
             <Button
               variant="outline"
               size="lg"

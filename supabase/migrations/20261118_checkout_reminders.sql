@@ -13,6 +13,10 @@
 -- additive and safe to run more than once. Nothing else about the order
 -- (status, total, tier slot, gift card hold) is touched by the reminder.
 
+-- Apply before deploying the code that reads it (lib/checkout-reminder.ts).
+-- Adding a nullable column without a default only changes the catalog; the
+-- short lock timeout makes it give up instead of queueing behind a long query.
+set lock_timeout = '5s';
 alter table public.orders add column if not exists payment_reminder_sent_at timestamptz;
 
 comment on column public.orders.payment_reminder_sent_at is

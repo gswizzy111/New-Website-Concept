@@ -8,6 +8,9 @@ import { isInAppBrowser as inAppBrowser } from "@/lib/in-app-browser";
 import { trackCheckout, type CheckoutFlow } from "@/lib/checkout-funnel";
 import { cta } from "@/components/brand/button-class";
 
+/** Keys for photos still uploading (unique for the page; no crypto.randomUUID needed). */
+let photoSeq = 0;
+
 interface PhotoUploaderProps {
   photoUrls: string[];
   onChange: (urls: string[]) => void;
@@ -203,7 +206,7 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS, flow
     }
 
     const items: PendingPhoto[] = toUpload.map((file) => {
-      const key = crypto.randomUUID();
+      const key = `photo-${++photoSeq}`;
       let preview = "";
       try {
         preview = URL.createObjectURL(file);
@@ -276,7 +279,7 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS, flow
               <button
                 type="button"
                 onClick={() => remove(url)}
-                className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-ink text-white shadow-[0_0_0_2px_var(--white)] transition-colors hover:bg-destructive focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-cobalt"
+                className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-ink text-white shadow-[0_0_0_2px_var(--white)] transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-destructive focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-cobalt"
                 aria-label="Remove photo"
               >
                 <X className="h-4 w-4" strokeWidth={2.5} />

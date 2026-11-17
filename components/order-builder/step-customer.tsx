@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { Input, PIXEL_FIELD } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,6 +16,7 @@ import type { CustomerInfo } from "@/lib/types";
 import { Need, Req } from "@/components/checkout/required";
 import { FORM_PANEL, STEP_TITLE } from "@/components/checkout/form-styles";
 import { contactProblems, type ContactField } from "@/lib/checkout-validation";
+import { FieldNote } from "@/components/checkout/field-note";
 
 const INPUT_CN = PIXEL_FIELD;
 
@@ -28,15 +29,7 @@ interface StepCustomerProps {
 }
 
 /** What to fix, under a field (the look of <Need>'s note, with an id for aria-describedby). Also used by the prep form. */
-export function FieldNote({ id, text }: { id: string; text: string | null }) {
-  if (!text) return null;
-  return (
-    <p id={id} className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-destructive" role="alert">
-      <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded-full bg-destructive text-[11px] font-black leading-none text-white">!</span>
-      {text}
-    </p>
-  );
-}
+export { FieldNote };
 
 export function StepCustomer({ customer, onChange, showMissing = false }: StepCustomerProps) {
   const isUS = customer.country === "US";
@@ -64,20 +57,9 @@ export function StepCustomer({ customer, onChange, showMissing = false }: StepCu
     </Need>
   );
 
-  // The street field (address autocomplete) takes no aria props: set them on its input
+  // The street field (address autocomplete) takes its invalid state and note as props
   const streetProblem = problemOf("street1");
   const streetNote = noteId("street1");
-  useEffect(() => {
-    const el = document.getElementById("street1");
-    if (!el) return;
-    if (streetProblem) {
-      el.setAttribute("aria-invalid", "true");
-      el.setAttribute("aria-describedby", streetNote);
-    } else {
-      el.removeAttribute("aria-invalid");
-      el.removeAttribute("aria-describedby");
-    }
-  });
 
   function update(patch: Partial<CustomerInfo>) {
     onChange({ ...customer, ...patch });
@@ -153,7 +135,9 @@ export function StepCustomer({ customer, onChange, showMissing = false }: StepCu
               value={customer.street1}
               onChange={(v) => update({ street1: v })}
               onPlaceSelect={(f) => update({ street1: f.street1, city: f.city, state: f.state, zip: f.zip })}
-              className={INPUT_CN}
+              className={`${INPUT_CN} aria-invalid:border-destructive aria-invalid:outline-2 aria-invalid:outline-solid aria-invalid:outline-destructive/30`}
+              invalid={!!streetProblem}
+              describedBy={streetProblem ? streetNote : undefined}
             />
           </div>
         </>)}

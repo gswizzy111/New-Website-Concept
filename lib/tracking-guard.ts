@@ -103,17 +103,30 @@ export function trackingGuardScript(): string {
   // A #resume= link (components/order-builder/saved-order.ts) carries the
   // cards someone typed from an in-app browser to Safari or Chrome. It holds
   // no personal data, but it stays out of analytics too: parked for this tab
-  // and taken out of the address before either tracker loads.
-  if (/(^#|&)resume=/.test(here.hash)) {
-    try {
-      var rest = here.hash.slice(1).split('&').filter(function (part) {
-        if (part.indexOf('resume=') === 0) { w.sessionStorage.setItem('carddoc:order-builder:resume-pending', part.slice(7)); return false; }
-        return part !== '';
-      }).join('&');
-      h.replaceState(h.state, '', here.pathname + here.search + (rest ? '#' + rest : ''));
-      here = new URL(l.href);
-    } catch (e) {}
+  // (sessionStorage, or a page variable when storage is blocked) and taken
+  // out of the address before either tracker loads. Pasted into a tab that is
+  // already open, only the hash changes: the same happens, then the page
+  // reloads so the order builder picks the cards up.
+  function parkResume(url) {
+    if (!/(^#|&)resume=/.test(url.hash)) return false;
+    var rest = url.hash.slice(1).split('&').filter(function (part) {
+      if (part.indexOf('resume=') === 0) {
+        var value = part.slice(7);
+        if (value) {
+          w.__resumePending = value;
+          try { w.sessionStorage.setItem('carddoc:order-builder:resume-pending', value); } catch (e) {}
+        }
+        return false;
+      }
+      return part !== '';
+    }).join('&');
+    try { h.replaceState(h.state, '', url.pathname + url.search + (rest ? '#' + rest : '')); } catch (e) {}
+    return true;
   }
+  try { if (parkResume(here)) here = new URL(l.href); } catch (e) {}
+  w.addEventListener('hashchange', function () {
+    try { if (parkResume(new URL(l.href))) l.reload(); } catch (e) {}
+  });
 
   function stop() {
     w.__noTrack = true;

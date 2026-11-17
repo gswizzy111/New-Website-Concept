@@ -100,6 +100,14 @@ export function InAppBrowserNotice({
   useEffect(() => {
     if (!show || tracked.current) return;
     tracked.current = true;
+    // Once per tab and flow, so the tier page and the builder count one visit once
+    const seenKey = `carddoc:in-app-notice:${flow}`;
+    try {
+      if (window.sessionStorage.getItem(seenKey)) return;
+      window.sessionStorage.setItem(seenKey, "1");
+    } catch {
+      // Storage blocked: count it anyway
+    }
     trackCheckout(flow, "in_app_notice");
   }, [show, flow]);
 
@@ -136,6 +144,9 @@ export function InAppBrowserNotice({
             // Rebuilt on tap, so it carries the cards entered by then
             href={chromeIntentUrl(window.location.href)}
             onClick={(e) => { e.currentTarget.href = chromeIntentUrl(pageHref(carryProgress)); }}
+            // A long-press or keyboard focus copies / opens the link with the latest cards too
+            onPointerDown={(e) => { e.currentTarget.href = chromeIntentUrl(pageHref(carryProgress)); }}
+            onFocus={(e) => { e.currentTarget.href = chromeIntentUrl(pageHref(carryProgress)); }}
             className={cta({ tone: "ink", className: "w-full sm:w-auto" })}
           >
             <ExternalLink aria-hidden className="size-[18px]" strokeWidth={1.75} />
