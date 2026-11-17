@@ -10,6 +10,7 @@ import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { INSURANCE_ENABLED } from "@/lib/site-config";
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
+import { ItemError, MISSING_TILE } from "@/components/checkout/signing-section";
 import { Req } from "@/components/checkout/required";
 import type { InsuranceType } from "@/lib/types";
 import { CHOICE, CHOICE_FOCUS, CHOICE_ON, FORM_PANEL, BLOCK_TITLE, NOTE_OK, STEP_TITLE, TEXT_ACTION } from "@/components/checkout/form-styles";
@@ -186,11 +187,14 @@ export function StepReview({
     if (e === "purchased") prefillInsuranceAmount();
   }
   // Back on this step having chosen to buy: price the amount again so the
-  // coverage choices show, or prefill it if it's still empty
+  // coverage choices show, or prefill it if it's still empty (once, after mount)
   useEffect(() => {
     if (!INSURANCE_ENABLED || insuranceElection !== "purchased") return;
-    if (insurance.declaredValueCents > 0) fetchInsuranceQuote(insurance.declaredValueCents);
-    else prefillInsuranceAmount();
+    const t = setTimeout(() => {
+      if (insurance.declaredValueCents > 0) fetchInsuranceQuote(insurance.declaredValueCents);
+      else prefillInsuranceAmount();
+    }, 0);
+    return () => clearTimeout(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleInsuranceTypeChange(type: InsuranceType) {
@@ -236,6 +240,10 @@ export function StepReview({
 
   // We can only insure the trip to us when we buy that label
   const insuranceOptions: Exclude<InsuranceType, "none">[] = shippingMethod === "buy_label" ? ["inbound", "round_trip"] : ["return"];
+
+  // "Buy" is chosen: each missing piece (the amount, then the coverage) gets its own red note
+  const insuranceAmountMissing = showMissing && insuranceElection === "purchased" && insurance.declaredValueCents <= 0;
+  const insuranceTypeMissing = showMissing && insuranceElection === "purchased" && insurance.declaredValueCents > 0 && insurance.type === "none";
 
   const effectiveDiscountPct = Math.max(discountPercent, loyaltyDiscountPercent);
   const totals = computeOrderTotals({
@@ -325,9 +333,8 @@ export function StepReview({
           election={insuranceElection}
           onElection={chooseInsurance}
           showMissing={showMissing}
-          purchaseMissing={!(insurance.declaredValueCents > 0 && insurance.type !== "none")}
         >
-          <div className="flex flex-col gap-1.5">
+          <div data-missing={insuranceAmountMissing || undefined} className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-ink" htmlFor="insurance-amount">Amount to insure<Req /></label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">$</span>
@@ -341,26 +348,31 @@ export function StepReview({
                 onChange={(e) => setInsuranceDollars(e.target.value)}
                 onBlur={handleDeclaredValueBlur}
                 placeholder="e.g. 500"
-                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                aria-required="true"
+                aria-invalid={insuranceAmountMissing || undefined}
+                aria-describedby={insuranceAmountMissing ? "insurance-amount-error insurance-amount-hint" : "insurance-amount-hint"}
+                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt aria-invalid:border-destructive aria-invalid:bg-red-50 md:text-[15px]"
               />
               {quotingInsurance && <span className="text-xs text-muted-foreground">Getting rate...</span>}
             </div>
-            <p className="text-xs text-muted-foreground">The value of the cards in the package ($1 to $10,000)</p>
+            {insuranceAmountMissing && <ItemError id="insurance-amount-error" className="mt-0">Enter the amount to insure.</ItemError>}
+            <p id="insurance-amount-hint" className="text-xs text-muted-foreground">The value of the cards in the package ($1 to $10,000)</p>
           </div>
 
-          {insuranceQuote && insurance.declaredValueCents > 0 && (
-            <div className="flex flex-col gap-2">
-              {insuranceOptions.map((type) => {
+          {((insuranceQuote && insurance.declaredValueCents > 0) || insuranceTypeMissing) && (
+            <div data-missing={insuranceTypeMissing || undefined} className="flex flex-col gap-2">
+              {insuranceQuote && insurance.declaredValueCents > 0 && insuranceOptions.map((type) => {
                 const { label, sub } = INSURANCE_OPTION_LABELS[type];
                 const price = type === "round_trip" ? insuranceQuote.roundTripChargeCents : insuranceQuote.customerChargeCents;
                 return (
-                  <label key={type} className={cn("flex cursor-pointer items-start gap-3 p-3.5", CHOICE, CHOICE_FOCUS, insurance.type === type && CHOICE_ON)}>
+                  <label key={type} className={cn("flex cursor-pointer items-start gap-3 p-3.5", CHOICE, CHOICE_FOCUS, insurance.type === type && CHOICE_ON, insuranceTypeMissing && MISSING_TILE)}>
                     <input
                       type="radio"
                       name="insurance-type"
                       checked={insurance.type === type}
                       onChange={() => handleInsuranceTypeChange(type)}
                       className="mt-0.5"
+                      aria-describedby={insuranceTypeMissing ? "insurance-type-error" : undefined}
                     />
                     <div className="flex-1">
                       <span className="text-sm font-bold text-ink">{label}</span>
@@ -370,10 +382,11 @@ export function StepReview({
                   </label>
                 );
               })}
+              {insuranceTypeMissing && <ItemError id="insurance-type-error" className="mt-0 px-1">Pick a coverage.</ItemError>}
             </div>
           )}
 
-          {!insuranceQuote && insurance.declaredValueCents === 0 && (
+          {!insuranceQuote && insurance.declaredValueCents === 0 && !insuranceAmountMissing && (
             <p className="text-xs text-muted-foreground italic">Enter the amount to insure to see the price.</p>
           )}
         </InsuranceElectionBox>
