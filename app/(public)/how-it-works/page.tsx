@@ -50,7 +50,7 @@ const STEPS = [
         <List
           items={[
             "Card details & current declared value",
-            "1 to 4 clear photos (required)",
+            "1 to 3 clear photos (required)",
             <><strong className="font-bold text-white">Order notes:</strong> Let us know if a card is strictly for your Personal Collection (not being graded) so we know which techniques are on the table.</>,
           ]}
         />
