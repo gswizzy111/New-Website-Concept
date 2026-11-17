@@ -18,6 +18,10 @@ import { Download } from "lucide-react";
 import { Eyebrow, PAGE_TITLE, PANEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
 import { cta } from "@/components/brand";
 import { labelHref } from "@/lib/label-link";
+import { replyToAddress } from "@/lib/resend";
+
+// "Questions? Email us at …", as on thecarddoc1.com (CONTACT_EMAIL, else the business email)
+const QUESTIONS_EMAIL = process.env.CONTACT_EMAIL?.trim() || process.env.BUSINESS_SHIPPING_EMAIL?.trim() || replyToAddress;
 
 /** The page frame: the slim header, then the column on chalk. */
 function Shell({ children }: { children: React.ReactNode }) {
@@ -185,9 +189,9 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
       {!kitCancelled && <ReportProblem orderRef={`K${order.order_number}`} email={email} />}
 
       <p className="text-center text-sm text-ink-soft">
-        Questions? DM us on Instagram{" "}
-        <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className={PORTAL_LINK}>
-          @the_card_doc
+        Questions? Email us at{" "}
+        <a href={`mailto:${QUESTIONS_EMAIL}`} className={PORTAL_LINK}>
+          {QUESTIONS_EMAIL}
         </a>
       </p>
     </Shell>
@@ -547,7 +551,7 @@ export default async function OrderDetailPage({
       <ReportProblem orderRef={String(order.order_number)} email={email} />
 
       <p className="text-center text-sm text-ink-soft">
-        Questions? DM us on Instagram <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className={PORTAL_LINK}>@the_card_doc</a>
+        Questions? Email us at <a href={`mailto:${QUESTIONS_EMAIL}`} className={PORTAL_LINK}>{QUESTIONS_EMAIL}</a>
       </p>
     </Shell>
   );

@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { catalogProduct } from "@/lib/shop-catalog";
+import { PREVIEW_MODE } from "@/lib/preview";
 import { productRating } from "@/lib/shop-ratings";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
@@ -20,8 +21,9 @@ export const dynamic = "force-dynamic";
 const getProduct = cache(async (slug: string) => {
   const admin = createAdminClient();
   const { data } = await admin.from("products").select("*").eq("slug", slug).eq("active", true).single();
-  // No database product (this preview has none): fall back to the shop's listed item.
-  return data ?? catalogProduct(slug) ?? null;
+  // Only a preview (no database products) falls back to the shop's listed item;
+  // the live site shows active products only, as on thecarddoc1.com (else 404).
+  return data ?? (PREVIEW_MODE ? catalogProduct(slug) ?? null : null);
 });
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

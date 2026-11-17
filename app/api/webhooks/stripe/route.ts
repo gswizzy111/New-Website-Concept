@@ -764,8 +764,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           to: adminEmail,
           subject: `New Kit Order — ${customerName}`,
           html: `
-            <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-              <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">New kit order!</h1>
+            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
+              <h1 style="font-size:20px;font-weight:900">New kit order!</h1>
               <p><strong>${esc(customerName)}</strong> just purchased a kit.</p>
               <p style="color:#666;font-size:14px">${esc(customerEmail)} · ${esc(customerPhone)}</p>
               ${addrLine ? `<p style="font-size:14px"><strong>Ship to:</strong> ${esc(addrLine)}</p>` : ""}
@@ -775,7 +775,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
                   ? `<p style="font-size:14px"><strong>Label bought:</strong> ${esc(shippingService || "shipping label")}${kitLabel.trackingNumber ? ` · ${esc(kitLabel.trackingNumber)}` : ""} · <a href="${esc(kitLabel.labelUrl)}">Print label</a>${kitLabel.customsUrl ? ` · <a href="${esc(kitLabel.customsUrl)}">Customs invoice</a>` : ""}</p>`
                   : `<p style="font-size:14px;color:#b91c1c"><strong>The label couldn't be bought:</strong> ${esc(kitLabelError)}. Buy it from Kit Orders.</p>`
                 : ""}
-              <a href="${appUrl}/admin/shop-orders" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Kit Orders</a>
+              <a href="${appUrl}/admin/shop-orders" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Kit Orders</a>
             </div>
           `,
         });
@@ -1487,8 +1487,8 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
           ? `🔬 New Prep Order #${o.order_number} — ${o.customer_name}`
           : `📦 New Restoration Order #${o.order_number} — ${o.customer_name}`,
         html: `
-          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">${isPrep ? "New prep order!" : "New restoration order!"}</h1>
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-size:20px;font-weight:900">${isPrep ? "New prep order!" : "New restoration order!"}</h1>
             <p><strong>${esc(o.customer_name)}</strong> just placed order <strong>#${esc(o.order_number)}</strong>.</p>
             <table style="font-size:14px;width:100%;border-collapse:collapse;margin:12px 0">
               <tr><td style="padding:4px 0;color:#666;width:120px">Email</td><td style="font-weight:600">${esc(o.customer_email)}</td></tr>
@@ -1497,7 +1497,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
               <tr><td style="padding:4px 0;color:#666">Shipping</td><td style="font-weight:600">${esc(o.inbound_carrier ? `${o.inbound_carrier} — ${o.inbound_service_level}` : o.return_carrier ? `Self-ship; return paid: ${o.return_carrier} — ${o.return_service_level}` : "Self-ship")}</td></tr>
             </table>
             ${inboundShippingBlock}
-            <a href="${appUrl2}/admin/orders/${esc(orderId)}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
+            <a href="${appUrl2}/admin/orders/${esc(orderId)}" style="display:inline-block;background:#c0392b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
           </div>
         `,
       });

@@ -168,7 +168,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         admin.from("order_events").insert({
           order_id: id,
           event_type: "status_updated",
-          description: `Marked Delivered — ${returnCarrier?.name ?? "USPS"} confirmed delivery of return package.`,
+          description: "Marked Delivered — USPS confirmed delivery of return package.",
           is_customer_visible: true,
         }),
       ]);

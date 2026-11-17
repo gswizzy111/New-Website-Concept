@@ -9,6 +9,7 @@ import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { likeExact } from "@/lib/like-exact";
 import { ArrowLeft } from "lucide-react";
+import { replyToAddress } from "@/lib/resend";
 import { Eyebrow, PAGE_TITLE, PANEL, PANEL_LABEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
@@ -175,8 +176,9 @@ export default async function KitOrderPage({
 
         <p className="text-center text-sm text-ink-soft">
           Questions?{" "}
-          <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className={PORTAL_LINK}>
-            DM us on Instagram
+          {/* thecarddoc1.com's "Contact us" email link (CONTACT_EMAIL, else the site's reply-to address) */}
+          <a href={`mailto:${replyToAddress}`} className={PORTAL_LINK}>
+            Contact us
           </a>
         </p>
       </div>

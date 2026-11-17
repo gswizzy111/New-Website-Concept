@@ -242,10 +242,18 @@ export async function refundCard(
   if (!order) return fail("Order not found", 404);
 
   const facts = await gateFacts(admin, card.order_id);
-  const firstGate = cardGate(card as GateCard, facts);
-  if (firstGate.nonRefundableNote && firstGate.refundableCents === 0) return fail(nonRefundableText(), 409);
-  if (firstGate.refundableCents <= 0) return fail("Nothing left to refund for this card.", 409);
-  if (order.payment_status !== "paid" && order.payment_status !== "partially_refunded") {
+  // A request with an id may be a retry whose earlier try already refunded the card
+  // (and marked it, and maybe the order, refunded): the request's refund history
+  // below decides what is left, so the early checks only apply without one.
+  const requestId = opts.requestId ?? null;
+  if (!requestId) {
+    const firstGate = cardGate(card as GateCard, facts);
+    if (firstGate.nonRefundableNote && firstGate.refundableCents === 0) return fail(nonRefundableText(), 409);
+    if (firstGate.refundableCents <= 0) return fail("Nothing left to refund for this card.", 409);
+  }
+  const paid = order.payment_status === "paid" || order.payment_status === "partially_refunded"
+    || (!!requestId && order.payment_status === "refunded");
+  if (!paid) {
     return fail("This order hasn't been paid.", 400);
   }
   if (!order.stripe_payment_intent_id && !order.stripe_session_id) return fail("No Stripe payment on this order.", 400);
@@ -263,7 +271,6 @@ export async function refundCard(
   const kind = kindOf(order.restoration_tier);
 
   // What was refunded before, and what this same request already refunded on an earlier try
-  const requestId = opts.requestId ?? null;
   let history: RefundHistory;
   try {
     history = await refundHistory(admin, {
@@ -282,7 +289,17 @@ export async function refundCard(
     return fail(caughtUpError(total), 409);
   }
 
-  const gate = cardGate({ ...(card as GateCard), refunded_cents: history.cardRefundedBefore }, facts);
+  // An earlier try of this request may have marked the card refunded: judge it as before that try
+  const retried = history.prior.length > 0;
+  const gate = cardGate({
+    ...(card as GateCard),
+    refunded_cents: history.cardRefundedBefore,
+    ...(retried && card.status === "refunded" ? { status: null } : {}),
+  }, facts);
+  if (!retried) {
+    if (gate.nonRefundableNote && gate.refundableCents === 0) return fail(nonRefundableText(), 409);
+    if (gate.refundableCents <= 0) return fail("Nothing left to refund for this card.", 409);
+  }
   const remaining = (order.total_cents ?? 0) - history.orderRefundedBefore;
   const amount = Math.min(gate.refundableCents, remaining);
   if (amount <= 0) return fail("The order is already fully refunded.", 409);
