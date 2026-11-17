@@ -34,7 +34,7 @@ export default async function UnsubscribePage({ searchParams }: { searchParams: 
 
   return (
     <div className="surface-chalk flex min-h-screen flex-1 flex-col">
-      <PortalHeader width="max-w-3xl" sticky={false} />
+      <PortalHeader width="max-w-xl" sticky={false} />
       <div className="flex flex-1 items-center">
         <div className="mx-auto w-full max-w-xl px-4 py-16 md:py-28">
           <div className="rounded-[22px] bg-white px-6 py-8 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] md:px-10 md:py-10">

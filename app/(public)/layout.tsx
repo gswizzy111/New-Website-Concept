@@ -16,7 +16,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
         <PreviewBanner />
         <Nav />
       </div>
-      <main id="main" tabIndex={-1} className="flex-1 outline-none">{children}</main>
+      <main id="main" tabIndex={-1} className="flex-1 outline-hidden">{children}</main>
       <Footer />
       <RevealObserver />
       <SpotlightTracker />

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ArrowRight, Camera } from "lucide-react";
 import { TrustPills } from "@/components/marketing/trust-pills";
 import { JsonLd } from "@/components/seo/json-ld";
-import { INSTAGRAM_URL, breadcrumbs, canonical } from "@/lib/seo";
+import { INSTAGRAM_URL, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { SERVICE_CARDS } from "@/lib/service-cards";
 import { Print, cta } from "@/components/brand";
 import { cn } from "@/lib/utils";
@@ -13,11 +13,11 @@ import garchomp from "@/public/home/garchomp.jpg";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/start", {
   title: "What Are You Sending? | The Card Doc",
   description: "Expert card restoration & PSA prep — every card treated like it's worth a fortune.",
   alternates: canonical("/start"),
-};
+});
 
 const STEPS = [
   "Choose Your Service, Tier, and Add-Ons",
@@ -43,16 +43,16 @@ export default function StartPage() {
           </p>
 
           {/* The two services, each with a real card as a print */}
-          <ul className="mt-12 grid gap-6 md:mt-16 md:grid-cols-2 md:gap-7">
+          <ul className="mt-12 grid gap-6 md:mt-16 md:gap-7 lg:grid-cols-2">
             <li className="hero-in" style={{ ["--d" as string]: 200 }}>
               <Link
                 href={restoration.href}
                 className="surface-cobalt group relative isolate flex h-full flex-col overflow-hidden rounded-2xl p-7 md:p-9"
               >
                 <span aria-hidden className="halftone-dots -right-[10%] -bottom-[25%] h-[90%] w-[70%]" />
-                <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem]">
+                <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem] lg:grid-cols-[minmax(0,1fr)_7.5rem] xl:grid-cols-[minmax(0,1fr)_9.5rem]">
                   <span>
-                    <span className="caps block font-display text-[36px] font-black leading-[0.88] sm:text-[48px] md:text-[60px]">{restoration.name}</span>
+                    <span className="caps block font-display text-[clamp(28px,9.2vw,36px)] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{restoration.name}</span>
                     <span className="mt-4 block text-[16px] leading-relaxed text-[#e6ebff] md:text-[17px]">{restoration.line}</span>
                   </span>
                   <Print
@@ -81,9 +81,9 @@ export default function StartPage() {
                 href={prep.href}
                 className="group relative flex h-full flex-col rounded-2xl bg-white p-7 text-ink shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] md:p-9"
               >
-                <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem]">
+                <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem] lg:grid-cols-[minmax(0,1fr)_7.5rem] xl:grid-cols-[minmax(0,1fr)_9.5rem]">
                   <span>
-                    <span className="caps block font-display text-[36px] font-black leading-[0.88] sm:text-[48px] md:text-[60px]">{prep.name}</span>
+                    <span className="caps block font-display text-[clamp(28px,9.2vw,36px)] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{prep.name}</span>
                     <span className="mt-4 block text-[16px] leading-relaxed text-ink-soft md:text-[17px]">{prep.line}</span>
                   </span>
                   <Print
@@ -178,7 +178,7 @@ export default function StartPage() {
                 <p className="mt-2 text-[15px] font-medium text-ink-soft">We reply within 1 business day.</p>
               </div>
             </div>
-            <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={cta({ size: "lg", className: "self-start whitespace-normal sm:self-auto" })}>
+            <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={cta({ size: "lg", className: "w-full justify-center text-center sm:w-auto sm:self-auto sm:whitespace-nowrap" })}>
               DM us on @the_card_doc
               <span className="sr-only">on Instagram (opens in a new tab)</span>
             </a>

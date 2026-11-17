@@ -92,7 +92,7 @@ export function DiamondCard({
             {showSlots && (
               <div className={FACT_ROW}>
                 <dt className="label-caps text-[14px] text-on-dark-muted @min-[16.5rem]:self-center">Slots</dt>
-                <dd className={cn("tabular-nums @min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-sun" : "font-bold text-white")}>
+                <dd className={cn("@min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-sun" : "font-bold text-white")}>
                   {slotsLeft} left
                 </dd>
               </div>
@@ -117,7 +117,7 @@ export function DiamondCard({
                   placeholder="e.g. 6000"
                   value={rawValue}
                   onChange={(e) => setRawValue(e.target.value)}
-                  className="h-11 w-full rounded-[12px] border-[1.5px] border-transparent bg-white pr-3 pl-7 text-base text-ink tabular-nums outline-none [appearance:textfield] placeholder:text-ink-soft focus-visible:border-sun focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sun md:text-[15px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  className="h-11 w-full rounded-[12px] border-[1.5px] border-transparent bg-white pr-3 pl-7 text-base text-ink outline-hidden [appearance:textfield] placeholder:text-ink-soft focus-visible:border-sun focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-sun md:text-[15px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 />
               </div>
             </div>

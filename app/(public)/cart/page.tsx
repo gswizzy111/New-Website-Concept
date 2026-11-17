@@ -2,10 +2,11 @@
 
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
+import { thumbnail } from "@/lib/thumbnail";
 import Link from "next/link";
 import { ArrowRight, Minus, Package, Plus, Trash2 } from "lucide-react";
-import { Print, cta } from "@/components/brand";
-import charmanderAfter from "@/public/home/charmander-after.jpg";
+import { cta } from "@/components/brand";
+import { EmptyCart } from "./empty-cart";
 import { BLOCK_TITLE, FORM_PANEL, SUM_ROW, SUM_TOTAL } from "@/components/checkout/form-styles";
 
 const TAX_RATE = 0.06625;
@@ -17,37 +18,7 @@ export default function CartPage() {
   const { items, totalCents, removeItem, updateQty } = useCart();
   const taxCents = Math.round(totalCents * TAX_RATE);
 
-  if (items.length === 0) {
-    return (
-      <section className="surface-chalk flex min-h-[70vh] items-center py-16 md:py-24">
-        <div className="wrap">
-          <div className="mx-auto flex max-w-xl flex-col items-center text-center">
-            <Print
-              src={charmanderAfter}
-              alt="A restored Base Set Charmander card"
-              aspect="364/503"
-              tilt={-5}
-              border="sm"
-              enterDelay={80}
-              sizes="128px"
-              className="mb-10 w-28 md:w-32"
-            />
-            <h1 className="font-heading text-[2.75rem] leading-[0.92] font-black text-ink md:text-[3.5rem]">Your cart is empty</h1>
-            <p className="mt-4 mb-8 text-[17px] text-ink-soft">Browse the shop to add products.</p>
-            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-              <Link href="/shop" className={cta({ tone: "sun", size: "lg", className: "w-full sm:w-auto" })}>
-                Browse Shop
-                <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
-              </Link>
-              <Link href="/tier-selection" className={cta({ tone: "outline", size: "lg", className: "w-full sm:w-auto" })}>
-                Book a Restoration
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  if (items.length === 0) return <EmptyCart />;
 
   const count = items.reduce((n, i) => n + i.quantity, 0);
 
@@ -70,7 +41,7 @@ export default function CartPage() {
                   <div className="row-span-2 size-20 shrink-0 self-start overflow-hidden rounded-[14px] bg-chalk sm:self-auto">
                     {item.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                      <img src={thumbnail(item.image, 80)} alt={item.name} decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <div aria-hidden className="grid h-full w-full place-items-center text-ink/25">
                         <Package className="size-8" strokeWidth={1.25} />
@@ -80,7 +51,7 @@ export default function CartPage() {
                   <div className="min-w-0 flex-1">
                     <p className="font-heading text-[1.35rem] leading-[1.02] font-extrabold text-ink">{item.name}</p>
                     {item.size && <p className="mt-1 text-sm text-ink-soft">Size: {item.size}</p>}
-                    <p className="mt-1 text-sm text-ink-soft tabular-nums">{formatCurrency(item.price_cents)}</p>
+                    <p className="mt-1 text-sm text-ink-soft">{formatCurrency(item.price_cents)}</p>
                   </div>
                   {/* Phones: quantity and total share a line under the name; from sm the row is one line */}
                   <div className="col-start-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:contents">
@@ -126,11 +97,11 @@ export default function CartPage() {
               <div className="mb-7 flex flex-col gap-3">
                 <div className={SUM_ROW}>
                   <span>Subtotal</span>
-                  <span className="tabular-nums">{formatCurrency(totalCents)}</span>
+                  <span>{formatCurrency(totalCents)}</span>
                 </div>
                 <div className={SUM_ROW}>
                   <span>Sales Tax (6.625%)</span>
-                  <span className="tabular-nums">{formatCurrency(taxCents)}</span>
+                  <span>{formatCurrency(taxCents)}</span>
                 </div>
                 <div className={SUM_ROW}>
                   <span>Shipping</span>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, PackageCheck } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { cta } from "@/components/brand";
 import { ClearCartAfterPayment } from "@/components/clear-cart-after-payment";
 import { PurchasePixel } from "@/components/purchase-pixel";
@@ -20,30 +20,36 @@ export default async function ShopOrderConfirmedPage({
     "Kit order page",
   );
 
+  // The same cobalt success band as /checkout/success, /gift-cards/success
+  // and /subscribe/success, so every paid order lands on one design.
   return (
-    <section className="surface-chalk flex min-h-[72vh] flex-1 items-center py-16 md:py-24">
+    <section className="surface-cobalt relative isolate flex min-h-[70vh] flex-1 items-center overflow-hidden">
       <PurchasePixel sessionId={sessionId} amountCents={amountCents} currency={currency} />
       <ClearCartAfterPayment paid={!!sessionId && complete !== false} />
-      <div className="wrap">
-        <div className="mx-auto flex max-w-xl flex-col items-center gap-8 rounded-[22px] bg-white px-6 py-10 text-center shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:px-10 sm:py-14">
-          <span aria-hidden className="hero-in grid size-20 place-items-center rounded-[22px] bg-sun text-ink shadow-[var(--cut-edge),0_10px_20px_-10px_rgba(8,12,40,0.5)]">
-            <PackageCheck className="size-10" strokeWidth={1.75} />
-          </span>
-          <div>
-            <h1 className="hero-in font-heading text-[3rem] leading-[0.9] font-black text-ink md:text-[4rem]" style={{ ["--d" as string]: 80 }}>
-              Order Confirmed!
-            </h1>
-            <p className="hero-in lead mx-auto mt-5 text-ink-soft" style={{ ["--d" as string]: 160 }}>
-              Thanks for your order. We&apos;ll ship it out shortly and send you a tracking number.
-            </p>
-          </div>
-          <div className="hero-in flex w-full flex-col gap-3 sm:flex-row sm:justify-center" style={{ ["--d" as string]: 240 }}>
-            <Link href="/shop" className={cta({ tone: "sun", size: "lg", className: "w-full sm:w-auto" })}>
-              Continue Shopping
-              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
-            </Link>
-            <Link href="/" className={cta({ tone: "outline", size: "lg", className: "w-full sm:w-auto" })}>Back to Home</Link>
-          </div>
+      <span aria-hidden className="halftone-dots -right-[10%] -top-[20%] h-[130%] w-[64%]" />
+      <span aria-hidden className="halftone-dots -bottom-[30%] -left-[16%] h-[80%] w-[50%] opacity-70" />
+      <div className="wrap py-20 text-center md:py-28">
+        <span
+          aria-hidden
+          className="sticker-pop mx-auto grid size-20 place-items-center rounded-full bg-sun text-ink shadow-[0_0_0_4px_var(--white),var(--pop-shadow)] md:size-24"
+          style={{ ["--d" as string]: 120 }}
+        >
+          <Check className="size-10 md:size-12" strokeWidth={3} />
+        </span>
+        <h1 className="hero-in display-lg mx-auto mt-9 max-w-4xl text-white" style={{ ["--d" as string]: 200 }}>
+          Order Confirmed!
+        </h1>
+        <p className="hero-in lead mx-auto mt-6 text-[#e6ebff]" style={{ ["--d" as string]: 300 }}>
+          Thanks for your order. We&apos;ll ship it out shortly and send you a tracking number.
+        </p>
+        <div className="hero-in mt-10 flex flex-col justify-center gap-4 sm:flex-row" style={{ ["--d" as string]: 380 }}>
+          <Link href="/shop" className={cta({ size: "lg" })}>
+            Continue Shopping
+            <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+          </Link>
+          <Link href="/" className={cta({ tone: "outline-light", size: "lg" })}>
+            Back to Home
+          </Link>
         </div>
       </div>
     </section>

@@ -10,7 +10,7 @@ const PRESET_AMOUNTS = [25, 50, 75, 100, 150, 200];
 
 // The field look: 48px tall, 12px corners, a 1.5px edge, cobalt focus.
 const FIELD =
-  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
+  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-hidden transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
 const STEP = "label-caps mb-4 flex items-center gap-3 text-[18px] text-ink";
 
 /** The amount chips: sun when chosen, a white tile otherwise. */
@@ -256,7 +256,7 @@ export default function GiftCardsPage() {
             type="button"
             onClick={handleCheckout}
             disabled={loading}
-            className="btn btn-sun btn-lg w-full disabled:opacity-60"
+            className="btn btn-sun btn-lg w-full whitespace-normal text-center max-sm:px-5 disabled:opacity-60"
           >
             {loading
               ? "Redirecting..."

@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowRight, Check, Globe, Info, Lock, ShoppingBag } from "lucide-react";
+import { Check, Globe, Info, Lock } from "lucide-react";
+import { EmptyCart } from "../empty-cart";
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, PIXEL_FIELD } from "@/components/ui/input";
@@ -202,6 +202,7 @@ function CheckoutInner() {
             country: isInternational ? form.country : "US",
           },
           item_names: items.map((i) => i.name),
+          items: items.map((i) => ({ name: i.name, quantity: i.quantity })),
           declared_value_cents: totalCents,
         }),
       });
@@ -295,24 +296,7 @@ function CheckoutInner() {
   const gcApplied = giftCardCents(Math.min(giftCardAmountCents, preTaxTotal), preTaxTotal);
   const finalTotal = preTaxTotal - gcApplied;
 
-  if (items.length === 0) {
-    return (
-      <section className="surface-chalk flex min-h-[70vh] items-center py-16 md:py-24">
-        <div className="wrap">
-          <div className="mx-auto flex max-w-xl flex-col items-center gap-6 rounded-[22px] bg-white px-6 py-12 text-center shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
-            <span aria-hidden className="grid size-20 place-items-center rounded-[22px] bg-chalk text-ink/40">
-              <ShoppingBag className="size-10" strokeWidth={1.5} />
-            </span>
-            <p className="font-heading text-[2.25rem] leading-none font-black text-ink">Your cart is empty.</p>
-            <Link href="/shop" className={cta({ tone: "sun", size: "lg" })}>
-              Browse Shop
-              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
-            </Link>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  if (items.length === 0) return <EmptyCart />;
 
   const codeRow = "flex gap-2.5";
   const applyBtn = cta({ tone: "outline", size: "sm", className: "shrink-0 px-5" });
@@ -390,7 +374,7 @@ function CheckoutInner() {
               </div>
               <Need missing={miss(form.city)} className="flex flex-col gap-1.5">
                 <Label>City<Req /></Label>
-                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="London" autoComplete="address-level2" />
+                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder={isInternational ? "London" : "Chicago"} autoComplete="address-level2" />
               </Need>
               {isInternational ? (
                 <div className="flex flex-col gap-1.5">
@@ -413,7 +397,7 @@ function CheckoutInner() {
               )}
               <Need missing={miss(form.zip)} className="flex flex-col gap-1.5">
                 <Label>Postal Code<Req /></Label>
-                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="SW1A 1AA" autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
+                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder={isInternational ? "SW1A 1AA" : "60601"} autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
               </Need>
             </div>
 
@@ -529,8 +513,8 @@ function CheckoutInner() {
             <div className="mb-6 flex flex-col gap-3">
               {items.map((item) => (
                 <div key={item.id} className={SUM_ROW}>
-                  <span>{item.name} × {item.quantity}</span>
-                  <span className="shrink-0 font-semibold text-ink tabular-nums">{formatCurrency(item.price_cents * item.quantity)}</span>
+                  <span>{item.size ? `${item.name} — ${item.size}` : item.name} × {item.quantity}</span>
+                  <span className="shrink-0 font-semibold text-ink">{formatCurrency(item.price_cents * item.quantity)}</span>
                 </div>
               ))}
               {discountCents > 0 && (
@@ -541,14 +525,14 @@ function CheckoutInner() {
               )}
               <div className={SUM_ROW}>
                 <span>Sales Tax (6.625%)</span>
-                <span className="font-semibold text-ink tabular-nums">{formatCurrency(taxCents)}</span>
+                <span className="font-semibold text-ink">{formatCurrency(taxCents)}</span>
               </div>
               <div className={SUM_ROW}>
                 <span>
                   Shipping{chosenRate ? <span className="block text-xs">{rateName(chosenRate)}</span> : null}
                 </span>
                 {chosenRate
-                  ? <span className="font-semibold text-ink tabular-nums">{formatCurrency(shippingCents)}</span>
+                  ? <span className="font-semibold text-ink">{formatCurrency(shippingCents)}</span>
                   : <span className="text-sm">Choose a speed</span>}
               </div>
               {gcApplied > 0 && (
@@ -600,7 +584,7 @@ function StepNum({ n }: { n: number }) {
 
 export default function ProductCheckoutPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<div className="surface-chalk min-h-[80vh]" />}>
       <CheckoutInner />
     </Suspense>
   );

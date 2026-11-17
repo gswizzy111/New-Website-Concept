@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { StaticImageData } from "next/image";
 import { ArrowRight, Clock, MessageCircle, Package, ShieldAlert, type LucideIcon } from "lucide-react";
-import { canonical } from "@/lib/seo";
+import { canonical, withOg } from "@/lib/seo";
 import { PageHero } from "@/components/marketing/page-hero";
 import { CtaPanel, Print, cta } from "@/components/brand";
 import { SeamlessPrint } from "../seamless-print";
@@ -13,12 +13,12 @@ import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
 import charmanderPair from "@/public/home/charmander-pair.jpg";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/how-it-works", {
   alternates: canonical("/how-it-works"),
-  title: "How It Works — The Card Doc",
+  title: "How It Works | The Card Doc",
   description:
     "The Card Doc is a trading card restoration and grading-prep shop in Ridgewood, New Jersey. Mail us your cards from anywhere in the US, we do the work by hand in our shop, and we ship them back ready for grading or your personal collection.",
-};
+});
 
 function List({ items }: { items: React.ReactNode[] }) {
   return (
@@ -50,7 +50,7 @@ const STEPS = [
         <List
           items={[
             "Card details & current declared value",
-            "1 to 4 clear photos (required)",
+            "1 to 3 clear photos (required)",
             <><strong className="font-bold text-white">Order notes:</strong> Let us know if a card is strictly for your Personal Collection (not being graded) so we know which techniques are on the table.</>,
           ]}
         />
@@ -231,7 +231,7 @@ export default function HowItWorksPage() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <div className="min-w-0">
-                      <h3 className="font-display text-[32px] font-extrabold leading-[0.98] text-white [overflow-wrap:anywhere] hyphens-none md:text-[44px]">
+                      <h3 className="font-display text-[clamp(26px,8.4vw,32px)] font-extrabold leading-[0.98] text-white [overflow-wrap:anywhere] hyphens-none md:text-[44px]">
                         <span className="sr-only">Step {step.n}: </span>
                         {step.title}
                       </h3>

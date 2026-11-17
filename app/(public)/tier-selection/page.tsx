@@ -4,7 +4,7 @@ import { ArrowRight, Check, Clock, Plus, Zap } from "lucide-react";
 import { TrustPills } from "@/components/marketing/trust-pills";
 import { ReviewsBand } from "@/components/marketing/comic-reviews";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
+import { ORG_ID, SITE, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { getAllTiers, applyDbOverride, type RestorationTier } from "@/lib/restoration-tiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
@@ -24,11 +24,11 @@ import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/tier-selection", {
   title: "Restoration Pricing | The Card Doc",
   description: "Surfaces, corners & edges — cleaned and restored to their best. From $75 / card.",
   alternates: canonical("/tier-selection"),
-};
+});
 
 // A tier fact on phones: label over value, two facts to a row. From md, the
 // shared FACT_ROW behaviour (side by side when the card is wide enough).
@@ -128,7 +128,7 @@ function TierCard({
         {showSlots && (
           <div className={cn(FACT, "max-md:col-span-2 max-md:border-t max-md:border-line")}>
             <dt className={FACT_DT_CENTER}>Slots</dt>
-            <dd className={cn("tabular-nums md:@min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-red-700" : "font-bold text-ink")}>
+            <dd className={cn("md:@min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-red-700" : "font-bold text-ink")}>
               {slotsLeft} left
             </dd>
           </div>
@@ -356,7 +356,7 @@ export default async function TierSelectionPage() {
                 aria-label="Jump to a tier"
                 className="sticky top-[var(--header-h)] z-20 -mx-5 mb-4 bg-chalk/95 py-2.5 shadow-[0_1px_0_var(--line)] backdrop-blur-sm md:hidden"
               >
-                <ul className="flex gap-2 overflow-x-auto px-5 py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <ul className="flex gap-2 overflow-x-auto py-0.5 pr-10 pl-5 [mask-image:linear-gradient(to_right,black_calc(100%-40px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {chipTiers.map((t) => (
                     <li key={t.id} className="shrink-0">
                       <a
@@ -364,7 +364,7 @@ export default async function TierSelectionPage() {
                         className="group inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white px-3.5 text-[14px] font-extrabold whitespace-nowrap text-ink shadow-[0_0_0_1px_var(--line)] transition-colors hover:bg-ink hover:text-white focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-cobalt motion-reduce:transition-none"
                       >
                         {t.name}
-                        <span className="text-cobalt tabular-nums group-hover:text-sun">{chipPrice(t)}</span>
+                        <span className="text-cobalt group-hover:text-sun">{chipPrice(t)}</span>
                       </a>
                     </li>
                   ))}

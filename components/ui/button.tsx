@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 const HIT = "after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']"
 
 const buttonVariants = cva(
-  "group/button btn min-h-0 shrink-0 gap-1.5 text-sm outline-none select-none disabled:pointer-events-none disabled:opacity-50 aria-invalid:outline-2 aria-invalid:outline-destructive aria-invalid:outline-offset-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button btn min-h-0 shrink-0 gap-1.5 text-sm outline-hidden focus-visible:outline-solid select-none disabled:pointer-events-none disabled:opacity-50 aria-invalid:outline-2 aria-invalid:outline-solid aria-invalid:outline-destructive aria-invalid:outline-offset-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

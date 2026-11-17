@@ -52,7 +52,7 @@ export function AddToCartButtonLarge({ product, requiresSize }: Props) {
       {requiresSize && (
         <fieldset className="flex flex-col">
           <legend className="label-caps mb-3 text-[15px] text-ink">Select Size</legend>
-          <div className="grid grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-4 gap-2.5 md:grid-cols-2 lg:grid-cols-4">
             {SIZES.map((s) => (
               <button
                 key={s}

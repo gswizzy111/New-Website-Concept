@@ -42,7 +42,7 @@ export default async function RestorationPage({ searchParams }: PageProps) {
     .order("display_order");
 
   return (
-    <Suspense>
+    <Suspense fallback={<div className="surface-chalk min-h-[80vh]" />}>
       <PixelViewContent contentName="Restoration Order" contentCategory="Restoration" />
       <OrderBuilder services={services ?? []} selectedTier={tierParam as RestorationTierId | undefined} />
     </Suspense>

@@ -31,7 +31,7 @@ export function TrackForm({ initialOrder = "" }: { initialOrder?: string }) {
 
   return (
     <section className="surface-chalk relative flex-1 overflow-x-clip">
-      <div className="wrap grid items-center gap-x-16 gap-y-14 py-14 md:py-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
+      <div className="wrap grid items-center gap-x-10 gap-y-14 py-14 md:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)] md:py-24 lg:gap-x-16">
         {/* Look up an order */}
         <div className="min-w-0">
           <p className="hero-in eyebrow mb-5 inline-flex items-center gap-2.5 text-cobalt">
@@ -58,7 +58,7 @@ export function TrackForm({ initialOrder = "" }: { initialOrder?: string }) {
                 value={orderNumber}
                 onChange={(e) => setOrderNumber(e.target.value)}
                 autoComplete="off"
-                className="h-12 font-bold tracking-[0.02em] md:text-[16px]"
+                className="h-12 font-bold tracking-[0.02em] placeholder:font-normal placeholder:tracking-normal md:text-[16px]"
               />
             </div>
 

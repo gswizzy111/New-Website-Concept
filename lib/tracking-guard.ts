@@ -19,6 +19,12 @@ export const CHECKOUT_SESSION_COOKIE = "checkout_session";
  */
 export const RETURN_PAGE = /^\/(checkout\/success|shop\/order-confirmed|gift-cards\/success|subscribe\/success)$/;
 
+/**
+ * The production hosts. Analytics and the pixel load only on these, so local
+ * runs, branch deploys and deploy previews never count as real traffic.
+ */
+export const PRODUCTION_HOST = /^(www\.thecarddoc1\.com|thecarddoc1\.com|theonethatsaveditall\.com)$/;
+
 /** What a Stripe Checkout Session ID looks like (cs_test_..., cs_live_...). */
 export const CHECKOUT_SESSION_ID = /^cs_[A-Za-z0-9_]{10,200}$/;
 
@@ -27,6 +33,11 @@ export const CHECKOUT_SESSION_ID = /^cs_[A-Za-z0-9_]{10,200}$/;
  * Analytics and the Meta pixel record each page's full address and the
  * previous one, so no customer email, case link, sign-in or setup token, or
  * Stripe session ID may be in the address bar while they run. In order:
+ *
+ * -1. Only on a production host (PRODUCTION_HOST): anywhere else (localhost,
+ *    branch deploys, deploy previews) neither tracker is ever loaded, and
+ *    window.__noTrack is set so lib/pixel.ts sends nothing. The Stripe
+ *    session ID is still taken out of the address (step 1).
  *
  * 0. Global Privacy Control: window.__gpc is set from the browser's signal.
  *    When it is on, the Meta pixel is never loaded (fbevents.js is never
@@ -112,6 +123,7 @@ export function trackingGuardScript(): string {
   });
   w.addEventListener('popstate', function () { check(l.href); });
 
+  if (!${PRODUCTION_HOST}.test(l.hostname)) { stop(); return; }
   if (isKey(new URL(l.href))) { stop(); return; }
   w.__noTrack = false;
 

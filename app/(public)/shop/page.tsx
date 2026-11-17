@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Package, Star } from "lucide-react";
 import { JsonLd } from "@/components/seo/json-ld";
-import { SITE, breadcrumbs, canonical } from "@/lib/seo";
+import { SITE, breadcrumbs, canonical, withOg } from "@/lib/seo";
 import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { SERVICE_CARDS } from "@/lib/service-cards";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -12,6 +12,7 @@ import { SHOP_CATALOG } from "@/lib/shop-catalog";
 import { productRating } from "@/lib/shop-ratings";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { productImage } from "@/lib/thumbnail";
 import { AddToCartButton } from "./add-to-cart-button";
 import { isSoldOut } from "@/lib/site-config";
 import { CtaPanel, Print, Sticker, cta } from "@/components/brand";
@@ -19,11 +20,11 @@ import charizardPsa from "@/public/home/charizard-psa.jpg";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/shop", {
   title: "Shop Kits | The Card Doc",
   description: "The same pro-grade tools The Card Doc uses — delivered to you. US shipping at cost + $2 handling.",
   alternates: canonical("/shop"),
-};
+});
 
 const KITS = SERVICE_CARDS[2];
 const RESTORATION = SERVICE_CARDS[0];
@@ -40,7 +41,10 @@ type Product = {
   rating?: { value: string; count: number };
 };
 
-function ProductCard({ product }: { product: Product }) {
+// The tile's width: half the page on a phone, a third at md, a quarter at lg
+const CARD_SIZES = "(min-width: 1280px) 300px, (min-width: 1024px) 23vw, (min-width: 768px) 31vw, 48vw";
+
+function ProductCard({ product, eager = false }: { product: Product; eager?: boolean }) {
   const isKit = product.name.toLowerCase().includes("official");
   const soldOut = isSoldOut();
   return (
@@ -54,7 +58,10 @@ function ProductCard({ product }: { product: Product }) {
           {product.images?.[0] ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={product.images[0]}
+              {...productImage(product.images[0], [200, 400, 600, 800])}
+              sizes={CARD_SIZES}
+              loading={eager ? "eager" : "lazy"}
+              decoding="async"
               alt={product.name}
               className="h-full w-full object-cover transition-transform duration-500 ease-[var(--ease-out)] motion-safe:group-hover:scale-[1.04]"
             />
@@ -85,14 +92,14 @@ function ProductCard({ product }: { product: Product }) {
           </Link>
         </h3>
         {product.rating && (
-          <p className="-mt-2 flex items-center gap-1.5 text-sm text-ink-soft">
+          <p className="-mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-soft">
             <span className="flex text-sun-deep" aria-hidden>
               {Array.from({ length: 5 }, (_, i) => (
                 <Star key={i} className="size-3.5 fill-current" strokeWidth={0} />
               ))}
             </span>
-            <span className="font-bold text-ink tabular-nums">{product.rating.value}</span>
-            <span className="tabular-nums">({product.rating.count})</span>
+            <span className="font-bold text-ink">{product.rating.value}</span>
+            <span>({product.rating.count})</span>
             <span className="sr-only">
               Rated {product.rating.value} out of 5 from {product.rating.count} reviews
             </span>
@@ -127,17 +134,17 @@ const SECTION_GRID: Record<number, string> = {
   1: "grid-cols-1 max-w-[300px] sm:max-w-sm",
   2: "grid-cols-2 max-w-3xl",
   3: "grid-cols-2 md:grid-cols-3",
-  4: "grid-cols-2 md:grid-cols-4",
+  4: "grid-cols-2 lg:grid-cols-4",
   5: "grid-cols-2 md:grid-cols-3",
   6: "grid-cols-2 md:grid-cols-3",
-  7: "grid-cols-2 md:grid-cols-4",
-  8: "grid-cols-2 md:grid-cols-4",
+  7: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
+  8: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
   9: "grid-cols-2 md:grid-cols-3",
-  12: "grid-cols-2 md:grid-cols-4",
+  12: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
 };
 
 function getSectionGridClass(count: number): string {
-  return SECTION_GRID[count] ?? "grid-cols-2 md:grid-cols-4";
+  return SECTION_GRID[count] ?? "grid-cols-2 md:grid-cols-3 lg:grid-cols-4";
 }
 
 function KitReview({ review, className }: { review: Review; className?: string }) {
@@ -154,7 +161,7 @@ function KitReview({ review, className }: { review: Review; className?: string }
   );
 }
 
-function ProductSection({ title, products, review }: { title: string; products: Product[]; review?: Review }) {
+function ProductSection({ title, products, review, first = false }: { title: string; products: Product[]; review?: Review; first?: boolean }) {
   if (products.length === 0) return null;
   return (
     <section aria-labelledby={`shelf-${title}`}>
@@ -164,7 +171,7 @@ function ProductSection({ title, products, review }: { title: string; products: 
         <span className="label-caps mb-1 text-[15px] text-ink-soft tabular-nums">{products.length}</span>
       </div>
       <div data-reveal="stagger" className={`grid ${getSectionGridClass(products.length)} gap-x-3 gap-y-6 sm:gap-x-6 md:gap-8`}>
-        {products.map((p) => <ProductCard key={p.id} product={p} />)}
+        {products.map((p, i) => <ProductCard key={p.id} product={p} eager={first && i < 4} />)}
       </div>
       {review && <KitReview review={review} className="mt-14" />}
     </section>
@@ -227,7 +234,7 @@ export default async function ShopPage() {
       {products.length > 0 && (
         <section id="shelves" aria-label={KITS.name} className="surface-white scroll-mt-24 pt-10 pb-[var(--section-y)] md:pt-14">
           <div className="wrap flex flex-col gap-20 md:gap-28">
-            <ProductSection title="Kits" products={kits} review={KIT_REVIEW} />
+            <ProductSection title="Kits" products={kits} review={KIT_REVIEW} first />
             <ProductSection title="Tools" products={tools} />
             <ProductSection title="Supplies" products={supplies} />
           </div>

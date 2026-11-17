@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { TermsView } from "@/components/legal/terms-view";
 import { parseLegalMarkdown } from "@/lib/legal/legal-doc";
 import { TERMS_VERSION } from "@/lib/legal/current-terms";
+import { canonical, withOg } from "@/lib/seo";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { effectiveLabel, getTermsVersion } from "@/lib/terms-versions";
 
@@ -13,7 +14,12 @@ const versionOf = (param: string) => decodeURIComponent(param).replace(/^v/i, ""
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const version = versionOf((await params).version);
-  return { title: `Terms of Service v${version} | The Card Doc`, robots: version === TERMS_VERSION ? undefined : { index: false } };
+  return withOg(`/terms/v${version}`, {
+    title: `Terms of Service v${version} | The Card Doc`,
+    description: `The Card Doc LLC Terms of Service, Restoration Consent & Online Store Agreement, version ${version}${version === TERMS_VERSION ? " (current)" : ""}.`,
+    // The current version is the same text as /terms: point search engines there.
+    ...(version === TERMS_VERSION ? { alternates: canonical("/terms") } : { robots: { index: false } }),
+  });
 }
 
 /** Any published version of the Terms, word for word as stored (terms_versions). */

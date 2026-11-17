@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { addressProblem, normalizeAddress } from "@/lib/shipping-address";
 import { usAddressRejection } from "@/lib/verify-address";
-import { quoteKitRates } from "@/lib/kit-shipping";
+import { KIT_LARGE_ORDER_MESSAGE, kitParcel, kitParcelTooLarge, quoteKitRates } from "@/lib/kit-shipping";
 
 const Body = z.object({
   name: z.string().max(200).optional().default(""),
@@ -16,6 +16,8 @@ const Body = z.object({
     country: z.string().default("US"),
   }),
   item_names: z.array(z.string()).max(50).default([]),
+  // Names with quantities, so several kits are quoted at their real weight
+  items: z.array(z.object({ name: z.string().max(200), quantity: z.number().int().min(1).max(99) })).max(50).optional(),
   declared_value_cents: z.number().int().min(0).max(10_000_00).default(0),
 });
 
@@ -37,13 +39,20 @@ export async function POST(request: Request) {
     }
   }
 
+  // Too big for one parcel: no quote (so no label is bought); the owner
+  // handles large kit orders by DM
+  const items = parsed.data.items ?? parsed.data.item_names;
+  if (kitParcelTooLarge(kitParcel(items))) {
+    return Response.json({ error: KIT_LARGE_ORDER_MESSAGE, too_large: true }, { status: 422 });
+  }
+
   try {
     const rates = await quoteKitRates({
       address,
       name: parsed.data.name,
       phone: parsed.data.phone,
       email: parsed.data.email,
-      itemNames: parsed.data.item_names,
+      items,
       declaredValueCents: parsed.data.declared_value_cents,
     });
     if (rates.length === 0) {

@@ -11,7 +11,7 @@
 export function Req() {
   return (
     <span className="font-bold text-destructive" aria-hidden="true">
-      {" "}*
+      {"\u00a0"}*
     </span>
   );
 }

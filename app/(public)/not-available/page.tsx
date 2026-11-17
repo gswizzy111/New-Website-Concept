@@ -1,12 +1,23 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+import { withOg } from "@/lib/seo";
 import { ArrowLeft } from "lucide-react";
-import { PREVIEW_MESSAGE } from "@/lib/preview";
+import { PREVIEW_MESSAGE, PREVIEW_MODE } from "@/lib/preview";
 import { Print, cta } from "@/components/brand";
 import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
 
-export const metadata = { title: "Not available yet | The Card Doc" };
+export const metadata: Metadata = withOg("/not-available", {
+  title: "Not available yet | The Card Doc",
+  description: "This part of The Card Doc's preview site is not functional yet.",
+  robots: { index: false },
+});
 
 export default function NotAvailablePage() {
+  // Only preview mode sends people here (middleware.ts); on the live site the
+  // preview message would be false, so the page does not exist there.
+  if (!PREVIEW_MODE) notFound();
+
   return (
     <section className="surface-chalk overflow-x-clip">
       <div className="wrap grid items-center gap-x-16 gap-y-12 py-20 md:py-28 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

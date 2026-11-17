@@ -19,12 +19,62 @@ export const INTERNATIONAL_HANDLING_CENTS = 1000;
 
 const BOX_KEYWORDS = ["official", "essential", "clamp"];
 
-/** The parcel the admin label routes use: a box for kits with tools, else a mailer. */
-export function kitParcel(itemNames: string[]) {
-  const needsBox = itemNames.some((n) => BOX_KEYWORDS.some((kw) => n.toLowerCase().includes(kw)));
-  return needsBox
-    ? { massUnit: WeightUnitEnum.Lb, weight: "4", distanceUnit: DistanceUnitEnum.In, length: "10", width: "7", height: "7" }
-    : { massUnit: WeightUnitEnum.Oz, weight: "6", distanceUnit: DistanceUnitEnum.In, length: "8", width: "5", height: "1" };
+export type KitParcelItem = { name: string; quantity?: number };
+
+/**
+ * The kit parcel: a box for kits with tools, else a mailer, scaled by
+ * quantity so several kits are quoted (and their label bought) at their real
+ * weight. One box kit is 10x7x7 in, 4 lb; more box kits stack two wide
+ * (10x14 in) and 7 in high per pair, 4 lb each. Mailer-only items are 6 oz
+ * each (8x5x1 in, 1 in per extra item); inside a box they add their weight
+ * only. A parcel over carrier limits is refused (kitParcelTooLarge).
+ */
+export function kitParcel(items: (string | KitParcelItem)[]) {
+  let boxUnits = 0;
+  let mailerUnits = 0;
+  for (const raw of items) {
+    const item = typeof raw === "string" ? { name: raw, quantity: 1 } : raw;
+    const qty = Math.max(1, Math.min(99, Math.floor(item.quantity ?? 1) || 1));
+    const name = item.name.toLowerCase();
+    if (BOX_KEYWORDS.some((kw) => name.includes(kw))) boxUnits += qty;
+    else mailerUnits += qty;
+  }
+  if (boxUnits > 0) {
+    const pounds = boxUnits * 4 + (mailerUnits * 6) / 16;
+    return {
+      massUnit: WeightUnitEnum.Lb,
+      weight: String(Math.round(pounds * 100) / 100),
+      distanceUnit: DistanceUnitEnum.In,
+      length: "10",
+      width: boxUnits > 1 ? "14" : "7",
+      height: String(7 * Math.ceil(boxUnits / 2)),
+    };
+  }
+  const units = Math.max(1, mailerUnits);
+  return {
+    massUnit: WeightUnitEnum.Oz,
+    weight: String(6 * units),
+    distanceUnit: DistanceUnitEnum.In,
+    length: "8",
+    width: "5",
+    height: String(units),
+  };
+}
+
+/** USPS limits for one parcel: 108 in length plus girth, 70 lb. */
+const MAX_LENGTH_PLUS_GIRTH_IN = 108;
+const MAX_WEIGHT_LB = 70;
+
+export const KIT_LARGE_ORDER_MESSAGE =
+  "This order is too big to ship as one package. For large kit orders, DM us on Instagram @the_card_doc.";
+
+/** True when the parcel is over the carrier size or weight limit. */
+export function kitParcelTooLarge(parcel: ReturnType<typeof kitParcel>) {
+  const [longest, a, b] = [parcel.length, parcel.width, parcel.height]
+    .map(Number)
+    .sort((x, y) => y - x);
+  const pounds = parcel.massUnit === WeightUnitEnum.Lb ? Number(parcel.weight) : Number(parcel.weight) / 16;
+  return longest + 2 * (a + b) > MAX_LENGTH_PLUS_GIRTH_IN || pounds > MAX_WEIGHT_LB;
 }
 
 export type KitRate = {
@@ -47,11 +97,12 @@ export async function quoteKitRates(opts: {
   name: string;
   phone?: string;
   email?: string;
-  itemNames: string[];
+  /** Cart items with quantities (or bare names, counted once each). */
+  items: (string | KitParcelItem)[];
   declaredValueCents: number;
 }): Promise<KitRate[]> {
   const { address: a } = opts;
-  const parcel = kitParcel(opts.itemNames);
+  const parcel = kitParcel(opts.items);
   const international = a.country !== "US";
   const shipment = await shippo.shipments.create({
     addressFrom: businessAddress,
@@ -120,7 +171,37 @@ const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/
  * Looks the chosen rate up at Shippo (never trusting the price the browser
  * sends) and checks it was quoted for this order's address.
  */
-export async function verifyKitRate(rateId: string, address: ShippingAddress): Promise<KitRate | null> {
+/** A parcel's weight in pounds, whatever unit it was quoted in. */
+function poundsOf(weight: unknown, unit: unknown): number {
+  const w = Number(weight);
+  switch (String(unit ?? "lb").toLowerCase()) {
+    case "oz": return w / 16;
+    case "g": return w / 453.592;
+    case "kg": return w * 2.20462;
+    default: return w;
+  }
+}
+
+/** True when a quoted Shippo parcel matches the parcel this cart ships in. */
+function sameParcel(quoted: unknown, expected: ReturnType<typeof kitParcel>): boolean {
+  if (!quoted || typeof quoted !== "object") return false;
+  const q = quoted as Record<string, unknown>;
+  const dims = (p: { length: unknown; width: unknown; height: unknown }) =>
+    [p.length, p.width, p.height].map(Number).sort((a, b) => a - b);
+  const qd = dims({ length: q.length, width: q.width, height: q.height });
+  const ed = dims(expected);
+  if (qd.some((d, i) => Math.abs(d - ed[i]) > 0.05)) return false;
+  const qLb = poundsOf(q.weight, q.massUnit ?? q.mass_unit);
+  const eLb = poundsOf(expected.weight, expected.massUnit);
+  return Math.abs(qLb - eLb) <= 0.05;
+}
+
+/**
+ * Looks up a rate the customer picked and checks it was quoted for this
+ * address and, when given, for this cart's parcel (so a 1-kit quote can't pay
+ * for a bigger order). Returns null when it doesn't match.
+ */
+export async function verifyKitRate(rateId: string, address: ShippingAddress, expectedParcel?: ReturnType<typeof kitParcel>): Promise<KitRate | null> {
   try {
     const rate = await shippo.rates.get(rateId);
     const shipment = await shippo.shipments.get(rate.shipment);
@@ -129,6 +210,7 @@ export async function verifyKitRate(rateId: string, address: ShippingAddress): P
       && norm(to?.zip).slice(0, 5) === norm(address.zip).slice(0, 5)
       && (to?.country ?? "US").toUpperCase() === address.country;
     if (!sameAddress) return null;
+    if (expectedParcel && !sameParcel(shipment.parcels?.[0], expectedParcel)) return null;
     const postageCents = Math.round(parseFloat(rate.amount) * 100);
     return {
       id: rate.objectId,

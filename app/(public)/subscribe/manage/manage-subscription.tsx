@@ -7,7 +7,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 
 // The field look: 48px tall, 12px corners, a 1.5px edge, cobalt focus.
 const FIELD =
-  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
+  "h-12 w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-4 text-base text-ink outline-hidden transition-[border-color,box-shadow] duration-150 placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:shadow-[0_0_0_4px_var(--cobalt-wash)] md:text-[15px]";
 
 type SubResult = {
   found: boolean;
@@ -165,7 +165,7 @@ export function ManageSubscription({ token }: { token: string }) {
               <div>
                 <p className="caps font-display text-[28px] font-black leading-none text-ink">Monthly Kit Club</p>
                 {typeof result.price_cents === "number" && (
-                  <p className="mt-1.5 text-[15px] text-ink-soft tabular-nums">{formatCurrency(result.price_cents)} / month</p>
+                  <p className="mt-1.5 text-[15px] text-ink-soft">{formatCurrency(result.price_cents)} / month</p>
                 )}
               </div>
               <span className={`inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[13px] font-bold text-ink ${

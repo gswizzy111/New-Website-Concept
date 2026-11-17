@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,7 @@ import { CardIdentityFields, emptyIdentity, type CardIdentity } from "@/componen
 import { Need, Req } from "@/components/checkout/required";
 import { VALUE_HELP } from "@/lib/legal/current-terms";
 import type { Service, CardEntry } from "@/lib/types";
-import { getAllTiers, formatCents } from "@/lib/restoration-tiers";
+import { getAllTiers, formatCents, diamondMinCents } from "@/lib/restoration-tiers";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { CHOICE, CHOICE_FOCUS, CHOICE_OFF, CHOICE_ON, FORM_PANEL, STEP_TITLE } from "@/components/checkout/form-styles";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,13 @@ function identityOf(c: CardEntry): CardIdentity {
   };
 }
 
-/** A card is ready when it has a name, photos, a tier and a value within that tier's cap. */
+/** Under its tier's per-card minimum (only Diamond has one: the admin's setting, else $5,000). */
+function belowTierMin(tier: RestorationTier | null | undefined, valueCents: number): number | null {
+  const min = tier ? diamondMinCents(tier.id, tier) : null;
+  return min !== null && valueCents > 0 && valueCents < min ? min : null;
+}
+
+/** A card is ready when it has a name, photos, a tier and a value within that tier's cap and minimum. */
 export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tiers: RestorationTier[] = DEFAULT_TIERS): string[] {
   const problems: string[] = [];
   const value = parseCents(c.estimated_value ?? "");
@@ -63,11 +70,14 @@ export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tier
   if (!c.card_name.trim()) problems.push("name");
   if (c.photo_urls.length === 0) problems.push("photos");
   if (value <= 0) problems.push("value");
-  if (!tier || (tier.max_card_value_cents !== null && value > tier.max_card_value_cents)) problems.push("tier");
+  if (!tier || (tier.max_card_value_cents !== null && value > tier.max_card_value_cents) || belowTierMin(tier, value) !== null) problems.push("tier");
   return problems;
 }
 
 export function StepCards({ cards, services, selectedServiceIds, onChange, defaultTier, tiers = DEFAULT_TIERS, onOpenSlab, showMissing = false }: StepCardsProps) {
+  // DOM ids come from useId + the card's position, not card.id (a random UUID
+  // that differs between the server and the browser, which broke hydration)
+  const uid = useId();
   const availableServices = services.filter((s) => selectedServiceIds.includes(s.id));
 
   function updateCard(id: string, patch: Partial<CardEntry>) {
@@ -120,6 +130,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
           const activeTierId = card.tier ?? defaultTier;
           const activeTier = activeTierId ? tiers.find((t) => t.id === activeTierId) : null;
           const missing = new Set(showMissing ? cardProblems(card, defaultTier, tiers) : []);
+          const tierMin = belowTierMin(activeTier, estimatedValueCents);
 
           return (
             <div key={card.id} className={`${FORM_PANEL} flex flex-col gap-6`}>
@@ -142,9 +153,9 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Need missing={missing.has("name")} className="sm:col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor={`name-${card.id}`}>Card Name<Req /></Label>
+                  <Label htmlFor={`name-${uid}-${i}`}>Card Name<Req /></Label>
                   <Input
-                    id={`name-${card.id}`}
+                    id={`name-${uid}-${i}`}
                     placeholder="e.g. 1986 Fleer Michael Jordan"
                     value={card.card_name}
                     onChange={(e) => updateCard(card.id, { card_name: e.target.value })}
@@ -153,17 +164,17 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
                 <div className="sm:col-span-2">
                   <CardIdentityFields
-                    idPrefix={`card-${card.id}`}
+                    idPrefix={`card-${uid}-${i}`}
                     value={identityOf(card)}
                     onChange={(patch) => updateCard(card.id, patch)}
                   />
                 </div>
 
                 <Need missing={missing.has("value")} className="sm:col-span-2 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`value-${card.id}`}>Declared value (USD)<Req /></Label>
+                  <div className="flex items-start justify-between gap-3">
+                    <Label htmlFor={`value-${uid}-${i}`} className="block">Declared value (USD)<Req /></Label>
                     {activeTier && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-right text-xs text-muted-foreground">
                         {activeTier.max_card_value_cents === null
                           ? `${activeTier.name}: no max value`
                           : `${activeTier.name} max: $${(activeTier.max_card_value_cents / 100).toLocaleString()}`}
@@ -171,7 +182,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                     )}
                   </div>
                   <Input
-                    id={`value-${card.id}`}
+                    id={`value-${uid}-${i}`}
                     placeholder="e.g. 500"
                     inputMode="decimal"
                     value={card.estimated_value}
@@ -183,12 +194,17 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                       <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.25} />This value exceeds the {activeTier.name} tier&apos;s max of ${(activeTier.max_card_value_cents / 100).toLocaleString()}. Please select a higher tier below.
                     </p>
                   )}
+                  {activeTier && tierMin !== null && (
+                    <p className="text-xs text-destructive font-semibold">
+                      <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.25} />Each {activeTier.name} card must be declared at ${(tierMin / 100).toLocaleString()} or more. Please select a different tier below.
+                    </p>
+                  )}
                 </Need>
 
                 <div className="sm:col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor={`notes-${card.id}`}>Notes</Label>
+                  <Label htmlFor={`notes-${uid}-${i}`}>Notes</Label>
                   <Textarea
-                    id={`notes-${card.id}`}
+                    id={`notes-${uid}-${i}`}
                     placeholder="Special instructions or areas of concern"
                     value={card.notes}
                     onChange={(e) => updateCard(card.id, { notes: e.target.value })}
@@ -225,7 +241,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                         <span className="block pr-6 font-heading text-[1.3rem] leading-tight font-extrabold">
                           {t.name}
                           {!available && t.max_card_value_cents && (
-                            <span className="ml-1 font-sans text-xs normal-case tracking-normal">(max ${(t.max_card_value_cents / 100).toLocaleString()})</span>
+                            <span className="mt-0.5 block whitespace-nowrap font-sans text-xs normal-case tracking-normal">(max ${(t.max_card_value_cents / 100).toLocaleString()})</span>
                           )}
                         </span>
                         <span className="mt-0.5 block text-[13px] leading-snug text-ink-soft">
@@ -291,7 +307,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               <div className={cn("flex items-start gap-3.5 px-4 py-4", CHOICE, CHOICE_FOCUS, "has-[:checked]:bg-cobalt-wash has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]")}>
                 <input
                   type="checkbox"
-                  id={`slab-${card.id}`}
+                  id={`slab-${uid}-${i}`}
                   checked={card.needs_slab_crack ?? false}
                   onChange={(e) => {
                     updateCard(card.id, { needs_slab_crack: e.target.checked });
@@ -300,7 +316,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   }}
                   className="mt-0.5 shrink-0"
                 />
-                <label htmlFor={`slab-${card.id}`} className="flex-1 cursor-pointer text-sm">
+                <label htmlFor={`slab-${uid}-${i}`} className="flex-1 cursor-pointer text-sm">
                   <span className="text-[15px] font-bold text-ink">Need your slab cracked? +$7</span>
                   <span className="mt-1 block text-[13px] leading-relaxed text-ink-soft">
                     Check this if your card is currently in a PSA, BGS, or other graded slab and needs to be removed before restoration.
@@ -312,12 +328,12 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               <div className={cn("flex items-start gap-3.5 px-4 py-4", CHOICE, CHOICE_FOCUS, "has-[:checked]:bg-cobalt-wash has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]")}>
                 <input
                   type="checkbox"
-                  id={`pregrade-${card.id}`}
+                  id={`pregrade-${uid}-${i}`}
                   checked={card.needs_pregrade ?? false}
                   onChange={(e) => updateCard(card.id, { needs_pregrade: e.target.checked })}
                   className="mt-0.5 shrink-0"
                 />
-                <label htmlFor={`pregrade-${card.id}`} className="flex-1 cursor-pointer text-sm">
+                <label htmlFor={`pregrade-${uid}-${i}`} className="flex-1 cursor-pointer text-sm">
                   <span className="text-[15px] font-bold text-ink">Add Pregrade? +$25</span>
                   <span className="mt-1 block text-[13px] leading-relaxed text-ink-soft">
                     We&apos;ll pregrade your card before submitting so you know what grade to expect — helping you decide whether to send it off.

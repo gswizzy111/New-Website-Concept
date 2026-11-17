@@ -8,7 +8,7 @@ import { CardIdentityFields, emptyIdentity, identityPayload, type CardIdentity }
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
 import { SIGN_BUTTON_LABEL, VALUE_HELP } from "@/lib/legal/current-terms";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
@@ -32,56 +32,6 @@ type ShippingRate = {
   estimated_days: number | null;
   duration_terms: string | null;
 };
-
-const COUNTRIES = [
-  { code: "US", name: "United States" },
-  { code: "CA", name: "Canada" },
-  { code: "GB", name: "United Kingdom" },
-  { code: "AU", name: "Australia" },
-  { code: "JP", name: "Japan" },
-  { code: "SG", name: "Singapore" },
-  { code: "DE", name: "Germany" },
-  { code: "FR", name: "France" },
-  { code: "NL", name: "Netherlands" },
-  { code: "IT", name: "Italy" },
-  { code: "ES", name: "Spain" },
-  { code: "PT", name: "Portugal" },
-  { code: "SE", name: "Sweden" },
-  { code: "NO", name: "Norway" },
-  { code: "DK", name: "Denmark" },
-  { code: "FI", name: "Finland" },
-  { code: "CH", name: "Switzerland" },
-  { code: "AT", name: "Austria" },
-  { code: "BE", name: "Belgium" },
-  { code: "NZ", name: "New Zealand" },
-  { code: "MX", name: "Mexico" },
-  { code: "BR", name: "Brazil" },
-  { code: "AR", name: "Argentina" },
-  { code: "CL", name: "Chile" },
-  { code: "CO", name: "Colombia" },
-  { code: "KR", name: "South Korea" },
-  { code: "TW", name: "Taiwan" },
-  { code: "HK", name: "Hong Kong" },
-  { code: "CN", name: "China" },
-  { code: "IN", name: "India" },
-  { code: "PH", name: "Philippines" },
-  { code: "MY", name: "Malaysia" },
-  { code: "TH", name: "Thailand" },
-  { code: "ID", name: "Indonesia" },
-  { code: "VN", name: "Vietnam" },
-  { code: "ZA", name: "South Africa" },
-  { code: "AE", name: "United Arab Emirates" },
-  { code: "SA", name: "Saudi Arabia" },
-  { code: "IL", name: "Israel" },
-  { code: "PL", name: "Poland" },
-  { code: "CZ", name: "Czech Republic" },
-  { code: "HU", name: "Hungary" },
-  { code: "RO", name: "Romania" },
-  { code: "GR", name: "Greece" },
-  { code: "TR", name: "Turkey" },
-  { code: "IE", name: "Ireland" },
-  { code: "HR", name: "Croatia" },
-];
 
 const HIGH_VALUE_THRESHOLD_CENTS = 150000; // $1,500
 const NJ_TAX_RATE = 0.06625;
@@ -125,6 +75,8 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   // Cards
   const [cards, setCards] = useState<CardRow[]>([emptyCard()]);
+  // Field ids from useId + position: card.id is a random UUID that differs between server and browser
+  const cardsUid = useId();
 
   // Add-ons
   const [addPreGrade, setAddPreGrade] = useState(false);
@@ -137,7 +89,8 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   // Shipping
   const [shippingMethod, setShippingMethod] = useState<"buy_label" | "self_ship">("buy_label");
-  const [country, setCountry] = useState("US");
+  // PSA Prep is US and Puerto Rico only (Puerto Rico is in the state list)
+  const country = "US";
   const [street1, setStreet1] = useState("");
   const [street2, setStreet2] = useState("");
   const [city, setCity] = useState("");
@@ -176,8 +129,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const [appliedCode, setAppliedCode] = useState("");
   const [codeStatus, setCodeStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
   const [discountPercent, setDiscountPercent] = useState(0);
-
-  const isInternational = country !== "US";
 
   function resetAddress() {
     setSelectedRate(null);
@@ -261,8 +212,8 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const bulkWon = bulkCents > codeDiscountCents;
   const bulkDiscountCents = bulkWon ? bulkCents : 0;
   const discountCents = bulkWon ? bulkCents : codeDiscountCents;
-  // No NJ tax for international orders; tax is on the subtotal after discount
-  const taxCents = isInternational ? 0 : Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
+  // NJ tax is on the subtotal after discount
+  const taxCents = Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
   // The prepaid label pays the rate twice (to us and back); shipping your own
   // way pays it once, for the trip back to you
   const shippingTrips = shippingMethod === "buy_label" ? 2 : 1;
@@ -275,8 +226,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   // Rates are quoted per address and per method (to us, or back to you)
   const addressFingerprint = [shippingMethod, country, street1.trim(), street2.trim(), city.trim(), stateCode.trim(), zip.trim()].join("|");
   const addressComplete = !!(
-    street1.trim() && city.trim() && zip.trim() &&
-    (isInternational || stateCode) // state required for US, optional for international
+    street1.trim() && city.trim() && zip.trim() && stateCode
   );
   const addressChangedSinceFetch = rates.length > 0 && ratesFetchedFor !== addressFingerprint;
 
@@ -366,7 +316,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         ? "Full address is required to generate a prepaid label."
         : "Full address is required so we can ship your cards back.");
     }
-    if (!isInternational && !stateCode) {
+    if (!stateCode) {
       return fail("State is required for US addresses.");
     }
     if (!selectedRate) {
@@ -430,7 +380,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     }
   }
 
-  const input = "h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
+  const input = "h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
   const labelCls = "mb-1.5 block text-sm font-bold text-ink";
   // One white panel per step of the form
   const panel = "rounded-2xl bg-white p-5 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] md:p-7";
@@ -442,7 +392,14 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   return (
     <div className="min-h-screen bg-chalk">
     <div className="mx-auto max-w-2xl px-5 pt-10 pb-16 md:pt-16 md:pb-24">
-      <SlabAuthorizationDialog card={slabDialogCard} state={signing} onChange={setSigning} onClose={closeSlabDialog} />
+      <SlabAuthorizationDialog
+        card={slabDialogCard}
+        state={signing}
+        onChange={setSigning}
+        onClose={closeSlabDialog}
+        cardName={slabDialogRow?.name ?? ""}
+        onCardName={(n) => { if (slabDialogId) updateCardName(slabDialogId, n); }}
+      />
       <div className="mb-8">
         <Link href="/prep" className="-ml-1 inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-sm font-bold text-cobalt underline-offset-4 hover:underline"><ArrowLeft aria-hidden className="size-4" strokeWidth={2} />Back to Prep Pricing</Link>
         <div className="mt-3">
@@ -477,17 +434,17 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         <div className={`${panel} flex flex-col gap-4`}>
           <h2 className={h2Cls}>Your Info</h2>
           <Need missing={miss(name)}>
-            <label className={labelCls}>Full Name<Req /></label>
-            <input className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
+            <label htmlFor="prep-name" className={labelCls}>Full Name<Req /></label>
+            <input id="prep-name" className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
           </Need>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-3">
             <Need missing={miss(email)}>
-              <label className={labelCls}>Email<Req /></label>
-              <input className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
+              <label htmlFor="prep-email" className={labelCls}>Email<Req /></label>
+              <input id="prep-email" className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
             </Need>
             <Need missing={miss(phone)}>
-              <label className={labelCls}>Phone<Req /></label>
-              <input className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
+              <label htmlFor="prep-phone" className={labelCls}>Phone<Req /></label>
+              <input id="prep-phone" className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
             </Need>
           </div>
         </div>
@@ -507,45 +464,47 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           {cards.map((card, i) => (
             <div key={card.id} className="flex flex-col gap-3 rounded-xl bg-chalk p-3.5 shadow-[inset_0_0_0_1px_var(--line)] sm:p-4">
               <Need missing={showMissing && !card.name.trim() && (i === 0 || !!card.declaredValueDollars)} note="Enter the card name." className="">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink font-display text-[15px] font-black text-sun tabular-nums">{i + 1}</span>
                 <input
-                  className={`${input} flex-1`}
+                  aria-label={`Card ${i + 1} name`}
+                  className={`${input} order-last basis-full sm:order-none sm:basis-auto sm:flex-1`}
                   value={card.name}
                   onChange={(e) => updateCardName(card.id, e.target.value)}
                   placeholder="Card name (e.g. Charizard Base Set Holo)"
                 />
                 {cards.length > 1 && (
-                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
+                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="ml-auto grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
                 )}
               </div>
               </Need>
-              <Need missing={showMissing && !!card.name.trim() && cardValueCents(card) <= 0} note="Enter a declared value." className="pl-9">
+              <Need missing={showMissing && !!card.name.trim() && cardValueCents(card) <= 0} note="Enter a declared value." className="sm:pl-9">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
                   <input
-                    className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+                    className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
                     type="number" min="0" step="1"
+                    aria-label={`Card ${i + 1} declared value`}
                     value={card.declaredValueDollars}
                     onChange={(e) => updateCardValue(card.id, e.target.value)}
                     placeholder="Declared value (required)"
                   />
                 </div>
                 {card.name.trim() && (
-                  <span className={`w-24 shrink-0 text-right text-sm font-extrabold tabular-nums ${cardValueCents(card) >= HIGH_VALUE_THRESHOLD_CENTS ? "text-ink" : "text-cobalt"}`}>
+                  <span className={`w-24 shrink-0 text-right text-sm font-extrabold ${cardValueCents(card) >= HIGH_VALUE_THRESHOLD_CENTS ? "text-ink" : "text-cobalt"}`}>
                     {cardPriceLabel(card)}/card
                   </span>
                 )}
               </div>
               </Need>
-              <div className="pl-9 flex flex-col gap-2">
+              <div className="flex flex-col gap-2 sm:pl-9">
                 <p className="text-xs text-ink-soft">{VALUE_HELP}</p>
               </div>
-              <div className="pl-9">
-                <CardIdentityFields idPrefix={`prep-${card.id}`} value={card} onChange={(patch) => updateCard(card.id, patch)} />
+              <div className="sm:pl-9">
+                <CardIdentityFields idPrefix={`prep-${cardsUid}-${i}`} value={card} onChange={(patch) => updateCard(card.id, patch)} />
               </div>
-              <label className="ml-9 flex cursor-pointer items-start gap-3 rounded-xl bg-white px-3.5 py-3.5 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)] has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]">
+              <label className="flex cursor-pointer sm:ml-9 items-start gap-3 rounded-xl bg-white px-3.5 py-3.5 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)] has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]">
                 <input
                   type="checkbox"
                   className="mt-0.5 size-5 shrink-0 accent-[var(--cobalt)]"
@@ -561,7 +520,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   <span className="block text-xs text-ink-soft mt-0.5">For a card in a PSA, BGS or other graded slab. You&apos;ll sign a separate authorization for it.</span>
                 </span>
               </label>
-              <div className="pl-9">
+              <div className="sm:pl-9">
                 <p className="mb-1.5 text-sm font-semibold text-ink">Photos <span className="font-normal text-ink-soft">(optional)</span></p>
                 <PhotoUploader photoUrls={card.photoUrls} onChange={(urls) => updateCardPhotos(card.id, urls)} />
               </div>
@@ -596,7 +555,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             type="button"
             onClick={() => setAddPreGrade((v) => !v)}
             aria-pressed={addPreGrade}
-            className={`flex w-full items-center gap-3.5 rounded-xl p-4 text-left transition-[box-shadow,background-color] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${addPreGrade ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}
+            className={`flex w-full items-center gap-3.5 rounded-xl p-4 text-left transition-[box-shadow,background-color] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${addPreGrade ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}
           >
             <div className={`flex size-6 shrink-0 items-center justify-center rounded-md ${addPreGrade ? "bg-cobalt" : "bg-white shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               {addPreGrade && <Check className="size-4 text-white" strokeWidth={3} />}
@@ -627,12 +586,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => { if (shippingMethod !== "buy_label") resetAddress(); setShippingMethod("buy_label"); }}
               aria-pressed={shippingMethod === "buy_label"}
-              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "buy_label" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "buy_label" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               <Package className="h-4 w-4" strokeWidth={1.75} />Prepaid Label
             </button>
             <button type="button" onClick={() => { if (shippingMethod !== "self_ship") resetAddress(); setShippingMethod("self_ship"); if (insuranceElection === "purchased") setInsuranceElection(null); }}
               aria-pressed={shippingMethod === "self_ship"}
-              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "self_ship" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "self_ship" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               <Mailbox className="h-4 w-4" strokeWidth={1.75} />Ship Myself
             </button>
           </div>
@@ -644,78 +603,40 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 border-t border-line pt-5">
 
-              {/* Country selector — always first */}
-              <div>
-                <label htmlFor="prep-country" className={labelCls}>Country<Req /></label>
-                <select
-                  id="prep-country"
-                  className={selectCls}
-                  autoComplete="country"
-                  value={country}
-                  onChange={(e) => { setCountry(e.target.value); setStateCode(""); resetAddress(); }}
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-
               <Need missing={miss(street1)}>
-                <label className={labelCls}>Street Address<Req /></label>
-                {/* Address suggestions are for US addresses */}
-                {!isInternational ? (
-                  <AddressAutocomplete
-                    value={street1}
-                    onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
-                    onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
-                    className={input}
-                    placeholder="123 Main St"
-                  />
-                ) : (
-                  <input className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
-                )}
+                <label htmlFor="prep-street1" className={labelCls}>Street Address<Req /></label>
+                <AddressAutocomplete
+                  id="prep-street1"
+                  value={street1}
+                  onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
+                  onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
+                  className={input}
+                  placeholder="123 Main St"
+                />
               </Need>
               <div>
-                <label className={labelCls}>Apt / Suite / Unit <span className="normal-case">(optional)</span></label>
-                <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
+                <label htmlFor="prep-street2" className={labelCls}>Apt / Suite / Unit <span className="normal-case">(optional)</span></label>
+                <input id="prep-street2" className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
               </div>
 
-              {!isInternational ? (
-                /* US: city / state dropdown / ZIP */
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                  <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
-                  </Need>
-                  <Need missing={miss(stateCode)}>
-                    <label className={labelCls}>State<Req /></label>
-                    <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
-                      <option value="">—</option>
-                      {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
-                    </select>
-                  </Need>
-                  <Need missing={miss(zip)} className="sm:col-span-2">
-                    <label className={labelCls}>ZIP Code<Req /></label>
-                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
-                  </Need>
-                </div>
-              ) : (
-                /* International: city / state text (optional) / postal code */
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                  <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
-                  </Need>
-                  <div>
-                    <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
-                    <input className={input} autoComplete="address-level1" value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
-                  </div>
-                  <Need missing={miss(zip)} className="sm:col-span-2">
-                    <label className={labelCls}>Postal Code<Req /></label>
-                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
-                  </Need>
-                </div>
-              )}
+              {/* City / state dropdown / ZIP */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <Need missing={miss(city)} className="col-span-2">
+                  <label htmlFor="prep-city" className={labelCls}>City<Req /></label>
+                  <input id="prep-city" className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                </Need>
+                <Need missing={miss(stateCode)}>
+                  <label htmlFor="prep-state" className={labelCls}>State<Req /></label>
+                  <select id="prep-state" className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                    <option value="">—</option>
+                    {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
+                  </select>
+                </Need>
+                <Need missing={miss(zip)} className="sm:col-span-2">
+                  <label htmlFor="prep-zip" className={labelCls}>ZIP Code<Req /></label>
+                  <input id="prep-zip" className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                </Need>
+              </div>
             </div>
 
             {addressComplete && (
@@ -723,10 +644,6 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 {shippingMethod === "self_ship" ? (
                   <div className="rounded-xl bg-cobalt-wash px-4 py-3 text-sm leading-relaxed text-ink">
                     <strong>Return shipping is paid now.</strong> You send your cards to us your own way; we ship them back to this address with a tracked label.
-                  </div>
-                ) : isInternational ? (
-                  <div className="rounded-xl bg-sun-tint px-4 py-3 text-sm leading-relaxed text-ink">
-                    <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
                   </div>
                 ) : (
                   <div className="rounded-xl bg-cobalt-wash px-4 py-3 text-sm leading-relaxed text-ink">
@@ -758,7 +675,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     {rates.map((rate) => (
                       <button key={rate.id} type="button" onClick={() => setSelectedRate(rate)}
                         aria-pressed={selectedRate?.id === rate.id}
-                        className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${selectedRate?.id === rate.id ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+                        className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${selectedRate?.id === rate.id ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
                         <div className="flex items-center gap-3">
                           <div className={`flex size-5 shrink-0 items-center justify-center rounded-full ${selectedRate?.id === rate.id ? "bg-cobalt" : "bg-white shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
                             {selectedRate?.id === rate.id && <div className="size-2 rounded-full bg-white" />}
@@ -795,10 +712,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             unavailableNote="Insurance through us covers our prepaid label's trip to us. Shipping it yourself, you can insure the package with your carrier."
           >
             <div>
-              <label className={labelCls}>Amount to insure (USD)<Req /></label>
+              <label htmlFor="prep-insure" className={labelCls}>Amount to insure (USD)<Req /></label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
-                <input className={`${input} pl-7`} type="number" min="0" max="10000" step="1"
+                <input id="prep-insure" className={`${input} pl-7`} type="number" min="0" max="10000" step="1"
                   value={insuranceValueDollars} onChange={(e) => setInsuranceValueDollars(e.target.value)}
                   placeholder="Total value of cards in this shipment (USD)" />
               </div>
@@ -823,7 +740,8 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">@</span>
             <input
-              className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+              className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+              aria-label="Instagram or Facebook handle (optional)"
               value={socialHandle}
               onChange={(e) => setSocialHandle(e.target.value.replace(/^@/, ""))}
               placeholder="yourhandle (optional)"
@@ -866,7 +784,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           </label>
           <textarea
             id="prep-notes"
-            className="w-full resize-none rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-3 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+            className="w-full resize-none rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-3 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
             value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
             placeholder="Special instructions, condition notes, etc." />
         </div>
@@ -932,9 +850,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             <p className="text-xs text-muted-foreground">
               {!selectedRate
                 ? "* Select a shipping option above to see your full total."
-                : isInternational
-                  ? "* All amounts in USD. Confirmed at Stripe checkout."
-                  : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
+                : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
             </p>
           </div>
         </div>

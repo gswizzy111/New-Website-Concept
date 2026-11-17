@@ -135,8 +135,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
     <header className="relative border-b border-line bg-white/[0.94] backdrop-blur-md backdrop-saturate-150">
       <nav aria-label="Main" className="wrap flex h-16 items-center gap-2 md:h-[74px] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:gap-6">
         <Link href="/" aria-label="The Card Doc, home" className="mr-auto flex min-h-11 shrink-0 items-center rounded-xl justify-self-start lg:mr-0">
-          <BrandLogo size={40} priority className="gap-2.5 md:hidden" wordmarkClassName="text-[22px]" />
-          <BrandLogo size={46} priority className="hidden md:inline-flex" />
+          <BrandLogo size={40} mdSize={46} priority className="gap-2.5 max-[379px]:gap-2 md:gap-3" wordmarkClassName="text-[22px] max-[379px]:text-[19px] max-[349px]:hidden md:text-[30px]" />
         </Link>
 
         {/* Desktop: three service tabs and Explore */}
@@ -169,7 +168,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
               delay={80}
               closeDelay={120}
               onMouseEnter={() => setHovered("explore")}
-              className={`group relative isolate inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] outline-none transition-colors duration-150 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${
+              className={`group relative isolate inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] outline-hidden transition-colors duration-150 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${
                 exploreActive || exploreOpen ? "font-bold text-ink" : "font-semibold text-ink/80 hover:text-ink"
               }`}
             >
@@ -183,16 +182,16 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
               {exploreActive && <span aria-hidden className="absolute inset-x-4 bottom-1.5 h-[3px] rounded-full bg-sun" />}
             </MenuPrimitive.Trigger>
             <MenuPrimitive.Portal>
-              <MenuPrimitive.Positioner side="bottom" align="center" sideOffset={12} collisionPadding={16} className="z-[60] outline-none">
+              <MenuPrimitive.Positioner side="bottom" align="center" sideOffset={12} collisionPadding={16} className="z-[60] outline-hidden">
                 <MenuPrimitive.Popup
-                  className="w-[min(46rem,calc(100vw-2rem))] origin-(--transform-origin) overflow-hidden rounded-[22px] bg-white text-ink shadow-[0_0_0_1px_var(--line),var(--pop-shadow)] outline-none transition-[opacity,transform] duration-200 ease-[cubic-bezier(.16,1,.3,1)] data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:duration-120"
+                  className="w-[min(46rem,calc(100vw-2rem))] origin-(--transform-origin) overflow-hidden rounded-[22px] bg-white text-ink shadow-[0_0_0_1px_var(--line),var(--pop-shadow)] outline-hidden transition-[opacity,transform] duration-200 ease-[cubic-bezier(.16,1,.3,1)] data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:duration-120"
                 >
                   <div className="p-3">
                     <MenuPrimitive.LinkItem
                       closeOnClick
                       render={<Link href={FIX_PAGE.href} />}
                       aria-current={isCurrent(FIX_PAGE.href) ? "page" : undefined}
-                      className="group/fix flex items-center justify-between gap-6 rounded-[16px] bg-sun-tint px-5 py-4 outline-none transition-colors duration-150 data-[highlighted]:bg-sun"
+                      className="group/fix flex items-center justify-between gap-6 rounded-[16px] bg-sun-tint px-5 py-4 outline-hidden transition-colors duration-150 data-[highlighted]:bg-sun"
                     >
                       <span>
                         <span className="label-caps block text-[15px] text-cobalt-deep">Sports cards &amp; TCG</span>
@@ -223,7 +222,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
                               closeOnClick
                               render={<Link href={l.href} />}
                               aria-current={current ? "page" : undefined}
-                              className="flex min-h-11 flex-col justify-center rounded-[12px] px-3 py-2 outline-none transition-colors duration-150 data-[highlighted]:bg-chalk"
+                              className="flex min-h-11 flex-col justify-center rounded-[12px] px-3 py-2 outline-hidden transition-colors duration-150 data-[highlighted]:bg-chalk"
                             >
                               <span className={`text-[15px] font-bold ${current ? "text-cobalt" : "text-ink"}`}>{l.label}</span>
                               {TAB_HINTS[l.href] && (
@@ -243,7 +242,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
                         closeOnClick
                         render={<Link href={l.href} />}
                         aria-current={isCurrent(l.href) ? "page" : undefined}
-                        className="inline-flex min-h-10 items-center text-[13px] font-semibold text-ink-soft outline-none transition-colors duration-150 data-[highlighted]:text-ink data-[highlighted]:underline"
+                        className="inline-flex min-h-10 items-center text-[13px] font-semibold text-ink-soft outline-hidden transition-colors duration-150 data-[highlighted]:text-ink data-[highlighted]:underline"
                       >
                         {l.label}
                       </MenuPrimitive.LinkItem>
@@ -259,7 +258,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
           <Link
             href="/restoration"
             aria-label="Book a Restoration"
-            className={cta({ size: "sm", className: "order-first mr-1 min-h-11 px-4 text-[14px] sm:hidden" })}
+            className={cta({ size: "sm", className: "order-first mr-1 min-h-11 px-4 text-[14px] max-[379px]:mr-0 max-[379px]:px-3 sm:hidden" })}
           >
             Book
           </Link>
@@ -278,7 +277,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
           <button
             type="button"
             onClick={() => setOpen(!open)}
-            className="press ml-1 inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white transition-colors duration-150 hover:bg-ink-2 lg:hidden"
+            className="press ml-1 inline-flex h-11 w-11 max-[379px]:ml-0 items-center justify-center rounded-full bg-ink text-white transition-colors duration-150 hover:bg-ink-2 lg:hidden"
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
           >

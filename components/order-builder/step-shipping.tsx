@@ -8,6 +8,15 @@ import type { CustomerInfo, ShippingRate } from "@/lib/types";
 import { Need, Req } from "@/components/checkout/required";
 import { CHOICE, CHOICE_FOCUS, CHOICE_ON, FORM_PANEL, MINI_LABEL, STEP_TITLE, radioMark } from "@/components/checkout/form-styles";
 import { cn } from "@/lib/utils";
+
+// A shipping-method card: a wrapper whose header is the button, with the rate
+// buttons as its siblings (a button can't hold other buttons).
+const METHOD_ON =
+  "bg-white shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)] hover:shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)]";
+const METHOD_HEAD = cn("w-full rounded-[22px] p-5 text-left sm:p-6", CHOICE_FOCUS);
+// Lines the rates up under the card's text (radio 20px + 0.875rem gap).
+const METHOD_RATES =
+  "-mt-1 flex flex-col gap-2 pr-5 pb-5 pl-[calc(1.25rem+20px+0.875rem)] sm:-mt-2 sm:pr-6 sm:pb-6 sm:pl-[calc(1.5rem+20px+0.875rem)]";
 interface StepShippingProps {
   customer: CustomerInfo;
   shippingMethod: "buy_label" | "self_ship" | null;
@@ -271,56 +280,60 @@ export function StepShipping({
 
       <Need missing={showMissing && !shippingMethod} note="Choose how you'll send your cards." className="flex flex-col gap-4">
         {/* Buy label */}
-        <button
-          type="button"
-          onClick={() => onMethodChange("buy_label")}
-          aria-pressed={shippingMethod === "buy_label"}
-          className={cn("w-full rounded-[22px] p-5 text-left sm:p-6", CHOICE, CHOICE_FOCUS, shippingMethod === "buy_label" ? "bg-white shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)] hover:shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)]" : "shadow-[inset_0_0_0_1.5px_var(--line-strong)]")}
-        >
-          <div className="flex items-start gap-3.5">
-            <span aria-hidden className={cn(radioMark(shippingMethod === "buy_label"), "mt-1")} />
-            <div className="flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Buy a prepaid shipping label</p>
-                <span className="sticker sticker-sun sticker-sm" style={{ ["--tilt" as string]: "-2deg" }}>
-                  Recommended
-                </span>
+        <div className={cn("w-full rounded-[22px]", CHOICE, shippingMethod === "buy_label" ? METHOD_ON : "shadow-[inset_0_0_0_1.5px_var(--line-strong)]")}>
+          <button
+            type="button"
+            onClick={() => onMethodChange("buy_label")}
+            aria-pressed={shippingMethod === "buy_label"}
+            className={METHOD_HEAD}
+          >
+            <div className="flex items-start gap-3.5">
+              <span aria-hidden className={cn(radioMark(shippingMethod === "buy_label"), "mt-1")} />
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Buy a prepaid shipping label</p>
+                  <span className="sticker sticker-sun sticker-sm" style={{ ["--tilt" as string]: "-2deg" }}>
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  We generate a prepaid label and email it to you. Print, tape it on, and drop it off. Includes tracking. Insured shipping and signature confirmation are optional add-ons at checkout.
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                We generate a prepaid label and email it to you. Print, tape it on, and drop it off. Includes tracking. Insured shipping and signature confirmation are optional add-ons at checkout.
-              </p>
-              {shippingMethod === "buy_label" && (
-                <Need missing={showMissing && !selectedRate} note="Choose a shipping option." className="mt-4 flex flex-col gap-2">
-                  {rateOptions("Price covers shipping to us + return shipping back to you.", (days) => `Est. ${days} business days each way`)}
-                </Need>
-              )}
             </div>
-          </div>
-        </button>
+          </button>
+          {shippingMethod === "buy_label" && (
+            <Need missing={showMissing && !selectedRate} note="Choose a shipping option." className={METHOD_RATES}>
+              {rateOptions("Price covers shipping to us + return shipping back to you.", (days) => `Est. ${days} business days each way`)}
+            </Need>
+          )}
+        </div>
 
         {/* Self ship */}
-        <button
-          type="button"
-          onClick={() => onMethodChange("self_ship")}
-          aria-pressed={shippingMethod === "self_ship"}
-          className={cn("w-full rounded-[22px] p-5 text-left sm:p-6", CHOICE, CHOICE_FOCUS, shippingMethod === "self_ship" ? "bg-white shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)] hover:shadow-[inset_0_0_0_2.5px_var(--cobalt),var(--panel-shadow)]" : "shadow-[inset_0_0_0_1.5px_var(--line-strong)]")}
-        >
-          <div className="flex items-start gap-3.5">
-            <span aria-hidden className={cn(radioMark(shippingMethod === "self_ship"), "mt-1")} />
-            <div className="flex-1">
-              <p className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">I&apos;ll ship them myself</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Use your own carrier and packaging. We&apos;ll send you our shipping address after checkout. Be sure to use a tracked, insured method.
-              </p>
-              {shippingMethod === "self_ship" && (
-                <Need missing={showMissing && !selectedRate} note="Choose a return shipping option." className="mt-4 flex flex-col gap-2">
-                  <p className={`${MINI_LABEL} text-ink`}>Return shipping back to you<Req /></p>
-                  {rateOptions("You pay for the trip back now; we ship your restored cards back with a tracked label.", (days) => `Est. ${days} business days`)}
-                </Need>
-              )}
+        <div className={cn("w-full rounded-[22px]", CHOICE, shippingMethod === "self_ship" ? METHOD_ON : "shadow-[inset_0_0_0_1.5px_var(--line-strong)]")}>
+          <button
+            type="button"
+            onClick={() => onMethodChange("self_ship")}
+            aria-pressed={shippingMethod === "self_ship"}
+            className={METHOD_HEAD}
+          >
+            <div className="flex items-start gap-3.5">
+              <span aria-hidden className={cn(radioMark(shippingMethod === "self_ship"), "mt-1")} />
+              <div className="flex-1">
+                <p className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">I&apos;ll ship them myself</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Use your own carrier and packaging. We&apos;ll send you our shipping address after checkout. Be sure to use a tracked, insured method.
+                </p>
+              </div>
             </div>
-          </div>
-        </button>
+          </button>
+          {shippingMethod === "self_ship" && (
+            <Need missing={showMissing && !selectedRate} note="Choose a return shipping option." className={METHOD_RATES}>
+              <p className={`${MINI_LABEL} text-ink`}>Return shipping back to you<Req /></p>
+              {rateOptions("You pay for the trip back now; we ship your restored cards back with a tracked label.", (days) => `Est. ${days} business days`)}
+            </Need>
+          )}
+        </div>
       </Need>
     </div>
   );

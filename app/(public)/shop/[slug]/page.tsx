@@ -5,7 +5,8 @@ import { catalogProduct } from "@/lib/shop-catalog";
 import { PREVIEW_MODE } from "@/lib/preview";
 import { productRating } from "@/lib/shop-ratings";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
+import { ORG_ID, SITE, breadcrumbs, canonical, productMetaDescription, withOg } from "@/lib/seo";
+import { productImage, shareImage, thumbnail } from "@/lib/thumbnail";
 import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -30,14 +31,20 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const product = await getProduct(slug);
   if (!product) return {};
-  const description = typeof product.description === "string" ? product.description.slice(0, 160) : undefined;
+  const description = productMetaDescription(product.name, product.description);
   const image = product.images?.[0];
-  return {
+  return withOg(`/shop/${slug}`, {
     title: `${product.name} | The Card Doc`,
     description,
     alternates: canonical(`/shop/${slug}`),
-    openGraph: image ? { images: [image] } : undefined,
-  };
+    openGraph: image ? { images: [shareImage(image)] } : undefined,
+  });
+}
+
+/** The /shop shelf a product sits on (shop/page.tsx puts Cleaning and Storage
+ * under Supplies), so the eyebrow names the shelf the customer came from. */
+function shelfName(category: string) {
+  return category === "Cleaning" || category === "Storage" ? "Supplies" : category;
 }
 
 function DescriptionBlock({ text }: { text: string }) {
@@ -75,7 +82,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
       "@context": "https://schema.org",
       "@type": "Product",
       name: product.name,
-      description: product.description ?? undefined,
+      description: typeof product.description === "string" ? product.description.replace(/\s+/g, " ").trim() : undefined,
       image: product.images?.length ? product.images : undefined,
       sku: String(product.id),
       category: product.category ?? undefined,
@@ -121,7 +128,14 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
             <div className="seamless relative aspect-square overflow-hidden shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
               {images[0] ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={images[0]} alt={product.name} className="h-full w-full object-cover" />
+                <img
+                  {...productImage(images[0], [400, 600, 800, 1200])}
+                  sizes="(min-width: 1280px) 620px, (min-width: 768px) 52vw, 100vw"
+                  fetchPriority="high"
+                  decoding="async"
+                  alt={product.name}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <div aria-hidden className="grid h-full w-full place-items-center text-ink/20">
                   <Package className="size-20" strokeWidth={1} />
@@ -132,7 +146,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
               <div className="flex flex-wrap gap-3">
                 {images.slice(1).map((url: string, i: number) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={i} src={url} alt={product.name} className="size-20 rounded-[12px] bg-white object-cover shadow-[0_0_0_1px_var(--line)] md:size-24" />
+                  <img key={i} src={thumbnail(url, 96)} alt={product.name} loading="lazy" decoding="async" className="size-20 rounded-[12px] bg-white object-cover shadow-[0_0_0_1px_var(--line)] md:size-24" />
                 ))}
               </div>
             )}
@@ -144,10 +158,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
               {product.category && (
                 <p className="eyebrow mb-4 inline-flex items-center gap-2.5 text-cobalt">
                   <span aria-hidden className="h-[3px] w-6 rounded-full bg-cobalt" />
-                  {product.category}
+                  {shelfName(product.category)}
                 </p>
               )}
-              <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[4.25rem]">{product.name}</h1>
+              <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[2.75rem] lg:text-[4.25rem]">{product.name}</h1>
 
               {rating && (
                 <p className="mt-4 flex items-center gap-2 text-sm text-ink-soft">
@@ -156,8 +170,8 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                       <Star key={i} className="size-4 fill-current" strokeWidth={0} />
                     ))}
                   </span>
-                  <span className="font-bold text-ink tabular-nums">{rating.value}</span>
-                  <span className="tabular-nums">({rating.count} reviews)</span>
+                  <span className="font-bold text-ink">{rating.value}</span>
+                  <span>({rating.count} reviews)</span>
                   <span className="sr-only">Rated {rating.value} out of 5</span>
                 </p>
               )}

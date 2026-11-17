@@ -127,14 +127,14 @@ export function FaqSearch({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search questions, e.g. slab, PSA, drop-off"
             autoComplete="off"
-            className={`h-16 w-full rounded-full border-0 bg-white pl-12 text-[16px] text-ink md:pl-14 md:text-[17px] ${query ? "pr-16" : "pr-5"} shadow-[0_0_0_1.5px_var(--line-strong),var(--panel-shadow)] outline-none transition-shadow duration-200 placeholder:text-ink-soft hover:shadow-[0_0_0_1.5px_var(--ink-soft),var(--panel-shadow)] focus-visible:shadow-[0_0_0_2px_var(--cobalt),0_0_0_6px_var(--cobalt-wash)] [&::-webkit-search-cancel-button]:hidden`}
+            className={`h-16 w-full rounded-full border-0 bg-white pl-12 text-[16px] text-ink md:pl-14 md:text-[17px] ${query ? "pr-16" : "pr-5"} shadow-[0_0_0_1.5px_var(--line-strong),var(--panel-shadow)] outline-hidden transition-shadow duration-200 placeholder:text-ink-soft hover:shadow-[0_0_0_1.5px_var(--ink-soft),var(--panel-shadow)] focus-visible:shadow-[0_0_0_2px_var(--cobalt),0_0_0_6px_var(--cobalt-wash)] [&::-webkit-search-cancel-button]:hidden`}
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute top-1/2 right-2.5 grid size-11 -translate-y-1/2 place-items-center rounded-full text-ink transition-colors duration-150 hover:bg-sun focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-cobalt"
+              className="absolute top-1/2 right-2.5 grid size-11 -translate-y-1/2 place-items-center rounded-full text-ink transition-colors duration-150 hover:bg-sun focus-visible:outline-3 focus-visible:outline-solid focus-visible:-outline-offset-3 focus-visible:outline-cobalt"
             >
               <X className="size-4" strokeWidth={2} />
             </button>

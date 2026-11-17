@@ -3,6 +3,17 @@ import { ArrowRight, Check } from "lucide-react";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { readCheckoutReturn } from "@/lib/checkout-return";
 import { cta } from "@/components/brand";
+import type { Metadata } from "next";
+import { canonical, withOg } from "@/lib/seo";
+
+// Its own title and share tags (the /gift-cards layout's would name the shop
+// page), and not indexed: it is only reached after paying.
+export const metadata: Metadata = withOg("/gift-cards/success", {
+  title: "Gift Card Purchased | The Card Doc",
+  description: "Your gift card is purchased. The code has been emailed and can be applied at checkout on any restoration order.",
+  alternates: canonical("/gift-cards/success"),
+  robots: { index: false },
+});
 
 export default async function GiftCardSuccessPage({
   searchParams,

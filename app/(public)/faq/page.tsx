@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
-import { canonical } from "@/lib/seo";
+import { canonical, withOg } from "@/lib/seo";
 import { PageHero } from "@/components/marketing/page-hero";
 import { Print, cta } from "@/components/brand";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
@@ -10,11 +10,11 @@ import charmanderPair from "@/public/home/charmander-pair.jpg";
 import { FAQ_SECTIONS } from "./faq-data";
 import { FaqSearch } from "./faq-search";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/faq", {
   alternates: canonical("/faq"),
   title: "FAQ | The Card Doc",
   description: "Answers about restoration and prep: tiers, declared value, slabs, grading, shipping, drop-off and the cards we work on.",
-};
+});
 
 const INSTAGRAM = "https://www.instagram.com/the_card_doc";
 

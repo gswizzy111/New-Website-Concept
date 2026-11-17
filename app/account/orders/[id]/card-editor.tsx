@@ -188,7 +188,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                     type="text"
                     value={card.card_name}
                     onChange={(e) => updateCard(card.id, { card_name: e.target.value })}
-                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                   />
                 </Field>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -197,7 +197,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       type="text"
                       value={card.card_set ?? ""}
                       onChange={(e) => updateCard(card.id, { card_set: e.target.value || null })}
-                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     />
                   </Field>
                   <Field label="Year">
@@ -205,7 +205,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       type="text"
                       value={card.card_year ?? ""}
                       onChange={(e) => updateCard(card.id, { card_year: e.target.value || null })}
-                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     />
                   </Field>
                 </div>
@@ -219,7 +219,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       const v = parseFloat(e.target.value);
                       updateCard(card.id, { estimated_value_cents: isNaN(v) ? null : Math.round(v * 100) });
                     }}
-                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     placeholder="0"
                   />
                 </Field>
@@ -228,7 +228,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                     value={card.notes ?? ""}
                     onChange={(e) => updateCard(card.id, { notes: e.target.value || null })}
                     rows={2}
-                    className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                    className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     placeholder="Any special instructions for this card…"
                   />
                 </Field>
