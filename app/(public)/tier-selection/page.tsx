@@ -11,6 +11,7 @@ import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
 import { TIER_MAX_SLOTS } from "@/lib/site-config";
 import { tierSlotUsage } from "@/lib/tier-slots";
 import { WaitlistModal } from "./waitlist-modal";
+import { CountdownBanner } from "./countdown-banner";
 import { DiamondCard } from "./diamond-card";
 import { CLOSED_ACTION } from "./fact-row";
 import { ValueNote } from "./value-note";
@@ -308,6 +309,9 @@ export default async function TierSelectionPage() {
     <div className="min-h-screen overflow-x-clip">
       <JsonLd data={structured} />
       <PixelViewContent contentName="Restoration Tiers" contentCategory="Restoration" />
+
+      {/* Countdown — shown when shop is closed */}
+      {!restorationsOpen && <CountdownBanner />}
 
       {/* Closed: a sun notice across the top of the page */}
       {!restorationsOpen && (

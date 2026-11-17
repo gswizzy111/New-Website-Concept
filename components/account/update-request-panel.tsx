@@ -4,8 +4,10 @@ import { useState } from "react";
 import { PANEL, PANEL_LABEL } from "./portal";
 import { cta } from "@/components/brand";
 
+// New York dates, like the "you can ask again on" message from the server
+// (lib/order-update-requests.ts), and the same on the server and in the browser
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
 }
 
 /**

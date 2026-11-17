@@ -52,17 +52,12 @@ export default async function AdminAffiliatesPage({
     .order("created_at", { ascending: false });
 
   const now = new Date().toISOString();
-  const rates = await commissionRatesFor((affiliates ?? []).map((a) => a.id));
-  const allAffiliates: Affiliate[] = (affiliates ?? []).map(({ password_hash, setup_token_expires_at, ...a }) => ({
-    ...a,
-    portal_set_up: !!password_hash,
-    setup_link_pending: !!setup_token_expires_at && setup_token_expires_at > now,
-    commission_percent: currentRate(rates.get(a.id)),
-  }));
-
-  // Every order with a code, read in pages (the API returns at most 1,000 rows a request)
+  // Rates and both kinds of orders, all at once. Every order with a code is
+  // read in pages (the API returns at most 1,000 rows a request)
   type CodeOrder = { id: string; items?: unknown; total_cents: number | null; refunded_cents: number | null; created_at: string; status: string | null; customer_name: string; affiliate_code: string };
-  const [kitOrders, restorationOrders] = await Promise.all([
+  const [rates, kitOrders, restorationOrders] = await Promise.all([
+    commissionRatesFor((affiliates ?? []).map((a) => a.id)),
+    // Kit orders with affiliate codes
     fetchAll<CodeOrder>((from, to) => admin
       .from("shop_orders")
       .select("id, items, total_cents, refunded_cents, created_at, status, customer_name, affiliate_code")
@@ -70,6 +65,7 @@ export default async function AdminAffiliatesPage({
       .order("created_at", { ascending: false })
       .order("id", { ascending: true })
       .range(from, to)),
+    // Restoration orders with affiliate codes
     fetchAll<CodeOrder>((from, to) => admin
       .from("orders")
       .select("id, total_cents, refunded_cents, created_at, customer_name, affiliate_code, status")
@@ -78,6 +74,12 @@ export default async function AdminAffiliatesPage({
       .order("id", { ascending: true })
       .range(from, to)),
   ]);
+  const allAffiliates: Affiliate[] = (affiliates ?? []).map(({ password_hash, setup_token_expires_at, ...a }) => ({
+    ...a,
+    portal_set_up: !!password_hash,
+    setup_link_pending: !!setup_token_expires_at && setup_token_expires_at > now,
+    commission_percent: currentRate(rates.get(a.id)),
+  }));
 
   // Refunds made in the Stripe Dashboard are only in the refund ledger
   const [kitRefunds, restorationRefunds] = await Promise.all([

@@ -16,7 +16,8 @@ import t13 from "@/public/testimonial-13.png";
  */
 export type Receipt = {
   id: string;
-  src: StaticImageData;
+  /** A bundled screenshot (static import), or an admin upload's address. */
+  src: StaticImageData | string;
   alt: string;
   /** The screenshot's own background, so a contained image sits flush. */
   matte: string;

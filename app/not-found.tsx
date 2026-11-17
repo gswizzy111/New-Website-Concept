@@ -4,14 +4,17 @@ import { NotFoundPanel } from "@/components/marketing/not-found-panel";
 import { PreviewBanner } from "@/components/marketing/preview-banner";
 import { CartProvider } from "@/lib/cart-context";
 import { cta } from "@/components/brand/button-class";
+import { AdminAwareNotFound } from "@/components/admin-ui/plain-not-found";
 
 export const metadata = { title: "404 | The Card Doc" };
 
 // Unmatched URLs render here, outside the (public) layout, so the page
 // brings the same header and footer itself: a lost visitor keeps the full
-// navigation, the Book button and the cart.
+// navigation, the Book button and the cart. Under /admin it is Next.js's
+// plain 404 instead, outside the admin menu, as on thecarddoc1.com.
 export default function NotFound() {
   return (
+    <AdminAwareNotFound>
     <CartProvider>
       <a href="#main" className={cta({ tone: "sun", className: "sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100]" })}>
         Skip to content
@@ -25,5 +28,6 @@ export default function NotFound() {
       </main>
       <Footer />
     </CartProvider>
+    </AdminAwareNotFound>
   );
 }

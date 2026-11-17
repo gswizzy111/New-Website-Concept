@@ -2,13 +2,15 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { catalogProduct } from "@/lib/shop-catalog";
+import { PREVIEW_MODE } from "@/lib/preview";
+import { productRating } from "@/lib/shop-ratings";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { AddToCartButtonLarge } from "./add-to-cart-button-large";
-import { ArrowLeft, ArrowRight, Info, Package } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, Package, Star } from "lucide-react";
 import { isSoldOut } from "@/lib/site-config";
 import { PixelViewContent } from "@/components/pixel-view-content";
 import { cta } from "@/components/brand";
@@ -19,8 +21,9 @@ export const dynamic = "force-dynamic";
 const getProduct = cache(async (slug: string) => {
   const admin = createAdminClient();
   const { data } = await admin.from("products").select("*").eq("slug", slug).eq("active", true).single();
-  // No database product (this preview has none): fall back to the shop's listed item.
-  return data ?? catalogProduct(slug) ?? null;
+  // Only a preview (no database products) falls back to the shop's listed item;
+  // the live site shows active products only, as on thecarddoc1.com (else 404).
+  return data ?? (PREVIEW_MODE ? catalogProduct(slug) ?? null : null);
 });
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -93,6 +96,10 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   ];
 
   const images: string[] = product.images ?? [];
+  // A database product's rating comes from its name (as on thecarddoc1.com);
+  // a listed preview item carries its own
+  const rating: { value: string; count: number } | undefined =
+    ("rating" in product && product.rating) ? product.rating : productRating(product.name);
   const isKit = product.name.toLowerCase().includes("kit");
 
   return (
@@ -141,6 +148,19 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                 </p>
               )}
               <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[4.25rem]">{product.name}</h1>
+
+              {rating && (
+                <p className="mt-4 flex items-center gap-2 text-sm text-ink-soft">
+                  <span className="flex text-sun-deep" aria-hidden>
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <Star key={i} className="size-4 fill-current" strokeWidth={0} />
+                    ))}
+                  </span>
+                  <span className="font-bold text-ink tabular-nums">{rating.value}</span>
+                  <span className="tabular-nums">({rating.count} reviews)</span>
+                  <span className="sr-only">Rated {rating.value} out of 5</span>
+                </p>
+              )}
 
               <p className="mt-6 font-heading text-[2.75rem] leading-none font-black text-ink tabular-nums">
                 {formatCurrency(product.price_cents)}

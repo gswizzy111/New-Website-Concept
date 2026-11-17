@@ -111,12 +111,12 @@ export async function createUpdateRequest(
         to: adminEmail,
         subject: `Update request — Order ${req.label}`,
         html: `
-          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">A customer requested an update</h1>
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-size:20px;font-weight:900">A customer requested an update</h1>
             <p><strong>${escapeHtml(name)}</strong> requested an update on order <strong>${escapeHtml(req.label)}</strong>.</p>
             <p style="color:#666;font-size:14px">${escapeHtml(req.customer.email)}${req.customer.phone ? ` · ${escapeHtml(req.customer.phone)}` : ""}</p>
             <p style="font-size:14px"><strong>Order status:</strong> ${escapeHtml(req.statusLabel)}</p>
-            <a href="${appUrl}/admin/cases/${created.id}" style="display:inline-block;background:#a23200;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">Reply to customer</a>
+            <a href="${appUrl}/admin/cases/${created.id}" style="display:inline-block;background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">Reply to customer</a>
           </div>
         `,
       });

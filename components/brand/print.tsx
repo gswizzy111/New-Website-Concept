@@ -26,6 +26,8 @@ export type PrintProps = {
   zoom?: number;
   sizes?: string;
   priority?: boolean;
+  /** Serve the image as is (an uploaded image on another host). */
+  unoptimized?: boolean;
   /** Plays the float-in entrance (delay in ms). Off when omitted. */
   enterDelay?: number;
   /** "cover" (default) fills the window; "contain" shows the whole image (screenshots). */
@@ -57,6 +59,7 @@ export function Print({
   zoom,
   sizes = "(max-width: 768px) 80vw, 480px",
   priority,
+  unoptimized,
   enterDelay,
   fit = "cover",
   matte,
@@ -92,6 +95,7 @@ export function Print({
           fill
           sizes={sizes}
           priority={priority}
+          unoptimized={unoptimized}
           style={{
             ...(position ? { objectPosition: position } : null),
             ...(fit === "contain" ? { objectFit: "contain" } : null),

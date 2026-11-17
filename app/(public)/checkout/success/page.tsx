@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { OpenFileButton } from "@/components/open-file-button";
+import { labelHref } from "@/lib/label-link";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
@@ -139,7 +140,7 @@ export default async function CheckoutSuccessPage({
                   </p>
                   {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
                   <OpenFileButton
-                    url={order.shipping_label_url}
+                    url={labelHref(order.id)}
                     className={cta({ tone: "cobalt", size: "sm", className: "cursor-pointer" })}
                   >
                     Download Label (PDF)

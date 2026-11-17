@@ -6,7 +6,10 @@ import { SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { SERVICE_CARDS } from "@/lib/service-cards";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PREVIEW_MODE } from "@/lib/preview";
+import { ReviewsBand } from "@/components/marketing/comic-reviews";
 import { SHOP_CATALOG } from "@/lib/shop-catalog";
+import { productRating } from "@/lib/shop-ratings";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -177,9 +180,13 @@ export default async function ShopPage() {
     .eq("active", true)
     .order("display_order", { ascending: true });
 
-  // No products from the database (this preview has none): show the shop's
-  // listed kits, tools and supplies instead.
-  const products: Product[] = data && data.length > 0 ? (data as Product[]) : SHOP_CATALOG;
+  // Database products get their star rating from the name, as on thecarddoc1.com.
+  // Only a preview with no products shows the shop's listed kits, tools and
+  // supplies instead; the live site shows what the admin has active (none:
+  // "Products coming soon.", as on thecarddoc1.com).
+  const products: Product[] = data && data.length > 0
+    ? (data as Product[]).map((p) => ({ ...p, rating: productRating(p.name) }))
+    : PREVIEW_MODE ? SHOP_CATALOG : [];
 
   const kits = products.filter((p) => p.category === "Kits");
   const tools = products.filter((p) => p.category === "Tools");
@@ -206,6 +213,16 @@ export default async function ShopPage() {
       {/* No intro header: the shelves open the page, so the products show at once. */}
       <h1 className="sr-only">Shop</h1>
 
+      {products.length === 0 && (
+        <section aria-label={KITS.name} className="surface-white pt-10 pb-[var(--section-y)] md:pt-14">
+          <div className="wrap">
+            <div className="rounded-[22px] border border-line py-24 text-center">
+              <p className="display-sm text-ink-soft">Products coming soon.</p>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* The shelves, only once there is stock */}
       {products.length > 0 && (
         <section id="shelves" aria-label={KITS.name} className="surface-white scroll-mt-24 pt-10 pb-[var(--section-y)] md:pt-14">
@@ -216,6 +233,9 @@ export default async function ShopPage() {
           </div>
         </section>
       )}
+
+      {/* The customer reviews the admin manages (Reviews), as on thecarddoc1.com's shop */}
+      <ReviewsBand title="What Our Customers Say" compact id="shop-reviews-heading" />
 
       {/* Cross-sell: the service itself */}
       <section className="surface-chalk pb-24 md:pb-28">

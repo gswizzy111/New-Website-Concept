@@ -1,8 +1,11 @@
 import { resend, fromEmail, businessName } from "@/lib/resend";
 import { siteUrl } from "@/lib/site-url";
+import { labelHref } from "@/lib/label-link";
 import { escapeHtml } from "@/lib/card-inquiries";
 
 export type ConfirmationOrder = {
+  /** Links the label through the permanent link, which never expires. */
+  id?: string;
   order_number: string;
   customer_name: string | null;
   customer_email: string;
@@ -19,7 +22,7 @@ export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Prom
   const appUrl = siteUrl();
   const firstName = (order.customer_name ?? "").split(" ")[0] || "there";
   const trackingUrl = `${appUrl}/orders/${order.order_number}`;
-  const labelUrl = order.shipping_label_url as string | null;
+  const labelUrl = order.shipping_label_url ? (order.id ? labelHref(order.id, true) : order.shipping_label_url) : null;
 
   const shippingSection = labelUrl
     ? `<div style="background:#fff5f0;border:2px solid #feb993;border-radius:12px;padding:24px;margin:24px 0">

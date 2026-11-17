@@ -13,6 +13,7 @@ import { sha256 } from "@/lib/admin-session";
 export type AttemptKind =
   | "admin-login"
   | "accountant-login"
+  | "support-login"
   | "creator-login"
   | "partner-login"
   | "account-reset-email"
