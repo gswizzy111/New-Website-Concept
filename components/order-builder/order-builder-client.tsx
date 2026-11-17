@@ -225,13 +225,32 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     setShowMissing(false);
     setStep(n);
   }
+  // The cards and contact steps must still pass when a later step is reached
+  // some other way (a restored order, or rules changed since it was saved).
+  const cardsStepOk = cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
+  const contactStepOk = (() => {
+    const c = customer;
+    const isUS = !c.country || c.country === "US";
+    if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
+    return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
+  })();
+  /** Sends the customer back to the first earlier step that no longer passes. */
+  function backToFailingStep(): boolean {
+    const target = step > 1 && !cardsStepOk ? 1 : step > 2 && !contactStepOk ? 2 : null;
+    if (target === null) return false;
+    setStep(target);
+    setShowMissing(true);
+    return true;
+  }
   function tryContinue() {
+    if (backToFailingStep()) return;
     if (step === 1 && openUnsignedSlab()) return;
     if (canAdvance()) return goToStep(step + 1);
     setShowMissing(true);
     revealMissing();
   }
   function trySign() {
+    if (backToFailingStep()) return;
     if (openUnsignedSlab()) return;
     if (readyToSign) {
       setShowMissing(false);
