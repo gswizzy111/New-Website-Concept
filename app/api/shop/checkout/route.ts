@@ -61,21 +61,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // Shipping: the option the customer picked, priced from Shippo (never from
-  // the browser) and only if it was quoted for this address. A page opened
-  // before live rates existed sends none: flat US shipping, label bought by hand.
-  let shippingCents = 599;
-  let shippingName = "Standard Shipping";
-  let kitRate: Awaited<ReturnType<typeof verifyKitRate>> = null;
-  if (data.shipping_rate_id) {
-    kitRate = await verifyKitRate(data.shipping_rate_id, address);
-    if (!kitRate) {
-      return Response.json({ error: "Your shipping quote expired or doesn't match your address. Please recalculate shipping." }, { status: 400 });
-    }
-    shippingCents = kitRate.priceCents;
-    shippingName = `Shipping — ${kitRate.provider} ${kitRate.service}`.trim();
-  }
-
   const admin = createAdminClient();
 
   // Strip size suffix (e.g. "gloves-Medium" → "gloves") for DB lookup
@@ -116,9 +101,26 @@ export async function POST(request: Request) {
   }
 
   // Too big for one parcel: never charge flat shipping or buy a label for it
-  if (kitParcelTooLarge(kitParcel(data.items.map((item) => ({ name: productMap[baseId(item.id)]?.name ?? "", quantity: item.quantity }))))) {
+  const parcel = kitParcel(data.items.map((item) => ({ name: productMap[baseId(item.id)]?.name ?? "", quantity: item.quantity })));
+  if (kitParcelTooLarge(parcel)) {
     return Response.json({ error: KIT_LARGE_ORDER_MESSAGE }, { status: 400 });
   }
+
+  // Shipping: the option the customer picked, priced from Shippo (never from
+  // the browser) and only if it was quoted for this address and this cart's parcel. A page opened
+  // before live rates existed sends none: flat US shipping, label bought by hand.
+  let shippingCents = 599;
+  let shippingName = "Standard Shipping";
+  let kitRate: Awaited<ReturnType<typeof verifyKitRate>> = null;
+  if (data.shipping_rate_id) {
+    kitRate = await verifyKitRate(data.shipping_rate_id, address, parcel);
+    if (!kitRate) {
+      return Response.json({ error: "Your shipping quote expired or doesn't match your address. Please recalculate shipping." }, { status: 400 });
+    }
+    shippingCents = kitRate.priceCents;
+    shippingName = `Shipping — ${kitRate.provider} ${kitRate.service}`.trim();
+  }
+
 
   const productSubtotalCents = data.items.reduce(
     (sum, item) => sum + (productMap[baseId(item.id)]?.price_cents ?? 0) * item.quantity,

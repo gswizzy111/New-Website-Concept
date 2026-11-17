@@ -240,6 +240,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     if (target === null) return false;
     setStep(target);
     setShowMissing(true);
+    revealMissing();
     return true;
   }
   function tryContinue() {

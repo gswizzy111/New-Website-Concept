@@ -171,7 +171,37 @@ const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/
  * Looks the chosen rate up at Shippo (never trusting the price the browser
  * sends) and checks it was quoted for this order's address.
  */
-export async function verifyKitRate(rateId: string, address: ShippingAddress): Promise<KitRate | null> {
+/** A parcel's weight in pounds, whatever unit it was quoted in. */
+function poundsOf(weight: unknown, unit: unknown): number {
+  const w = Number(weight);
+  switch (String(unit ?? "lb").toLowerCase()) {
+    case "oz": return w / 16;
+    case "g": return w / 453.592;
+    case "kg": return w * 2.20462;
+    default: return w;
+  }
+}
+
+/** True when a quoted Shippo parcel matches the parcel this cart ships in. */
+function sameParcel(quoted: unknown, expected: ReturnType<typeof kitParcel>): boolean {
+  if (!quoted || typeof quoted !== "object") return false;
+  const q = quoted as Record<string, unknown>;
+  const dims = (p: { length: unknown; width: unknown; height: unknown }) =>
+    [p.length, p.width, p.height].map(Number).sort((a, b) => a - b);
+  const qd = dims({ length: q.length, width: q.width, height: q.height });
+  const ed = dims(expected);
+  if (qd.some((d, i) => Math.abs(d - ed[i]) > 0.05)) return false;
+  const qLb = poundsOf(q.weight, q.massUnit ?? q.mass_unit);
+  const eLb = poundsOf(expected.weight, expected.massUnit);
+  return Math.abs(qLb - eLb) <= 0.05;
+}
+
+/**
+ * Looks up a rate the customer picked and checks it was quoted for this
+ * address and, when given, for this cart's parcel (so a 1-kit quote can't pay
+ * for a bigger order). Returns null when it doesn't match.
+ */
+export async function verifyKitRate(rateId: string, address: ShippingAddress, expectedParcel?: ReturnType<typeof kitParcel>): Promise<KitRate | null> {
   try {
     const rate = await shippo.rates.get(rateId);
     const shipment = await shippo.shipments.get(rate.shipment);
@@ -180,6 +210,7 @@ export async function verifyKitRate(rateId: string, address: ShippingAddress): P
       && norm(to?.zip).slice(0, 5) === norm(address.zip).slice(0, 5)
       && (to?.country ?? "US").toUpperCase() === address.country;
     if (!sameAddress) return null;
+    if (expectedParcel && !sameParcel(shipment.parcels?.[0], expectedParcel)) return null;
     const postageCents = Math.round(parseFloat(rate.amount) * 100);
     return {
       id: rate.objectId,
