@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
 import { useCart } from "@/lib/cart-context";
+import { trackCheckout } from "@/lib/checkout-funnel";
 import { formatCurrency } from "@/lib/utils";
 import { thumbnail } from "@/lib/thumbnail";
 import Link from "next/link";
@@ -17,6 +19,9 @@ const STEPPER =
 export default function CartPage() {
   const { items, totalCents, removeItem, updateQty } = useCart();
   const taxCents = Math.round(totalCents * TAX_RATE);
+  // Checkout funnel (lib/checkout-funnel.ts): the cart is kits step 1 (once it has something in it)
+  const hasItems = items.length > 0;
+  useEffect(() => { if (hasItems) trackCheckout("kits", "step_view", { step: 1 }); }, [hasItems]);
 
   if (items.length === 0) return <EmptyCart />;
 

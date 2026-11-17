@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { trackCheckout } from "@/lib/checkout-funnel";
 import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
 import { ArrowRight } from "lucide-react";
 import { BrandLogo } from "@/components/brand";
@@ -55,15 +56,19 @@ export default function GiftCardsPage() {
 
   const amountOk = effectiveAmountDollars !== null && effectiveAmountDollars >= 10 && effectiveAmountDollars <= 1000;
   const miss = (v: string) => showMissing && !v.trim();
+  // Checkout funnel (lib/checkout-funnel.ts): the gift card form is step 1
+  useEffect(() => { trackCheckout("gift_card", "step_view", { step: 1 }); }, []);
 
   async function handleCheckout() {
     if (!isValid || !effectiveAmountDollars) {
       setShowMissing(true);
+      trackCheckout("gift_card", "blocked", { step: 1, code: "missing_fields" });
       revealMissing();
       return;
     }
     setLoading(true);
     setError("");
+    trackCheckout("gift_card", "submit", { step: 1 });
     try {
       const res = await fetch("/api/gift-cards/checkout", {
         method: "POST",
@@ -79,11 +84,14 @@ export default function GiftCardsPage() {
       });
       const data = await res.json();
       if (data.url) {
+        trackCheckout("gift_card", "redirect", { step: 1 });
         window.location.href = data.url;
       } else {
+        trackCheckout("gift_card", "rejected", { step: 1, code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}` });
         setError(data.error ?? "Something went wrong.");
       }
     } catch {
+      trackCheckout("gift_card", "rejected", { step: 1, code: "NETWORK_ERROR" });
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);

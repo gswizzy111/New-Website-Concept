@@ -8,7 +8,8 @@ import { CardIdentityFields, emptyIdentity, identityPayload, type CardIdentity }
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
 import { SIGN_BUTTON_LABEL, VALUE_HELP } from "@/lib/legal/current-terms";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useState, useCallback, useId } from "react";
+import { trackCheckout } from "@/lib/checkout-funnel";
+import { useState, useCallback, useEffect, useId } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { MobileTotalBar } from "@/components/order-builder/mobile-total-bar";
@@ -130,6 +131,9 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const [appliedCode, setAppliedCode] = useState("");
   const [codeStatus, setCodeStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
   const [discountPercent, setDiscountPercent] = useState(0);
+
+  // Checkout funnel (lib/checkout-funnel.ts): the one-page prep form is step 1
+  useEffect(() => { trackCheckout("prep", "step_view", { step: 1 }); }, []);
 
   function resetAddress() {
     setSelectedRate(null);
@@ -300,11 +304,13 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     const fail = (message: string) => {
       setError(message);
       setShowMissing(true);
+      trackCheckout("prep", "blocked", { step: 1, code: "missing_fields", cards: filledCards.length });
       revealMissing();
     };
 
     // A ticked slab whose card changed after signing: its authorization pops up again
     const unsignedSlab = slabCards.find((c) => !slabSigned(signing, c));
+    if (unsignedSlab) trackCheckout("prep", "blocked", { step: 1, code: "slab_unsigned", cards: filledCards.length });
     if (unsignedSlab) { setSlabDialogId(unsignedSlab.id ?? null); return; }
     if (filledCards.length < 1) { return fail("Please add at least one card."); }
     if (filledCards.some((c) => cardValueCents(c) <= 0)) { return fail("Please enter a declared value for every card."); }
@@ -332,6 +338,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
     setShowMissing(false);
     setSubmitting(true);
+    trackCheckout("prep", "submit", { step: 1, cards: filledCards.length });
     try {
       const res = await fetch("/api/prep/checkout", {
         method: "POST",
@@ -370,12 +377,15 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
       });
       const data = await res.json();
       if (!res.ok || !data.url) {
+        trackCheckout("prep", "rejected", { step: 1, code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}`, cards: filledCards.length });
         setError(data.error ?? "Something went wrong. Please try again.");
         setSubmitting(false);
         return;
       }
+      trackCheckout("prep", "redirect", { step: 1, cards: filledCards.length });
       try { window.location.assign(data.url); } catch { setSubmitting(false); }
     } catch {
+      trackCheckout("prep", "rejected", { step: 1, code: "NETWORK_ERROR", cards: filledCards.length });
       setError("Network error. Please try again.");
       setSubmitting(false);
     }
