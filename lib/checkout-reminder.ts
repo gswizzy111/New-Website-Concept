@@ -24,7 +24,8 @@ import { checkoutReminderEmail } from "@/lib/checkout-reminder-email";
  * - staff-entered orders (the admin's manual orders are saved as paid with no
  *   Stripe session; the manual_order_created event is checked as well);
  * - test orders: a Stripe test-mode session while the key is live, or an
- *   order placed with one of the business's own addresses;
+ *   order placed with one of the business's own addresses (and, without a
+ *   live key, every live order is left alone for the production job);
  * - addresses with an open bounce or Resend suppression, or that ever marked
  *   our email as spam (the email_problems rows lib/email-problems.ts shows,
  *   read with the same rule as undeliverableEmails()). Marketing unsubscribes
@@ -131,6 +132,11 @@ export async function sendCheckoutReminders(): Promise<CheckoutReminderCounts> {
       skip(order, "test_order");
       continue;
     }
+    // The other way round (a test or missing key, say a developer's machine
+    // pointed at the shared database): Stripe can't read a live session, so
+    // leave the order unclaimed for the production job instead of using up
+    // its one reminder
+    if (!liveKey && order.stripe_session_id.startsWith("cs_live_")) { skip(order, "live_session_test_key"); continue; }
     if (!isSendableAddress(address)) { skip(order, "invalid_address"); continue; }
     if (undeliverable.has(address)) { skip(order, "email_problem"); continue; }
 
