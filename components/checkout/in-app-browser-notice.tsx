@@ -54,21 +54,26 @@ async function copyText(text: string): Promise<boolean> {
   } catch {
     // Not allowed here: try the older way
   }
+  // Focus goes back to the button afterwards, for keyboard and screen reader users
+  const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const area = document.createElement("textarea");
   try {
-    const area = document.createElement("textarea");
     area.value = text;
     area.setAttribute("aria-hidden", "true");
+    // Read-only, so phones don't open the keyboard while it is selected
+    area.setAttribute("readonly", "");
     // 16px, so iOS doesn't zoom in while it is selected
     area.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;";
     document.body.appendChild(area);
-    area.focus();
+    area.focus({ preventScroll: true });
     area.select();
     area.setSelectionRange(0, text.length);
-    const ok = document.execCommand("copy");
-    area.remove();
-    return ok;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    area.remove();
+    before?.focus({ preventScroll: true });
   }
 }
 
@@ -160,7 +165,9 @@ export function InAppBrowserNotice({
           />
         </div>
       )}
-      <p aria-live="polite" className="sr-only">{copied === "yes" ? "Link copied" : ""}</p>
+      <p aria-live="polite" className="sr-only">
+        {copied === "yes" ? "Link copied" : copied === "failed" ? "Press and hold the link to copy it." : ""}
+      </p>
     </div>
   );
 }
