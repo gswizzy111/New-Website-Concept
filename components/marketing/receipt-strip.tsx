@@ -17,17 +17,28 @@ const TILT = [-1.6, 1.2, -0.6, 1.8, -1.1];
 export function ReceiptStrip({
   ids,
   exclude = [],
+  live,
   className = "",
 }: {
   /** Which receipts, in order. Defaults to all of them. */
   ids?: string[];
   /** Receipts already shown elsewhere on the page. */
   exclude?: string[];
+  /**
+   * The admin's reviews (/admin/testimonials, components/marketing/live-receipts.ts).
+   * Only bundled screenshots: this page's own order, limited to the admin's
+   * set. Any upload: the admin's list in the admin's order.
+   */
+  live?: { items: Receipt[]; bundledOnly: boolean } | null;
   className?: string;
 }) {
-  const list: Receipt[] = (ids ? ids.map((id) => RECEIPTS.find((r) => r.id === id)).filter((r): r is Receipt => !!r) : RECEIPTS).filter(
-    (r) => !exclude.includes(r.id)
-  );
+  const ordered: Receipt[] = ids ? ids.map((id) => RECEIPTS.find((r) => r.id === id)).filter((r): r is Receipt => !!r) : RECEIPTS;
+  const source: Receipt[] = !live
+    ? ordered
+    : live.bundledOnly
+      ? ordered.filter((r) => live.items.some((i) => i.id === r.id))
+      : live.items;
+  const list: Receipt[] = (source.length ? source : ordered).filter((r) => !exclude.includes(r.id));
   const ref = useRef<HTMLUListElement>(null);
   const [index, setIndex] = useState(0);
   const [scrollable, setScrollable] = useState(true);
@@ -91,6 +102,7 @@ export function ReceiptStrip({
               border="sm"
               tilt={TILT[i % TILT.length]}
               lift
+              unoptimized={typeof r.src === "string" && !r.src.startsWith("/")}
               sizes="(min-width: 1024px) 280px, 74vw"
             />
           </li>

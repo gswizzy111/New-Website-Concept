@@ -33,8 +33,55 @@ type ShippingRate = {
   duration_terms: string | null;
 };
 
-// Prep ships within the United States and Puerto Rico only (as restoration does)
-const COUNTRY = "US";
+const COUNTRIES = [
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "AU", name: "Australia" },
+  { code: "JP", name: "Japan" },
+  { code: "SG", name: "Singapore" },
+  { code: "DE", name: "Germany" },
+  { code: "FR", name: "France" },
+  { code: "NL", name: "Netherlands" },
+  { code: "IT", name: "Italy" },
+  { code: "ES", name: "Spain" },
+  { code: "PT", name: "Portugal" },
+  { code: "SE", name: "Sweden" },
+  { code: "NO", name: "Norway" },
+  { code: "DK", name: "Denmark" },
+  { code: "FI", name: "Finland" },
+  { code: "CH", name: "Switzerland" },
+  { code: "AT", name: "Austria" },
+  { code: "BE", name: "Belgium" },
+  { code: "NZ", name: "New Zealand" },
+  { code: "MX", name: "Mexico" },
+  { code: "BR", name: "Brazil" },
+  { code: "AR", name: "Argentina" },
+  { code: "CL", name: "Chile" },
+  { code: "CO", name: "Colombia" },
+  { code: "KR", name: "South Korea" },
+  { code: "TW", name: "Taiwan" },
+  { code: "HK", name: "Hong Kong" },
+  { code: "CN", name: "China" },
+  { code: "IN", name: "India" },
+  { code: "PH", name: "Philippines" },
+  { code: "MY", name: "Malaysia" },
+  { code: "TH", name: "Thailand" },
+  { code: "ID", name: "Indonesia" },
+  { code: "VN", name: "Vietnam" },
+  { code: "ZA", name: "South Africa" },
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "SA", name: "Saudi Arabia" },
+  { code: "IL", name: "Israel" },
+  { code: "PL", name: "Poland" },
+  { code: "CZ", name: "Czech Republic" },
+  { code: "HU", name: "Hungary" },
+  { code: "RO", name: "Romania" },
+  { code: "GR", name: "Greece" },
+  { code: "TR", name: "Turkey" },
+  { code: "IE", name: "Ireland" },
+  { code: "HR", name: "Croatia" },
+];
 
 const HIGH_VALUE_THRESHOLD_CENTS = 150000; // $1,500
 const NJ_TAX_RATE = 0.06625;
@@ -90,6 +137,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   // Shipping
   const [shippingMethod, setShippingMethod] = useState<"buy_label" | "self_ship">("buy_label");
+  const [country, setCountry] = useState("US");
   const [street1, setStreet1] = useState("");
   const [street2, setStreet2] = useState("");
   const [city, setCity] = useState("");
@@ -123,10 +171,37 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const [notes, setNotes] = useState("");
   const [socialHandle, setSocialHandle] = useState("");
 
+  // Creator or coupon code
+  const [codeInput, setCodeInput] = useState("");
+  const [appliedCode, setAppliedCode] = useState("");
+  const [codeStatus, setCodeStatus] = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [discountPercent, setDiscountPercent] = useState(0);
+
+  const isInternational = country !== "US";
+
   function resetAddress() {
     setSelectedRate(null);
     setRates([]);
     setRatesFetchedFor("");
+  }
+
+  async function applyCode() {
+    const trimmed = codeInput.trim();
+    if (!trimmed || trimmed === appliedCode) return;
+    setCodeStatus("checking");
+    try {
+      const res = await fetch(`/api/affiliates/validate?code=${encodeURIComponent(trimmed)}`);
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setAppliedCode(trimmed);
+        setDiscountPercent(data.discount_percent ?? 0);
+        setCodeStatus("valid");
+        return;
+      }
+    } catch {}
+    setAppliedCode("");
+    setDiscountPercent(0);
+    setCodeStatus("invalid");
   }
 
   function addCard() { setCards((p) => [...p, emptyCard()]); }
@@ -174,24 +249,35 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   const preGradeSubtotal = addPreGrade ? filledCards.length * preGradePriceCents : 0;
   const slabCrackSubtotal = slabCrackCount * slabCrackPriceCents;
   const serviceSubtotal = prepSubtotal + preGradeSubtotal + slabCrackSubtotal;
+  // A creator or coupon code comes off the whole service subtotal (prep,
+  // Pre-Grade Assessment and slab removal), as on thecarddoc1.com
+  const codeDiscountCents = discountPercent > 0 ? Math.round(serviceSubtotal * discountPercent / 100) : 0;
   // Bulk pricing, as the checkout charges it: 10+ cards 10% off, 20+ 15% off
   // the per-card prep price of every card, including cards $1,500 and over
-  // (not the add-ons or shipping), taxed after the discount
+  // (not the add-ons or shipping). Discounts don't combine: the bulk discount
+  // applies only when it is bigger than the code's (/api/prep/checkout)
   const bulkPercent = bulkDiscountPercent(filledCards.length);
-  const bulkDiscountCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
-  const taxCents = Math.round((serviceSubtotal - bulkDiscountCents) * NJ_TAX_RATE);
+  const bulkCents = bulkDiscountCentsOf(prepSubtotal, bulkPercent);
+  const bulkWon = bulkCents > codeDiscountCents;
+  const bulkDiscountCents = bulkWon ? bulkCents : 0;
+  const discountCents = bulkWon ? bulkCents : codeDiscountCents;
+  // No NJ tax for international orders; tax is on the subtotal after discount
+  const taxCents = isInternational ? 0 : Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
   // The prepaid label pays the rate twice (to us and back); shipping your own
   // way pays it once, for the trip back to you
   const shippingTrips = shippingMethod === "buy_label" ? 2 : 1;
   const shippingCents = (selectedRate?.amount_cents ?? 0) * shippingTrips;
   const insuranceDeclaredValueCents = addInsurance ? Math.round((parseFloat(insuranceValueDollars) || 0) * 100) : 0;
   const estimatedInsuranceCents = estimateInsuranceCents(insuranceDeclaredValueCents);
-  const totalEstimate = serviceSubtotal - bulkDiscountCents + taxCents + shippingCents + estimatedInsuranceCents;
+  const totalEstimate = serviceSubtotal - discountCents + taxCents + shippingCents + estimatedInsuranceCents;
   const totalDeclaredValueCents = filledCards.reduce((sum, c) => sum + cardValueCents(c), 0);
 
   // Rates are quoted per address and per method (to us, or back to you)
-  const addressFingerprint = [shippingMethod, street1.trim(), street2.trim(), city.trim(), stateCode.trim(), zip.trim()].join("|");
-  const addressComplete = !!(street1.trim() && city.trim() && zip.trim() && stateCode);
+  const addressFingerprint = [shippingMethod, country, street1.trim(), street2.trim(), city.trim(), stateCode.trim(), zip.trim()].join("|");
+  const addressComplete = !!(
+    street1.trim() && city.trim() && zip.trim() &&
+    (isInternational || stateCode) // state required for US, optional for international
+  );
   const addressChangedSinceFetch = rates.length > 0 && ratesFetchedFor !== addressFingerprint;
 
   const fetchRates = useCallback(async () => {
@@ -209,7 +295,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           body: JSON.stringify({
             to_address: {
               name: name.trim(), email: email.trim(), phone: phone.trim(), street1: street1.trim(), street2: street2.trim(),
-              city: city.trim(), state: stateCode.trim(), zip: zip.trim(), country: COUNTRY,
+              city: city.trim(), state: stateCode.trim(), zip: zip.trim(), country,
             },
             parcel: { length: 6, width: 4, height: 2, weight: 8 },
             from_business: true,
@@ -228,7 +314,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             city: city.trim(),
             state: stateCode.trim() || undefined,
             zip: zip.trim(),
-            country: COUNTRY,
+            country,
             card_count: Math.max(1, filledCards.length),
             total_value_usd: totalValueUsd,
           }),
@@ -254,7 +340,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
       setRatesLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [street1, street2, city, stateCode, zip, addressFingerprint, filledCards.length, totalDeclaredValueCents, shippingMethod]);
+  }, [street1, street2, city, stateCode, zip, country, addressFingerprint, filledCards.length, totalDeclaredValueCents, shippingMethod]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -280,7 +366,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         ? "Full address is required to generate a prepaid label."
         : "Full address is required so we can ship your cards back.");
     }
-    if (!stateCode) {
+    if (!isInternational && !stateCode) {
       return fail("State is required for US addresses.");
     }
     if (!selectedRate) {
@@ -313,7 +399,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           add_pre_grade: addPreGrade,
           insurance_election: insuranceElection,
           shipping_method: shippingMethod,
-          country: COUNTRY,
+          country,
           street1: street1.trim(),
           street2: street2.trim() || undefined,
           city: city.trim(),
@@ -326,6 +412,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             insurance_amount_cents: insuranceDeclaredValueCents,
           } : {}),
           social_handle: socialHandle.trim() || undefined,
+          affiliate_code: appliedCode || undefined,
           customer_notes: notes.trim() || undefined,
           ...submittedSigning(signing, slabCards),
         }),
@@ -557,46 +644,78 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-3 border-t border-line pt-5">
 
+              {/* Country selector — always first */}
               <div>
-                <p className={labelCls}>Country</p>
-                <p className="flex h-11 items-center rounded-[12px] bg-chalk px-3.5 text-sm font-semibold text-ink-soft">
-                  United States
-                </p>
+                <label htmlFor="prep-country" className={labelCls}>Country<Req /></label>
+                <select
+                  id="prep-country"
+                  className={selectCls}
+                  autoComplete="country"
+                  value={country}
+                  onChange={(e) => { setCountry(e.target.value); setStateCode(""); resetAddress(); }}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
               </div>
 
               <Need missing={miss(street1)}>
                 <label className={labelCls}>Street Address<Req /></label>
-                <AddressAutocomplete
-                  value={street1}
-                  onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
-                  onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
-                  className={input}
-                  placeholder="123 Main St"
-                />
+                {/* Address suggestions are for US addresses */}
+                {!isInternational ? (
+                  <AddressAutocomplete
+                    value={street1}
+                    onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
+                    onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
+                    className={input}
+                    placeholder="123 Main St"
+                  />
+                ) : (
+                  <input className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
+                )}
               </Need>
               <div>
                 <label className={labelCls}>Apt / Suite / Unit <span className="normal-case">(optional)</span></label>
                 <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
               </div>
 
-              {/* City / state / ZIP */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                <Need missing={miss(city)} className="col-span-2">
-                  <label className={labelCls}>City<Req /></label>
-                  <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
-                </Need>
-                <Need missing={miss(stateCode)}>
-                  <label className={labelCls}>State<Req /></label>
-                  <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
-                    <option value="">—</option>
-                    {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
-                  </select>
-                </Need>
-                <Need missing={miss(zip)} className="sm:col-span-2">
-                  <label className={labelCls}>ZIP Code<Req /></label>
-                  <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
-                </Need>
-              </div>
+              {!isInternational ? (
+                /* US: city / state dropdown / ZIP */
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <Need missing={miss(city)} className="col-span-2">
+                    <label className={labelCls}>City<Req /></label>
+                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                  </Need>
+                  <Need missing={miss(stateCode)}>
+                    <label className={labelCls}>State<Req /></label>
+                    <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                      <option value="">—</option>
+                      {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
+                    </select>
+                  </Need>
+                  <Need missing={miss(zip)} className="sm:col-span-2">
+                    <label className={labelCls}>ZIP Code<Req /></label>
+                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                  </Need>
+                </div>
+              ) : (
+                /* International: city / state text (optional) / postal code */
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <Need missing={miss(city)} className="col-span-2">
+                    <label className={labelCls}>City<Req /></label>
+                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
+                  </Need>
+                  <div>
+                    <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
+                    <input className={input} autoComplete="address-level1" value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
+                  </div>
+                  <Need missing={miss(zip)} className="sm:col-span-2">
+                    <label className={labelCls}>Postal Code<Req /></label>
+                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
+                  </Need>
+                </div>
+              )}
             </div>
 
             {addressComplete && (
@@ -604,6 +723,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 {shippingMethod === "self_ship" ? (
                   <div className="rounded-xl bg-cobalt-wash px-4 py-3 text-sm leading-relaxed text-ink">
                     <strong>Return shipping is paid now.</strong> You send your cards to us your own way; we ship them back to this address with a tracked label.
+                  </div>
+                ) : isInternational ? (
+                  <div className="rounded-xl bg-sun-tint px-4 py-3 text-sm leading-relaxed text-ink">
+                    <strong>International shipping — important:</strong> You will receive a prepaid label and customs forms after checkout. You must bring your package to a carrier counter or post office in person — do not drop in a mailbox. Shipping cost covers both the inbound label (you to us) and the return shipment (us back to you).
                   </div>
                 ) : (
                   <div className="rounded-xl bg-cobalt-wash px-4 py-3 text-sm leading-relaxed text-ink">
@@ -708,6 +831,34 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           </div>
         </div>
 
+        {/* Creator / coupon code */}
+        <div className={`${panel} flex flex-col gap-3`}>
+          <label htmlFor="prep-code" className={h2Cls}>
+            Creator or coupon code <span className="font-sans text-sm font-medium normal-case tracking-normal text-ink-soft">(optional)</span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="prep-code"
+              className={`${input} min-w-0 flex-1 font-mono uppercase`}
+              value={codeInput}
+              onChange={(e) => { setCodeInput(e.target.value.toUpperCase()); setAppliedCode(""); setDiscountPercent(0); setCodeStatus("idle"); }}
+              onBlur={applyCode}
+              placeholder="CODE"
+            />
+            <button type="button" onClick={applyCode} disabled={!codeInput.trim()}
+              className="btn btn-outline shrink-0 px-5 disabled:opacity-50">
+              Apply
+            </button>
+          </div>
+          <div aria-live="polite">
+            {codeStatus === "checking" && <p className="text-sm text-ink-soft">Checking...</p>}
+            {codeStatus === "valid" && discountPercent > 0 && !bulkWon && <p className="text-sm font-semibold text-success">✓ {discountPercent}% discount applied</p>}
+            {codeStatus === "valid" && discountPercent > 0 && bulkWon && <p className="text-sm text-ink-soft">Your {bulkPercent}% bulk discount is bigger, so it applies instead of this code (discounts don&apos;t combine).</p>}
+            {codeStatus === "valid" && discountPercent === 0 && <p className="text-sm font-semibold text-success">✓ Code applied</p>}
+            {codeStatus === "invalid" && <p className="text-sm text-destructive">Invalid code. Please try again.</p>}
+          </div>
+        </div>
+
         {/* Notes */}
         <div className={`${panel} flex flex-col gap-3`}>
           <label htmlFor="prep-notes" className={h2Cls}>
@@ -748,6 +899,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <span className="font-semibold">{fmt(slabCrackSubtotal)}</span>
               </div>
             )}
+            {!bulkWon && codeDiscountCents > 0 && (
+              <div className="flex justify-between font-semibold text-success">
+                <span>{discountPercent}% off — {appliedCode}</span>
+                <span>−{fmt(codeDiscountCents)}</span>
+              </div>
+            )}
             {taxCents > 0 && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">NJ Sales Tax (6.625%)</span>
@@ -775,7 +932,9 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             <p className="text-xs text-muted-foreground">
               {!selectedRate
                 ? "* Select a shipping option above to see your full total."
-                : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
+                : isInternational
+                  ? "* All amounts in USD. Confirmed at Stripe checkout."
+                  : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
             </p>
           </div>
         </div>

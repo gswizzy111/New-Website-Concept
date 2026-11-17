@@ -7,6 +7,7 @@ import { KIT_REVIEW, type Review } from "@/lib/reviews";
 import { SERVICE_CARDS } from "@/lib/service-cards";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SHOP_CATALOG } from "@/lib/shop-catalog";
+import { productRating } from "@/lib/shop-ratings";
 import { formatCurrency } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { AddToCartButton } from "./add-to-cart-button";
@@ -179,7 +180,10 @@ export default async function ShopPage() {
 
   // No products from the database (this preview has none): show the shop's
   // listed kits, tools and supplies instead.
-  const products: Product[] = data && data.length > 0 ? (data as Product[]) : SHOP_CATALOG;
+  // Database products get their star rating from the name, as on thecarddoc1.com
+  const products: Product[] = data && data.length > 0
+    ? (data as Product[]).map((p) => ({ ...p, rating: productRating(p.name) }))
+    : SHOP_CATALOG;
 
   const kits = products.filter((p) => p.category === "Kits");
   const tools = products.filter((p) => p.category === "Tools");

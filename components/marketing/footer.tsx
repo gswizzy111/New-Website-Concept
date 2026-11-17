@@ -45,6 +45,12 @@ export function Footer(_props: { sprite?: React.ReactNode } = {}) {
                 strokeWidth={1.75}
               />
             </a>
+            <a
+              href="mailto:thecarddoc1@gmail.com"
+              className="inline-flex min-h-11 items-center self-start rounded-md text-[17px] font-semibold text-white transition-colors duration-200 hover:text-sun hover:underline hover:decoration-sun hover:underline-offset-4"
+            >
+              Email us at thecarddoc1@gmail.com
+            </a>
             <p className="text-[15px] text-on-dark-muted">We reply within 1 business day.</p>
           </div>
         </div>

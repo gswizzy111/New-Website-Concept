@@ -12,6 +12,7 @@ import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { trackingLink } from "@/lib/tracking-carrier";
 import { OpenFileButton } from "@/components/open-file-button";
+import { labelHref } from "@/lib/label-link";
 import { ArrowLeft, Download } from "lucide-react";
 import { Eyebrow, PAGE_TITLE, PANEL, PANEL_LABEL, PANEL_TITLE, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
 import { cta } from "@/components/brand";
@@ -199,7 +200,7 @@ export default async function AccountOrderPage({
                 <p className="mb-4 text-sm text-ink-soft">Print and attach to your package.</p>
                 {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
                 <OpenFileButton
-                  url={order.shipping_label_url}
+                  url={labelHref(order.id)}
                   className={cta({ tone: "sun", size: "sm", className: "w-full" })}
                 >
                   <Download aria-hidden className="size-4" strokeWidth={2.25} />

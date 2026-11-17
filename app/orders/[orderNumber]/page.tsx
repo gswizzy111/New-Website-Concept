@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SignedAgreements, type SignedAgreement } from "@/components/agreements/signed-agreements";
+import { STAGE_INFO, friendlyStage, parseStageEvent } from "@/lib/restoration-stages";
 import { shippo } from "@/lib/shippo";
 import { ORDER_STATUSES, STATUS_TIMELINE, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
@@ -16,6 +17,7 @@ import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
 import { Download } from "lucide-react";
 import { Eyebrow, PAGE_TITLE, PANEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
 import { cta } from "@/components/brand";
+import { labelHref } from "@/lib/label-link";
 
 /** The page frame: the slim header, then the column on chalk. */
 function Shell({ children }: { children: React.ReactNode }) {
@@ -264,6 +266,25 @@ export default async function OrderDetailPage({
   const { data: signatures } = await admin.from("signatures").select("id, type, document_title, typed_full_name, signed_at, card_snapshot").eq("order_id", order.id).order("signed_at");
   const docUrl = (id: string) => `/api/orders/${encodeURIComponent(String(order.order_number))}/documents/${id}?email=${encodeURIComponent(email)}`;
   const signedDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+  // What we've told the customer along the way, newest first
+  const { data: visibleEvents } = await admin
+    .from("order_events")
+    .select("id, event_type, description, metadata, created_at")
+    .eq("order_id", order.id)
+    .eq("is_customer_visible", true)
+    .order("created_at", { ascending: false });
+  const cardNameById = new Map((cards ?? []).map((c) => [c.id as string, c.card_name as string]));
+  const timeline = (visibleEvents ?? []).map((e) => {
+    const stage = parseStageEvent(e);
+    if (stage) {
+      const card = cardNameById.get(stage.card_id);
+      return { id: e.id, at: e.created_at, text: `${friendlyStage(stage.stage, stage.round)}${card ? ` — ${card}` : ""}`, detail: STAGE_INFO[stage.stage]?.explanation ?? null };
+    }
+    return { id: e.id, at: e.created_at, text: e.description as string, detail: null };
+  });
+  const pregradeResults = (cards ?? [])
+    .filter((c) => c.pregrade_submitted_at)
+    .sort((a, b) => String(a.pregrade_submitted_at).localeCompare(String(b.pregrade_submitted_at)));
 
   // Fetch live inbound tracking from Shippo (only while awaiting cards)
   let inboundTrack: Track | null = null;
@@ -313,6 +334,43 @@ export default async function OrderDetailPage({
           })}
         />
       </div>
+
+      {/* Pre-grade results */}
+      {pregradeResults.length > 0 && (
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-5`}>Pre-Grade Results</h2>
+          <div className="flex flex-col gap-2.5">
+            {pregradeResults.map((c) => (
+              <div key={c.id} className="rounded-[14px] bg-cobalt-wash px-4 py-3">
+                <p className="text-[15px] font-semibold text-ink">{c.card_name}</p>
+                <p className="label-caps mt-1.5 text-[13px] text-ink-soft">Estimated grade</p>
+                <p className="font-heading text-[1.75rem] leading-none font-black text-cobalt-deep">{c.pregrade_result}</p>
+                {c.pregrade_notes && <p className="mt-1.5 text-[15px] whitespace-pre-wrap text-ink">{c.pregrade_notes}</p>}
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-sm text-ink-soft">A pre-grade is our estimate, not a guarantee of the grade a grading company will assign.</p>
+        </div>
+      )}
+
+      {/* Updates timeline */}
+      {timeline.length > 0 && (
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-5`}>Updates</h2>
+          <ol className="ml-1.5 flex flex-col gap-4 border-l-2 border-line">
+            {timeline.map((t) => (
+              <li key={t.id} className="relative pl-5">
+                <span aria-hidden className="absolute top-1.5 -left-[7px] size-3 rounded-full bg-cobalt" />
+                <p className="text-[15px] font-semibold text-ink">{t.text}</p>
+                {t.detail && <p className="text-sm text-ink-soft">{t.detail}</p>}
+                <p className="mt-0.5 text-[13px] text-ink-soft">
+                  {new Date(t.at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       {/* Cards-added success banner */}
       {added === "1" && (
@@ -396,7 +454,7 @@ export default async function OrderDetailPage({
           <h2 className="mb-2 font-heading text-[1.75rem] leading-none font-black text-ink">Your Prepaid Shipping Label</h2>
           <p className="mb-5 text-[15px] text-ink">Print this label, attach it to your package, and drop it off at the carrier.</p>
           <a
-            href={order.shipping_label_url}
+            href={labelHref(order.id)}
             target="_blank"
             rel="noopener noreferrer"
             className={cta({ tone: "ink", size: "md" })}

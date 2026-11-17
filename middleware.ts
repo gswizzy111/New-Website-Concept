@@ -60,7 +60,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: PREVIEW_MESSAGE }, { status: 503 });
     }
-    const PRIVATE = ["/admin", "/accountant", "/account", "/affiliates", "/partners", "/cases", "/orders"];
+    const PRIVATE = ["/admin", "/accountant", "/support", "/account", "/affiliates", "/partners", "/cases", "/orders"];
     if (PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       return NextResponse.rewrite(new URL("/not-available", request.url));
     }

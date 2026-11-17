@@ -1,6 +1,7 @@
 import { Print } from "@/components/brand";
 import { ReceiptStrip } from "./receipt-strip";
 import { receipt } from "./receipts";
+import { liveReceipts } from "./live-receipts";
 import { CASE_STUDY, FEATURED_REVIEW, REVIEWS, type Review } from "@/lib/reviews";
 import { cn } from "@/lib/utils";
 
@@ -174,7 +175,7 @@ function TextPicks({ picks = COMPACT_PICKS, className = "" }: { picks?: string[]
  * The messages: the real DM screenshots as one "receipts" strip, then three
  * of them as text. `exclude` drops screenshots already shown on the page.
  */
-export function ReviewBubbles({
+export async function ReviewBubbles({
   exclude = [],
   ids,
   picks,
@@ -194,9 +195,11 @@ export function ReviewBubbles({
   exclude?: string[];
   className?: string;
 }) {
+  // The reviews the admin manages (falls back to the static set)
+  const live = await liveReceipts();
   return (
     <div className={className}>
-      <ReceiptStrip ids={ids} exclude={exclude} />
+      <ReceiptStrip ids={ids} exclude={exclude} live={live} />
       <div className={cn("mt-10 md:mt-12", !textOnPhone && "hidden md:block")}>
         <TextPicks picks={picks} />
       </div>
