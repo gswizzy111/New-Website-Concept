@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ChevronUp } from "lucide-react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { ChevronUp, XIcon } from "lucide-react";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { BLOCK_TITLE } from "@/components/checkout/form-styles";
 import { cn } from "@/lib/utils";
 
@@ -137,7 +138,8 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
 
   // Screen readers hear the total once it stops changing (not on every
   // keystroke in a value field), and the line clears so it isn't read twice
-  // when someone moves through the bar.
+  // when someone moves through the bar. Only where the bar applies: from lg
+  // up the summary sits beside the form, and desktop stays as it was.
   const message = `${label}: ${total}, ${cards}`;
   const [settled, setSettled] = useState(message);
   const [spoken, setSpoken] = useState("");
@@ -145,10 +147,10 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
     if (message === settled) return;
     const t = setTimeout(() => {
       setSettled(message);
-      setSpoken(message);
+      if (show && !window.matchMedia(DESKTOP).matches) setSpoken(message);
     }, 700);
     return () => clearTimeout(t);
-  }, [message, settled]);
+  }, [message, settled, show]);
   useEffect(() => {
     if (!spoken) return;
     const t = setTimeout(() => setSpoken(""), 5000);
@@ -187,12 +189,18 @@ export function MobileTotalBar({ total, label = "Total", cardCount, title, detai
       <p className="sr-only" aria-live="polite" aria-atomic="true">{spoken}</p>
       <SheetContent
         side="bottom"
+        // Its own close button below: a full 44px tap target on phones
+        showCloseButton={false}
         className="max-h-[85svh] gap-5 overflow-y-auto overscroll-contain rounded-t-[22px] bg-white px-5 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] text-ink motion-reduce:transition-none data-[side=bottom]:border-t-0"
       >
         <SheetHeader className="p-0 pr-12">
           <SheetTitle className={BLOCK_TITLE}>{title}</SheetTitle>
         </SheetHeader>
         {details}
+        <SheetClose render={<Button variant="ghost" size="icon" className="absolute top-3 right-3" />}>
+          <XIcon aria-hidden className="size-5" strokeWidth={1.75} />
+          <span className="sr-only">Close</span>
+        </SheetClose>
       </SheetContent>
     </Sheet>,
     document.body,
