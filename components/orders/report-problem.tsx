@@ -53,7 +53,7 @@ export function ReportProblem({ orderRef, email }: { orderRef: string; email: st
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Which card or item, what you noticed, and when it was delivered"
-            className="w-full min-h-24 py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+            className="w-full min-h-24 py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
           />
           <div>
             <p className="mb-1.5 text-sm font-semibold text-ink">Photos of the item and the packaging</p>

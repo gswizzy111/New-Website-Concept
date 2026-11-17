@@ -313,7 +313,7 @@ export function StepReview({
                 onChange={(e) => setInsuranceDollars(e.target.value)}
                 onBlur={handleDeclaredValueBlur}
                 placeholder="e.g. 500"
-                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+                className="h-11 w-40 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
               />
               {quotingInsurance && <span className="text-xs text-muted-foreground">Getting rate...</span>}
             </div>
@@ -390,7 +390,7 @@ export function StepReview({
                 onTipCentsChange(cents);
               }}
               className={cn(
-                "min-h-11 rounded-full px-4 text-[15px] font-bold tabular-nums transition-[background-color,box-shadow,color] duration-150 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt",
+                "min-h-11 rounded-full px-4 text-[15px] font-bold tabular-nums transition-[background-color,box-shadow,color] duration-150 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt",
                 tipCents === cents
                   ? "bg-ink text-white"
                   : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line-strong)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"
@@ -417,7 +417,7 @@ export function StepReview({
               setCustomTip(v > MAX_TIP_CENTS ? String(MAX_TIP_CENTS / 100) : e.target.value);
               onTipCentsChange(Math.min(Math.max(v, 0), MAX_TIP_CENTS));
             }}
-            className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-7"
+            className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-7"
           />
         </div>
       </div>
@@ -450,7 +450,7 @@ export function StepReview({
               onDiscountChange(0);
             }}
             placeholder="CREATOR123"
-            className="h-11 min-w-0 flex-1 font-mono uppercase rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+            className="h-11 min-w-0 flex-1 font-mono uppercase rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
           />
           <button
             type="button"
@@ -487,7 +487,7 @@ export function StepReview({
               onGiftCardAmountChange(0);
             }}
             placeholder="GIFT-XXXX-XXXX"
-            className="h-11 min-w-0 flex-1 font-mono uppercase rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+            className="h-11 min-w-0 flex-1 font-mono uppercase rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
           />
           <button
             type="button"

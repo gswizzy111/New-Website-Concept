@@ -54,7 +54,7 @@ export function WaitlistForm() {
           placeholder="your@email.com"
           aria-label="Email address"
           autoComplete="email"
-          className="h-12 min-w-0 flex-1 rounded-full border-[1.5px] border-line-dark bg-ink-2 px-5 text-base text-white outline-none transition-[border-color] placeholder:text-on-dark-muted hover:border-on-dark-muted focus-visible:border-sun focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sun"
+          className="h-12 min-w-0 flex-1 rounded-full border-[1.5px] border-line-dark bg-ink-2 px-5 text-base text-white outline-hidden transition-[border-color] placeholder:text-on-dark-muted hover:border-on-dark-muted focus-visible:border-sun focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-sun"
         />
         <button
           type="submit"

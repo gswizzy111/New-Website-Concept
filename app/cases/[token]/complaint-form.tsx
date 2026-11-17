@@ -52,7 +52,7 @@ export function ComplaintForm({ caseId, token }: { caseId: string; token: string
         </label>
         <textarea
           id="complaint-text"
-          className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+          className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
           rows={6}
           value={complaint}
           onChange={(e) => setComplaint(e.target.value)}

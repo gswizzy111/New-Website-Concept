@@ -15,7 +15,7 @@ import charmanderAfter from "@/public/home/charmander-after.jpg";
 
 export const metadata: Metadata = {
   alternates: canonical("/how-it-works"),
-  title: "How It Works — The Card Doc",
+  title: "How It Works | The Card Doc",
   description:
     "The Card Doc is a trading card restoration and grading-prep shop in Ridgewood, New Jersey. Mail us your cards from anywhere in the US, we do the work by hand in our shop, and we ship them back ready for grading or your personal collection.",
 };

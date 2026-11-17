@@ -23,7 +23,7 @@ export default function NotFound() {
         <PreviewBanner />
         <Nav />
       </div>
-      <main id="main" tabIndex={-1} className="flex flex-1 items-center bg-chalk outline-none">
+      <main id="main" tabIndex={-1} className="flex flex-1 items-center bg-chalk outline-hidden">
         <NotFoundPanel />
       </main>
       <Footer />

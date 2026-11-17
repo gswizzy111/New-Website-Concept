@@ -49,7 +49,7 @@ export function CardStack({ cards, className }: { cards: StackCard[]; className?
             onFocus={() => setActive(i)}
             onBlur={() => setActive((a) => (a === i ? null : a))}
             className={cn(
-              "absolute m-0 cursor-pointer overflow-hidden outline-none",
+              "absolute m-0 cursor-pointer overflow-hidden outline-hidden",
               "[border-radius:5%/3.58%]",
               "shadow-[0_2px_4px_rgb(13_18_51/0.12),0_14px_32px_-8px_rgb(13_18_51/0.35)]",
               "transition-[transform,box-shadow] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",

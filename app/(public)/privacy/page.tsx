@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — The Card Doc",
+  title: "Privacy Policy | The Card Doc",
   description:
     "Privacy Policy for The Card Doc LLC covering our Instagram and Messenger messaging assistant and card restoration services.",
   robots: { index: true, follow: true },

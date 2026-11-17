@@ -40,7 +40,7 @@ export function RestorationWaitlistForm({ onSuccess }: { onSuccess?: () => void 
     );
   }
 
-  const inp = "h-12 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt";
+  const inp = "h-12 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt";
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-md mx-auto">

@@ -430,7 +430,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
     }
   }
 
-  const input = "h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
+  const input = "h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
   const labelCls = "mb-1.5 block text-sm font-bold text-ink";
   // One white panel per step of the form
   const panel = "rounded-2xl bg-white p-5 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] md:p-7";
@@ -516,7 +516,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   placeholder="Card name (e.g. Charizard Base Set Holo)"
                 />
                 {cards.length > 1 && (
-                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
+                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
                 )}
               </div>
               </Need>
@@ -525,7 +525,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <div className="relative flex-1">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
                   <input
-                    className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+                    className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
                     type="number" min="0" step="1"
                     value={card.declaredValueDollars}
                     onChange={(e) => updateCardValue(card.id, e.target.value)}
@@ -596,7 +596,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             type="button"
             onClick={() => setAddPreGrade((v) => !v)}
             aria-pressed={addPreGrade}
-            className={`flex w-full items-center gap-3.5 rounded-xl p-4 text-left transition-[box-shadow,background-color] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${addPreGrade ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}
+            className={`flex w-full items-center gap-3.5 rounded-xl p-4 text-left transition-[box-shadow,background-color] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${addPreGrade ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}
           >
             <div className={`flex size-6 shrink-0 items-center justify-center rounded-md ${addPreGrade ? "bg-cobalt" : "bg-white shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               {addPreGrade && <Check className="size-4 text-white" strokeWidth={3} />}
@@ -627,12 +627,12 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => { if (shippingMethod !== "buy_label") resetAddress(); setShippingMethod("buy_label"); }}
               aria-pressed={shippingMethod === "buy_label"}
-              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "buy_label" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "buy_label" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               <Package className="h-4 w-4" strokeWidth={1.75} />Prepaid Label
             </button>
             <button type="button" onClick={() => { if (shippingMethod !== "self_ship") resetAddress(); setShippingMethod("self_ship"); if (insuranceElection === "purchased") setInsuranceElection(null); }}
               aria-pressed={shippingMethod === "self_ship"}
-              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "self_ship" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+              className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-[15px] font-extrabold transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${shippingMethod === "self_ship" ? "bg-ink text-white shadow-[0_10px_20px_-12px_rgba(13,18,51,0.8)]" : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
               <Mailbox className="h-4 w-4" strokeWidth={1.75} />Ship Myself
             </button>
           </div>
@@ -758,7 +758,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     {rates.map((rate) => (
                       <button key={rate.id} type="button" onClick={() => setSelectedRate(rate)}
                         aria-pressed={selectedRate?.id === rate.id}
-                        className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${selectedRate?.id === rate.id ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
+                        className={`flex min-h-14 w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-[background-color,box-shadow] focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt ${selectedRate?.id === rate.id ? "bg-cobalt-wash shadow-[inset_0_0_0_2px_var(--cobalt)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
                         <div className="flex items-center gap-3">
                           <div className={`flex size-5 shrink-0 items-center justify-center rounded-full ${selectedRate?.id === rate.id ? "bg-cobalt" : "bg-white shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"}`}>
                             {selectedRate?.id === rate.id && <div className="size-2 rounded-full bg-white" />}
@@ -823,7 +823,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">@</span>
             <input
-              className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+              className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
               value={socialHandle}
               onChange={(e) => setSocialHandle(e.target.value.replace(/^@/, ""))}
               placeholder="yourhandle (optional)"
@@ -866,7 +866,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           </label>
           <textarea
             id="prep-notes"
-            className="w-full resize-none rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-3 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
+            className="w-full resize-none rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-3 text-base text-ink outline-hidden transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
             value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
             placeholder="Special instructions, condition notes, etc." />
         </div>
