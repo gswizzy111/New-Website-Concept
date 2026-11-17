@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowRight, Check, Globe, Info, Lock, ShoppingBag } from "lucide-react";
+import { Check, Globe, Info, Lock } from "lucide-react";
+import { EmptyCart } from "../empty-cart";
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, PIXEL_FIELD } from "@/components/ui/input";
@@ -296,24 +296,7 @@ function CheckoutInner() {
   const gcApplied = giftCardCents(Math.min(giftCardAmountCents, preTaxTotal), preTaxTotal);
   const finalTotal = preTaxTotal - gcApplied;
 
-  if (items.length === 0) {
-    return (
-      <section className="surface-chalk flex min-h-[70vh] items-center py-16 md:py-24">
-        <div className="wrap">
-          <div className="mx-auto flex max-w-xl flex-col items-center gap-6 rounded-[22px] bg-white px-6 py-12 text-center shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
-            <span aria-hidden className="grid size-20 place-items-center rounded-[22px] bg-chalk text-ink/40">
-              <ShoppingBag className="size-10" strokeWidth={1.5} />
-            </span>
-            <p className="font-heading text-[2.25rem] leading-none font-black text-ink">Your cart is empty.</p>
-            <Link href="/shop" className={cta({ tone: "sun", size: "lg" })}>
-              Browse Shop
-              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
-            </Link>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  if (items.length === 0) return <EmptyCart />;
 
   const codeRow = "flex gap-2.5";
   const applyBtn = cta({ tone: "outline", size: "sm", className: "shrink-0 px-5" });
@@ -530,7 +513,7 @@ function CheckoutInner() {
             <div className="mb-6 flex flex-col gap-3">
               {items.map((item) => (
                 <div key={item.id} className={SUM_ROW}>
-                  <span>{item.name} × {item.quantity}</span>
+                  <span>{item.size ? `${item.name} — ${item.size}` : item.name} × {item.quantity}</span>
                   <span className="shrink-0 font-semibold text-ink">{formatCurrency(item.price_cents * item.quantity)}</span>
                 </div>
               ))}

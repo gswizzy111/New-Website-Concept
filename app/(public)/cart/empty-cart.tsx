@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { Print, cta } from "@/components/brand";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
 
-/** The empty-cart panel, shared by /cart and /cart/upsell. */
+/** The empty-cart panel, shared by /cart, /cart/upsell and /cart/checkout. */
 export function EmptyCart() {
   return (
     <section className="surface-chalk flex min-h-[70vh] items-center py-16 md:py-24">

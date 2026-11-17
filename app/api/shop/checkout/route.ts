@@ -5,7 +5,7 @@ import Stripe from "stripe";
 import { isSoldOut } from "@/lib/site-config";
 import { addressProblem, normalizeAddress } from "@/lib/shipping-address";
 import { usAddressRejection } from "@/lib/verify-address";
-import { verifyKitRate } from "@/lib/kit-shipping";
+import { KIT_LARGE_ORDER_MESSAGE, kitParcel, kitParcelTooLarge, verifyKitRate } from "@/lib/kit-shipping";
 import { likeExact } from "@/lib/like-exact";
 import { siteUrl } from "@/lib/site-url";
 import {
@@ -94,17 +94,30 @@ export async function POST(request: Request) {
 
   const productMap = Object.fromEntries(products.map((p) => [p.id, p]));
 
+  // Stock is per product, so sizes of one product (gloves Small + Medium)
+  // count together, as the webhook takes them off
+  const qtyByProduct = new Map<string, number>();
+  for (const item of data.items) {
+    const id = baseId(item.id);
+    qtyByProduct.set(id, (qtyByProduct.get(id) ?? 0) + item.quantity);
+  }
+
   // Validate stock and build product line items
   const lineItems: { price_data: { currency: string; product_data: { name: string }; unit_amount: number }; quantity: number }[] = [];
   for (const item of data.items) {
     const product = productMap[baseId(item.id)];
     if (!product || !product.active) return Response.json({ error: "Product not available." }, { status: 400 });
-    if (product.inventory_count < item.quantity) return Response.json({ error: `Not enough stock for ${product.name}.` }, { status: 400 });
+    if (product.inventory_count < (qtyByProduct.get(baseId(item.id)) ?? item.quantity)) return Response.json({ error: `Not enough stock for ${product.name}.` }, { status: 400 });
     const displayName = item.size ? `${product.name} — ${item.size}` : product.name;
     lineItems.push({
       price_data: { currency: "usd", product_data: { name: displayName }, unit_amount: product.price_cents },
       quantity: item.quantity,
     });
+  }
+
+  // Too big for one parcel: never charge flat shipping or buy a label for it
+  if (kitParcelTooLarge(kitParcel(data.items.map((item) => ({ name: productMap[baseId(item.id)]?.name ?? "", quantity: item.quantity }))))) {
+    return Response.json({ error: KIT_LARGE_ORDER_MESSAGE }, { status: 400 });
   }
 
   const productSubtotalCents = data.items.reduce(

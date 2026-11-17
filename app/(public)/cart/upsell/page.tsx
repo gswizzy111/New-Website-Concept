@@ -192,7 +192,7 @@ function UpsellInner() {
               <div className="mb-6 flex flex-col gap-3">
                 {items.map((item) => (
                   <div key={item.id} className={SUM_ROW}>
-                    <span className="mr-2 truncate">{item.name} × {item.quantity}</span>
+                    <span className="mr-2 truncate">{item.size ? `${item.name} — ${item.size}` : item.name} × {item.quantity}</span>
                     <span className="shrink-0 font-semibold text-ink">{formatCurrency(item.price_cents * item.quantity)}</span>
                   </div>
                 ))}

@@ -24,9 +24,10 @@ export type KitParcelItem = { name: string; quantity?: number };
 /**
  * The kit parcel: a box for kits with tools, else a mailer, scaled by
  * quantity so several kits are quoted (and their label bought) at their real
- * weight. One box kit is 10x7x7 in, 4 lb; each extra box kit stacks another
- * 7 in and 4 lb. Mailer-only items are 6 oz each (8x5x1 in, 1 in per extra
- * item); inside a box they add their weight only.
+ * weight. One box kit is 10x7x7 in, 4 lb; more box kits stack two wide
+ * (10x14 in) and 7 in high per pair, 4 lb each. Mailer-only items are 6 oz
+ * each (8x5x1 in, 1 in per extra item); inside a box they add their weight
+ * only. A parcel over carrier limits is refused (kitParcelTooLarge).
  */
 export function kitParcel(items: (string | KitParcelItem)[]) {
   let boxUnits = 0;
@@ -45,8 +46,8 @@ export function kitParcel(items: (string | KitParcelItem)[]) {
       weight: String(Math.round(pounds * 100) / 100),
       distanceUnit: DistanceUnitEnum.In,
       length: "10",
-      width: "7",
-      height: String(7 * boxUnits),
+      width: boxUnits > 1 ? "14" : "7",
+      height: String(7 * Math.ceil(boxUnits / 2)),
     };
   }
   const units = Math.max(1, mailerUnits);
@@ -58,6 +59,22 @@ export function kitParcel(items: (string | KitParcelItem)[]) {
     width: "5",
     height: String(units),
   };
+}
+
+/** USPS limits for one parcel: 108 in length plus girth, 70 lb. */
+const MAX_LENGTH_PLUS_GIRTH_IN = 108;
+const MAX_WEIGHT_LB = 70;
+
+export const KIT_LARGE_ORDER_MESSAGE =
+  "This order is too big to ship as one package. For large kit orders, DM us on Instagram @the_card_doc.";
+
+/** True when the parcel is over the carrier size or weight limit. */
+export function kitParcelTooLarge(parcel: ReturnType<typeof kitParcel>) {
+  const [longest, a, b] = [parcel.length, parcel.width, parcel.height]
+    .map(Number)
+    .sort((x, y) => y - x);
+  const pounds = parcel.massUnit === WeightUnitEnum.Lb ? Number(parcel.weight) : Number(parcel.weight) / 16;
+  return longest + 2 * (a + b) > MAX_LENGTH_PLUS_GIRTH_IN || pounds > MAX_WEIGHT_LB;
 }
 
 export type KitRate = {
