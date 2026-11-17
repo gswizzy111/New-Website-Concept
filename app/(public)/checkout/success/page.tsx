@@ -8,6 +8,7 @@ import { stripe } from "@/lib/stripe";
 import { CHECKOUT_SESSION_COOKIE, CHECKOUT_SESSION_ID } from "@/lib/tracking-guard";
 import { ArrowRight, Check, Package } from "lucide-react";
 import { cta } from "@/components/brand";
+import { ClearSavedOrder } from "@/components/order-builder/saved-order";
 
 export default async function CheckoutSuccessPage({
   searchParams,
@@ -80,6 +81,8 @@ export default async function CheckoutSuccessPage({
   return (
     <section className="surface-cobalt relative isolate flex min-h-[70vh] flex-1 items-center overflow-hidden">
       <PurchasePixel sessionId={session_id} amountCents={amountTotal} currency={currency} orderId={order?.id} />
+      {/* The order is placed: the order builder's kept answers go (saved-order.ts) */}
+      {(order || amountTotal != null) && <ClearSavedOrder />}
       <span aria-hidden className="halftone-dots -right-[10%] -top-[20%] h-[130%] w-[64%]" />
       <span aria-hidden className="halftone-dots -bottom-[30%] -left-[16%] h-[80%] w-[50%] opacity-70" />
       <div

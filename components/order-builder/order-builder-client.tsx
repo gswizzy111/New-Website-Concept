@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ArrowLeft, ArrowRight, Copy, Gem } from "lucide-react";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useState, useRef, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ProgressIndicator } from "./progress-indicator";
@@ -20,8 +20,9 @@ import type { InsuranceElection } from "@/components/checkout/insurance-election
 import { SIGN_BUTTON_LABEL } from "@/lib/legal/current-terms";
 import { cardProblems } from "./step-cards";
 import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection } from "@/lib/types";
-import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
+import { diamondMinCents, type RestorationTier, type RestorationTierId } from "@/lib/restoration-tiers";
 import { fbq } from "@/lib/pixel";
+import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
 
 function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
@@ -105,14 +106,57 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   const [checkoutError, setCheckoutError] = useState<{ message: string; ref: string } | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
-  const DIAMOND_MIN_CENTS = 500_000; // $5,000
+  // The answers are kept in this tab, so returning from a cancelled checkout
+  // (/checkout/cancel) brings them back (./saved-order.ts). Read once in the
+  // browser after the first render; saved from then on. Signatures, consents
+  // and the Instagram feature (it needs the photo permission) start fresh.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    const saved = loadSavedOrder();
+    if (saved && saved.selectedTier === (selectedTier ?? null)) {
+      setCards(saved.cards);
+      setCustomer(saved.customer);
+      setShippingMethod(saved.shippingMethod);
+      setSelectedRate(saved.selectedRate);
+      setCustomerNotes(saved.customerNotes);
+      setAffiliateCode(saved.affiliateCode);
+      setDiscountPercent(saved.discountPercent);
+      setGiftCardCode(saved.giftCardCode);
+      setGiftCardAmountCents(saved.giftCardAmountCents);
+      setTipCents(saved.tipCents);
+      setInsuranceElection(saved.insuranceElection);
+      setInsurance(saved.insurance);
+      setAddSignatureConfirmation(saved.addSignatureConfirmation);
+      // Back on the shipping step at most: its rates are fetched again there
+      setStep(Math.min(Math.max(saved.step, 1), 3));
+    }
+    setRestored(true);
+  }, [selectedTier]);
+  useEffect(() => {
+    if (!restored) return;
+    saveOrder({
+      v: 1,
+      selectedTier: selectedTier ?? null,
+      step,
+      cards,
+      customer,
+      shippingMethod,
+      selectedRate,
+      customerNotes,
+      affiliateCode,
+      discountPercent,
+      giftCardCode,
+      giftCardAmountCents,
+      tipCents,
+      insuranceElection,
+      insurance,
+      addSignatureConfirmation,
+    });
+  }, [restored, selectedTier, step, cards, customer, shippingMethod, selectedRate, customerNotes, affiliateCode, discountPercent, giftCardCode, giftCardAmountCents, tipCents, insuranceElection, insurance, addSignatureConfirmation]);
 
-  function totalEstimatedValueCents(): number {
-    return cards.reduce((sum, c) => {
-      const v = c.estimated_value ? Math.round(parseFloat(c.estimated_value.replace(/[$,]/g, "")) * 100) : 0;
-      return sum + (isNaN(v) ? 0 : v);
-    }, 0);
-  }
+  // Each Diamond card must itself be declared at the Diamond minimum or more
+  // (the admin's setting, else $5,000); other tiers in the order are unaffected
+  const diamondMin = diamondMinCents("elite", tiers.find((t) => t.id === "elite")) ?? 500_000;
 
   const cardValueCents = (c: CardEntry) => {
     const v = c.estimated_value ? Math.round(parseFloat(c.estimated_value.replace(/[$,]/g, "")) * 100) : 0;
@@ -156,8 +200,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     if (e === "declined") setInsurance((ins) => ({ ...ins, type: "none", chargeCents: 0 }));
   }
 
-  const isDiamondOrder = selectedTier === "elite" || cards.some((c) => c.tier === "elite");
-  const diamondValueOk = !isDiamondOrder || totalEstimatedValueCents() >= DIAMOND_MIN_CENTS;
+  const diamondCards = cards.filter((c) => (c.tier ?? selectedTier) === "elite");
+  const isDiamondOrder = diamondCards.length > 0;
+  const diamondValueOk = diamondCards.every((c) => cardValueCents(c) >= diamondMin);
 
   function canAdvance(): boolean {
     if (step === 1) {
@@ -420,9 +465,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
             <div className={`${NOTE_SUN} flex items-start gap-3 px-5 py-4`}>
               <Gem className="h-6 w-6 shrink-0 text-ink" strokeWidth={1.75} />
               <div>
-                <p className="text-sm font-bold text-ink">Diamond tier requires $5,000+ in total card value</p>
+                <p className="text-sm font-bold text-ink">Diamond tier requires ${(diamondMin / 100).toLocaleString()}+ per card</p>
                 <p className="mt-0.5 text-sm text-ink">
-                  Your current total is <strong>${(totalEstimatedValueCents() / 100).toLocaleString()}</strong>. Please enter estimated values for your cards totaling at least $5,000, or choose a different tier.
+                  Each Diamond card must be declared at ${(diamondMin / 100).toLocaleString()} or more. Please raise its declared value, or choose a different tier for it.
                 </p>
               </div>
             </div>

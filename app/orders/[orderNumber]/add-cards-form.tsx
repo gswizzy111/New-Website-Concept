@@ -6,7 +6,7 @@ import { CardIdentityFields, emptyIdentity, identityPayload, type CardIdentity }
 import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
 import { SIGN_BUTTON_LABEL, VALUE_HELP } from "@/lib/legal/current-terms";
 import { formatCurrency } from "@/lib/utils";
-import type { RestorationTier } from "@/lib/restoration-tiers";
+import { diamondMinCents, type RestorationTier } from "@/lib/restoration-tiers";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { addedCardsBulkPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import { Plus } from "lucide-react";
@@ -44,6 +44,8 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
   const isElite = tier === "elite";
   const priceRate = tierInfo.pricing_rate ?? 0.07;
   const maxCents = tierInfo.max_card_value_cents;
+  // Each Diamond card must itself meet the Diamond minimum (as the add-cards route checks)
+  const minCents = diamondMinCents(tier, tierInfo);
 
   const [cards, setCards] = useState<CardEntry[]>([emptyCard()]);
   const [loading, setLoading] = useState(false);
@@ -78,7 +80,8 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
   const tax = Math.round(subtotal * TAX_RATE);
   const total = subtotal + tax;
   const overCap = (c: CardEntry) => maxCents !== null && valueCents(c) > maxCents;
-  const cardsOk = cards.every((c) => c.name.trim().length > 0 && valueCents(c) > 0 && !overCap(c));
+  const underMin = (c: CardEntry) => minCents !== null && valueCents(c) > 0 && valueCents(c) < minCents;
+  const cardsOk = cards.every((c) => c.name.trim().length > 0 && valueCents(c) > 0 && !overCap(c) && !underMin(c));
   const ready = cardsOk && signingReady(signing, []);
 
   async function handleSubmit() {
@@ -161,7 +164,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
 
               <CardIdentityFields idPrefix={`add-${i}`} value={card} onChange={(patch) => updateCard(i, patch)} />
 
-              <Need missing={showMissing && (valueCents(card) <= 0 || overCap(card))} note={overCap(card) ? null : "Enter a declared value."}>
+              <Need missing={showMissing && (valueCents(card) <= 0 || overCap(card) || underMin(card))} note={overCap(card) || underMin(card) ? null : "Enter a declared value."}>
                 <label className="mb-1.5 block text-sm font-semibold text-ink">Declared Value<Req /></label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
@@ -180,6 +183,11 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
                 {overCap(card) && (
                   <p className="text-xs text-destructive font-semibold mt-1">
                     This is above the {tierInfo.name} tier&apos;s ${(maxCents! / 100).toLocaleString()}{" "}cap, so it can&apos;t be added to this order. Please place a new order for it with a higher tier.
+                  </p>
+                )}
+                {underMin(card) && (
+                  <p className="text-xs text-destructive font-semibold mt-1">
+                    This is below the {tierInfo.name} tier&apos;s ${(minCents! / 100).toLocaleString()}{" "}minimum per card, so it can&apos;t be added to this order. Please place a new order for it with a different tier.
                   </p>
                 )}
               </Need>

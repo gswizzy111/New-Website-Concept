@@ -10,7 +10,7 @@ import { CardIdentityFields, emptyIdentity, type CardIdentity } from "@/componen
 import { Need, Req } from "@/components/checkout/required";
 import { VALUE_HELP } from "@/lib/legal/current-terms";
 import type { Service, CardEntry } from "@/lib/types";
-import { getAllTiers, formatCents } from "@/lib/restoration-tiers";
+import { getAllTiers, formatCents, diamondMinCents } from "@/lib/restoration-tiers";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { CHOICE, CHOICE_FOCUS, CHOICE_OFF, CHOICE_ON, FORM_PANEL, STEP_TITLE } from "@/components/checkout/form-styles";
 import { cn } from "@/lib/utils";
@@ -55,7 +55,13 @@ function identityOf(c: CardEntry): CardIdentity {
   };
 }
 
-/** A card is ready when it has a name, photos, a tier and a value within that tier's cap. */
+/** Under its tier's per-card minimum (only Diamond has one: the admin's setting, else $5,000). */
+function belowTierMin(tier: RestorationTier | null | undefined, valueCents: number): number | null {
+  const min = tier ? diamondMinCents(tier.id, tier) : null;
+  return min !== null && valueCents > 0 && valueCents < min ? min : null;
+}
+
+/** A card is ready when it has a name, photos, a tier and a value within that tier's cap and minimum. */
 export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tiers: RestorationTier[] = DEFAULT_TIERS): string[] {
   const problems: string[] = [];
   const value = parseCents(c.estimated_value ?? "");
@@ -63,7 +69,7 @@ export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tier
   if (!c.card_name.trim()) problems.push("name");
   if (c.photo_urls.length === 0) problems.push("photos");
   if (value <= 0) problems.push("value");
-  if (!tier || (tier.max_card_value_cents !== null && value > tier.max_card_value_cents)) problems.push("tier");
+  if (!tier || (tier.max_card_value_cents !== null && value > tier.max_card_value_cents) || belowTierMin(tier, value) !== null) problems.push("tier");
   return problems;
 }
 
@@ -120,6 +126,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
           const activeTierId = card.tier ?? defaultTier;
           const activeTier = activeTierId ? tiers.find((t) => t.id === activeTierId) : null;
           const missing = new Set(showMissing ? cardProblems(card, defaultTier, tiers) : []);
+          const tierMin = belowTierMin(activeTier, estimatedValueCents);
 
           return (
             <div key={card.id} className={`${FORM_PANEL} flex flex-col gap-6`}>
@@ -181,6 +188,11 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   {activeTier && activeTier.max_card_value_cents !== null && estimatedValueCents > activeTier.max_card_value_cents && (
                     <p className="text-xs text-destructive font-semibold">
                       <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.25} />This value exceeds the {activeTier.name} tier&apos;s max of ${(activeTier.max_card_value_cents / 100).toLocaleString()}. Please select a higher tier below.
+                    </p>
+                  )}
+                  {activeTier && tierMin !== null && (
+                    <p className="text-xs text-destructive font-semibold">
+                      <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" strokeWidth={2.25} />Each {activeTier.name} card must be declared at ${(tierMin / 100).toLocaleString()} or more. Please select a different tier below.
                     </p>
                   )}
                 </Need>

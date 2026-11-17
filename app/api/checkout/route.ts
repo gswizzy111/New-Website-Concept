@@ -10,7 +10,7 @@ import { itemAmounts } from "@/lib/item-pricing";
 import { bulkDiscountPercent, isBulkEligible } from "@/lib/bulk-pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { getTierById, getCardPriceCents, applyDbOverride } from "@/lib/restoration-tiers";
+import { getTierById, getCardPriceCents, applyDbOverride, diamondMinCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import Stripe from "stripe";
 import { isSoldOut, INSURANCE_ENABLED, SIGNATURE_FEE_CENTS, MAX_CARD_PHOTOS } from "@/lib/site-config";
@@ -155,15 +155,6 @@ export async function POST(request: Request) {
   const uniqueTiers = [...new Set(cardTiers)] as RestorationTierId[];
   const isMixed = uniqueTiers.length > 1;
 
-  // Diamond (elite) tier: enforce $5,000 minimum total declared value
-  const isEliteOrder = uniqueTiers.includes("elite");
-  if (isEliteOrder) {
-    const totalValueCents = data.cards.reduce((s, c) => s + (c.estimated_value_cents ?? 0), 0);
-    if (totalValueCents < 500_000) {
-      return Response.json({ error: "Diamond tier requires a minimum total card value of $5,000." }, { status: 400 });
-    }
-  }
-
   // The admin's tier settings: open or closed, slots, and the prices charged
   // (restoration_settings over the defaults). Never priced without them.
   const { data: tierSettings, error: tierSettingsError } = await admin
@@ -182,6 +173,16 @@ export async function POST(request: Request) {
   // A tier's card-value cap is an eligibility condition (Terms 9.2): block, never upgrade silently
   for (const [i, card] of data.cards.entries()) {
     const tierId = tierOf(i);
+    // Diamond is priced per card from its declared value, so each Diamond
+    // card must itself meet the minimum (the admin's setting, else $5,000).
+    // Cards on other tiers in the same order are unaffected.
+    const min = diamondMinCents(tierId, liveTier(tierId));
+    if (min !== null && card.estimated_value_cents < min) {
+      return Response.json({
+        error: `${card.card_name.trim()} is declared at $${(card.estimated_value_cents / 100).toLocaleString()}, below the ${getTierById(tierId).name} tier's $${(min / 100).toLocaleString()} minimum per card. Choose a different tier for it.`,
+        code: "TIER_MIN",
+      }, { status: 400 });
+    }
     const max = getTierById(tierId).max_card_value_cents;
     if (max !== null && card.estimated_value_cents > max) {
       return Response.json({
