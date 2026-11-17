@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+import { withOg } from "@/lib/seo";
 import { ArrowLeft } from "lucide-react";
 import { PREVIEW_MESSAGE, PREVIEW_MODE } from "@/lib/preview";
 import { Print, cta } from "@/components/brand";
 import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
 
-export const metadata = { title: "Not available yet | The Card Doc", robots: { index: false } };
+export const metadata: Metadata = withOg("/not-available", {
+  title: "Not available yet | The Card Doc",
+  description: "This part of The Card Doc's preview site is not functional yet.",
+  robots: { index: false },
+});
 
 export default function NotAvailablePage() {
   // Only preview mode sends people here (middleware.ts); on the live site the

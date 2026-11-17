@@ -223,17 +223,27 @@ export default function WhatWeCanFixPage() {
 
             <div className="grid gap-5 md:col-span-5 md:gap-6">
             <figure data-reveal style={{ transitionDelay: "80ms" }} className="m-0">
-              {/* The photo is nearly square: shown whole on its own navy backdrop
-                  colour, so both cards keep their attack text and stats. */}
-              <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-[#0e1330]">
-                <Image
-                  src={charmanderPair}
-                  alt="A Charmander card before restoration, worn and bent, beside the same card after"
-                  fill
-                  sizes="(min-width: 768px) 30vw, 70vw"
-                  className="object-contain transition-transform duration-700 ease-[var(--ease-out)] hover:scale-[1.04] motion-reduce:transition-none"
-                />
-                {creases && <Tag className="bottom-4 left-4">{creases}</Tag>}
+              {/* The photo is nearly square and shot on navy: shown whole as a
+                  white-bordered print on the studio sweep, like its framed
+                  neighbours, set to the right so the tag sits in the open
+                  sweep on the left, off the cards. */}
+              <div className="seamless aspect-[16/10]">
+                <span aria-hidden className="seamless-floor" />
+                <div
+                  className="group/print absolute top-[8%] right-[6%] bottom-[8%] md:top-[14%] md:bottom-[14%] lg:top-[8%] lg:bottom-[8%] overflow-hidden rounded-[10px] bg-white p-[5px] shadow-[0_0_0_1px_rgba(8,12,40,0.08),0_14px_28px_-14px_rgba(8,12,40,0.45)]"
+                  style={{ aspectRatio: "586/523" }}
+                >
+                  <div className="relative h-full w-full overflow-hidden rounded-[6px] bg-[#0e1330]">
+                    <Image
+                      src={charmanderPair}
+                      alt="A Charmander card before restoration, worn and bent, beside the same card after"
+                      fill
+                      sizes="(min-width: 768px) 24vw, 60vw"
+                      className="object-contain transition-transform duration-700 ease-[var(--ease-out)] group-hover/print:scale-[1.04] motion-reduce:transition-none"
+                    />
+                  </div>
+                </div>
+                {creases && <Tag className="top-4 left-4">{creases}</Tag>}
               </div>
               {charmander && (
                 <figcaption className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
