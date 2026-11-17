@@ -913,9 +913,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           />
         </div>
 
-        {/* Everything still to fix, together; each item takes the customer to its field */}
+        {/* Everything still to fix, together; each item takes the customer to its field.
+            Read out when it appears, as the single message it replaces was */}
         {showMissing && problems.length > 0 && (
-          <div className="rounded-xl bg-red-50 px-4 py-3.5 text-sm text-red-700 shadow-[inset_0_0_0_1.5px_#b42318]">
+          <div role="alert" className="rounded-xl bg-red-50 px-4 py-3.5 text-sm text-red-700 shadow-[inset_0_0_0_1.5px_#b42318]">
             <p className="font-bold">Please fix {problems.length === 1 ? "this" : "these"} to continue:</p>
             <ul className="mt-1.5 flex flex-col">
               {problems.map((p) => (
