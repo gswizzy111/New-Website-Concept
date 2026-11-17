@@ -165,7 +165,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
               <CardIdentityFields idPrefix={`add-${i}`} value={card} onChange={(patch) => updateCard(i, patch)} />
 
               <Need missing={showMissing && (valueCents(card) <= 0 || overCap(card) || underMin(card))} note={overCap(card) || underMin(card) ? null : "Enter a declared value."}>
-                <label className="mb-1.5 block text-sm font-semibold text-ink">Declared Value<Req /></label>
+                <label className="mb-1.5 block text-sm font-semibold text-ink">Declared Value (Estimated Current Card Value)<Req /></label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                   <input
