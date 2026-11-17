@@ -41,6 +41,11 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
+      // Payment methods come from the Stripe Dashboard. Klarna's and Afterpay's
+      // rules forbid selling gift cards with them, so this page never offers
+      // them, even when they are switched on for orders and kits
+      // (docs/payments/turn-on-payment-methods.md)
+      excluded_payment_method_types: ["klarna", "afterpay_clearpay"],
       // The success page reads the session for the Meta Purchase event; the
       // page's first script takes the ID out of the address (lib/tracking-guard.ts)
       success_url: `${appUrl}/gift-cards/success?session_id={CHECKOUT_SESSION_ID}`,
