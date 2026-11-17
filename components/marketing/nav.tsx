@@ -135,8 +135,7 @@ export function Nav(_props: { sprite?: React.ReactNode } = {}) {
     <header className="relative border-b border-line bg-white/[0.94] backdrop-blur-md backdrop-saturate-150">
       <nav aria-label="Main" className="wrap flex h-16 items-center gap-2 md:h-[74px] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:gap-6">
         <Link href="/" aria-label="The Card Doc, home" className="mr-auto flex min-h-11 shrink-0 items-center rounded-xl justify-self-start lg:mr-0">
-          <BrandLogo size={40} priority className="gap-2.5 max-[379px]:gap-2 md:hidden" wordmarkClassName="text-[22px] max-[379px]:text-[19px] max-[349px]:hidden" />
-          <BrandLogo size={46} priority className="hidden md:inline-flex" />
+          <BrandLogo size={40} mdSize={46} priority className="gap-2.5 max-[379px]:gap-2 md:gap-3" wordmarkClassName="text-[22px] max-[379px]:text-[19px] max-[349px]:hidden md:text-[30px]" />
         </Link>
 
         {/* Desktop: three service tabs and Explore */}

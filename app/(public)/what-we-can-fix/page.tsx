@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { Metadata } from "next";
-import { canonical } from "@/lib/seo";
+import { canonical, withOg } from "@/lib/seo";
 import { ArrowDown, ArrowRight, Camera, Check, X } from "lucide-react";
 import { PageHero } from "@/components/marketing/page-hero";
 import { CtaPanel, Print, Seamless, cta } from "@/components/brand";
@@ -12,12 +12,12 @@ import mantleDetail from "@/public/about/mantle-detail-before.jpg";
 import garchomp from "@/public/home/garchomp.jpg";
 import charmanderPair from "@/public/home/charmander-pair.jpg";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/what-we-can-fix", {
   alternates: canonical("/what-we-can-fix"),
   title: "What We Can Fix | The Card Doc",
   description:
     "What The Card Doc can and can't fix on sports cards and TCG cards like Pokémon, One Piece, Magic and Yu-Gi-Oh!.",
-};
+});
 
 const INSTAGRAM = "https://www.instagram.com/the_card_doc";
 
@@ -223,13 +223,15 @@ export default function WhatWeCanFixPage() {
 
             <div className="grid gap-5 md:col-span-5 md:gap-6">
             <figure data-reveal style={{ transitionDelay: "80ms" }} className="m-0">
-              <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-black">
+              {/* The photo is nearly square: shown whole on its own navy backdrop
+                  colour, so both cards keep their attack text and stats. */}
+              <div className="relative aspect-[16/10] overflow-hidden rounded-2xl bg-[#0e1330]">
                 <Image
                   src={charmanderPair}
                   alt="A Charmander card before restoration, worn and bent, beside the same card after"
                   fill
-                  sizes="(min-width: 768px) 40vw, 92vw"
-                  className="object-cover object-[50%_30%] transition-transform duration-700 ease-[var(--ease-out)] hover:scale-[1.04] motion-reduce:transition-none"
+                  sizes="(min-width: 768px) 30vw, 70vw"
+                  className="object-contain transition-transform duration-700 ease-[var(--ease-out)] hover:scale-[1.04] motion-reduce:transition-none"
                 />
                 {creases && <Tag className="bottom-4 left-4">{creases}</Tag>}
               </div>
@@ -248,10 +250,15 @@ export default function WhatWeCanFixPage() {
                 alt="A Garchomp holo card corner, before and after"
                 aspect="16/10"
                 backdrop="chalk"
-                inset="4% 6% 7%"
-                sizes="(min-width: 768px) 40vw, 92vw"
+                // The photo is a corner crop whose cards run off its left and
+                // bottom edges: set it flush to those edges of the tile, so the
+                // cut reads as the frame, and keep the label in the open sweep.
+                inset="6% 0 0 0"
+                position="0% 100%"
+                floor={false}
+                sizes="(min-width: 768px) 30vw, 70vw"
               >
-                {lifts && <Tag className="bottom-4 left-4">{lifts}</Tag>}
+                {lifts && <Tag className="right-4 bottom-4">{lifts}</Tag>}
               </Seamless>
             </figure>
             </div>

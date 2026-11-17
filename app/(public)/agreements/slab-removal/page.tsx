@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { withOg } from "@/lib/seo";
 import { AgreementPage } from "@/components/legal/agreement-page";
 import { slabAuthorization, SLAB_TITLE, TEMPLATE_CARD } from "@/lib/legal/agreements-v1";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/agreements/slab-removal", {
   title: `${SLAB_TITLE} | The Card Doc`,
   description: "The card-specific authorization you sign at checkout before we open a graded holder.",
-};
+});
 
 export default function SlabRemovalAgreementPage() {
   return (

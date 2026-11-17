@@ -1,6 +1,47 @@
 import type { Metadata } from "next";
+import { Plus } from "lucide-react";
+import { withOg } from "@/lib/seo";
+import { PageHero } from "@/components/marketing/page-hero";
 
-export const metadata: Metadata = {
+/** The policy's sections, in order, for the Contents list (their headings as written below). */
+const SECTIONS = [
+  { id: "overview", text: "Overview" },
+  { id: "information-we-collect", text: "1. Information We Collect" },
+  { id: "how-we-use", text: "2. How We Use Your Information" },
+  { id: "ai-replies", text: "3. AI-Generated Replies" },
+  { id: "cookies", text: "4. Cookies and Analytics" },
+  { id: "sharing", text: "5. Who We Share Your Information With" },
+  { id: "retention", text: "6. Data Retention" },
+  { id: "delete", text: "7. How to Request Data Deletion" },
+  { id: "your-rights", text: "8. Your Privacy Rights" },
+  { id: "security", text: "9. Security" },
+  { id: "children", text: "10. Children\u2019s Privacy" },
+  { id: "processing-location", text: "11. Data Processing Location" },
+  { id: "changes", text: "12. Changes to This Privacy Policy" },
+  { id: "contact", text: "13. Contact Us" },
+];
+
+function SectionLinks() {
+  return (
+    <>
+      <p className="label-caps mb-3 hidden text-[16px] text-cobalt lg:block">Contents</p>
+      <ol className="flex flex-col text-[14px]">
+        {SECTIONS.map((h) => (
+          <li key={h.id}>
+            <a
+              href={`#${h.id}`}
+              className="flex min-h-10 items-center rounded-[8px] py-1.5 leading-snug text-ink-soft transition-colors duration-150 hover:text-cobalt focus-visible:text-ink lg:-mx-2 lg:px-2 lg:hover:bg-cobalt-wash"
+            >
+              <span>{h.text}</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}
+
+export const metadata: Metadata = withOg("/privacy", {
   title: "Privacy Policy | The Card Doc",
   description:
     "Privacy Policy for The Card Doc LLC covering our Instagram and Messenger messaging assistant and card restoration services.",
@@ -8,7 +49,7 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "https://thecarddoc1.com/privacy",
   },
-};
+});
 
 export default function PrivacyPage() {
   const EFFECTIVE_DATE = "October 29, 2026";
@@ -17,31 +58,43 @@ export default function PrivacyPage() {
   return (
     <div className="surface-chalk min-h-screen">
       <div className="wrap pt-14 pb-10 md:pt-24 md:pb-14">
-        <div className="mx-auto max-w-4xl">
-        <p className="hero-in eyebrow mb-5 inline-flex items-center gap-2.5 text-cobalt">
-          <span aria-hidden className="h-[3px] w-6 rounded-full bg-cobalt" />
-          Legal
-        </p>
-        <h1 className="hero-in font-display text-[clamp(3rem,12vw,4.25rem)] leading-[0.9] font-black text-ink md:text-[clamp(4.25rem,7vw,6.5rem)]">
-          Privacy Policy
-        </h1>
-        <div className="hero-in mt-7 max-w-2xl" style={{ ["--d" as string]: 120 }}>
-        <p className="mb-2 text-[16px] text-ink">
-          <span className="font-bold">Effective Date: {EFFECTIVE_DATE}</span>
-        </p>
-        <p className="text-[16px] leading-relaxed text-ink-soft">
-          Published by <strong>The Card Doc LLC</strong>, a New Jersey limited liability company
+        <PageHero eyebrow="Legal" title="Privacy Policy" lead={`Effective Date: ${EFFECTIVE_DATE}`} />
+        <p className="hero-in mt-4 max-w-2xl text-[16px] leading-relaxed text-ink-soft" style={{ ["--d" as string]: 280 }}>
+          Published by <strong className="text-ink">The Card Doc LLC</strong>, a New Jersey limited liability company
           doing business as &ldquo;The Card Doc&rdquo;
         </p>
-        </div>
-        </div>
       </div>
 
       <div className="wrap pb-24 md:pb-32">
-        <div className="mx-auto max-w-4xl rounded-[22px] bg-white px-5 py-8 font-sans text-[16px] leading-[1.7] text-ink-soft shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:px-8 md:px-12 md:py-14 md:text-[17px] lg:px-16 space-y-6 [&_p+p]:mt-4 [&_p+ul]:mt-4 [&_ul+p]:mt-4 [&_section]:scroll-mt-[calc(var(--header-h)+24px)] [&_section>h2]:mt-12 [&_section>h2]:border-t [&_section>h2]:border-line [&_section>h2]:pt-9 [&_section:first-child>h2]:mt-0 [&_section:first-child>h2]:border-0 [&_section:first-child>h2]:pt-0 [&_h2]:text-ink [&_h3]:text-ink [&_ul]:max-w-[66ch] [&_ol]:max-w-[66ch] [&_li]:marker:text-cobalt [&_strong]:text-ink [&_p]:max-w-[68ch]">
+        <div className="grid gap-6 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[19rem_minmax(0,1fr)]">
+          <nav
+            aria-label="Sections"
+            className="lg:sticky lg:top-[calc(var(--header-h)+24px)] lg:max-h-[calc(100vh-var(--header-h)-48px)] lg:self-start lg:overflow-y-auto lg:rounded-[22px] lg:bg-white lg:p-6 lg:shadow-[0_0_0_1px_var(--line)] lg:[scrollbar-width:thin]"
+          >
+            {/* On a phone the contents fold away so the policy starts right below */}
+            <details className="group rounded-[18px] bg-white shadow-[0_0_0_1px_var(--line)] lg:hidden">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-3 text-[15px] font-bold text-ink [&::-webkit-details-marker]:hidden">
+                <span>Contents ({SECTIONS.length} sections)</span>
+                <span
+                  aria-hidden
+                  className="grid size-9 shrink-0 place-items-center rounded-full bg-chalk transition-[transform,background-color] duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:bg-sun motion-reduce:transition-none"
+                >
+                  <Plus className="size-4" strokeWidth={2.5} />
+                </span>
+              </summary>
+              <div className="border-t border-line px-5 py-4">
+                <SectionLinks />
+              </div>
+            </details>
+            <div className="hidden lg:block">
+              <SectionLinks />
+            </div>
+          </nav>
+
+        <article className="min-w-0 rounded-[22px] bg-white px-5 py-8 font-sans text-[16px] leading-[1.7] text-ink-soft shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:px-8 md:px-12 md:py-14 md:text-[17px] lg:px-16 space-y-6 [&_p+p]:mt-4 [&_p+ul]:mt-4 [&_ul+p]:mt-4 [&_section]:scroll-mt-[calc(var(--header-h)+24px)] [&_section>h2]:mt-12 [&_section>h2]:border-t [&_section>h2]:border-line [&_section>h2]:pt-9 [&_section:first-child>h2]:mt-0 [&_section:first-child>h2]:border-0 [&_section:first-child>h2]:pt-0 [&_h2]:text-ink [&_h3]:text-ink [&_ul]:max-w-[66ch] [&_ol]:max-w-[66ch] [&_li]:marker:text-cobalt [&_strong]:text-ink [&_p]:max-w-[68ch]">
 
           {/* ─── Overview ──────────────────────────────────────────────────────── */}
-          <section>
+          <section id="overview">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">Overview</h2>
             <p>
               This Privacy Policy describes how <strong>The Card Doc LLC</strong>{" "}
@@ -77,7 +130,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 1. Information We Collect ─────────────────────────────────────── */}
-          <section>
+          <section id="information-we-collect">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               1. Information We Collect
             </h2>
@@ -192,7 +245,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 2. How We Use Your Information ───────────────────────────────── */}
-          <section>
+          <section id="how-we-use">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               2. How We Use Your Information
             </h2>
@@ -248,7 +301,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 3. AI-Generated Replies ───────────────────────────────────────── */}
-          <section>
+          <section id="ai-replies">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               3. AI-Generated Replies
             </h2>
@@ -280,7 +333,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 4. Cookies and Tracking ──────────────────────────────────────── */}
-          <section>
+          <section id="cookies">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               4. Cookies and Analytics
             </h2>
@@ -327,7 +380,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 5. Service Providers ─────────────────────────────────────────── */}
-          <section>
+          <section id="sharing">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               5. Who We Share Your Information With
             </h2>
@@ -432,7 +485,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 6. Data Retention ────────────────────────────────────────────── */}
-          <section>
+          <section id="retention">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">6. Data Retention</h2>
             <p>We retain personal information for the following periods:</p>
             <ul className="list-disc space-y-2.5 pl-6">
@@ -509,7 +562,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 8. Your Rights ───────────────────────────────────────────────── */}
-          <section>
+          <section id="your-rights">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">8. Your Privacy Rights</h2>
             <p>
               Depending on where you live, you may have the following rights regarding your
@@ -569,7 +622,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 9. Security ──────────────────────────────────────────────────── */}
-          <section>
+          <section id="security">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">9. Security</h2>
             <p>
               We implement commercially reasonable administrative, technical, and physical
@@ -596,7 +649,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 10. Children ─────────────────────────────────────────────────── */}
-          <section>
+          <section id="children">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">10. Children&rsquo;s Privacy</h2>
             <p>
               Our services are not directed to children under the age of 13. We do not knowingly
@@ -616,7 +669,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 11. International Transfers ──────────────────────────────────── */}
-          <section>
+          <section id="processing-location">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               11. Data Processing Location
             </h2>
@@ -630,7 +683,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 12. Changes ──────────────────────────────────────────────────── */}
-          <section>
+          <section id="changes">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               12. Changes to This Privacy Policy
             </h2>
@@ -649,7 +702,7 @@ export default function PrivacyPage() {
           </section>
 
           {/* ─── 13. Contact ──────────────────────────────────────────────────── */}
-          <section>
+          <section id="contact">
             <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">13. Contact Us</h2>
             <p>
               If you have questions about this Privacy Policy, want to exercise your rights, or
@@ -708,6 +761,7 @@ export default function PrivacyPage() {
           <p className="mt-12 !max-w-none text-center text-[13px] text-ink-soft">
             &copy; {new Date().getFullYear()} The Card Doc LLC. All rights reserved.
           </p>
+        </article>
         </div>
       </div>
     </div>

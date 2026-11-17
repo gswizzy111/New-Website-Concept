@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -86,8 +87,7 @@ export function RestorationBubble() {
             className="group flex min-h-14 items-center gap-3 rounded-full bg-ink py-1.5 pr-5 pl-1.5 text-white shadow-[0_0_0_2px_var(--white),0_14px_30px_-10px_rgba(8,12,40,0.6)] transition-transform duration-150 ease-out active:scale-[0.97]"
           >
             <span aria-hidden className="relative block size-11 shrink-0 overflow-hidden rounded-full bg-white">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/card-doctor.jpg" alt="" className="block size-full scale-[1.9] object-cover object-[52%_0%] [transform-origin:52%_12%]" />
+              <Image src="/card-doctor.jpg" alt="" fill sizes="118px" className="scale-[1.9] object-cover object-[52%_0%] [transform-origin:52%_12%]" />
             </span>
             <span className="flex flex-col items-start gap-1">
               <span className="text-[15px] font-extrabold leading-none">Book a Restoration</span>

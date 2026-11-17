@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import type { StaticImageData } from "next/image";
 import { ArrowRight, Clock, MessageCircle, Package, ShieldAlert, type LucideIcon } from "lucide-react";
-import { canonical } from "@/lib/seo";
+import { canonical, withOg } from "@/lib/seo";
 import { PageHero } from "@/components/marketing/page-hero";
 import { CtaPanel, Print, cta } from "@/components/brand";
 import { SeamlessPrint } from "../seamless-print";
@@ -13,12 +13,12 @@ import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
 import charmanderPair from "@/public/home/charmander-pair.jpg";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = withOg("/how-it-works", {
   alternates: canonical("/how-it-works"),
   title: "How It Works | The Card Doc",
   description:
     "The Card Doc is a trading card restoration and grading-prep shop in Ridgewood, New Jersey. Mail us your cards from anywhere in the US, we do the work by hand in our shop, and we ship them back ready for grading or your personal collection.",
-};
+});
 
 function List({ items }: { items: React.ReactNode[] }) {
   return (

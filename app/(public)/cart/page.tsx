@@ -2,6 +2,7 @@
 
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
+import { thumbnail } from "@/lib/thumbnail";
 import Link from "next/link";
 import { ArrowRight, Minus, Package, Plus, Trash2 } from "lucide-react";
 import { cta } from "@/components/brand";
@@ -40,7 +41,7 @@ export default function CartPage() {
                   <div className="row-span-2 size-20 shrink-0 self-start overflow-hidden rounded-[14px] bg-chalk sm:self-auto">
                     {item.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                      <img src={thumbnail(item.image, 80)} alt={item.name} decoding="async" className="h-full w-full object-cover" />
                     ) : (
                       <div aria-hidden className="grid h-full w-full place-items-center text-ink/25">
                         <Package className="size-8" strokeWidth={1.25} />

@@ -11,7 +11,8 @@ const TILT = [-1.6, 1.2, -0.6, 1.8, -1.1];
 
 /**
  * The "receipts": real DM screenshots as small prints in one row. Phones
- * swipe it (scroll-snap) with a "1 / 8" counter; from lg up five sit across,
+ * swipe it (scroll-snap) with a "1 / 8" counter; from lg up four sit across
+ * (large enough to read the messages),
  * and longer sets keep scrolling with arrow buttons.
  */
 export function ReceiptStrip({
@@ -80,17 +81,17 @@ export function ReceiptStrip({
         // Scrolls sideways, so keyboards can reach it too.
         tabIndex={0}
         className={cn(
-          "no-scrollbar focus-visible:outline-offset-[-3px] -mx-[var(--gut)] flex snap-x snap-mandatory scroll-px-[var(--gut)] gap-5 overflow-x-auto px-[var(--gut)] pt-5 pb-8 lg:mx-0 lg:scroll-px-0 lg:gap-6 lg:px-1",
-          list.length <= 5 && "lg:grid lg:grid-cols-[repeat(var(--n),minmax(0,1fr))] lg:overflow-visible",
+          "no-scrollbar focus-visible:outline-offset-[-3px] -mx-[var(--gut)] flex snap-x snap-mandatory scroll-px-[var(--gut)] gap-5 overflow-x-auto px-[var(--gut)] pt-5 pb-10 lg:mx-0 lg:scroll-px-0 lg:gap-6 lg:px-1",
+          list.length <= 4 && "lg:grid lg:grid-cols-[repeat(var(--n),minmax(0,1fr))] lg:overflow-visible",
         )}
-        style={list.length <= 5 ? ({ ["--n" as string]: list.length } as React.CSSProperties) : undefined}
+        style={list.length <= 4 ? ({ ["--n" as string]: list.length } as React.CSSProperties) : undefined}
       >
         {list.map((r, i) => (
           <li
             key={r.id}
             className={cn(
               "w-[74%] max-w-[280px] shrink-0 snap-start",
-              list.length <= 5 ? "lg:w-auto lg:max-w-none" : "lg:w-[calc((100%-6rem)/5)] lg:max-w-none",
+              list.length <= 4 ? "lg:w-auto lg:max-w-none" : "lg:w-[calc((100%-4.5rem)/4)] lg:max-w-none",
             )}
           >
             <Print
@@ -103,7 +104,7 @@ export function ReceiptStrip({
               tilt={TILT[i % TILT.length]}
               lift
               unoptimized={typeof r.src === "string" && !r.src.startsWith("/")}
-              sizes="(min-width: 1024px) 280px, 74vw"
+              sizes="(min-width: 1280px) 300px, (min-width: 1024px) 24vw, min(74vw, 280px)"
             />
           </li>
         ))}
