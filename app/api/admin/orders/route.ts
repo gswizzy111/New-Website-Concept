@@ -355,8 +355,8 @@ export async function POST(request: Request) {
           to: adminEmail,
           subject: `📦 New Restoration Order #${order.order_number} — ${d.customer_name || "Customer"}`,
           html: `
-            <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-              <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">New restoration order (manual)!</h1>
+            <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
+              <h1 style="font-size:20px;font-weight:900">New restoration order (manual)!</h1>
               <p><strong>${d.customer_name || "Customer"}</strong> — Order <strong>#${order.order_number}</strong></p>
               <table style="font-size:14px;width:100%;border-collapse:collapse;margin:12px 0">
                 <tr><td style="padding:4px 0;color:#666;width:120px">Email</td><td style="font-weight:600">${d.customer_email}</td></tr>
@@ -365,7 +365,7 @@ export async function POST(request: Request) {
                 <tr><td style="padding:4px 0;color:#666">Cards</td><td style="font-weight:600">${d.cards.length}</td></tr>
                 ${inboundTrackingNumber ? `<tr><td style="padding:4px 0;color:#666">Tracking</td><td style="font-weight:600;font-family:monospace">${inboundTrackingNumber}</td></tr>` : ""}
               </table>
-              <a href="${appUrl}/admin/orders/${order.id}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
+              <a href="${appUrl}/admin/orders/${order.id}" style="display:inline-block;background:#c0392b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:8px">View Order</a>
             </div>
           `,
         });

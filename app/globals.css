@@ -55,8 +55,12 @@
   --color-on-dark-muted: var(--on-dark-muted);
   --color-success: var(--success);
   --color-success-tint: var(--success-tint);
+}
 
-  /* Radii: prints 8px, review cards 14px, holder 18px, panels 22px. */
+/* Radii: prints 8px, review cards 14px, holder 18px, panels 22px. Not
+   inline: `rounded-*` reads these variables, so the admin (which keeps
+   thecarddoc1.com's look) can set its own in app/admin/admin-legacy.css. */
+@theme {
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;

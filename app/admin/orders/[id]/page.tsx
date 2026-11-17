@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { SignedAgreements, type SignedAgreement } from "@/components/agreements/signed-agreements";
+import { SignedAgreements, type SignedAgreement } from "@/components/admin-ui/signed-agreements";
+import { thumbnail } from "@/lib/thumbnail";
 import { shippo } from "@/lib/shippo";
 import { ORDER_STATUSES, STATUS_TIMELINE, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
@@ -20,10 +21,14 @@ import { AdminCardEditor } from "./admin-card-editor";
 import { AddCardButton } from "./add-card-button";
 import { RefundButton } from "./refund-button";
 import { RestorationStageUpdater } from "./restoration-stage-updater";
+import { PregradePanel } from "./pregrade-panel";
 import { currentStages } from "@/lib/restoration-stages";
+import { PREGRADE_SERVICE_IDS, pregradeCount } from "@/lib/pregrade";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 import { ResendConfirmationButton } from "./resend-confirmation-button";
 import { PaymentMethodEditor } from "./payment-method-editor";
+import { TierSwitcher } from "./tier-switcher";
+import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import { RegenerateLabelButton } from "./regenerate-label-button";
 import type { Track } from "shippo/models/components";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -31,6 +36,7 @@ import { openProblemsFor } from "@/lib/email-problems";
 import { PROBLEM_LABELS, problemAdvice } from "@/lib/email-problem-labels";
 import { AgreementsPanel, type PanelCard } from "./agreements-panel";
 import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
+import { labelHref } from "@/lib/label-link";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +51,7 @@ function shippoCarrierToken(provider: string): string {
 const TRACKING_BADGE: Record<string, { label: string; cls: string }> = {
   UNKNOWN:     { label: "Label Created",   cls: "bg-gray-100 text-gray-600" },
   PRE_TRANSIT: { label: "Label Created",   cls: "bg-gray-100 text-gray-600" },
-  TRANSIT:     { label: "In Transit",      cls: "bg-ink text-chalk" },
+  TRANSIT:     { label: "In Transit",      cls: "bg-blue-100 text-blue-700" },
   DELIVERED:   { label: "Delivered",       cls: "bg-green-100 text-green-700" },
   RETURNED:    { label: "Returned",        cls: "bg-orange-100 text-orange-700" },
   FAILURE:     { label: "Issue",           cls: "bg-red-100 text-red-700" },
@@ -71,13 +77,20 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   const roundByCard: Record<string, number> = Object.fromEntries((cards ?? []).map((c) => [c.id, c.current_round ?? 1]));
   const stageByCard = currentStages(events ?? [], roundByCard);
 
+  // Pre-grades paid for on this order, and how many have been sent (lib/pregrade.ts)
+  const pregradesPaidFor = (services ?? []).filter((s) => PREGRADE_SERVICE_IDS.includes(s.service_id)).reduce((n, s) => n + (s.quantity ?? 1), 0);
+  const pregrades = pregradeCount(pregradesPaidFor, cards ?? []);
+  const pregradesOwed = pregrades.owed - pregrades.done;
+
   // Terms of Service v1.0 and later: signatures, consents and each card's work gates
   // ...and emails to this customer that didn't arrive (Resend's webhook, lib/email-problems.ts)
-  const [{ data: sigRows }, { data: consentRows }, facts, emailProblems] = await Promise.all([
+  const [{ data: sigRows }, { data: consentRows }, facts, emailProblems, { data: openRefundRequest }] = await Promise.all([
     admin.from("signatures").select("id, type, order_item_id, typed_full_name, signed_at, email_verified, terms_version_id").eq("order_id", id).order("signed_at"),
     admin.from("consents").select("type, granted, granted_at").eq("order_id", id).order("granted_at"),
     gateFacts(admin, id),
     openProblemsFor(order.customer_email),
+    // A refund support asked for, waiting on an admin (Refund Requests tab)
+    admin.from("refund_requests").select("requested_by, reason, created_at").eq("order_id", id).in("status", ["pending", "processing"]).maybeSingle(),
   ]);
   const versionIds = [...new Set((sigRows ?? []).map((s) => s.terms_version_id))];
   const { data: versionRows } = versionIds.length ? await admin.from("terms_versions").select("id, version").in("id", versionIds) : { data: [] };
@@ -109,7 +122,6 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
       refundableCents: Math.min(gate.refundableCents, orderLeftCents),
     };
   });
-
   // What the customer paid for add-ons, from the order's service lines (the
   // Instagram feature was $100 before Sept 29, 2026 and $250 after)
   const instagramPaidCents = services?.find((s) => s.service_id === "instagram_feature")?.price_cents ?? INSTAGRAM_FEATURE_CENTS;
@@ -134,27 +146,21 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     order = { ...order, status: "shipped_back" };
   }
 
-  // Live inbound tracking
-  let inboundTrack: Track | null = null;
-  if (order.inbound_tracking_number && order.inbound_carrier) {
-    try {
-      inboundTrack = await shippo.trackingStatus.get(
-        order.inbound_tracking_number,
-        shippoCarrierToken(order.inbound_carrier)
-      );
-    } catch { /* fail silently */ }
-  }
-
-  // Live return tracking (when shipped back), with the label's carrier
-  let returnTrack: Track | null = null;
-  // The carrier saved with the bought return label counts only while the order still has that label's number
+  // Live inbound tracking, and return tracking when shipped back (both at once),
+  // the return with the bought label's carrier. The carrier saved with the
+  // bought return label counts only while the order still has that label's number
   const savedReturnCarrier = order.outbound_tracking_number === order.tracking_number ? (order.outbound_carrier as string | null) : null;
   const returnCarrier = order.tracking_number ? trackingCarrier(order.tracking_number, savedReturnCarrier) : null;
-  if (order.status === "shipped_back" && order.tracking_number && returnCarrier) {
-    try {
-      returnTrack = await shippo.trackingStatus.get(order.tracking_number, returnCarrier.token);
-    } catch { /* fail silently */ }
+  const [inboundTrack, returnTrack]: [Track | null, Track | null] = await Promise.all([
+    order.inbound_tracking_number && order.inbound_carrier
+      ? shippo.trackingStatus.get(order.inbound_tracking_number, shippoCarrierToken(order.inbound_carrier)).catch(() => null)
+      : null,
+    order.status === "shipped_back" && order.tracking_number && returnCarrier
+      ? shippo.trackingStatus.get(order.tracking_number, returnCarrier.token).catch(() => null)
+      : null,
+  ]);
 
+  if (order.status === "shipped_back" && order.tracking_number) {
     // Auto-advance to delivered if Shippo confirms delivery
     if (returnTrack?.trackingStatus?.status === "DELIVERED") {
       await Promise.all([
@@ -185,6 +191,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />
           </div>
         </div>
+
+        {openRefundRequest && (
+          <Link href="/admin?tab=refunds" className="block rounded-xl border-2 border-amber-300 bg-amber-50 p-4 mb-3 hover:bg-amber-100 transition-colors">
+            <p className="font-heading font-black text-amber-900">💸 Refund requested by {openRefundRequest.requested_by}</p>
+            <p className="text-sm text-amber-800 mt-0.5 line-clamp-2">{openRefundRequest.reason}</p>
+            <p className="text-xs font-semibold text-amber-900 mt-1 underline">Approve or deny in Refund Requests →</p>
+          </Link>
+        )}
 
         {/* Refund banner — shown prominently when any refund has been issued */}
         {((order.refunded_cents as number) ?? 0) > 0 && (() => {
@@ -221,11 +235,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     <h1 className="font-heading font-black text-2xl text-foreground">Order #{order.order_number}</h1>
                     {order.restoration_tier && (() => {
                       const TIER_BADGE: Record<string, { label: string; cls: string }> = {
-                        elite:         { label: "Diamond",  cls: "bg-ink text-chalk border border-ink" },
-                        ultra_premium: { label: "Platinum", cls: "bg-slate-200 text-slate-800 border border-slate-300" },
+                        elite:         { label: "Diamond",  cls: "bg-cyan-100 text-cyan-700 border border-cyan-300" },
+                        ultra_premium: { label: "Platinum", cls: "bg-blue-100 text-blue-600 border border-blue-300" },
                         premium:       { label: "Gold",     cls: "bg-yellow-100 text-yellow-700 border border-yellow-300" },
                         expedited:     { label: "Silver",   cls: "bg-slate-100 text-slate-600 border border-slate-300" },
                         regular:       { label: "Bronze",   cls: "bg-amber-100 text-amber-700 border border-amber-300" },
+                        fast_pass:     { label: "Fast Pass", cls: "bg-orange-100 text-orange-700 border border-orange-300" },
+                        prep:          { label: "Prep",     cls: "bg-emerald-100 text-emerald-700 border border-emerald-300" },
+                        prep_standard: { label: "Prep",     cls: "bg-emerald-100 text-emerald-700 border border-emerald-300" },
                       };
                       const badge = TIER_BADGE[order.restoration_tier] ?? { label: order.restoration_tier, cls: "bg-gray-100 text-gray-600 border border-gray-200" };
                       return (
@@ -234,10 +251,30 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     })()}
                   </div>
                   <p className="text-sm text-muted-foreground">{new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York" })}</p>
+                  <TierSwitcher
+                    orderId={order.id}
+                    current={(order.restoration_tier as string | null) ?? null}
+                    placeholder={(cards ?? []).some((c) => c.tier) || (services ?? []).filter((s) => s.service_id && s.service_id in RESTORATION_TIERS).length > 1 ? "Restoration — mixed tiers" : "Restoration — no tier"}
+                  />
                 </div>
                 <span className="font-heading font-black text-2xl text-primary">{formatCurrency(order.total_cents)}</span>
               </div>
             </div>
+
+            {/* Pre-grade owed — same weight as the Instagram banner */}
+            {pregradesOwed > 0 && !["delivered", "cancelled"].includes(order.status) && (
+              <div className="rounded-xl border-4 border-indigo-600 bg-indigo-600 p-6 flex items-center gap-5 shadow-lg">
+                <span className="text-5xl shrink-0">🔍</span>
+                <div>
+                  <p className="font-heading font-black text-2xl text-white leading-tight">PRE-GRADE OWED</p>
+                  <p className="text-base font-bold text-indigo-100 mt-1">
+                    {pregradesOwed} card{pregradesOwed !== 1 ? "s" : ""} on this order paid for a pre-grade assessment
+                    {pregrades.done > 0 ? ` (${pregrades.done} of ${pregrades.owed} already sent)` : ""}.
+                    {(cards ?? []).filter((c) => c.pregrade_selected).length < pregrades.owed && " Mark which cards below."}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Instagram Feature Alert — huge red banner */}
             {((order.instagram_feature as boolean) || services?.some((s) => s.service_id === "instagram_feature")) && (
@@ -346,12 +383,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               <div className="flex flex-col gap-4">
                 {cards?.map((card, i) => {
                   const CARD_TIER_BADGE: Record<string, { label: string; cls: string }> = {
-                    elite:         { label: "Diamond",   cls: "bg-ink text-chalk border border-ink" },
-                    ultra_premium: { label: "Platinum",  cls: "bg-slate-200 text-slate-800 border border-slate-300" },
+                    elite:         { label: "Diamond",   cls: "bg-cyan-100 text-cyan-700 border border-cyan-300" },
+                    ultra_premium: { label: "Platinum",  cls: "bg-blue-100 text-blue-600 border border-blue-300" },
                     premium:       { label: "Gold",      cls: "bg-yellow-100 text-yellow-700 border border-yellow-300" },
                     expedited:     { label: "Silver",    cls: "bg-slate-100 text-slate-600 border border-slate-300" },
                     regular:       { label: "Bronze",    cls: "bg-amber-100 text-amber-700 border border-amber-300" },
                     fast_pass:     { label: "Fast Pass", cls: "bg-green-100 text-green-700 border border-green-300" },
+                    prep:          { label: "Prep",      cls: "bg-emerald-100 text-emerald-700 border border-emerald-300" },
+                    prep_standard: { label: "Prep",      cls: "bg-emerald-100 text-emerald-700 border border-emerald-300" },
                   };
                   const cardTier = card.tier ?? order.restoration_tier;
                   const tierBadge = cardTier ? (CARD_TIER_BADGE[cardTier] ?? { label: cardTier, cls: "bg-gray-100 text-gray-600" }) : null;
@@ -381,9 +420,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                         <p className={`font-bold ${card.completed ? "text-green-700 line-through decoration-green-400" : "text-foreground"}`}>
                           {i + 1}. {card.card_name}
                         </p>
-                        {tierBadge && (
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${tierBadge.cls}`}>{tierBadge.label}</span>
-                        )}
+                        <TierSwitcher orderId={order.id} cardId={card.id} current={cardTier ?? null} placeholder="Restoration — choose tier" className={`font-bold ${tierBadge?.cls ?? "border border-border bg-white"}`} />
                         {anyChanged && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Edited</span>
                         )}
@@ -412,7 +449,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                               {(orig.photo_urls ?? []).map((url: string, j: number) => (
                                 <a key={j} href={url} target="_blank" rel="noopener noreferrer">
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={url} alt="" className="w-12 h-12 object-cover rounded border border-border opacity-70" />
+                                  <img src={thumbnail(url, 48)} alt="" loading="lazy" className="w-12 h-12 object-cover rounded border border-border opacity-70" />
                                 </a>
                               ))}
                             </div>
@@ -450,7 +487,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                               {(card.photo_urls as string[] ?? []).map((url: string, j: number) => (
                                 <a key={j} href={url} target="_blank" rel="noopener noreferrer">
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={url} alt="" className={`w-12 h-12 object-cover rounded border ${changed.photos ? "border-red-400 ring-1 ring-red-300" : "border-border"}`} />
+                                  <img src={thumbnail(url, 48)} alt="" loading="lazy" className={`w-12 h-12 object-cover rounded border ${changed.photos ? "border-red-400 ring-1 ring-red-300" : "border-border"}`} />
                                 </a>
                               ))}
                             </div>
@@ -472,11 +509,27 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                             {(card.photo_urls as string[]).map((url: string, j: number) => (
                               <a key={j} href={url} target="_blank" rel="noopener noreferrer">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={url} alt="Card photo" className="w-16 h-16 object-cover rounded border border-border" />
+                                <img src={thumbnail(url, 64)} alt="Card photo" loading="lazy" className="w-16 h-16 object-cover rounded border border-border" />
                               </a>
                             ))}
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Pre-grade: on cards that have one, or offered while the order has unassigned pre-grades */}
+                    {(card.pregrade_selected || (cards ?? []).filter((c) => c.pregrade_selected).length < pregrades.owed) && (
+                      <div className={`px-4 py-2 border-t border-border ${card.completed ? "bg-green-50" : "bg-secondary/40"}`}>
+                        <PregradePanel
+                          cardId={card.id}
+                          pregrade={{
+                            selected: !!card.pregrade_selected,
+                            result: card.pregrade_result ?? null,
+                            notes: card.pregrade_notes ?? null,
+                            submittedAt: card.pregrade_submitted_at ?? null,
+                            submittedBy: card.pregrade_submitted_by ?? null,
+                          }}
+                        />
                       </div>
                     )}
 
@@ -714,7 +767,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 </p>
                 {order.inbound_method === "buy_label" && order.shipping_label_url && (
                   <a
-                    href={order.shipping_label_url as string}
+                    href={labelHref(order.id)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-100 transition-colors"

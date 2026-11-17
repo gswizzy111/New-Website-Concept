@@ -1,8 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
+import { thumbnail } from "@/lib/thumbnail";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/admin-auth";
+import { labelHref } from "@/lib/label-link";
 
 export const dynamic = "force-dynamic";
 
@@ -10,9 +12,9 @@ const STATUS_COLORS: Record<string, string> = {
   awaiting_payment: "bg-gray-100 text-gray-600",
   awaiting_cards:   "bg-yellow-100 text-yellow-700",
   received:         "bg-blue-100 text-blue-700",
-  in_progress:      "bg-cobalt text-white",
+  in_progress:      "bg-purple-100 text-purple-700",
   completed:        "bg-green-100 text-green-700",
-  shipped_back:     "bg-ink text-chalk",
+  shipped_back:     "bg-cyan-100 text-cyan-700",
   delivered:        "bg-emerald-100 text-emerald-700",
   cancelled:        "bg-red-100 text-red-700",
 };
@@ -244,7 +246,7 @@ export default async function PrepOrdersPage({
                               <div key={i} className="flex items-center gap-2.5">
                                 {card.photo && (
                                   // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={card.photo} alt={card.name} className="w-8 h-8 object-cover rounded border border-border shrink-0" />
+                                  <img src={thumbnail(card.photo, 32)} alt={card.name} loading="lazy" decoding="async" className="w-8 h-8 object-cover rounded border border-border shrink-0" />
                                 )}
                                 <span className="text-sm text-foreground flex-1 truncate">{card.name}</span>
                                 {card.valueCents > 0 && (
@@ -276,7 +278,7 @@ export default async function PrepOrdersPage({
                     </div>
                     {hasLabel && (
                       <a
-                        href={order.shipping_label_url!}
+                        href={labelHref(order.id)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"

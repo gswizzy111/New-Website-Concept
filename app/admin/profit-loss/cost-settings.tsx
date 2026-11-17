@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Input } from "@/components/admin-ui/input";
+import { Button } from "@/components/admin-ui/button";
 import type { ProductCostsConfig } from "@/lib/product-costs";
 
 const TIERS = [

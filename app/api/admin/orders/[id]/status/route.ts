@@ -124,10 +124,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         to: adminEmail,
         subject: `📦 Cards Arrived — Order #${order.order_number} from ${order.customer_name ?? ""}`,
         html: `
-          <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-            <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:900">Cards have arrived!</h1>
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;color:#111">
+            <h1 style="font-size:20px;font-weight:900">Cards have arrived!</h1>
             <p>Order <strong>#${order.order_number}</strong> from <strong>${escapeHtml(order.customer_name ?? "")}</strong> has been marked as received.</p>
-            <a href="${appUrl}/admin/orders/${id}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View Order</a>
+            <a href="${appUrl}/admin/orders/${id}" style="display:inline-block;background:#c0392b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View Order</a>
           </div>
         `,
       });
