@@ -43,12 +43,12 @@ export function checkoutReminderEmail(input: CheckoutReminderEmailInput): { subj
   const firstName = (input.customerName ?? "").trim().split(/\s+/)[0] || "there";
   const kind = input.isPrep ? "prep order" : "restoration order";
   const cards = `${input.cardCount} ${input.cardCount === 1 ? "card" : "cards"}`;
-  const summary = `Your ${kind} #${input.orderNumber} (${cards}, ${money(input.totalCents)}) is saved, but the payment didn't go through.`;
+  const summary = `You started a ${kind} (#${input.orderNumber}, ${cards}, ${money(input.totalCents)}) but didn't finish paying, so it isn't placed yet and you haven't been charged.`;
   const lifetime = linkLifetimeText(input.sessionLifetimeMinutes);
   const expiryLine = `This payment link works for ${lifetime} from when you started checkout. If it has expired, you can place your order again at`;
 
   const html = `
-      <div style="display:none;max-height:0;overflow:hidden;opacity:0">Your order is saved. Here's the link to finish payment.</div>
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0">You haven't been charged. Here's the link to finish your order.</div>
       <div style="font-family:Helvetica,Arial,sans-serif;max-width:580px;margin:0 auto;color:#111">
         <div style="background:#a23200;border-radius:12px 12px 0 0;padding:24px;text-align:center">
           <p style="margin:0;color:#fed8c4;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${escapeHtml(businessName)}</p>
