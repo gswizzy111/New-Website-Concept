@@ -112,14 +112,17 @@ export async function POST(request: Request) {
   const slabCrackCount = slabSigned.filter(Boolean).length;
   const droppedSlabs = d.cards.filter((c, i) => c.needs_slab_crack && !slabSigned[i]).map((c) => c.card_name.trim());
 
-  // Prep takes international orders, as on thecarddoc1.com (customs forms come
-  // with the prepaid label; no NJ sales tax). Puerto Rico is a US state code.
+  // PSA Prep is US and Puerto Rico only (Puerto Rico is a US state code here).
   const country = (d.country ?? "US").toUpperCase();
-  const isInternational = country !== "US";
+  if (country !== "US") {
+    return Response.json({
+      error: "PSA Prep takes US and Puerto Rico addresses only.",
+      code: "PREP_US_ONLY",
+    }, { status: 400 });
+  }
 
   // Server-side address validation: the prepaid label ships from it, and the
-  // cards come back to it either way. State is required for US, optional for
-  // international.
+  // cards come back to it either way.
   if (!d.street1?.trim() || !d.city?.trim() || !d.zip?.trim()) {
     return Response.json({
       error: d.shipping_method === "buy_label"
@@ -127,10 +130,10 @@ export async function POST(request: Request) {
         : "Full address is required so we can ship your cards back.",
     }, { status: 400 });
   }
-  if (!isInternational && !d.state?.trim()) {
+  if (!d.state?.trim()) {
     return Response.json({ error: "State is required for US addresses." }, { status: 400 });
   }
-  if (!isInternational && !US_STATES.some((s) => s.value === d.state!.trim().toUpperCase())) {
+  if (!US_STATES.some((s) => s.value === d.state!.trim().toUpperCase())) {
     return Response.json({ error: "Choose your state." }, { status: 400 });
   }
 
@@ -179,10 +182,9 @@ export async function POST(request: Request) {
   const discountCents = bulkWon ? bulkCents : codeDiscountCents;
   const discountPercent = discountCents > 0 ? (bulkWon ? bulkPercent : codePercent) : 0;
   const discountLabel = bulkWon ? null : validatedAffiliateCode;
-  // NJ sales tax only applies to US domestic orders, on what is charged for the
-  // services after the discount (as at the restoration checkout)
-  const taxRate = isInternational ? 0 : NJ_TAX_RATE;
-  const taxCents = Math.round((serviceSubtotal - discountCents) * taxRate);
+  // NJ sales tax, on what is charged for the services after the discount (as
+  // at the restoration checkout)
+  const taxCents = Math.round((serviceSubtotal - discountCents) * NJ_TAX_RATE);
 
   // Shipping is priced from the Shippo rate quoted for this address (never the
   // browser's price). The prepaid label's rate (to us) is paid twice, to us and
@@ -261,7 +263,7 @@ export async function POST(request: Request) {
   // A code's discount also covers the add-ons; the cards carry only the prep
   // fee's share of it (as on thecarddoc1.com). Bulk is only on the prep fee.
   const cardDiscountCents = bulkWon ? discountCents : (codePercent > 0 ? Math.round(prepSubtotal * codePercent / 100) : 0);
-  const amounts = itemAmounts(cardPrices, cardDiscountCents, undefined, taxRate);
+  const amounts = itemAmounts(cardPrices, cardDiscountCents, undefined, NJ_TAX_RATE);
   const cardIds = d.cards.map(() => randomUUID());
   const { error: cardsErr } = await admin.from("cards").insert(
     d.cards.map((c, i) => ({
@@ -477,7 +479,7 @@ export async function POST(request: Request) {
         order_id: order.id,
         slab_crack_count: String(slabCrackCount),
         add_pre_grade: d.add_pre_grade ? "true" : "false",
-        is_international: isInternational ? "true" : "false",
+        is_international: "false",
         affiliate_code: validatedAffiliateCode ?? "",
         // For the record in Stripe; neither site's webhook changes a prep order's totals
         ...(bulkWon ? { bulk_discount_percent: String(bulkPercent), bulk_discount_cents: String(discountCents) } : {}),
