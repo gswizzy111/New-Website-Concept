@@ -24,6 +24,7 @@ import { diamondMinCents, type RestorationTier, type RestorationTierId } from "@
 import { fbq } from "@/lib/pixel";
 import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
+import { contactOk } from "@/lib/checkout-validation";
 
 function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
   return {
@@ -209,10 +210,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       return cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
     }
     if (step === 2) {
-      const c = customer;
-      const isUS = !c.country || c.country === "US";
-      if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-      return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
+      // Filled in, and as /api/checkout will check it (email format, phone length)
+      return contactOk(customer);
     }
     if (step === 3) {
       // Both ways need a rate: the prepaid label's, or the trip back for self-ship
@@ -228,12 +227,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   // The cards and contact steps must still pass when a later step is reached
   // some other way (a restored order, or rules changed since it was saved).
   const cardsStepOk = cards.every((c) => cardProblems(c, selectedTier, tiers).length === 0) && diamondValueOk;
-  const contactStepOk = (() => {
-    const c = customer;
-    const isUS = !c.country || c.country === "US";
-    if (isUS) return !!(c.name && c.email && c.phone && c.street1 && c.city && c.state && c.zip);
-    return !!(c.name && c.email && c.phone && c.street1 && c.city && c.country);
-  })();
+  const contactStepOk = contactOk(customer);
   /** Sends the customer back to the first earlier step that no longer passes. */
   function backToFailingStep(): boolean {
     const target = step > 1 && !cardsStepOk ? 1 : step > 2 && !contactStepOk ? 2 : null;
