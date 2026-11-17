@@ -22,6 +22,7 @@ import { cardProblems } from "./step-cards";
 import type { Service, CardEntry, CustomerInfo, ShippingRate, InsuranceSelection } from "@/lib/types";
 import { diamondMinCents, type RestorationTier, type RestorationTierId } from "@/lib/restoration-tiers";
 import { fbq } from "@/lib/pixel";
+import { trackCheckout, type CheckoutEvent, type CheckoutEventData } from "@/lib/checkout-funnel";
 import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
 
@@ -154,6 +155,13 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     });
   }, [restored, selectedTier, step, cards, customer, shippingMethod, selectedRate, customerNotes, affiliateCode, discountPercent, giftCardCode, giftCardAmountCents, tipCents, insuranceElection, insurance, addSignatureConfirmation]);
 
+  // Checkout funnel (lib/checkout-funnel.ts): each step as it comes into view, once the saved order is restored
+  const track = (event: CheckoutEvent, data: CheckoutEventData = {}) => trackCheckout("restoration", event, { step, tier: selectedTier, cards: cards.length, ...data });
+  useEffect(() => {
+    if (restored) track("step_view");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per step, not on every edit
+  }, [restored, step]);
+
   // Each Diamond card must itself be declared at the Diamond minimum or more
   // (the admin's setting, else $5,000); other tiers in the order are unaffected
   const diamondMin = diamondMinCents("elite", tiers.find((t) => t.id === "elite")) ?? 500_000;
@@ -193,6 +201,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     const unsigned = slabCards.find((c) => !slabSigned(signing, c));
     if (!unsigned) return false;
     setSlabDialogId(cards[unsigned.index]?.id ?? null);
+    track("blocked", { code: "slab_unsigned" });
     return true;
   }
   function changeInsuranceElection(e: Exclude<InsuranceElection, null>) {
@@ -248,6 +257,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     if (step === 1 && openUnsignedSlab()) return;
     if (canAdvance()) return goToStep(step + 1);
     setShowMissing(true);
+    track("blocked", { code: "missing_fields" });
     revealMissing();
   }
   function trySign() {
@@ -258,11 +268,13 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       return handleSubmit();
     }
     setShowMissing(true);
+    track("blocked", { code: "missing_fields" });
     revealMissing();
   }
 
   async function handleSubmit() {
     fbq("track", "InitiateCheckout", { num_items: cards.length, currency: "USD" });
+    track("submit");
     setSubmitting(true);
     setCheckoutError(null);
     try {
@@ -329,10 +341,12 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
 
       const data = await res.json();
       if (data.url) {
+        track("redirect");
         window.location.href = data.url;
       } else {
         const msg = typeof data.error === "string" ? data.error : "Something went wrong. Please try again.";
         const code = typeof data.code === "string" ? data.code : "CHECKOUT_ERROR";
+        track("rejected", { code: /^[A-Za-z0-9_-]{1,64}$/.test(code) ? code : `HTTP_${res.status}` });
         // Use server-generated ref if available; fall back to client-generated
         const ref = typeof data.ref === "string" ? data.ref : `${code}-${Date.now().toString(36).toUpperCase()}`;
         setCheckoutError({ message: msg, ref });
@@ -342,6 +356,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     } catch (err) {
       console.error("Checkout fetch error:", err);
       const ref = `NETWORK_ERROR-${Date.now().toString(36).toUpperCase()}`;
+      track("rejected", { code: "NETWORK_ERROR" });
       setCheckoutError({
         message: "Could not reach our server. Please check your internet connection and try again.",
         ref,

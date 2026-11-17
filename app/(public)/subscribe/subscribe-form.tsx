@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { trackCheckout } from "@/lib/checkout-funnel";
 import { useRouter } from "next/navigation";
 import { US_STATES } from "@/lib/constants";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
@@ -44,16 +45,20 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
 
   const miss = (v: string) => showMissing && !v.trim();
   const ready = !!(form.name.trim() && form.email.trim() && form.phone.trim() && form.street1.trim() && form.city.trim() && form.state && form.zip.trim() && enroll);
+  // Checkout funnel (lib/checkout-funnel.ts): the Kit Club sign-up form is step 1
+  useEffect(() => { trackCheckout("kit_club", "step_view", { step: 1 }); }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!ready) {
       setShowMissing(true);
+      trackCheckout("kit_club", "blocked", { step: 1, code: "missing_fields" });
       revealMissing();
       return;
     }
     setLoading(true);
     setError(null);
+    trackCheckout("kit_club", "submit", { step: 1 });
     try {
       const res = await fetch("/api/subscribe/checkout", {
         method: "POST",
@@ -61,9 +66,12 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
         body: JSON.stringify({ ...form, enroll }),
       });
       const data = await res.json();
+      if (!res.ok) trackCheckout("kit_club", "rejected", { step: 1, code: typeof data.code === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(data.code) ? data.code : `HTTP_${res.status}` });
       if (!res.ok) { setError(data.error ?? "Something went wrong. Please try again."); return; }
+      if (data.url) trackCheckout("kit_club", "redirect", { step: 1 });
       if (data.url) router.push(data.url);
     } catch {
+      trackCheckout("kit_club", "rejected", { step: 1, code: "NETWORK_ERROR" });
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
