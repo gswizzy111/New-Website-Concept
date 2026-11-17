@@ -6,15 +6,23 @@ import { LegalDocument } from "./legal-document";
 /** A card-specific agreement's public page: the wording customers sign, as a template. */
 export function AgreementPage({ doc, when, footnote }: { doc: AgreementDoc; when: string; footnote: string }) {
   return (
-    <div className="min-h-screen page-glow">
-      <div className="max-w-3xl mx-auto px-4 md:px-10 pt-12 md:pt-20 pb-20">
-        <PageHero eyebrow="Legal" title={doc.title} lead={when} className="mb-10 md:mb-14" />
-        <div className="lit-border relative bg-white border border-foreground/70 rounded-xl px-6 md:px-8 py-7 border-t-[6px] border-t-primary">
-          <LegalDocument blocks={doc.blocks} />
-          <p className="mt-6 pt-5 border-t border-border font-mono text-xs text-muted-foreground">{footnote}</p>
-        </div>
-        <p className="mt-8 text-sm text-muted-foreground">
-          This sits alongside our <Link href="/terms" className="font-semibold text-primary hover:underline">Terms of Service</Link>.
+    <div className="surface-chalk min-h-screen">
+      <div className="wrap pt-14 pb-10 md:pt-24 md:pb-14">
+        <PageHero eyebrow="Legal" title={doc.title} lead={when} className="mx-auto max-w-4xl" />
+      </div>
+      <div className="wrap pb-24 md:pb-32">
+        <article className="mx-auto max-w-4xl rounded-[22px] bg-white px-5 py-8 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:px-8 md:px-12 md:py-14 lg:px-16">
+          <div className="max-w-[68ch]">
+            <LegalDocument blocks={doc.blocks} />
+          </div>
+          <p className="mt-10 max-w-[68ch] rounded-[14px] bg-chalk p-5 text-[14px] leading-relaxed text-ink-soft">{footnote}</p>
+        </article>
+        <p className="mx-auto mt-8 max-w-4xl text-[15px] text-ink-soft">
+          This sits alongside our{" "}
+          <Link href="/terms" className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink">
+            Terms of Service
+          </Link>
+          .
         </p>
       </div>
     </div>

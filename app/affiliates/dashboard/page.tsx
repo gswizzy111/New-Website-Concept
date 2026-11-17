@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
 import { commissionRatesFor, creatorSales, currentRate, formatPercent, getCreator, saleDate, summarizeSales, type CreatorTotals } from "@/lib/creator-portal";
 import { CopyCode } from "./copy-code";
+import { PAGE_TITLE, PANEL, PANEL_TITLE, PortalHeader } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +10,10 @@ const RECENT = 10;
 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="bg-white rounded-xl border border-border p-5">
-      <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className="font-heading font-black text-2xl sm:text-3xl text-foreground mt-2 tabular-nums">{value}</p>
-      {note && <p className="text-xs text-muted-foreground mt-1">{note}</p>}
+    <div className={PANEL}>
+      <p className="label-caps text-[15px] text-ink-soft">{label}</p>
+      <p className="mt-3 font-heading text-[2rem] leading-none font-black text-ink tabular-nums sm:text-[2.5rem]">{value}</p>
+      {note && <p className="mt-2 text-xs text-ink-soft">{note}</p>}
     </div>
   );
 }
@@ -21,7 +22,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function ServiceRow({ label, t }: { label: string; t: CreatorTotals }) {
   return (
-    <div className="flex items-baseline justify-between gap-4 py-3 border-b border-border last:border-0">
+    <div className="flex items-baseline justify-between gap-4 border-b border-line py-3.5 last:border-0">
       <div>
         <p className="font-semibold text-sm text-foreground">{label}</p>
         <p className="text-xs text-muted-foreground">{plural(t.sales, "sale")} · {formatCurrency(t.cents)}</p>
@@ -44,33 +45,33 @@ export default async function AffiliateDashboard() {
   const fmtDate = (iso: string) => saleDate(iso);
 
   return (
-    <div className="min-h-screen bg-secondary/30">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 flex flex-col gap-6">
+    <div className="surface-chalk min-h-screen">
+      <PortalHeader>
+        <form action="/api/affiliates/logout" method="POST" className="shrink-0">
+          <button className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-bold text-ink-soft transition-colors hover:bg-chalk hover:text-ink">Sign out</button>
+        </form>
+      </PortalHeader>
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-10 sm:px-6 md:py-14">
 
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Creator dashboard · The Card Doc</p>
-            <h1 className="font-heading font-black text-3xl text-foreground mt-1 [overflow-wrap:anywhere]">{creator.name}</h1>
-          </div>
-          <form action="/api/affiliates/logout" method="POST" className="shrink-0">
-            <button className="text-sm text-muted-foreground hover:text-foreground transition-colors py-1">Sign out</button>
-          </form>
+        <div className="min-w-0">
+          <p className="eyebrow mb-3 text-cobalt">Creator dashboard · The Card Doc</p>
+          <h1 className={`${PAGE_TITLE} [overflow-wrap:anywhere]`}>{creator.name}</h1>
         </div>
 
         {/* Earnings and code */}
-        <div className="bg-ink text-white rounded-xl p-6 sm:p-8 grid gap-6 sm:grid-cols-[1.4fr_1fr] sm:items-center">
+        <div className="surface-ink grid gap-6 rounded-[22px] p-6 sm:grid-cols-[1.4fr_1fr] sm:items-center sm:p-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-white/70">Commission earned</p>
-            <p className="font-heading font-black text-5xl mt-2 tabular-nums">{formatCurrency(s.all.commissionCents)}</p>
-            <p className="text-white/70 text-sm mt-2">
+            <p className="label-caps text-[15px] text-sun">Commission earned</p>
+            <p className="mt-3 font-heading text-[3.5rem] leading-none font-black tabular-nums md:text-[4.5rem]">{formatCurrency(s.all.commissionCents)}</p>
+            <p className="mt-3 text-sm text-on-dark-muted">
               {oneRate ? `${formatPercent(rate)} of ` : "From "}{formatCurrency(s.all.cents)} in sales with your code
             </p>
           </div>
-          <div className="sm:border-l sm:border-white/15 sm:pl-6">
-            <p className="text-xs font-bold uppercase tracking-widest text-white/70">Your code</p>
-            <p className="font-mono font-black text-2xl tracking-wider mt-2 [overflow-wrap:anywhere]">{creator.code}</p>
-            <p className="text-white/70 text-xs mt-1 mb-3">
+          <div className="rounded-[18px] bg-ink-2 p-5 shadow-[inset_0_0_0_1px_var(--line-dark)]">
+            <p className="label-caps text-[15px] text-on-dark-muted">Your code</p>
+            <p className="mt-2 font-mono text-2xl font-bold tracking-wider [overflow-wrap:anywhere]">{creator.code}</p>
+            <p className="mt-1 mb-4 text-xs text-on-dark-muted">
               {creator.discount_percent > 0
                 ? `Customers get ${creator.discount_percent}% off when they enter it at checkout.`
                 : "Customers enter it at checkout."}
@@ -89,16 +90,16 @@ export default async function AffiliateDashboard() {
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* By service */}
-          <div className="bg-white rounded-xl border border-border p-6">
-            <h2 className="font-heading font-black text-lg text-foreground">By service</h2>
-            <p className="text-xs text-muted-foreground mb-2">Sales and revenue, with your commission on the right</p>
+          <div className={PANEL}>
+            <h2 className={PANEL_TITLE}>By service</h2>
+            <p className="mt-1.5 mb-2 text-xs text-ink-soft">Sales and revenue, with your commission on the right</p>
             <ServiceRow label="Restorations" t={s.restoration} />
             <ServiceRow label="Restoration kits" t={s.kit} />
           </div>
 
           {/* By month */}
-          <div className="bg-white rounded-xl border border-border p-6">
-            <h2 className="font-heading font-black text-lg text-foreground mb-3">Last 6 months</h2>
+          <div className={PANEL}>
+            <h2 className={`${PANEL_TITLE} mb-4`}>Last 6 months</h2>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground">
@@ -110,7 +111,7 @@ export default async function AffiliateDashboard() {
               </thead>
               <tbody>
                 {s.byMonth.map((m) => (
-                  <tr key={m.key} className="border-t border-border">
+                  <tr key={m.key} className="border-t border-line">
                     <td className="py-2 text-foreground">{m.label}</td>
                     <td className="py-2 text-right text-foreground">{m.totals.sales}</td>
                     <td className="py-2 text-right text-foreground">{formatCurrency(m.totals.cents)}</td>
@@ -123,15 +124,15 @@ export default async function AffiliateDashboard() {
         </div>
 
         {/* Recent sales */}
-        <div className="bg-white rounded-xl border border-border p-6">
-          <h2 className="font-heading font-black text-lg text-foreground">Recent sales</h2>
-          <p className="text-xs text-muted-foreground mb-3">The last {RECENT} orders with your code. Customer names and details aren&apos;t shown.</p>
+        <div className={PANEL}>
+          <h2 className={PANEL_TITLE}>Recent sales</h2>
+          <p className="mt-1.5 mb-3 text-xs text-ink-soft">The last {RECENT} orders with your code. Customer names and details aren&apos;t shown.</p>
           {sales.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No sales with your code yet. Share it with your followers and they&apos;ll show up here.</p>
           ) : (
             <div className="flex flex-col">
               {sales.slice(0, RECENT).map((sale, i) => (
-                <div key={i} className="flex items-start justify-between gap-4 py-3 border-t border-border first:border-0 text-sm">
+                <div key={i} className="flex items-start justify-between gap-4 py-3 border-t border-line first:border-0 text-sm">
                   <div className="min-w-0">
                     <p className="font-semibold text-foreground">{sale.type === "kit" ? "Restoration kit" : "Restoration"}</p>
                     <p className="text-xs text-muted-foreground truncate">{fmtDate(sale.date)}{sale.type === "kit" ? ` · ${sale.summary}` : ""}</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useSyncExternalStore } from "react";
-import { AlertTriangle, ImageOff, X } from "lucide-react";
+import { AlertTriangle, Camera, ImageOff, LoaderCircle, X } from "lucide-react";
 import { toast } from "sonner";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 
@@ -163,9 +163,9 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
 
   if (isInAppBrowser) {
     return (
-      <div className="bg-red-50 border border-red-400 rounded-lg p-3 text-sm">
-        <p className="font-extrabold text-red-900 mb-1 flex items-center gap-2"><ImageOff className="h-4 w-4 shrink-0" strokeWidth={2} />Photo upload blocked</p>
-        <p className="text-red-800 leading-relaxed">
+      <div className="rounded-[14px] bg-red-50 p-4 text-sm shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--danger)_30%,transparent)]">
+        <p className="mb-1 flex items-center gap-2 font-semibold text-destructive"><ImageOff className="h-4 w-4 shrink-0" strokeWidth={2} />Photo upload blocked</p>
+        <p className="text-destructive leading-relaxed">
           Instagram&apos;s browser doesn&apos;t allow photo uploads.{" "}
           <strong>Tap ··· → &quot;Open in browser&quot;</strong> to use Safari or Chrome, then come back to this page.
         </p>
@@ -176,21 +176,22 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
   const canAddMore = photoUrls.length < max;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      {/* The exam tray: thumbnails on a tray, then the drop slot */}
       {/* Thumbnails */}
       {photoUrls.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-4 pt-2 pr-2">
           {photoUrls.map((url) => (
-            <div key={url} className="relative w-20 h-20 rounded-lg overflow-hidden border border-border group flex-shrink-0">
+            <div key={url} className="group relative size-24 shrink-0 rounded-[8px] bg-white p-1.5 shadow-[var(--print-shadow)]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="" className="w-full h-full object-cover" />
+              <img src={url} alt="" className="h-full w-full rounded-[3px] object-cover" />
               <button
                 type="button"
                 onClick={() => remove(url)}
-                className="absolute top-1 right-1 w-5 h-5 bg-ink/80 text-paper rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-ink text-white shadow-[0_0_0_2px_var(--white)] transition-colors hover:bg-destructive focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-cobalt"
                 aria-label="Remove photo"
               >
-                <X className="h-3 w-3" />
+                <X className="h-4 w-4" strokeWidth={2.5} />
               </button>
             </div>
           ))}
@@ -208,32 +209,30 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
           onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`relative flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-7 transition-colors select-none
+          className={`relative flex select-none flex-col items-center justify-center gap-3 rounded-[18px] border-2 border-dashed px-4 py-8 transition-[background-color,border-color] duration-150 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt
             ${uploading ? "cursor-not-allowed opacity-70" : "cursor-pointer"}
-            ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-secondary/20"}
+            ${dragOver ? "border-cobalt bg-cobalt-wash" : "border-ink/25 bg-chalk hover:border-cobalt hover:bg-cobalt-wash"}
           `}
         >
           {uploading ? (
             <div className="flex flex-col items-center gap-2">
-              <div className="w-8 h-8 border border-primary border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm font-medium text-muted-foreground">Uploading photo…</p>
+              <LoaderCircle aria-hidden className="size-7 animate-spin text-cobalt motion-reduce:animate-none" strokeWidth={2} />
+              <p className="label-caps text-[15px] text-ink">Uploading photo…</p>
             </div>
           ) : (
             <>
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-              </div>
+              <span aria-hidden className="grid size-14 place-items-center rounded-full bg-white text-cobalt shadow-[0_0_0_1px_var(--line),0_6px_14px_-8px_rgba(8,12,40,0.4)]">
+                <Camera className="size-6" strokeWidth={1.75} />
+              </span>
               <div className="text-center">
-                <p className="text-sm font-semibold text-foreground">
+                <p className="font-heading text-[1.35rem] leading-tight font-extrabold text-ink">
                   {photoUrls.length === 0 ? "Upload photos of your card" : "Add more photos"}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-1 text-[13px] text-ink-soft">
                   Tap to choose · Drag &amp; drop · Any photo format · Large files OK
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground/70">
+              <p className="rounded-full bg-white px-2.5 py-0.5 text-xs font-bold text-ink-soft tabular-nums shadow-[0_0_0_1px_var(--line)]">
                 {photoUrls.length}/{max} photo{max !== 1 ? "s" : ""}
               </p>
             </>
@@ -243,13 +242,13 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
 
       {/* Inline error banner */}
       {uploadError && (
-        <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-600" strokeWidth={2.25} />
-          <p className="text-xs text-red-700 font-medium flex-1">{uploadError}</p>
+        <div className="flex items-start gap-2 rounded-[14px] bg-red-50 px-3.5 py-3 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--danger)_30%,transparent)]">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-destructive" strokeWidth={2.25} />
+          <p className="text-xs text-destructive font-medium flex-1">{uploadError}</p>
           <button
             type="button"
             onClick={() => setUploadError("")}
-            className="text-red-400 hover:text-red-600 shrink-0"
+            className="-my-2 -mr-2 grid size-10 shrink-0 place-items-center rounded-full text-destructive hover:bg-white"
             aria-label="Dismiss"
           >
             <X className="h-3 w-3" />

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AccountHeader } from "../account-header";
 import { ProfileForm, PasswordForm } from "./settings-forms";
+import { PAGE_TITLE } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,12 @@ export default async function AccountSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-secondary/30">
+    <div className="surface-chalk min-h-screen">
       <AccountHeader email={user.email} active="settings" />
-      <div className="max-w-2xl mx-auto px-6 py-10 flex flex-col gap-6">
-        <div>
-          <h1 className="font-heading font-black text-3xl text-foreground">Settings</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your details fill in automatically when you check out.</p>
+      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-10 sm:px-6 md:py-14">
+        <div className="mb-2">
+          <h1 className={PAGE_TITLE}>Settings</h1>
+          <p className="mt-3 text-[17px] text-ink-soft">Your details fill in automatically when you check out.</p>
         </div>
         <ProfileForm
           email={user.email}

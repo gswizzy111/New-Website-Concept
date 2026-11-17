@@ -32,7 +32,7 @@ export function SignedAgreements({ agreements, showIp = false }: { agreements: S
     <ul className="flex flex-col divide-y divide-border">
       {agreements.map((a) => (
         <li key={a.id} className="py-3 first:pt-0 last:pb-0">
-          <p className="text-sm font-semibold text-foreground">{TITLES[a.kind]}</p>
+          <p className="text-sm font-bold text-foreground">{TITLES[a.kind]}</p>
           <p className="text-xs text-muted-foreground mt-0.5 [overflow-wrap:anywhere]">{forWhat(a)}</p>
           <p className="text-xs text-muted-foreground mt-1">
             Signed by <span className="font-medium text-foreground">{a.signer_name}</span> on{" "}
@@ -40,8 +40,8 @@ export function SignedAgreements({ agreements, showIp = false }: { agreements: S
             {showIp && a.ip ? ` · ${a.ip}` : ""} · version {a.version}
           </p>
           <details className="mt-1.5">
-            <summary className="cursor-pointer text-xs font-semibold text-primary">Show what was signed</summary>
-            <p className="mt-2 whitespace-pre-line rounded-md bg-secondary/50 p-3 text-xs text-muted-foreground leading-relaxed">{a.agreement_text}</p>
+            <summary className="inline-flex min-h-9 cursor-pointer items-center text-xs font-bold text-cobalt underline decoration-[1.5px] underline-offset-4 hover:text-ink">Show what was signed</summary>
+            <p className="mt-2 whitespace-pre-line rounded-[12px] bg-chalk p-4 text-xs leading-relaxed text-ink-soft shadow-[inset_0_0_0_1px_var(--line)]">{a.agreement_text}</p>
           </details>
         </li>
       ))}

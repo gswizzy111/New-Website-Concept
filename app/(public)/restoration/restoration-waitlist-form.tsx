@@ -33,25 +33,25 @@ export function RestorationWaitlistForm({ onSuccess }: { onSuccess?: () => void 
 
   if (status === "success") {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-lg px-6 py-5 text-center max-w-md mx-auto">
-        <p className="text-green-700 font-bold text-lg mb-1">You&apos;re on the list!</p>
-        <p className="text-green-600 text-sm">We&apos;ll reach out as soon as we&apos;re accepting restorations again.</p>
+      <div role="status" className="relative mx-auto max-w-md rounded-2xl bg-success-tint px-6 py-5 text-center shadow-[inset_0_0_0_1.5px_color-mix(in_srgb,var(--success)_35%,transparent)]">
+        <p className="caps mb-1 font-display text-[28px] font-black leading-none text-ink">You&apos;re on the list!</p>
+        <p className="text-sm text-ink">We&apos;ll reach out as soon as we&apos;re accepting restorations again.</p>
       </div>
     );
   }
 
-  const inp = "w-full h-10 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary bg-white transition-colors";
+  const inp = "h-12 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-ink-soft hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt";
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 max-w-md mx-auto">
-      <input name="name" required placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} />
-      <input name="email" type="email" required placeholder="Email address *" value={form.email} onChange={handleChange} className={inp} />
-      <input name="phone" type="tel" placeholder="Phone number (optional)" value={form.phone} onChange={handleChange} className={inp} />
-      {error && <p className="text-red-700 text-xs">{error}</p>}
+      <input name="name" required autoComplete="name" aria-label="Full name" placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} />
+      <input name="email" type="email" required autoComplete="email" aria-label="Email address" placeholder="Email address *" value={form.email} onChange={handleChange} className={inp} />
+      <input name="phone" type="tel" autoComplete="tel" aria-label="Phone number (optional)" placeholder="Phone number (optional)" value={form.phone} onChange={handleChange} className={inp} />
+      {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
       <button
         type="submit"
         disabled={status === "loading"}
-        className="h-10 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+        className="btn btn-sun btn-lg mt-1 w-full disabled:opacity-60"
       >
         {status === "loading" ? "Submitting…" : "Notify Me When Open"}
       </button>

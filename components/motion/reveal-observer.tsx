@@ -16,6 +16,7 @@ export function RevealObserver() {
 
   useEffect(() => {
     let io: IntersectionObserver | null = null;
+    let rio: IntersectionObserver | null = null;
     let raf = 0;
     let tries = 0;
     const hydrated = (el: HTMLElement) => Object.keys(el).some((k) => k.startsWith("__reactFiber$"));
@@ -40,6 +41,20 @@ export function RevealObserver() {
         { rootMargin: "0px 0px -12% 0px", threshold: 0.05 }
       );
       io = observer;
+      // The footer sign-off is short and the last thing on the page: the
+      // shrunken root above could never reach it on a phone, so rises use
+      // the full viewport.
+      const riseObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            entry.target.setAttribute("data-revealed", "");
+            riseObserver.unobserve(entry.target);
+          }
+        },
+        { rootMargin: "0px", threshold: 0 }
+      );
+      rio = riseObserver;
 
       const fold = window.innerHeight * 0.9;
       for (const el of els) {
@@ -53,7 +68,7 @@ export function RevealObserver() {
           continue;
         }
         el.setAttribute("data-armed", "");
-        observer.observe(el);
+        (el.getAttribute("data-reveal") === "rise" ? riseObserver : observer).observe(el);
       }
     };
 
@@ -61,6 +76,7 @@ export function RevealObserver() {
     return () => {
       cancelAnimationFrame(raf);
       io?.disconnect();
+      rio?.disconnect();
     };
   }, [pathname]);
 

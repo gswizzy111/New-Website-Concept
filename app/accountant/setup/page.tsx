@@ -2,6 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Check } from "lucide-react";
+import { FIELD_LABEL, PORTAL_BUTTON, PortalCard } from "@/components/account/portal";
 
 // The same minimum as admin passwords (ADMIN_PASSWORD_MIN in lib/admin-password.ts)
 const MIN = 10;
@@ -44,46 +46,50 @@ function SetupForm() {
   if (done) {
     return (
       <div className="text-center">
-        <div className="text-4xl mb-4">✓</div>
-        <h2 className="font-bold text-xl text-foreground mb-2">Password set!</h2>
-        <p className="text-sm text-muted-foreground">Redirecting you to the login page…</p>
+        <span aria-hidden className="mx-auto mb-4 grid size-14 place-items-center rounded-full bg-success-tint text-success">
+          <Check className="size-7" strokeWidth={2.5} />
+        </span>
+        <h2 className="mb-2 font-heading text-[1.75rem] leading-none font-black text-ink">Password set!</h2>
+        <p className="text-sm text-ink-soft">Redirecting you to the login page…</p>
       </div>
     );
   }
 
   return (
     <>
-      <h1 className="font-heading font-black text-2xl text-foreground mb-1">Set your password</h1>
-      <p className="text-sm text-muted-foreground mb-6">You're setting up accountant access to The Card Doc admin.</p>
+      <h1 className="mb-2 font-heading text-[2.25rem] leading-[0.95] font-black text-ink">Set your password</h1>
+      <p className="mb-6 text-sm text-ink-soft">You&apos;re setting up accountant access to The Card Doc admin.</p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label className="block text-xs font-semibold text-muted-foreground mb-1.5">New Password</label>
+          <label htmlFor="acct-password" className={FIELD_LABEL}>New Password</label>
           <input
+            id="acct-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={`At least ${MIN} characters`}
-            className="w-full h-11 px-4 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
             required
             autoFocus
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Confirm Password</label>
+          <label htmlFor="acct-confirm" className={FIELD_LABEL}>Confirm Password</label>
           <input
+            id="acct-confirm"
             type="password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             placeholder="Repeat your password"
-            className="w-full h-11 px-4 rounded-lg border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+            className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
             required
           />
         </div>
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <button
           type="submit"
           disabled={loading || !token}
-          className="h-11 bg-primary text-white font-bold rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
+          className={PORTAL_BUTTON}
         >
           {loading ? "Saving…" : "Set Password & Continue →"}
         </button>
@@ -94,12 +100,10 @@ function SetupForm() {
 
 export default function AccountantSetupPage() {
   return (
-    <div className="min-h-screen bg-secondary flex items-center justify-center px-4">
-      <div className="bg-white rounded-xl border border-border p-8 w-full max-w-sm shadow-sm">
-        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-          <SetupForm />
-        </Suspense>
-      </div>
-    </div>
+    <PortalCard width="max-w-sm">
+      <Suspense fallback={<p className="text-sm text-ink-soft">Loading…</p>}>
+        <SetupForm />
+      </Suspense>
+    </PortalCard>
   );
 }

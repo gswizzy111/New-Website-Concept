@@ -10,6 +10,8 @@ import {
 import type { CardDetails } from "@/lib/legal/agreements-v1";
 import type { SubmittedSigning } from "@/lib/checkout-signing";
 import { Need, Req } from "./required";
+import { PIXEL_FIELD } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 /**
  * Everything a customer signs or chooses before an order is placed (Terms
@@ -74,9 +76,9 @@ export function submittedSigning(state: SigningState, slabCards: SlabCard[]): Su
   };
 }
 
-const CHECK = "mt-0.5 h-4 w-4 shrink-0 accent-primary";
-const NAME_INPUT = "w-full h-10 rounded-md border border-input bg-white px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-const MORE = "cursor-pointer text-xs font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground";
+const CHECK = "mt-0.5 shrink-0";
+const NAME_INPUT = PIXEL_FIELD;
+const MORE = "inline-flex min-h-11 cursor-pointer items-center text-sm font-bold text-ink-soft underline underline-offset-4 hover:text-ink";
 
 export function SigningSection({
   state,
@@ -94,18 +96,18 @@ export function SigningSection({
   const id = useId();
   return (
     <div className="flex flex-col gap-8">
-      <section className="flex flex-col gap-2.5">
-        <h3 className="font-medium text-foreground">Optional permissions</h3>
-        <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+      <section className="flex flex-col gap-4 rounded-[22px] bg-white p-5 text-ink shadow-[0_0_0_1px_var(--line)] sm:p-7">
+        <h3 className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Optional permissions</h3>
+        <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-relaxed">
           <input
             type="checkbox"
             className={CHECK}
             checked={state.media}
             onChange={(e) => onChange({ ...state, media: e.target.checked, tagName: e.target.checked ? state.tagName : false })}
           />
-          <span className="text-foreground">{MEDIA_LABEL}</span>
+          <span className="text-ink">{MEDIA_LABEL}</span>
         </label>
-        <label className={`flex items-start gap-2.5 text-sm ${state.media ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
+        <label className={`flex items-start gap-3 text-[15px] leading-relaxed ${state.media ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
           <input
             type="checkbox"
             className={CHECK}
@@ -113,58 +115,61 @@ export function SigningSection({
             disabled={!state.media}
             onChange={(e) => onChange({ ...state, tagName: e.target.checked })}
           />
-          <span className="text-foreground">{TAG_LABEL}</span>
+          <span className="text-ink">{TAG_LABEL}</span>
         </label>
-        <p className="text-xs text-muted-foreground">{mediaRequiredNote ?? "Both are optional and don't affect your order."}</p>
+        <p className="text-[13px] text-ink-soft">{mediaRequiredNote ?? "Both are optional and don't affect your order."}</p>
       </section>
 
-      <section className="flex flex-col gap-4">
-        <div>
-          <h3 className="font-heading text-xl font-bold text-foreground flex items-center gap-2">
-            <PenLine className="h-5 w-5 text-primary" strokeWidth={1.75} />
+      {/* The signature card: an ink band on top, then the boxes and the name */}
+      <section className="flex flex-col overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_2px_var(--ink),var(--panel-shadow)]">
+        <div className="surface-ink px-5 pt-5 pb-3 sm:px-7 sm:pt-6">
+          <h3 className="flex items-center gap-3 font-heading text-[1.9rem] leading-none font-black text-white md:text-[2.25rem]">
+            <PenLine aria-hidden className="size-7 shrink-0 text-sun" strokeWidth={2} />
             Sign to confirm your order
           </h3>
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            <a href="/terms" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-primary underline underline-offset-2">
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1.5 font-bold text-sun underline underline-offset-4">
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={2} />Read the Terms of Service v{TERMS_VERSION}
             </a>
-            <a href={`/terms/v${TERMS_VERSION}/pdf`} className="inline-flex items-center gap-1.5 font-semibold text-primary underline underline-offset-2">
+            <a href={`/terms/v${TERMS_VERSION}/pdf`} className="inline-flex min-h-11 items-center gap-1.5 font-bold text-white underline underline-offset-4">
               <Download className="h-3.5 w-3.5" strokeWidth={2} />Download PDF
             </a>
           </div>
         </div>
+        <div className="flex flex-col gap-5 p-5 sm:p-7">
         <Need missing={showMissing && !state.agreed} note="Check this box to agree to the Terms.">
-          <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+          <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-relaxed">
             <input type="checkbox" className={CHECK} checked={state.agreed} onChange={(e) => onChange({ ...state, agreed: e.target.checked })} />
-            <span className="font-semibold text-foreground">{AGREE_LABEL}<Req /></span>
+            <span className="font-semibold text-ink">{AGREE_LABEL}<Req /></span>
           </label>
         </Need>
         <Need missing={showMissing && !state.esign} note="Check this box to sign electronically.">
-          <label className="flex items-start gap-2.5 text-sm cursor-pointer">
+          <label className="flex cursor-pointer items-start gap-3 text-[15px] leading-relaxed">
             <input type="checkbox" className={CHECK} checked={state.esign} onChange={(e) => onChange({ ...state, esign: e.target.checked })} />
-            <span className="text-foreground">{ESIGN_LABEL}<Req /></span>
+            <span className="text-ink">{ESIGN_LABEL}<Req /></span>
           </label>
         </Need>
         <details>
           <summary className={MORE}>Your certification (Section {CERTIFICATION_CLAUSE}) and electronic records</summary>
-          <div className="mt-2 max-h-64 overflow-y-auto rounded-md border border-border bg-white p-3 flex flex-col gap-3" tabIndex={0} aria-label="Certification and consent to electronic records">
+          <div className="mt-2 flex max-h-64 flex-col gap-3 overflow-y-auto rounded-[14px] bg-chalk p-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-cobalt" tabIndex={0} aria-label="Certification and consent to electronic records">
             <p className="text-sm text-foreground leading-relaxed">{CERTIFICATION_TEXT}</p>
             <LegalDocument blocks={ESIGN_BLOCKS} variant="compact" />
           </div>
         </details>
-        <Need missing={showMissing && !named(state.signerName)} note="Type your full legal name to sign." className="flex flex-col gap-1.5 max-w-md">
-          <label htmlFor={`${id}-legal-name`} className="text-xs font-semibold text-muted-foreground">Full legal name<Req /></label>
+        <Need missing={showMissing && !named(state.signerName)} note="Type your full legal name to sign." className="flex max-w-md flex-col gap-2 border-t border-line pt-6">
+          <label htmlFor={`${id}-legal-name`} className="label-caps text-[15px] text-ink">Full legal name<Req /></label>
           <input
             id={`${id}-legal-name`}
-            className={NAME_INPUT}
+            className={cn(NAME_INPUT, "h-13 font-heading text-[1.5rem] font-extrabold tracking-[0.01em] md:text-[1.5rem]")}
             autoComplete="name"
             value={state.signerName}
             onChange={(e) => onChange({ ...state, signerName: e.target.value })}
           />
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[13px] leading-relaxed text-ink-soft">
             Typing your name is your electronic signature on the Terms, including the certification above. The date and time come from our server when you place the order.
           </p>
         </Need>
+        </div>
       </section>
     </div>
   );

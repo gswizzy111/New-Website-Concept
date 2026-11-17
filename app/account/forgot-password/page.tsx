@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
             <label htmlFor="forgot-email" className={LABEL_CN}>Email</label>
             <input id="forgot-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className={FIELD_CN} />
           </div>
-          {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <button type="submit" disabled={state === "sending"} className={BUTTON_CN}>
             {state === "sending" ? "Sending…" : "Send reset link"}
           </button>

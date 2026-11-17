@@ -9,6 +9,9 @@ import { formatCurrency } from "@/lib/utils";
 import type { RestorationTier } from "@/lib/restoration-tiers";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { addedCardsBulkPercent, isBulkEligible } from "@/lib/bulk-pricing";
+import { Plus } from "lucide-react";
+import { cta } from "@/components/brand";
+import { Eyebrow, PANEL, PANEL_TITLE } from "@/components/account/portal";
 
 const TAX_RATE = 0.06625;
 
@@ -34,7 +37,7 @@ function emptyCard(): CardEntry {
 const valueCents = (c: CardEntry) => Math.round((parseFloat(c.declaredValue.replace(/[^0-9.]/g, "")) || 0) * 100);
 
 const inputCls =
-  "w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rx";
+  "w-full min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 py-2 min-h-11 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]";
 
 export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrder }: Props) {
   const tier = tierInfo.id;
@@ -111,10 +114,10 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
   }
 
   return (
-    <div className="bg-gradient-to-br from-rx-soft to-white rounded-xl border border-rx/30 p-6 mb-5">
-      <p className="rx-label text-rx mb-1">Add to Your Order</p>
-      <h2 className="font-heading font-black text-lg text-foreground mb-1">Add More Cards</h2>
-      <p className="text-sm text-muted-foreground mb-5">
+    <div className={PANEL}>
+      <Eyebrow>Add to Your Order</Eyebrow>
+      <h2 className="mb-2 font-heading text-[2rem] leading-[0.95] font-black text-ink">Add More Cards</h2>
+      <p className="mb-5 text-[15px] text-ink-soft">
         Add cards before we receive your shipment. Priced at your {tierInfo.name} rate
         {isElite
           ? ` (${(priceRate * 100).toFixed(0)}% of declared value)`
@@ -129,14 +132,14 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
 
       <div className="flex flex-col gap-4">
         {cards.map((card, i) => (
-          <div key={i} className="bg-white rounded-lg border border-border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-bold text-foreground">Card {i + 1}</p>
+          <div key={i} className="rounded-[18px] bg-chalk p-4 sm:p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <p className={`${PANEL_TITLE} text-[1.35rem]`}>Card {i + 1}</p>
               {cards.length > 1 && (
                 <button
                   onClick={() => removeCard(i)}
                   disabled={loading}
-                  className="text-xs text-red-600 hover:text-red-700 disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-bold text-destructive hover:bg-red-50 disabled:opacity-50"
                 >
                   Remove
                 </button>
@@ -145,7 +148,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
 
             <div className="flex flex-col gap-3">
               <Need missing={showMissing && !card.name.trim()}>
-                <label className="text-xs font-semibold text-muted-foreground mb-1 block">Card Name<Req /></label>
+                <label className="mb-1.5 block text-sm font-semibold text-ink">Card Name<Req /></label>
                 <input
                   type="text"
                   value={card.name}
@@ -159,7 +162,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
               <CardIdentityFields idPrefix={`add-${i}`} value={card} onChange={(patch) => updateCard(i, patch)} />
 
               <Need missing={showMissing && (valueCents(card) <= 0 || overCap(card))} note={overCap(card) ? null : "Enter a declared value."}>
-                <label className="text-xs font-semibold text-muted-foreground mb-1 block">Declared Value<Req /></label>
+                <label className="mb-1.5 block text-sm font-semibold text-ink">Declared Value<Req /></label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
                   <input
@@ -175,14 +178,14 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
                 <p className="text-xs text-muted-foreground mt-1">{VALUE_HELP}</p>
                 {isElite && <p className="text-xs text-muted-foreground mt-1">Service fee: {formatCurrency(cardPrice(card))}</p>}
                 {overCap(card) && (
-                  <p className="text-xs text-red-600 font-semibold mt-1">
+                  <p className="text-xs text-destructive font-semibold mt-1">
                     This is above the {tierInfo.name} tier&apos;s ${(maxCents! / 100).toLocaleString()}{" "}cap, so it can&apos;t be added to this order. Please place a new order for it with a higher tier.
                   </p>
                 )}
               </Need>
 
               <div>
-                <label className="text-xs font-semibold text-muted-foreground mb-1 block">Photos (optional)</label>
+                <label className="mb-1.5 block text-sm font-semibold text-ink">Photos (optional)</label>
                 <PhotoUploader
                   photoUrls={card.photoUrls}
                   onChange={(urls) => updateCard(i, { photoUrls: urls })}
@@ -196,12 +199,13 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
       <button
         onClick={addCard}
         disabled={loading}
-        className="mt-3 w-full py-2.5 border border-dashed border-rx/50 text-rx text-sm font-semibold rounded-lg hover:bg-rx-soft transition-colors disabled:opacity-50"
+        className={cta({ tone: "outline", size: "sm", className: "mt-4 w-full gap-1.5" })}
       >
-        + Add Another Card
+        <Plus aria-hidden className="size-4" strokeWidth={2.5} />
+        Add Another Card
       </button>
 
-      <div className="mt-5 bg-rx-soft rounded-lg p-4">
+      <div className="mt-5 rounded-[18px] bg-cobalt-wash p-4 sm:p-5">
         <div className="flex justify-between text-sm text-muted-foreground mb-1">
           <span>
             {cards.length} card{cards.length !== 1 ? "s" : ""}
@@ -209,7 +213,7 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
           <span>{formatCurrency(listSubtotal)}</span>
         </div>
         {bulkDiscount > 0 && (
-          <div className="flex justify-between text-sm font-semibold text-rx mb-1">
+          <div className="mb-1 flex justify-between text-sm font-semibold text-cobalt-deep">
             <span>Bulk discount ({bulkPercent}% off, {cardsOnOrder + cards.length} cards on the order)</span>
             <span>−{formatCurrency(bulkDiscount)}</span>
           </div>
@@ -218,23 +222,23 @@ export function AddCardsForm({ orderNumber, customerEmail, tierInfo, cardsOnOrde
           <span>Tax (6.625%)</span>
           <span>{formatCurrency(tax)}</span>
         </div>
-        <div className="flex justify-between font-bold text-foreground border-t border-rx/30 pt-2">
+        <div className="mt-1 flex items-baseline justify-between border-t-2 border-ink pt-3 font-heading text-[1.75rem] leading-none font-black text-ink">
           <span>Total Due</span>
-          <span className="text-rx">{formatCurrency(total)}</span>
+          <span>{formatCurrency(total)}</span>
         </div>
       </div>
 
-      <div className="mt-6 bg-white rounded-lg border border-border p-4 md:p-5">
+      <div className="mt-6">
         <SigningSection state={signing} onChange={setSigning} showMissing={showMissing} />
       </div>
 
-      {error && <p className="text-sm text-red-500 mt-3">{error}</p>}
+      {error && <p className="text-sm text-destructive mt-3">{error}</p>}
 
       <MissingNote show={showMissing && !ready} />
       <button
         onClick={handleSubmit}
         disabled={loading}
-        className="mt-4 w-full py-3 bg-rx text-white font-bold rounded-lg hover:bg-rx/90 transition-colors disabled:opacity-40"
+        className={cta({ tone: "sun", size: "lg", className: "mt-4 h-auto w-full py-3 leading-tight whitespace-normal" })}
       >
         {loading ? "Redirecting to checkout…" : SIGN_BUTTON_LABEL}
       </button>

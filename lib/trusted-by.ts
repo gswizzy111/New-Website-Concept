@@ -33,4 +33,20 @@ export const TRUSTED_BY: TrustedPage[] = [
     href: "https://www.instagram.com/bnsvi_/",
     followers: "98K",
   },
+  {
+    name: "Jon Allen",
+    handle: "@jonallen93",
+    role: "NFL defensive lineman",
+    platform: "Instagram",
+    href: "https://www.instagram.com/jonallen93/",
+    followers: "132K",
+  },
+  {
+    name: "Daithi De Nogla",
+    handle: "@daithiden0gla",
+    role: "YouTuber",
+    platform: "Instagram",
+    href: "https://www.instagram.com/daithiden0gla/",
+    followers: "2.7M",
+  },
 ];

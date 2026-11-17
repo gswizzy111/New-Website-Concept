@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { cta } from "@/components/brand";
 
 export function LogReferralButton() {
   const [open, setOpen] = useState(false);
@@ -37,7 +38,7 @@ export function LogReferralButton() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full h-14 bg-white border border-border text-foreground font-bold rounded-xl hover:border-primary/40 transition-colors text-sm"
+        className={cta({ tone: "outline", size: "lg", className: "w-full" })}
       >
         Log Referral
       </button>
@@ -45,32 +46,32 @@ export function LogReferralButton() {
   }
 
   return (
-    <div className="col-span-2 bg-secondary/40 border border-border rounded-xl p-4 flex flex-col gap-3">
-      <p className="text-sm font-bold text-foreground">Log Referral</p>
+    <div className="col-span-2 flex flex-col gap-3 rounded-[22px] bg-white p-5 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
+      <p className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Log Referral</p>
       <input
         type="text"
         value={clientName}
         onChange={(e) => setClientName(e.target.value)}
         placeholder="Client name"
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+        className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
       />
       <input
         type="text"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes — e.g. restoration, PSA prep (optional)"
-        className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 bg-white"
+        className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
       />
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
         <button
           onClick={submit}
           disabled={saving}
-          className="text-sm font-bold px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 disabled:opacity-50"
+          className={cta({ tone: "sun", size: "sm" })}
         >
           {saving ? "Saving..." : "Log Referral"}
         </button>
-        <button onClick={() => setOpen(false)} className="text-sm px-4 py-2 text-muted-foreground hover:text-foreground">
+        <button onClick={() => setOpen(false)} className="min-h-11 rounded-full px-4 text-sm font-bold text-ink-soft hover:bg-chalk hover:text-ink">
           Cancel
         </button>
       </div>

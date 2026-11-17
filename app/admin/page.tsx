@@ -30,7 +30,7 @@ const TIER_BADGES: Record<string, { label: string; color: string }> = {
   expedited:     { label: "Silver",    color: "bg-slate-100 text-slate-600" },
   premium:       { label: "Gold",      color: "bg-yellow-100 text-yellow-700" },
   ultra_premium: { label: "Platinum",  color: "bg-slate-200 text-slate-800" },
-  elite:         { label: "Diamond",   color: "bg-ink text-paper" },
+  elite:         { label: "Diamond",   color: "bg-ink text-chalk" },
   fast_pass:     { label: "Fast Pass", color: "bg-orange-100 text-orange-700" },
 };
 
@@ -39,7 +39,7 @@ const TIER_STYLES: Record<string, { label: string; cls: string }> = {
   expedited:     { label: "Silver",    cls: "bg-slate-100 text-slate-600" },
   premium:       { label: "Gold",      cls: "bg-yellow-100 text-yellow-700" },
   ultra_premium: { label: "Platinum",  cls: "bg-slate-200 text-slate-800" },
-  elite:         { label: "Diamond",   cls: "bg-ink text-paper" },
+  elite:         { label: "Diamond",   cls: "bg-ink text-chalk" },
   fast_pass:     { label: "Fast Pass", cls: "bg-orange-100 text-orange-700" },
 };
 
@@ -49,16 +49,16 @@ const STATUS_COLORS: Record<string, string> = {
   awaiting_payment: "bg-gray-100 text-gray-600",
   awaiting_cards: "bg-yellow-100 text-yellow-700",
   received: "bg-blue-100 text-blue-700",
-  in_progress: "bg-rx text-white",
+  in_progress: "bg-cobalt text-white",
   completed: "bg-green-100 text-green-700",
-  shipped_back: "bg-ink text-paper",
+  shipped_back: "bg-ink text-chalk",
   delivered: "bg-emerald-100 text-emerald-700",
   cancelled: "bg-red-100 text-red-700",
 };
 
 const FULFILLMENT_STATUS_STYLES: Record<string, { label: string; cls: string }> = {
   received:    { label: "Cards Received", cls: "bg-blue-100 text-blue-700" },
-  in_progress: { label: "In Progress",    cls: "bg-rx text-white" },
+  in_progress: { label: "In Progress",    cls: "bg-cobalt text-white" },
 };
 
 // Day math works on New York calendar days (YYYY-MM-DD), not the server's
@@ -1220,7 +1220,7 @@ export default async function AdminPage({
           const SHIP_BADGE: Record<string, { label: string; cls: string }> = {
             UNKNOWN:     { label: "Waiting to be Shipped Out", cls: "bg-gray-100 text-gray-700" },
             PRE_TRANSIT: { label: "Waiting to be Shipped Out", cls: "bg-gray-100 text-gray-700" },
-            TRANSIT:     { label: "Out for Delivery",           cls: "bg-ink text-paper" },
+            TRANSIT:     { label: "Out for Delivery",           cls: "bg-ink text-chalk" },
             DELIVERED:   { label: "Delivered",                  cls: "bg-green-100 text-green-700" },
             RETURNED:    { label: "Being Returned",             cls: "bg-orange-100 text-orange-700" },
             FAILURE:     { label: "Delivery Issue",             cls: "bg-red-100 text-red-700" },
@@ -1234,7 +1234,7 @@ export default async function AdminPage({
           return (
             <>
               {/* Sync delivered — always shown on shipped tab */}
-              <div className="bg-white border border-rule rounded-xl p-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="bg-white border border-border rounded-xl p-4 mb-5 flex flex-col sm:flex-row sm:items-center gap-3">
                 <div className="flex-1">
                   <p className="font-bold text-ink text-sm">Sync delivered status</p>
                   <p className="text-xs text-muted-foreground mt-0.5">

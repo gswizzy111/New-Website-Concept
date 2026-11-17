@@ -3,13 +3,14 @@ import { LinkedText } from "./linked-text";
 
 /**
  * Renders a legal text (lib/legal/legal-doc.ts) without changing a word.
- * "page" is the full /terms layout; "compact" fits a scroll box or an
+ * "page" is the full /terms layout: a calm reading column, section heads in
+ * the display face, clause numbers in ink. "compact" fits a scroll box or an
  * agreement card at checkout.
  */
 export function LegalDocument({
   blocks,
   variant = "page",
-  linkClassName = "font-semibold text-primary underline underline-offset-2 hover:opacity-80",
+  linkClassName = "font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink",
 }: {
   blocks: DocBlock[];
   variant?: "page" | "compact";
@@ -17,18 +18,35 @@ export function LegalDocument({
 }) {
   const page = variant === "page";
   return (
-    <div className={page ? "flex flex-col gap-4 text-[15px] md:text-base leading-relaxed text-muted-foreground" : "flex flex-col gap-2.5 text-[13px] leading-relaxed text-muted-foreground"}>
+    <div
+      className={
+        page
+          ? "flex flex-col gap-4 font-sans text-[16px] leading-[1.7] text-ink-soft md:text-[17px]"
+          : "flex flex-col gap-2.5 text-[13px] leading-relaxed text-muted-foreground"
+      }
+    >
       {blocks.map((b, i) => {
         if (b.kind === "title") {
           return (
-            <p key={i} className={page ? "font-heading text-xl md:text-2xl font-extrabold tracking-[-0.01em] text-foreground" : "font-bold text-foreground"}>
+            <p
+              key={i}
+              className={
+                page
+                  ? "caps font-display text-[28px] font-black leading-[0.95] text-ink md:text-[36px] [text-wrap:balance]"
+                  : "font-bold text-foreground"
+              }
+            >
               {b.text}
             </p>
           );
         }
         if (b.kind === "heading") {
           return page ? (
-            <h2 key={i} id={b.id} className="scroll-mt-28 mt-8 border-t border-foreground/60 pt-6 font-heading text-2xl md:text-3xl font-extrabold tracking-[-0.01em] text-foreground">
+            <h2
+              key={i}
+              id={b.id}
+              className="caps mt-10 scroll-mt-[calc(var(--header-h)+24px)] border-t border-line pt-8 font-display text-[24px] font-extrabold leading-[1.05] text-ink md:text-[28px] [text-wrap:balance]"
+            >
               {b.text}
             </h2>
           ) : (
@@ -37,10 +55,13 @@ export function LegalDocument({
         }
         if (b.kind === "list") {
           return (
-            <ul key={i} className={page ? "flex flex-col gap-2.5" : "flex flex-col gap-1.5"}>
+            <ul key={i} className={page ? "flex flex-col gap-3" : "flex flex-col gap-1.5"}>
               {b.items.map((item, j) => (
                 <li key={j} className="flex items-start gap-3">
-                  <span className="mt-[0.6em] h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+                  <span
+                    aria-hidden
+                    className={page ? "mt-[0.55em] h-[11px] w-2 shrink-0 rounded-[2px] bg-cobalt" : "mt-[0.6em] size-1.5 shrink-0 rounded-full bg-cobalt"}
+                  />
                   <span><LinkedText text={item} linkClassName={linkClassName} /></span>
                 </li>
               ))}
@@ -52,7 +73,7 @@ export function LegalDocument({
           <p key={i}>
             {clause ? (
               <>
-                <span className="font-semibold text-foreground">{clause}</span>
+                <span className="font-bold text-ink">{clause}</span>
                 <LinkedText text={b.text.slice(clause.length)} linkClassName={linkClassName} />
               </>
             ) : (

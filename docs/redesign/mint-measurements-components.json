@@ -1,0 +1,1312 @@
+{
+ "imgs": [
+  {
+   "src": "mw-bandage.png",
+   "cls": "mw-load__art",
+   "w": 0,
+   "h": 0,
+   "ar": "NaN",
+   "fit": "fill",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "auto",
+   "chain": [
+    "mw-load__stage bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-load is-on is-out bg=rgb(169, 201, 173) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "page-width-normal card-hover-e bg=rgb(169, 201, 173) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "fiinr-basketball-card-1986-fleer-michael",
+   "cls": "",
+   "w": 274,
+   "h": 341,
+   "ar": "0.80",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "eager",
+   "chain": [
+    "mw-float__inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-float bg=rgba(0, 0, 0, 0) rad=10px bd=0px rgb(22, 26, 23) sh=rgba(20, 30, 22, 0.55) 0px 26px 48px -20px tf=none pad=0px",
+    "mw-mat__floats mw-mat__floats- bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "ChatGPT_Image_Aug_25_2026_06_19_45_PM.pn",
+   "cls": "",
+   "w": 256,
+   "h": 330,
+   "ar": "0.78",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "eager",
+   "chain": [
+    "mw-float__inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-float bg=rgba(0, 0, 0, 0) rad=10px bd=0px rgb(22, 26, 23) sh=rgba(20, 30, 22, 0.55) 0px 26px 48px -20px tf=none pad=0px",
+    "mw-mat__floats mw-mat__floats- bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "ChatGPT_Image_Aug_25_2026_06_50_29_PM.pn",
+   "cls": "",
+   "w": 265,
+   "h": 335,
+   "ar": "0.79",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "eager",
+   "chain": [
+    "mw-float__inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-float bg=rgba(0, 0, 0, 0) rad=10px bd=0px rgb(22, 26, 23) sh=rgba(20, 30, 22, 0.55) 0px 26px 48px -20px tf=none pad=0px",
+    "mw-mat__floats mw-mat__floats- bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "647663_in_1000x1000_560625fe-c4f6-4141-8",
+   "cls": "",
+   "w": 251,
+   "h": 326,
+   "ar": "0.77",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "eager",
+   "chain": [
+    "mw-float__inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-float bg=rgba(0, 0, 0, 0) rad=10px bd=0px rgb(22, 26, 23) sh=rgba(20, 30, 22, 0.55) 0px 26px 48px -20px tf=none pad=0px",
+    "mw-mat__floats mw-mat__floats- bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "IMG_3276_9b0fd588-df48-44c9-abc5-fc15cdc",
+   "cls": "",
+   "w": 405,
+   "h": 334,
+   "ar": "1.21",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-cat__media bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-cat bg=rgb(31, 31, 31) rad=16px bd=3px rgb(24, 24, 22) sh=rgb(24, 24, 22) 4px 4px 0px 0px tf=none pad=0px",
+    "mw-cats__grid is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "IMG_3274.jpg",
+   "cls": "",
+   "w": 405,
+   "h": 334,
+   "ar": "1.21",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-cat__media bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-cat bg=rgb(36, 49, 40) rad=16px bd=3px rgb(24, 24, 22) sh=rgb(24, 24, 22) 4px 4px 0px 0px tf=none pad=0px",
+    "mw-cats__grid is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "ef35448b-7b30-45a2-85b0-5950bd9f3508.png",
+   "cls": "",
+   "w": 405,
+   "h": 334,
+   "ar": "1.21",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-cat__media bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-cat bg=rgb(26, 36, 48) rad=16px bd=3px rgb(24, 24, 22) sh=rgb(24, 24, 22) 4px 4px 0px 0px tf=none pad=0px",
+    "mw-cats__grid is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2026-08-25_185828.png",
+   "cls": "",
+   "w": 242,
+   "h": 430,
+   "ar": "0.56",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-reel  bg=rgb(29, 36, 32) rad=14px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-reels__track is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px 0px 9.6px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2026-08-25_185941.png",
+   "cls": "",
+   "w": 242,
+   "h": 430,
+   "ar": "0.56",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-reel  bg=rgb(29, 36, 32) rad=14px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-reels__track is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px 0px 9.6px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2026-08-25_185843.png",
+   "cls": "",
+   "w": 242,
+   "h": 430,
+   "ar": "0.56",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-reel  bg=rgb(29, 36, 32) rad=14px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-reels__track is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px 0px 9.6px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2026-08-25_185913.png",
+   "cls": "",
+   "w": 242,
+   "h": 430,
+   "ar": "0.56",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-reel  bg=rgb(29, 36, 32) rad=14px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-reels__track is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px 0px 9.6px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2026-08-25_185923.png",
+   "cls": "",
+   "w": 242,
+   "h": 430,
+   "ar": "0.56",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-reel  bg=rgb(29, 36, 32) rad=14px bd=0px rgb(164, 35, 37) sh=none tf=none pad=0px",
+    "mw-reels__track is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px 0px 9.6px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2025-10-16_132911-Picsart-Bac",
+   "cls": "",
+   "w": 604,
+   "h": 453,
+   "ar": "1.33",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-cmp__layer mw-cmp__layer--b bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-cmp bg=rgb(184, 212, 188) rad=12px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "Screenshot_2025-10-16_132917-Picsart-Bac",
+   "cls": "",
+   "w": 604,
+   "h": 453,
+   "ar": "1.33",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-cmp__layer mw-cmp__layer--a bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-cmp bg=rgb(184, 212, 188) rad=12px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "IMG_3276_9b0fd588-df48-44c9-abc5-fc15cdc",
+   "cls": "",
+   "w": 604,
+   "h": 453,
+   "ar": "1.33",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-split__media mw-rake mw-rev bg=rgb(184, 212, 188) rad=12px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-split mw-split--flip bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px",
+    "mw-inner bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1269_0495fab0-8428-4168-b919-bb89fb",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1269_0495fab0-8428-4168-b919-bb89fb",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1275_f95f532f-fe0f-4d30-99b4-d57553",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1275_f95f532f-fe0f-4d30-99b4-d57553",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1289.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1289.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1273.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1273.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1144.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1144.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1146.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1146.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image0792_6626fce9-66ba-421d-9fca-0a14d0",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image0792_6626fce9-66ba-421d-9fca-0a14d0",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1415.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1415.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1431.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1431.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1355.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1355.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1319_ff69dbf1-82ae-47e5-b380-8d57cd",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1319_ff69dbf1-82ae-47e5-b380-8d57cd",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1325.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1325.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1447.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1447.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1459.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1459.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1455.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1455.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1419.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1419.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1343.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1343.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1335.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1335.jpg",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1287_6a37b8e3-e0f2-4478-bcb0-7b39e1",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1287_6a37b8e3-e0f2-4478-bcb0-7b39e1",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1299_da82b858-672c-41e4-bdd5-bd62ca",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1299_da82b858-672c-41e4-bdd5-bd62ca",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1297_bee8e10c-309d-40d2-8a6e-e8fec4",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1297_bee8e10c-309d-40d2-8a6e-e8fec4",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1317_d10f5625-c114-4f8b-8474-728fb3",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--bef bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  },
+  {
+   "src": "image1317_d10f5625-c114-4f8b-8474-728fb3",
+   "cls": "",
+   "w": 198,
+   "h": 277,
+   "ar": "0.71",
+   "fit": "cover",
+   "rad": "0px",
+   "tf": "none",
+   "filter": "none",
+   "loading": "lazy",
+   "chain": [
+    "mw-log__face mw-log__face--aft bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(0, 0, 0) sh=none tf=none pad=0px",
+    "mw-log__card bg=rgb(184, 212, 188) rad=12px bd=0px rgb(0, 0, 0) sh=rgba(36, 49, 40, 0.5) 0px 12px 28px -18px tf=none pad=0px",
+    "mw-log__item mw-reveal is-in bg=rgba(0, 0, 0, 0) rad=0px bd=0px rgb(22, 26, 23) sh=none tf=none pad=0px"
+   ]
+  }
+ ],
+ "heroKids": [
+  {
+   "cls": "mw-mat__pattern",
+   "tf": "matrix(0.961262, -0.275637, 0.275637, 0.961262, 0, 0)",
+   "rot": "none",
+   "tr": "none",
+   "anim": "none"
+  },
+  {
+   "cls": "mw-float",
+   "tf": "none",
+   "rot": "-12deg",
+   "tr": "0% 0%",
+   "anim": "mw-float-in"
+  },
+  {
+   "cls": "mw-float",
+   "tf": "none",
+   "rot": "8deg",
+   "tr": "0% 0%",
+   "anim": "mw-float-in"
+  },
+  {
+   "cls": "mw-float",
+   "tf": "none",
+   "rot": "10deg",
+   "tr": "0% 0%",
+   "anim": "mw-float-in"
+  },
+  {
+   "cls": "mw-float",
+   "tf": "none",
+   "rot": "-7deg",
+   "tr": "0% 0%",
+   "anim": "mw-float-in"
+  },
+  {
+   "cls": "mw-mat__qa-t",
+   "tf": "matrix(0.992546, -0.121869, 0.121869, 0.992546, 0, 0)",
+   "rot": "none",
+   "tr": "none",
+   "anim": "none"
+  },
+  {
+   "cls": "mw-mat__card",
+   "tf": "none",
+   "rot": "-3deg",
+   "tr": "0px 40px",
+   "anim": "none"
+  }
+ ],
+ "heroBg": "none",
+ "grain": [
+  "none | after:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='sti op 0.05"
+ ],
+ "marquees": [
+  {
+   "cls": "mw-announce__ticker",
+   "anim": "none 0s ease",
+   "h": 16.109375
+  },
+  {
+   "cls": "mw-marq__track mw-announce__track",
+   "anim": "none 0s ease",
+   "h": 16.109375
+  },
+  {
+   "cls": "mw-band__wrap",
+   "anim": "none 0s ease",
+   "h": 188.296875
+  },
+  {
+   "cls": "mw-band ",
+   "anim": "none 0s ease",
+   "h": 188.296875
+  },
+  {
+   "cls": "mw-band__grid is-in",
+   "anim": "none 0s ease",
+   "h": 188.296875
+  },
+  {
+   "cls": "mw-band__item",
+   "anim": "none 0s ease",
+   "h": 188.296875
+  },
+  {
+   "cls": "mw-band__icon",
+   "anim": "none 0s ease",
+   "h": 30
+  },
+  {
+   "cls": "mw-band__title",
+   "anim": "none 0s ease",
+   "h": 16.21875
+  },
+  {
+   "cls": "mw-band__text",
+   "anim": "none 0s ease",
+   "h": 37.65625
+  },
+  {
+   "cls": "mw-band__item",
+   "anim": "none 0s ease",
+   "h": 188.296875
+  }
+ ],
+ "allAnims": [
+  "mw-load is-on is-out : mw-load-out 0.38s cubic-bezier(0.4, 0, 0.2, 1) 1",
+  "mw-load__art : mw-load-land 0.78s cubic-bezier(0.16, 1, 0.3, 1) 1",
+  "mw-load__word : mw-load-word 0.46s ease-out 1",
+  "mw-load__tag : mw-load-word 0.46s ease-out 1",
+  "mw-float : mw-float-in 1s cubic-bezier(0.16, 1, 0.3, 1) 1",
+  "mw-float : mw-float-in 0.9s cubic-bezier(0.16, 1, 0.3, 1) 1",
+  "mw-float : mw-float-in 1.1s cubic-bezier(0.16, 1, 0.3, 1) 1",
+  "mw-float : mw-float-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1",
+  "[object SVGAnimatedString] : mwQaDraw 0.7s ease-out 1",
+  "[object SVGAnimatedString] : mwQaHead 0.2s ease-out 1",
+  " : mw-tx-slide 0.9s ease-in-out infinite",
+  "predictive-search-results__card predicti : search-element-slide-up 0.15s cubic-bezier(0.34, 1.56, 0.64, 1) 1",
+  "resource-card : fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) 1"
+ ],
+ "reveal": [
+  "mw-head mw-reveal is-in",
+  "mw-marq mw-marq--fade ",
+  "mw-notice mw-reveal is-in",
+  "mw-reveal is-in",
+  "mw-split__media mw-rake mw-reveal is-in",
+  "mw-log__bar mw-reveal is-in",
+  "mw-log__item mw-reveal is-in",
+  "mw-log__item mw-reveal is-out",
+  "mw-actions mw-reveal is-in",
+  "mw-svc mw-reveal is-in",
+  "mw-faq mw-reveal is-in",
+  "mw-cta mw-reveal is-in"
+ ],
+ "header": {
+  "pos": "sticky",
+  "top": "0px",
+  "bg": "rgba(169, 201, 173, 0.95)",
+  "h": 69,
+  "bdf": "blur(10px)",
+  "sticky": [
+   "DIV.mw-load is-on is-out fixed",
+   "HEADER.mw-hdr is-stuck sticky",
+   "DIV.mw-drawer fixed",
+   "DIV.mw-drawer__top sticky",
+   "DIV.mw-tx fixed",
+   "DIV.mw-guard fixed",
+   "DIV.predictive-search-form__header sticky",
+   "DIV. fixed"
+  ]
+ },
+ "eyebrow": {
+  "fs": "11px",
+  "fw": "700",
+  "ls": "0.88px",
+  "c": "rgb(228, 72, 61)",
+  "before": "26px 2px rgb(228, 72, 61)"
+ },
+ "pills": [
+  {
+   "t": "0",
+   "fs": "9.28px",
+   "fw": "700",
+   "pad": "0px 4px",
+   "bd": "0px none rgb(255, 255, 255)",
+   "bg": "rgb(228, 72, 61)",
+   "c": "rgb(255, 255, 255)",
+   "tt": "uppercase",
+   "ls": "1.008px"
+  },
+  {
+   "t": "Located in the US",
+   "fs": "13.12px",
+   "fw": "500",
+   "pad": "9.6px 18.4px",
+   "bd": "1px solid rgb(63, 88, 68)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(23, 26, 23)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "Secure payment with Shopify",
+   "fs": "13.12px",
+   "fw": "500",
+   "pad": "9.6px 18.4px",
+   "bd": "1px solid rgb(63, 88, 68)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(23, 26, 23)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "Returns insured up to $50K",
+   "fs": "13.12px",
+   "fw": "500",
+   "pad": "9.6px 18.4px",
+   "bd": "1px solid rgb(63, 88, 68)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(23, 26, 23)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "24\u201330 business days",
+   "fs": "13.12px",
+   "fw": "500",
+   "pad": "9.6px 18.4px",
+   "bd": "1px solid rgb(63, 88, 68)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(23, 26, 23)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "Non-destructive only",
+   "fs": "13.12px",
+   "fw": "500",
+   "pad": "9.6px 18.4px",
+   "bd": "1px solid rgb(63, 88, 68)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgb(23, 26, 23)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "MOST POPULAR",
+   "fs": "9.92px",
+   "fw": "700",
+   "pad": "4.48px 9.6px",
+   "bd": "0px none rgb(31, 31, 31)",
+   "bg": "rgb(162, 199, 175)",
+   "c": "rgb(31, 31, 31)",
+   "tt": "uppercase",
+   "ls": "0.992px"
+  },
+  {
+   "t": "Vintage",
+   "fs": "10.88px",
+   "fw": "500",
+   "pad": "3.2px 8.8px",
+   "bd": "1px solid rgba(255, 255, 255, 0.28)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgba(255, 255, 255, 0.8)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "Modern",
+   "fs": "10.88px",
+   "fw": "500",
+   "pad": "3.2px 8.8px",
+   "bd": "1px solid rgba(255, 255, 255, 0.28)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgba(255, 255, 255, 0.8)",
+   "tt": "none",
+   "ls": "normal"
+  },
+  {
+   "t": "Japanese",
+   "fs": "10.88px",
+   "fw": "500",
+   "pad": "3.2px 8.8px",
+   "bd": "1px solid rgba(255, 255, 255, 0.28)",
+   "bg": "rgba(0, 0, 0, 0)",
+   "c": "rgba(255, 255, 255, 0.8)",
+   "tt": "none",
+   "ls": "normal"
+  }
+ ],
+ "svcCard": {
+  "cls": "mw-svc mw-reveal is-in",
+  "pad": "32px",
+  "bd": "2px solid rgb(24, 24, 22)",
+  "rad": "16px",
+  "bg": "rgb(255, 255, 255)",
+  "sh": "none"
+ },
+ "priceCard": {
+  "cls": "mw-ptier",
+  "pad": "24px 17.6px",
+  "bd": "2px solid rgb(24, 24, 22)",
+  "rad": "14px",
+  "bg": "rgb(255, 255, 255)",
+  "sh": "none"
+ }
+}

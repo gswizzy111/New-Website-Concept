@@ -46,7 +46,7 @@ function Setup() {
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground -mt-3">You&apos;ll sign in with your creator code and this password.</p>
+      <p className="-mt-2 text-sm text-ink-soft">You&apos;ll sign in with your creator code and this password.</p>
       <div>
         <label htmlFor="setup-password" className={PORTAL_LABEL_CN}>Password</label>
         <input id="setup-password" type="password" autoComplete="new-password" minLength={MIN} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder={`At least ${MIN} characters`} className={PORTAL_INPUT_CN} />
@@ -55,7 +55,7 @@ function Setup() {
         <label htmlFor="setup-confirm" className={PORTAL_LABEL_CN}>Confirm Password</label>
         <input id="setup-confirm" type="password" autoComplete="new-password" minLength={MIN} required value={confirm} onChange={(e) => setConfirm(e.target.value)} className={PORTAL_INPUT_CN} />
       </div>
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <button type="submit" disabled={saving} className={PORTAL_BUTTON_CN}>{saving ? "Saving..." : "Save and open my dashboard"}</button>
     </form>
   );

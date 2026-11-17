@@ -12,17 +12,20 @@ import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { trackingLink } from "@/lib/tracking-carrier";
 import { OpenFileButton } from "@/components/open-file-button";
+import { ArrowLeft, Download } from "lucide-react";
+import { Eyebrow, PAGE_TITLE, PANEL, PANEL_LABEL, PANEL_TITLE, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
+import { cta } from "@/components/brand";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_BADGE: Record<string, string> = {
-  awaiting_cards:  "bg-amber-100 text-amber-700",
-  received:        "bg-blue-100 text-blue-700",
-  in_progress:     "bg-rx text-white",
-  completed:       "bg-green-100 text-green-700",
-  shipped_back:    "bg-ink text-paper",
-  delivered:       "bg-emerald-100 text-emerald-700",
-  cancelled:       "bg-red-100 text-red-700",
+const STATUS_TONE: Record<string, "ink" | "cobalt" | "sun" | "success" | "danger" | "muted" | "wash"> = {
+  awaiting_cards:  "sun",
+  received:        "wash",
+  in_progress:     "cobalt",
+  completed:       "success",
+  shipped_back:    "ink",
+  delivered:       "success",
+  cancelled:       "danger",
 };
 
 function shippoCarrierToken(carrier: string) {
@@ -120,63 +123,44 @@ export default async function AccountOrderPage({
   const currentIndex = STATUS_TIMELINE.indexOf(order.status as OrderStatus);
 
   return (
-    <div className="min-h-screen bg-secondary/30">
-      {/* Header */}
-      <header className="bg-white border-b border-border sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/account" className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors">
-              ← My Orders
-            </Link>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground hidden sm:block">{user.email}</span>
-            <LogoutButton />
-          </div>
-        </div>
-      </header>
+    <div className="surface-chalk min-h-screen">
+      <PortalHeader>
+        <Link href="/account" className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm font-bold text-ink-soft transition-colors hover:bg-chalk hover:text-ink">
+          <ArrowLeft aria-hidden className="size-4" strokeWidth={2.25} />
+          My Orders
+        </Link>
+        <span className="hidden max-w-[22ch] truncate text-sm text-ink-soft lg:block">{user.email}</span>
+        <LogoutButton />
+      </PortalHeader>
 
-      <div className="max-w-4xl mx-auto px-6 py-10 flex flex-col gap-6">
+      <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-10 sm:px-6 md:py-14">
         {/* Order header */}
-        <div className="flex items-start justify-between flex-wrap gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="rx-label text-rx mb-1">Restoration Order</p>
-            <h1 className="font-heading font-black text-3xl text-foreground">{orderLabel}</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <Eyebrow>Restoration Order</Eyebrow>
+            <h1 className={PAGE_TITLE}>{orderLabel}</h1>
+            <p className="mt-2 text-[15px] text-ink-soft">
               Placed {new Date(order.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
             </p>
           </div>
-          <span className={`text-sm font-bold px-3 py-1.5 rounded-full ${STATUS_BADGE[order.status] ?? "bg-gray-100 text-gray-600"}`}>
+          <StatusPill tone={STATUS_TONE[order.status] ?? "muted"} className="min-h-9 px-4 text-sm">
             {ORDER_STATUSES[order.status as OrderStatus]?.label ?? order.status}
-          </span>
+          </StatusPill>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           {/* Left column — status + tracking */}
-          <div className="lg:col-span-1 flex flex-col gap-4">
+          <div className="flex flex-col gap-5">
             {/* Status timeline */}
-            <div className="bg-white rounded-xl border border-border p-5">
-              <h2 className="font-heading font-black text-sm uppercase tracking-wide text-muted-foreground mb-4">Status</h2>
-              <div className="flex flex-col gap-3">
-                {visibleStatuses.map((s) => {
+            <div className={PANEL}>
+              <h2 className={PANEL_LABEL}>Status</h2>
+              <StatusTrack
+                size="sm"
+                steps={visibleStatuses.map((s) => {
                   const sIndex = STATUS_TIMELINE.indexOf(s);
-                  const isDone = sIndex < currentIndex;
-                  const isCurrent = s === order.status;
-                  return (
-                    <div key={s} className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center text-white text-xs ${
-                        isCurrent ? "bg-primary" : isDone ? "bg-primary/40" : "bg-border"
-                      }`}>
-                        {isDone && "✓"}
-                        {isCurrent && <span className="w-2 h-2 rounded-full bg-white block" />}
-                      </div>
-                      <span className={`text-xs font-medium ${isCurrent ? "text-primary font-bold" : isDone ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
-                        {ORDER_STATUSES[s]?.label}
-                      </span>
-                    </div>
-                  );
+                  return { key: s, label: ORDER_STATUSES[s]?.label, state: s === order.status ? "current" : sIndex < currentIndex ? "done" : "next" };
                 })}
-              </div>
+              />
             </div>
 
             {/* Request an update (once a week) */}
@@ -193,35 +177,32 @@ export default async function AccountOrderPage({
 
             {/* Inbound tracking */}
             {order.inbound_tracking_number && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-                <p className="rx-label text-rx mb-2">Inbound Tracking</p>
+              <div className={`${PANEL} bg-cobalt-wash shadow-none`}>
+                <p className={`${PANEL_LABEL} mb-2 text-cobalt-deep`}>Inbound Tracking</p>
                 {inboundStatus && (
-                  <p className={`text-xs font-bold px-2 py-0.5 rounded-full inline-block mb-2 ${
-                    inboundStatus === "TRANSIT" ? "bg-blue-200 text-blue-800" :
-                    inboundStatus === "DELIVERED" ? "bg-green-200 text-green-800" :
-                    "bg-gray-200 text-gray-700"
-                  }`}>
+                  <StatusPill tone={inboundStatus === "TRANSIT" ? "cobalt" : inboundStatus === "DELIVERED" ? "success" : "muted"} className="mb-2">
                     {inboundStatus === "TRANSIT" ? "In Transit" :
                      inboundStatus === "DELIVERED" ? "Delivered" :
                      inboundStatus === "UNKNOWN" || inboundStatus === "PRE_TRANSIT" ? "Label Created" :
                      inboundStatus}
-                  </p>
+                  </StatusPill>
                 )}
-                {inboundDetails && <p className="text-xs text-blue-800 mb-2">{inboundDetails}</p>}
-                <p className="font-mono text-xs text-blue-600">{order.inbound_tracking_number}</p>
+                {inboundDetails && <p className="mb-2 text-sm text-ink">{inboundDetails}</p>}
+                <p className="font-mono text-sm font-bold break-all text-cobalt-deep">{order.inbound_tracking_number}</p>
               </div>
             )}
 
             {/* Prepaid label download */}
             {order.inbound_method === "buy_label" && order.shipping_label_url && (
-              <div className="bg-white rounded-xl border border-border p-5">
-                <h2 className="font-heading font-black text-sm uppercase tracking-wide text-muted-foreground mb-3">Shipping Label</h2>
-                <p className="text-xs text-muted-foreground mb-3">Print and attach to your package.</p>
+              <div className={PANEL}>
+                <h2 className={`${PANEL_LABEL} mb-2`}>Shipping Label</h2>
+                <p className="mb-4 text-sm text-ink-soft">Print and attach to your package.</p>
                 {/* A button, not a link: analytics runs on this page (components/open-file-button.tsx) */}
                 <OpenFileButton
                   url={order.shipping_label_url}
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground text-xs font-bold px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors cursor-pointer"
+                  className={cta({ tone: "sun", size: "sm", className: "w-full" })}
                 >
+                  <Download aria-hidden className="size-4" strokeWidth={2.25} />
                   Download Label (PDF)
                 </OpenFileButton>
               </div>
@@ -229,36 +210,29 @@ export default async function AccountOrderPage({
 
             {/* Return tracking */}
             {order.tracking_number && (
-              <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-5">
-                <p className="rx-label text-rx mb-1">Return Tracking</p>
-                <p className="font-mono font-black text-base text-cyan-900 tracking-widest mb-3">{order.tracking_number}</p>
-                <a
-                  href={order.outbound_tracking_number === order.tracking_number
-                    ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
-                    : trackingLink(order.tracking_number)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors inline-block"
-                >
-                  Track Package →
-                </a>
-              </div>
+              <TrackingPanel
+                label="Return Tracking"
+                number={order.tracking_number}
+                href={order.outbound_tracking_number === order.tracking_number
+                  ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
+                  : trackingLink(order.tracking_number)}
+              />
             )}
 
             {/* Order summary */}
-            <div className="bg-white rounded-xl border border-border p-5">
-              <h2 className="font-heading font-black text-sm uppercase tracking-wide text-muted-foreground mb-3">Order Summary</h2>
+            <div className={PANEL}>
+              <h2 className={PANEL_LABEL}>Order Summary</h2>
               <div className="flex flex-col gap-2 text-sm">
                 {(services as { id: string; service_name: string; quantity: number; price_cents: number }[]).map((s) => (
-                  <div key={s.id} className="flex justify-between">
-                    <span className="text-muted-foreground">{s.service_name} × {s.quantity}</span>
-                    <span className="font-medium">{formatCurrency(s.price_cents * s.quantity)}</span>
+                  <div key={s.id} className="flex justify-between gap-3">
+                    <span className="text-ink-soft">{s.service_name} × {s.quantity}</span>
+                    <span className="font-semibold">{formatCurrency(s.price_cents * s.quantity)}</span>
                   </div>
                 ))}
                 {order.total_cents && (
-                  <div className="border-t border-border mt-1 pt-2 flex justify-between font-bold">
+                  <div className="mt-2 flex items-baseline justify-between border-t-2 border-ink pt-3 font-heading text-[1.6rem] leading-none font-black">
                     <span>Total</span>
-                    <span className="text-primary">{formatCurrency(order.total_cents)}</span>
+                    <span>{formatCurrency(order.total_cents)}</span>
                   </div>
                 )}
               </div>
@@ -266,23 +240,23 @@ export default async function AccountOrderPage({
           </div>
 
           {/* Right column — cards */}
-          <div className="lg:col-span-2 flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-5">
             {/* Restoration results */}
             {(order.restoration_photos?.length > 0 || order.completion_notes) && (
-              <div className="bg-white rounded-xl border border-border p-5">
-                <h2 className="font-heading font-black text-lg text-foreground mb-4">Restoration Results</h2>
+              <div className={PANEL}>
+                <h2 className={`${PANEL_TITLE} mb-5`}>Restoration Results</h2>
                 {order.completion_notes && (
-                  <div className="mb-4 p-4 bg-secondary/40 rounded-lg">
-                    <p className="rx-label text-rx mb-2">Notes from The Card Doc</p>
-                    <p className="text-sm text-foreground whitespace-pre-wrap">{order.completion_notes}</p>
+                  <div className="mb-5 rounded-[14px] bg-sun-tint p-4">
+                    <p className="label-caps mb-2 text-[15px] text-ink">Notes from The Card Doc</p>
+                    <p className="text-[15px] whitespace-pre-wrap text-ink">{order.completion_notes}</p>
                   </div>
                 )}
                 {order.restoration_photos?.length > 0 && (
-                  <div className="flex flex-wrap gap-3">
+                  <div className="flex flex-wrap gap-4">
                     {(order.restoration_photos as string[]).map((url: string, i: number) => (
-                      <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                      <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="print print-sm print-lift block w-28" style={{ ["--tilt" as string]: `${i % 2 ? 2 : -2}deg` }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="Restored card" className="w-24 h-24 object-cover rounded-xl border border-border hover:opacity-90 transition-opacity" />
+                        <img src={url} alt="Restored card" className="aspect-[3/4] w-full rounded-[3px] object-cover" />
                       </a>
                     ))}
                   </div>
@@ -291,8 +265,8 @@ export default async function AccountOrderPage({
             )}
 
             {/* Card editor */}
-            <div className="bg-white rounded-xl border border-border p-5">
-              <h2 className="font-heading font-black text-lg text-foreground mb-4">
+            <div className={PANEL}>
+              <h2 className={`${PANEL_TITLE} mb-5`}>
                 Your Cards ({cards.length})
               </h2>
               <CardEditor

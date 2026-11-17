@@ -77,7 +77,7 @@ function Confirm() {
   }
 
   const errorLine = error && (
-    <p role="alert" className="text-sm text-red-700">
+    <p role="alert" className="text-sm text-destructive">
       {error}
       {/forgot password/i.test(error)
         ? <> <Link href="/account/forgot-password" className="font-semibold underline">Forgot password</Link></>

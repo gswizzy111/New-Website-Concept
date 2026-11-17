@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { BULK_PLANS, type BulkPlan } from "@/lib/bulk-pricing";
+import { cn } from "@/lib/utils";
 
 /**
  * Individual / 10+ / 20+ switch for the tier prices (and the Prep page's).
@@ -9,6 +10,9 @@ import { BULK_PLANS, type BulkPlan } from "@/lib/bulk-pricing";
  * data-bulk on the wrapper and globals.css shows the matching one, so the
  * cards stay server-rendered. `note` replaces the Restorations page's note;
  * `stacked` keeps the note under the switch at every width (a narrow column).
+ *
+ * Drawn as a pill track: white, hairline-ringed, the chosen plan an ink pill
+ * with its discount in sun.
  */
 export function BulkSwitch({ children, note, stacked = false }: { children: React.ReactNode; note?: React.ReactNode; stacked?: boolean }) {
   const [plan, setPlan] = useState<BulkPlan>("single");
@@ -31,9 +35,15 @@ export function BulkSwitch({ children, note, stacked = false }: { children: Reac
 
   return (
     <div data-bulk={plan}>
-      <div className={stacked ? "mb-6 flex flex-col gap-3" : "mb-6 md:mb-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"}>
-        {/* A segmented control, so on phones it doesn't read as another row of tier chips */}
-        <div role="radiogroup" aria-label="Number of cards" className={`grid w-full grid-cols-3 rounded-full border-[2.5px] border-ink bg-bone p-1 shadow-[3px_3px_0_var(--ink)]${stacked ? "" : " md:inline-grid md:w-auto"}`}>
+      <div className={stacked ? "mb-8 flex flex-col gap-4" : "mb-6 flex flex-col gap-3 md:mb-10 md:flex-row md:items-center md:justify-between md:gap-10"}>
+        <div
+          role="radiogroup"
+          aria-label="Number of cards"
+          className={cn(
+            "grid w-full grid-cols-3 gap-1 rounded-full bg-white p-1.5 shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]",
+            !stacked && "md:inline-grid md:w-auto md:shrink-0"
+          )}
+        >
           {BULK_PLANS.map((p, i) => {
             const active = p.id === plan;
             return (
@@ -46,21 +56,25 @@ export function BulkSwitch({ children, note, stacked = false }: { children: Reac
                 tabIndex={active ? 0 : -1}
                 onClick={() => setPlan(p.id)}
                 onKeyDown={(e) => onKeyDown(e, i)}
-                className={`press flex h-12 flex-col items-center justify-center rounded-full px-3 transition-colors duration-200 md:px-6 ${
-                  active ? "bg-ink text-paper" : "text-muted-foreground hover:text-ink"
-                }`}
+                className={cn(
+                  "relative flex min-h-[54px] flex-col items-center justify-center gap-1 rounded-full px-2 transition-[background-color,color,box-shadow] duration-200 ease-[var(--ease-out)] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt active:scale-[0.98] motion-reduce:transition-none md:px-7",
+                  active ? "bg-ink text-white shadow-[0_8px_18px_-10px_rgba(13,18,51,0.7)]" : "text-ink hover:bg-chalk"
+                )}
               >
-                <span className="font-heading text-sm font-extrabold leading-tight">{p.label}</span>
-                <span className={`font-mono text-[10px] uppercase leading-tight tracking-wide ${
-                  p.percent > 0 ? (active ? "text-rx-bright" : "text-rx") : active ? "text-paper/70" : "text-muted-foreground"
-                }`}>
+                <span className="text-[15px] font-extrabold leading-none whitespace-nowrap">{p.label}</span>
+                <span
+                  className={cn(
+                    "label-caps text-[13px] leading-none",
+                    p.percent > 0 ? (active ? "text-sun" : "text-cobalt") : active ? "text-on-dark-muted" : "text-ink-soft"
+                  )}
+                >
                   {p.percent > 0 ? `${p.percent}% off` : "Standard"}
                 </span>
               </button>
             );
           })}
         </div>
-        <p className={stacked ? "text-sm text-muted-foreground" : "text-sm text-muted-foreground md:max-w-sm md:text-right"}>
+        <p className={cn("text-[15px] leading-relaxed text-ink-soft", !stacked && "md:max-w-md")}>
           {note ?? <>Bulk pricing is applied automatically at checkout for every tier except Diamond. Discounts don&apos;t combine: you get the biggest one.</>}
         </p>
       </div>

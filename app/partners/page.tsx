@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { FIELD_LABEL, PORTAL_BUTTON, PortalCard } from "@/components/account/portal";
 
 export default function PartnerLoginPage() {
   const [passcode, setPasscode] = useState("");
@@ -29,34 +30,33 @@ export default function PartnerLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl border border-border p-8 w-full max-w-sm shadow-sm">
-        <h1 className="font-heading font-black text-2xl text-foreground mb-1">Partner Portal</h1>
-        <p className="text-sm text-muted-foreground mb-6">The Card Doc</p>
+    <PortalCard width="max-w-sm">
+        <h1 className="mb-1 font-heading text-[2.25rem] leading-[0.95] font-black text-ink">Partner Portal</h1>
+        <p className="mb-6 text-sm text-ink-soft">The Card Doc</p>
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1.5">
+            <label htmlFor="partner-passcode" className={FIELD_LABEL}>
               Passcode
             </label>
             <input
+              id="partner-passcode"
               type="password"
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
               placeholder="Enter your passcode"
-              className="w-full border border-border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
               required
             />
           </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-11 bg-primary text-primary-foreground font-bold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            className={PORTAL_BUTTON}
           >
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
-      </div>
-    </div>
+    </PortalCard>
   );
 }

@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notFound } from "next/navigation";
 import { ComplaintForm } from "./complaint-form";
+import { CheckCircle2 } from "lucide-react";
+import { Eyebrow, PortalHeader } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -19,44 +21,41 @@ export default async function CustomerComplaintPage({ params }: { params: Promis
   const alreadySubmitted = !!c.complaint_submitted_at;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-start justify-center pt-12 px-4 pb-16">
-      <div className="w-full max-w-lg">
-
-        <div className="text-center mb-8">
-          <p className="text-2xl font-black text-gray-900">The Card Doc</p>
-          <p className="text-sm text-gray-500 mt-1">Customer Support</p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100 bg-gray-50">
-            <p className="rx-label text-rx mb-1">Support Case</p>
-            <h1 className="font-black text-xl text-gray-900">{c.title}</h1>
+    <div className="surface-chalk min-h-screen">
+      <PortalHeader width="max-w-xl" label="Customer Support" sticky={false} />
+      <div className="mx-auto w-full max-w-xl px-4 pt-10 pb-16 md:pt-14">
+        <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
+          <div className="border-b border-line px-6 py-6 sm:px-8">
+            <Eyebrow>Support Case</Eyebrow>
+            <h1 className="font-heading text-[2.25rem] leading-[0.95] font-black text-ink">{c.title}</h1>
             {c.customer_name && (
-              <p className="text-sm text-gray-500 mt-0.5">Hi {c.customer_name.split(" ")[0]},</p>
+              <p className="mt-2 text-[15px] text-ink-soft">Hi {c.customer_name.split(" ")[0]},</p>
             )}
           </div>
 
           {alreadySubmitted ? (
-            <div className="px-6 py-8 text-center">
-              <div className="text-4xl mb-3">✅</div>
-              <p className="font-black text-lg text-gray-900 mb-2">We received your complaint</p>
-              <p className="text-sm text-gray-500 leading-relaxed">
-                Thank you for reaching out. Our team will review your case and respond within <strong>3 business days</strong>.
+            <div className="px-6 py-10 text-center sm:px-8">
+              <span aria-hidden className="mx-auto mb-4 grid size-14 place-items-center rounded-full bg-success-tint text-success">
+                <CheckCircle2 className="size-7" strokeWidth={2} />
+              </span>
+              <p className="mb-2 font-heading text-[1.75rem] leading-none font-black text-ink">We received your complaint</p>
+              <p className="text-[15px] leading-relaxed text-ink-soft">
+                Thank you for reaching out. Our team will review your case and respond within <strong className="text-ink">3 business days</strong>.
                 We&apos;ll be in touch by email.
               </p>
             </div>
           ) : (
-            <div className="px-6 py-6">
-              <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+            <div className="px-6 py-6 sm:px-8 sm:py-7">
+              <p className="mb-5 text-[15px] leading-relaxed text-ink-soft">
                 Please describe your complaint or concern in as much detail as possible. Our team reviews all submissions
-                and will respond within <strong>3 business days</strong>.
+                and will respond within <strong className="text-ink">3 business days</strong>.
               </p>
               <ComplaintForm caseId={c.id} token={token} />
             </div>
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
+        <p className="mt-6 text-center text-xs text-ink-soft">
           This link was sent to you directly by The Card Doc team. It is not publicly accessible.
         </p>
       </div>

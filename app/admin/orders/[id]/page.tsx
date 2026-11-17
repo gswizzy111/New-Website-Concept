@@ -45,7 +45,7 @@ function shippoCarrierToken(provider: string): string {
 const TRACKING_BADGE: Record<string, { label: string; cls: string }> = {
   UNKNOWN:     { label: "Label Created",   cls: "bg-gray-100 text-gray-600" },
   PRE_TRANSIT: { label: "Label Created",   cls: "bg-gray-100 text-gray-600" },
-  TRANSIT:     { label: "In Transit",      cls: "bg-ink text-paper" },
+  TRANSIT:     { label: "In Transit",      cls: "bg-ink text-chalk" },
   DELIVERED:   { label: "Delivered",       cls: "bg-green-100 text-green-700" },
   RETURNED:    { label: "Returned",        cls: "bg-orange-100 text-orange-700" },
   FAILURE:     { label: "Issue",           cls: "bg-red-100 text-red-700" },
@@ -220,7 +220,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     <h1 className="font-heading font-black text-2xl text-foreground">Order #{order.order_number}</h1>
                     {order.restoration_tier && (() => {
                       const TIER_BADGE: Record<string, { label: string; cls: string }> = {
-                        elite:         { label: "Diamond",  cls: "bg-ink text-paper border border-ink" },
+                        elite:         { label: "Diamond",  cls: "bg-ink text-chalk border border-ink" },
                         ultra_premium: { label: "Platinum", cls: "bg-slate-200 text-slate-800 border border-slate-300" },
                         premium:       { label: "Gold",     cls: "bg-yellow-100 text-yellow-700 border border-yellow-300" },
                         expedited:     { label: "Silver",   cls: "bg-slate-100 text-slate-600 border border-slate-300" },
@@ -345,7 +345,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               <div className="flex flex-col gap-4">
                 {cards?.map((card, i) => {
                   const CARD_TIER_BADGE: Record<string, { label: string; cls: string }> = {
-                    elite:         { label: "Diamond",   cls: "bg-ink text-paper border border-ink" },
+                    elite:         { label: "Diamond",   cls: "bg-ink text-chalk border border-ink" },
                     ultra_premium: { label: "Platinum",  cls: "bg-slate-200 text-slate-800 border border-slate-300" },
                     premium:       { label: "Gold",      cls: "bg-yellow-100 text-yellow-700 border border-yellow-300" },
                     expedited:     { label: "Silver",    cls: "bg-slate-100 text-slate-600 border border-slate-300" },

@@ -5,6 +5,7 @@ import { OrderBuilder } from "@/components/order-builder/builder";
 import { isSoldOut, TIER_SELECTION_ENABLED } from "@/lib/site-config";
 import { getRestorationsOpen } from "@/lib/store-config";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
+import { RestorationSoldOut } from "./sold-out";
 import { PixelViewContent } from "@/components/pixel-view-content";
 
 interface PageProps {
@@ -30,13 +31,7 @@ export default async function RestorationPage({ searchParams }: PageProps) {
   }
 
   if (isSoldOut()) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <p className="rx-label text-rx mb-4">Restoration Services</p>
-        <h1 className="font-heading text-3xl md:text-4xl text-foreground mb-4">Currently Unavailable</h1>
-        <p className="text-muted-foreground">We&apos;re at capacity right now. Check back soon — we&apos;ll be accepting new restoration orders again shortly.</p>
-      </div>
-    );
+    return <RestorationSoldOut />;
   }
 
   const supabase = await createClient();

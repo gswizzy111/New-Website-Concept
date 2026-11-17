@@ -10,7 +10,7 @@
 /** The red asterisk after a required field's label. */
 export function Req() {
   return (
-    <span className="text-red-600 font-bold" aria-hidden="true">
+    <span className="font-bold text-destructive" aria-hidden="true">
       {" "}*
     </span>
   );
@@ -32,10 +32,15 @@ export function Need({
   return (
     <div
       data-missing={missing || undefined}
-      className={`${className} rounded-md ${missing ? "outline-3 outline-offset-4 outline-red-600" : ""}`}
+      className={`${className} ${missing ? "rounded-[10px] outline-2 outline-offset-4 outline-destructive" : ""}`}
     >
       {children}
-      {missing && note && <p className="mt-1.5 text-xs font-semibold text-red-700" role="alert">{note}</p>}
+      {missing && note && (
+        <p className="mt-2 flex items-center gap-1.5 text-sm font-semibold text-destructive" role="alert">
+          <span aria-hidden className="grid size-4 shrink-0 place-items-center rounded-full bg-destructive text-[11px] font-black leading-none text-white">!</span>
+          {note}
+        </p>
+      )}
     </div>
   );
 }
@@ -55,5 +60,5 @@ export function revealMissing(root?: HTMLElement | null) {
 /** The line under a Continue / Sign button after a try with something missing. */
 export function MissingNote({ show, text = "Please fill in the fields outlined in red." }: { show: boolean; text?: string }) {
   if (!show) return null;
-  return <p className="mt-3 text-sm font-semibold text-red-700 sm:text-right" role="alert">{text}</p>;
+  return <p className="mt-3 text-sm font-semibold text-destructive sm:text-right" role="alert">{text}</p>;
 }

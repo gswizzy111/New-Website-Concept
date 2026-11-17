@@ -17,7 +17,7 @@ export function InquiryAlert({ count }: { count: number }) {
   return (
     <Link
       href="/admin/cases?filter=open&type=inquiry"
-      className="flex items-center justify-between gap-4 bg-rx px-6 py-3 text-sm font-semibold text-white hover:bg-rx/90 transition-colors"
+      className="flex items-center justify-between gap-4 bg-cobalt px-6 py-3 text-sm font-semibold text-white hover:bg-cobalt/90 transition-colors"
     >
       <span>{`📬 ${who} waiting on an order update`}</span>
       <span className="shrink-0 underline underline-offset-2">Reply →</span>

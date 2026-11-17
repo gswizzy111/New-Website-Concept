@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense } from "react";
 import { CheckEmail, type ConfirmSent } from "./check-email";
+import { PIXEL_FIELD } from "@/components/ui/input";
+import { BrandLogo } from "@/components/brand";
+import { FIELD_LABEL, PORTAL_BUTTON, PORTAL_LINK } from "@/components/account/portal";
+import { cn } from "@/lib/utils";
 
 function LoginForm() {
   const router = useRouter();
@@ -68,19 +72,21 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4 py-16">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <Link href="/" className="font-heading font-black text-2xl text-foreground hover:text-primary transition-colors">
-            The Card Doc
+    <div className="surface-chalk relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-14">
+      <span aria-hidden className="pointer-events-none absolute -top-40 -right-40 size-[520px] rounded-full bg-cobalt-wash" />
+      <span aria-hidden className="pointer-events-none absolute -bottom-48 -left-32 size-[420px] rounded-full bg-sun-tint" />
+      <div className="relative w-full max-w-md">
+        <div className="mb-7 flex flex-col items-center gap-3 text-center">
+          <Link href="/" className="inline-flex min-h-11 items-center rounded-[14px] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt">
+            <BrandLogo size={46} wordmarkClassName="text-[1.6rem]" />
           </Link>
-          <p className="text-muted-foreground text-sm mt-2">Customer portal</p>
+          <p className="label-caps text-[15px] text-ink-soft">Customer portal</p>
           {/* The check-email view has its own heading */}
           {!confirm && <h1 className="sr-only">{tab === "login" ? "Sign in" : "Create an account"}</h1>}
         </div>
 
         {unconfirmed && !confirm && (
-          <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div role="status" className="mb-4 rounded-[14px] bg-sun-tint px-4 py-3 text-sm text-ink shadow-[inset_0_0_0_1px_var(--sun-deep)]">
             Please confirm your email to open your account. Sign in and we&apos;ll send you a new confirmation link.
           </div>
         )}
@@ -93,30 +99,29 @@ function LoginForm() {
             onBack={() => { setConfirm(null); setTab("login"); setPassword(""); setError(""); }}
           />
         ) : (
-        <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
+        <div className="overflow-hidden rounded-[22px] bg-white shadow-[0_0_0_1px_var(--line),var(--pop-shadow)]">
           {/* Tabs */}
-          <div className="grid grid-cols-2 border-b border-border">
+          <div className="m-2 grid grid-cols-2 gap-1 rounded-full bg-chalk p-1">
             {(["login", "signup"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 aria-pressed={tab === t}
                 onClick={() => { setTab(t); setError(""); }}
-                className={`py-3.5 text-sm font-bold transition-colors ${
-                  tab === t
-                    ? "text-primary border-b-2 border-primary bg-primary/5"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={cn(
+                  "min-h-11 rounded-full text-[15px] font-bold transition-[background-color,color,box-shadow] duration-200",
+                  tab === t ? "bg-white text-ink shadow-[0_1px_2px_rgba(8,12,40,0.12),0_4px_10px_-6px_rgba(8,12,40,0.35)]" : "text-ink-soft hover:text-ink"
+                )}
               >
                 {t === "login" ? "Sign In" : "Create Account"}
               </button>
             ))}
           </div>
 
-          <form onSubmit={handleSubmit} className="p-6 flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4 px-6 pt-4 pb-7 sm:px-8">
             {tab === "signup" && (
               <div>
-                <label htmlFor="login-name" className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Full Name</label>
+                <label htmlFor="login-name" className={FIELD_LABEL}>Full Name</label>
                 <input
                   id="login-name"
                   type="text"
@@ -125,13 +130,13 @@ function LoginForm() {
                   onChange={(e) => setName(e.target.value)}
                   required
                   placeholder="Jane Smith"
-                  className="w-full h-10 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary transition-colors"
+                  className={PIXEL_FIELD}
                 />
               </div>
             )}
 
             <div>
-              <label htmlFor="login-email" className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Email</label>
+              <label htmlFor="login-email" className={FIELD_LABEL}>Email</label>
               <input
                 id="login-email"
                 type="email"
@@ -140,12 +145,12 @@ function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 placeholder="you@example.com"
-                className="w-full h-10 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary transition-colors"
+                className={PIXEL_FIELD}
               />
             </div>
 
             <div>
-              <label htmlFor="login-password" className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">Password</label>
+              <label htmlFor="login-password" className={FIELD_LABEL}>Password</label>
               <input
                 id="login-password"
                 type="password"
@@ -155,12 +160,12 @@ function LoginForm() {
                 required
                 minLength={tab === "signup" ? 8 : 1}
                 placeholder={tab === "signup" ? "At least 8 characters" : ""}
-                className="w-full h-10 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary transition-colors"
+                className={PIXEL_FIELD}
               />
             </div>
 
             {error && (
-              <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <div role="alert" className="rounded-[14px] bg-red-50 px-4 py-3 text-sm text-destructive shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--danger)_30%,transparent)]">
                 {error}
               </div>
             )}
@@ -168,7 +173,7 @@ function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full h-11 bg-primary text-primary-foreground font-bold text-sm rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              className={PORTAL_BUTTON}
             >
               {loading
                 ? "Please wait…"
@@ -179,12 +184,12 @@ function LoginForm() {
 
             {tab === "login" && (
               <p className="text-sm text-center">
-                <Link href="/account/forgot-password" className="font-semibold text-primary hover:underline">Forgot your password?</Link>
+                <Link href="/account/forgot-password" className={PORTAL_LINK}>Forgot your password?</Link>
               </p>
             )}
 
             {tab === "signup" && (
-              <p className="text-xs text-center text-muted-foreground">
+              <p className="text-center text-xs leading-relaxed text-ink-soft">
                 Use the same email you used when placing your order so your orders appear automatically.
               </p>
             )}

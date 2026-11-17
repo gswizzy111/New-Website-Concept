@@ -1,0 +1,29 @@
+/* Home: the trust facts as a slim band that slides left forever. Two equal
+   halves slide one half-width, so the loop is seamless. Pauses under a mouse
+   pointer; static and wrapping under reduced motion. */
+.band {
+  mask-image: linear-gradient(to right, transparent, #000 4%, #000 96%, transparent);
+}
+.track {
+  animation: trust-slide 52s linear infinite;
+}
+.band:hover .track,
+.band:focus-within .track,
+.band[data-paused] .track {
+  animation-play-state: paused;
+}
+@keyframes trust-slide {
+  to { transform: translate3d(-50%, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .band { mask-image: none; }
+  .track {
+    animation: none;
+    width: auto;
+    justify-content: center;
+    padding: 0.25rem 1rem;
+  }
+  .track > ul { flex-wrap: wrap; justify-content: center; flex-shrink: 1; min-width: 0; }
+  .track li { padding-inline: 0.75rem; height: 2rem; }
+  .copy { display: none !important; }
+}

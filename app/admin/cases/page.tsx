@@ -17,7 +17,7 @@ const STATUS_STYLES: Record<string, string> = {
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   internal:       { label: "Internal",     cls: "bg-gray-100 text-gray-600" },
   support:        { label: "Support",      cls: "bg-purple-100 text-purple-700" },
-  [INQUIRY_TYPE]: { label: "Update Request", cls: "bg-rx text-white" },
+  [INQUIRY_TYPE]: { label: "Update Request", cls: "bg-cobalt text-white" },
   [PROBLEM_TYPE]: { label: "Problem Report", cls: "bg-red-100 text-red-800" },
 };
 

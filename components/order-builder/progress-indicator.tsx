@@ -1,4 +1,6 @@
 import { Check } from "lucide-react";
+import { cn } from "@/lib/utils";
+
 const STEPS = [
   { n: 1, label: "Cards" },
   { n: 2, label: "Your Info" },
@@ -6,42 +8,48 @@ const STEPS = [
   { n: 4, label: "Review" },
 ];
 
+/**
+ * The order's four steps on a rail that fills in cobalt as each one is done.
+ * Done stops are cobalt with a check, the current stop is the sun disc.
+ */
 export function ProgressIndicator({ currentStep }: { currentStep: number }) {
+  const done = Math.max(0, Math.min(STEPS.length - 1, currentStep - 1));
   return (
-    <div className="flex items-center gap-0 w-full">
-      {STEPS.map((step, i) => (
-        <div key={step.n} className="flex items-center flex-1 last:flex-none">
-          <div className="flex flex-col items-center gap-1">
-            <div
-              className={`w-8 h-8 rounded-md flex items-center justify-center font-mono text-xs transition-colors duration-200 ${
-                step.n < currentStep
-                  ? "bg-primary text-primary-foreground"
-                  : step.n === currentStep
-                  ? "bg-ink text-paper"
-                  : "bg-white text-muted-foreground ring-1 ring-rule"
-              }`}
-            >
-              {step.n < currentStep ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : step.n}
-            </div>
-            <span
-              className={`rx-label !normal-case !tracking-normal !text-xs hidden sm:block ${
-                step.n === currentStep
-                  ? "!text-ink font-semibold"
-                  : "text-muted-foreground"
-              }`}
-            >
-              {step.label}
-            </span>
-          </div>
-          {i < STEPS.length - 1 && (
-            <div
-              className={`h-px flex-1 mx-2 transition-colors ${
-                step.n < currentStep ? "bg-primary" : "bg-border"
-              }`}
-            />
-          )}
-        </div>
-      ))}
+    <div className="relative w-full">
+      {/* Rail, drawn between the first and last stop */}
+      <div aria-hidden className="absolute top-[21px] right-[12.5%] left-[12.5%] h-1 overflow-hidden rounded-full bg-ink/10">
+        <span
+          className="block h-full rounded-full bg-cobalt transition-[width] duration-500 ease-[var(--ease-out)] motion-reduce:transition-none"
+          style={{ width: `${(done / (STEPS.length - 1)) * 100}%` }}
+        />
+      </div>
+      <ol className="relative grid grid-cols-4">
+        {STEPS.map((step) => {
+          const state = step.n < currentStep ? "done" : step.n === currentStep ? "current" : "next";
+          return (
+            <li key={step.n} className="flex flex-col items-center gap-2.5" aria-current={state === "current" ? "step" : undefined}>
+              <span
+                className={cn(
+                  "relative grid size-11 place-items-center rounded-full font-heading text-xl font-black tabular-nums transition-[background-color,color,box-shadow,transform] duration-300",
+                  state === "done" && "bg-cobalt text-white shadow-[0_0_0_4px_var(--chalk)]",
+                  state === "current" && "scale-110 bg-sun text-ink shadow-[0_0_0_4px_var(--chalk),0_0_0_6px_var(--ink)]",
+                  state === "next" && "bg-white text-ink-soft shadow-[0_0_0_4px_var(--chalk),inset_0_0_0_1.5px_var(--line-strong)]"
+                )}
+              >
+                {state === "done" ? <Check className="size-5" strokeWidth={3} /> : step.n}
+              </span>
+              <span
+                className={cn(
+                  "label-caps max-w-[9ch] text-center text-[15px] leading-tight sm:max-w-none",
+                  state === "current" ? "text-ink" : "text-ink-soft"
+                )}
+              >
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

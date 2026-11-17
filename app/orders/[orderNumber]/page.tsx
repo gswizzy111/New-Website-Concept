@@ -13,21 +13,36 @@ import { ReportProblem } from "@/components/orders/report-problem";
 import { FileDown } from "lucide-react";
 import { trackingCarrier, trackingLink } from "@/lib/tracking-carrier";
 import { hasUnappliedUpgrade } from "@/lib/pending-upgrade";
+import { Download } from "lucide-react";
+import { Eyebrow, PAGE_TITLE, PANEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
+import { cta } from "@/components/brand";
+
+/** The page frame: the slim header, then the column on chalk. */
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="surface-chalk min-h-screen">
+      <PortalHeader width="max-w-3xl" label="Order Tracking" />
+      <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-10 sm:px-6 md:py-14">{children}</div>
+    </div>
+  );
+}
 
 function EmailMismatch() {
   return (
-    <div className="max-w-md mx-auto px-6 py-24 text-center">
-      <p className="rx-label text-rx mb-3">Order Tracking</p>
-      <h1 className="font-heading font-black text-2xl text-foreground mb-3">We couldn&apos;t find that order</h1>
-      <p className="text-muted-foreground text-sm mb-8">
-        The order number and email address didn&apos;t match. Double-check both and try again.
-      </p>
-      <Link
-        href="/track"
-        className="inline-block bg-primary text-primary-foreground text-sm font-bold px-5 py-2.5 rounded-lg hover:bg-primary/90 transition-colors"
-      >
-        Try Again
-      </Link>
+    <div className="surface-chalk flex min-h-screen flex-col">
+      <PortalHeader width="max-w-3xl" />
+      <div className="flex flex-1 items-center px-4 py-16">
+        <div className={`${PANEL} mx-auto w-full max-w-md p-8 text-center sm:p-10`}>
+          <Eyebrow>Order Tracking</Eyebrow>
+          <h1 className="mb-3 font-heading text-[2.25rem] leading-[0.95] font-black text-ink">We couldn&apos;t find that order</h1>
+          <p className="mb-8 text-[15px] text-ink-soft">
+            The order number and email address didn&apos;t match. Double-check both and try again.
+          </p>
+          <Link href="/track" className={cta({ tone: "sun", size: "md" })}>
+            Try Again
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
@@ -46,13 +61,13 @@ function shippoCarrierToken(provider: string): string {
   return map[provider] ?? provider.toLowerCase().replace(/\s+/g, "_");
 }
 
-const TRACKING_BADGE: Record<string, { label: string; cls: string }> = {
-  UNKNOWN:     { label: "Label Created",  cls: "bg-gray-100 text-gray-700" },
-  PRE_TRANSIT: { label: "Label Created",  cls: "bg-gray-100 text-gray-700" },
-  TRANSIT:     { label: "In Transit",     cls: "bg-ink text-paper" },
-  DELIVERED:   { label: "Delivered",      cls: "bg-green-100 text-green-700" },
-  RETURNED:    { label: "Returned",       cls: "bg-orange-100 text-orange-700" },
-  FAILURE:     { label: "Delivery Issue", cls: "bg-red-100 text-red-700" },
+const TRACKING_BADGE: Record<string, { label: string; tone: "ink" | "cobalt" | "sun" | "success" | "danger" | "muted" }> = {
+  UNKNOWN:     { label: "Label Created",  tone: "muted" },
+  PRE_TRANSIT: { label: "Label Created",  tone: "muted" },
+  TRANSIT:     { label: "In Transit",     tone: "cobalt" },
+  DELIVERED:   { label: "Delivered",      tone: "success" },
+  RETURNED:    { label: "Returned",       tone: "sun" },
+  FAILURE:     { label: "Delivery Issue", tone: "danger" },
 };
 
 const KIT_STATUS_LABELS: Record<string, string> = {
@@ -119,15 +134,15 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
   const currentIdx = KIT_STATUS_TIMELINE.indexOf(order.status);
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12">
-      <div className="mb-8">
-        <p className="rx-label text-rx mb-2">Order Tracking</p>
-        <h1 className="font-heading font-black text-3xl text-foreground">Order K{order.order_number}</h1>
-        <p className="text-muted-foreground text-sm mt-1">Placed {new Date(order.created_at).toLocaleDateString()}</p>
+    <Shell>
+      <div className="mb-3">
+        <Eyebrow>Order Tracking</Eyebrow>
+        <h1 className={PAGE_TITLE}>Order K{order.order_number}</h1>
+        <p className="mt-2 text-[15px] text-ink-soft">Placed {new Date(order.created_at).toLocaleDateString()}</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-border p-6 mb-5">
-        <h2 className="font-heading font-black text-lg text-foreground mb-5">Status</h2>
+      <div className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-5`}>Status</h2>
         {kitCancelled ? (
           <div className="flex flex-col gap-1 text-sm">
             <p className="font-bold text-foreground">This order was cancelled.</p>
@@ -136,69 +151,44 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {KIT_STATUS_TIMELINE.map((s) => {
+          <StatusTrack
+            steps={KIT_STATUS_TIMELINE.map((s) => {
               const sIdx = KIT_STATUS_TIMELINE.indexOf(s);
-              const isDone = sIdx < currentIdx;
-              const isCurrent = s === order.status;
-              return (
-                <div key={s} className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
-                    isCurrent ? "bg-primary" : isDone ? "bg-primary/30" : "bg-border"
-                  }`}>
-                    {isDone && <span className="text-white text-xs">✓</span>}
-                    {isCurrent && <span className="w-2 h-2 rounded-full bg-white block" />}
-                  </div>
-                  <span className={`text-sm font-medium ${isCurrent ? "text-primary font-bold" : isDone ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
-                    {KIT_STATUS_LABELS[s]}
-                  </span>
-                </div>
-              );
+              return { key: s, label: KIT_STATUS_LABELS[s], state: s === order.status ? "current" : sIdx < currentIdx ? "done" : "next" };
             })}
-          </div>
+          />
         )}
       </div>
 
       {order.tracking_number && (
-        <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
-          <p className="rx-label text-rx mb-1">Shipment Tracking</p>
-          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3 break-all">{order.tracking_number}</p>
-          <a
-            href={kitTrackUrl ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            Track Package →
-          </a>
-        </div>
+        <TrackingPanel label="Shipment Tracking" number={order.tracking_number} href={kitTrackUrl} />
       )}
 
-      <div className="bg-white rounded-xl border border-border p-6 mb-5">
-        <h2 className="font-heading font-black text-lg text-foreground mb-4">Order Summary</h2>
-        <div className="flex flex-col gap-2 text-sm">
+      <div className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-5`}>Order Summary</h2>
+        <div className="flex flex-col gap-2 text-[15px]">
           {items.map((item, i) => (
             <div key={i} className="flex justify-between">
-              <span className="text-muted-foreground">{item.product_name} × {item.quantity}</span>
-              <span className="font-medium">{formatCurrency(item.price_cents * item.quantity)}</span>
+              <span className="text-ink-soft">{item.product_name} × {item.quantity}</span>
+              <span className="font-semibold">{formatCurrency(item.price_cents * item.quantity)}</span>
             </div>
           ))}
-          <div className="border-t border-border mt-1 pt-2 flex justify-between font-bold">
+          <div className="mt-2 flex items-baseline justify-between border-t-2 border-ink pt-3 font-heading text-[1.75rem] leading-none font-black">
             <span>Total</span>
-            <span className="text-primary">{formatCurrency(order.total_cents)}</span>
+            <span>{formatCurrency(order.total_cents)}</span>
           </div>
         </div>
       </div>
 
       {!kitCancelled && <ReportProblem orderRef={`K${order.order_number}`} email={email} />}
 
-      <p className="text-center text-sm text-muted-foreground">
+      <p className="text-center text-sm text-ink-soft">
         Questions? DM us on Instagram{" "}
-        <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">
+        <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className={PORTAL_LINK}>
           @the_card_doc
         </a>
       </p>
-    </div>
+    </Shell>
   );
 }
 
@@ -303,46 +293,32 @@ export default async function OrderDetailPage({
   const hideUpgradeOffer = pendingUpgrade === true || (pendingUpgrade === null && upgraded === "1");
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12">
+    <Shell>
       {/* Header */}
-      <div className="mb-8">
-        <p className="rx-label text-rx mb-2">Order Tracking</p>
-        <h1 className="font-heading font-black text-3xl text-foreground">
+      <div className="mb-3">
+        <Eyebrow>Order Tracking</Eyebrow>
+        <h1 className={PAGE_TITLE}>
           Order {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
         </h1>
-        <p className="text-muted-foreground text-sm mt-1">Placed {new Date(order.created_at).toLocaleDateString()}</p>
+        <p className="mt-2 text-[15px] text-ink-soft">Placed {new Date(order.created_at).toLocaleDateString()}</p>
       </div>
 
       {/* Status timeline */}
-      <div className="bg-white rounded-xl border border-border p-6 mb-5">
-        <h2 className="font-heading font-black text-lg text-foreground mb-5">Status</h2>
-        <div className="flex flex-col gap-3">
-          {visibleStatuses.map((s) => {
+      <div className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-5`}>Status</h2>
+        <StatusTrack
+          steps={visibleStatuses.map((s) => {
             const sIndex = STATUS_TIMELINE.indexOf(s);
-            const isDone = sIndex < currentIndex;
-            const isCurrent = s === order.status;
-            return (
-              <div key={s} className="flex items-center gap-3">
-                <div className={`w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
-                  isCurrent ? "bg-primary" : isDone ? "bg-primary/30" : "bg-border"
-                }`}>
-                  {isDone && <span className="text-white text-xs">✓</span>}
-                  {isCurrent && <span className="w-2 h-2 rounded-full bg-white block" />}
-                </div>
-                <span className={`text-sm font-medium ${isCurrent ? "text-primary font-bold" : isDone ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
-                  {ORDER_STATUSES[s]?.label}
-                </span>
-              </div>
-            );
+            return { key: s, label: ORDER_STATUSES[s]?.label, state: s === order.status ? "current" : sIndex < currentIndex ? "done" : "next" };
           })}
-        </div>
+        />
       </div>
 
       {/* Cards-added success banner */}
       {added === "1" && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-5">
-          <p className="text-sm font-bold text-green-800">Cards added successfully!</p>
-          <p className="text-sm text-green-800 mt-0.5">
+        <div className="rounded-[22px] bg-success-tint p-5 shadow-[inset_0_0_0_1.5px_var(--success)]">
+          <p className="text-sm font-bold text-success">Cards added successfully!</p>
+          <p className="text-sm text-success mt-0.5">
             Your payment was received. The new cards have been added to your order.
           </p>
         </div>
@@ -350,9 +326,9 @@ export default async function OrderDetailPage({
 
       {/* Upgrade success banner */}
       {showUpgradeReceived && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-5">
-          <p className="text-sm font-bold text-green-800">Upgrade received!</p>
-          <p className="text-sm text-green-800 mt-0.5">
+        <div className="rounded-[22px] bg-success-tint p-5 shadow-[inset_0_0_0_1.5px_var(--success)]">
+          <p className="text-sm font-bold text-success">Upgrade received!</p>
+          <p className="text-sm text-success mt-0.5">
             Your payment was received. Your order will show the new service level shortly.
           </p>
         </div>
@@ -382,58 +358,50 @@ export default async function OrderDetailPage({
 
       {/* Live inbound tracking (while we're waiting for the cards) */}
       {inboundTrack && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-5">
-          <p className="rx-label text-rx mb-3">Inbound Shipment Tracking</p>
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-              TRACKING_BADGE[inboundTrack.trackingStatus?.status ?? "UNKNOWN"]?.cls ?? "bg-gray-100 text-gray-700"
-            }`}>
+        <div className={`${PANEL} bg-cobalt-wash shadow-none`}>
+          <p className="label-caps mb-3 text-[15px] text-cobalt-deep">Inbound Shipment Tracking</p>
+          <div className="mb-2 flex items-center gap-2">
+            <StatusPill tone={TRACKING_BADGE[inboundTrack.trackingStatus?.status ?? "UNKNOWN"]?.tone ?? "muted"}>
               {TRACKING_BADGE[inboundTrack.trackingStatus?.status ?? "UNKNOWN"]?.label ?? "Unknown"}
-            </span>
+            </StatusPill>
           </div>
           {inboundTrack.trackingStatus?.statusDetails && (
-            <p className="text-sm text-blue-800 mb-2">{inboundTrack.trackingStatus.statusDetails}</p>
+            <p className="text-sm text-ink mb-2">{inboundTrack.trackingStatus.statusDetails}</p>
           )}
           {inboundTrack.eta && (
-            <p className="text-sm font-semibold text-blue-900">
+            <p className="text-sm font-semibold text-ink">
               Estimated arrival: {new Date(inboundTrack.eta).toLocaleDateString("en-US", {
                 weekday: "long", month: "long", day: "numeric"
               })}
             </p>
           )}
-          <p className="font-mono text-xs text-blue-600 mt-3">{order.inbound_tracking_number}</p>
+          <p className="mt-3 font-mono text-sm font-bold break-all text-cobalt-deep">{order.inbound_tracking_number}</p>
         </div>
       )}
 
       {/* Return tracking number */}
       {order.tracking_number && (
-        <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-6 mb-5">
-          <p className="rx-label text-rx mb-1">Return Tracking</p>
-          <p className="font-mono font-black text-xl text-cyan-900 tracking-widest mb-3 break-all">{order.tracking_number}</p>
-          <a
-            href={order.outbound_tracking_number === order.tracking_number
-              ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
-              : trackingLink(order.tracking_number)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block text-xs font-bold px-3 py-1.5 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            Track Package →
-          </a>
-        </div>
+        <TrackingPanel
+          label="Return Tracking"
+          number={order.tracking_number}
+          href={order.outbound_tracking_number === order.tracking_number
+            ? trackingLink(order.tracking_number, order.outbound_carrier ?? null, order.outbound_tracking_url ?? null)
+            : trackingLink(order.tracking_number)}
+        />
       )}
 
       {/* Prepaid shipping label */}
       {order.inbound_method === "buy_label" && order.shipping_label_url && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-5">
-          <h2 className="font-heading font-black text-lg text-blue-900 mb-2">Your Prepaid Shipping Label</h2>
-          <p className="text-sm text-blue-800 mb-4">Print this label, attach it to your package, and drop it off at the carrier.</p>
+        <div className="surface-sun rounded-[22px] p-5 sm:p-6">
+          <h2 className="mb-2 font-heading text-[1.75rem] leading-none font-black text-ink">Your Prepaid Shipping Label</h2>
+          <p className="mb-5 text-[15px] text-ink">Print this label, attach it to your package, and drop it off at the carrier.</p>
           <a
             href={order.shipping_label_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            className={cta({ tone: "ink", size: "md" })}
           >
+            <Download aria-hidden className="size-4" strokeWidth={2.25} />
             Download Label (PDF)
           </a>
         </div>
@@ -441,22 +409,22 @@ export default async function OrderDetailPage({
 
       {/* Restoration photos & notes */}
       {(order.restoration_photos?.length > 0 || order.completion_notes) && (
-        <div className="bg-white rounded-xl border border-border p-6 mb-5">
-          <h2 className="font-heading font-black text-lg text-foreground mb-4">Restoration Results</h2>
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-5`}>Restoration Results</h2>
 
           {order.completion_notes && (
-            <div className="mb-4 p-4 bg-secondary/40 rounded-lg">
-              <p className="rx-label text-rx mb-2">Notes from The Card Doc</p>
-              <p className="text-sm text-foreground whitespace-pre-wrap">{order.completion_notes}</p>
+            <div className="mb-5 rounded-[14px] bg-sun-tint p-4">
+              <p className="label-caps mb-2 text-[15px] text-ink">Notes from The Card Doc</p>
+              <p className="text-[15px] whitespace-pre-wrap text-ink">{order.completion_notes}</p>
             </div>
           )}
 
           {order.restoration_photos?.length > 0 && (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-4">
               {(order.restoration_photos as string[]).map((url: string, i: number) => (
-                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="print print-sm print-lift block w-32" style={{ ["--tilt" as string]: `${i % 2 ? 2 : -2}deg` }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="Restored card" className="w-28 h-28 object-cover rounded-xl border border-border hover:opacity-90 transition-opacity" />
+                  <img src={url} alt="Restored card" className="aspect-[3/4] w-full rounded-[3px] object-cover" />
                 </a>
               ))}
             </div>
@@ -465,21 +433,21 @@ export default async function OrderDetailPage({
       )}
 
       {/* Cards */}
-      <div className="bg-white rounded-xl border border-border p-6 mb-5">
-        <h2 className="font-heading font-black text-lg text-foreground mb-4">Your Cards ({cards?.length ?? 0})</h2>
-        <div className="flex flex-col gap-3">
+      <div className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-5`}>Your Cards ({cards?.length ?? 0})</h2>
+        <div className="flex flex-col gap-2.5">
           {cards?.map((card, i) => (
-            <div key={card.id} className="text-sm p-3 rounded-lg bg-secondary/40">
-              <p className="font-semibold text-foreground">{i + 1}. {card.card_name}</p>
-              {card.card_set && <p className="text-muted-foreground">{card.card_set}</p>}
+            <div key={card.id} className="rounded-[14px] bg-chalk px-4 py-3 text-[15px]">
+              <p className="font-semibold text-ink">{i + 1}. {card.card_name}</p>
+              {card.card_set && <p className="text-sm text-ink-soft">{card.card_set}</p>}
             </div>
           ))}
         </div>
       </div>
 
       {(signatures?.length ?? 0) > 0 && (
-        <div className="bg-white rounded-xl border border-border p-6 mb-5">
-          <h2 className="font-heading font-black text-lg text-foreground mb-4">Documents You Signed</h2>
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-5`}>Documents You Signed</h2>
           <ul className="flex flex-col gap-2.5 text-sm">
             {(signatures ?? []).map((s) => (
               <li key={s.id} className="flex flex-wrap items-center justify-between gap-2">
@@ -487,7 +455,7 @@ export default async function OrderDetailPage({
                   {s.document_title}{s.card_snapshot?.card_name ? `: ${s.card_snapshot.card_name}` : ""}
                   <span className="text-muted-foreground"> · signed by {s.typed_full_name}, {signedDate(s.signed_at)}</span>
                 </span>
-                <a href={docUrl(s.id)} className="inline-flex items-center gap-1 text-primary font-semibold underline underline-offset-2"><FileDown className="h-3.5 w-3.5" />PDF</a>
+                <a href={docUrl(s.id)} className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 font-bold text-cobalt hover:bg-cobalt-wash"><FileDown className="size-4" />PDF</a>
               </li>
             ))}
           </ul>
@@ -495,34 +463,34 @@ export default async function OrderDetailPage({
       )}
 
       {signedAgreements.length > 0 && (
-        <div className="bg-white rounded-xl border border-border p-6 mb-5">
-          <h2 className="font-heading font-black text-lg text-foreground mb-4">Agreements You Signed</h2>
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-5`}>Agreements You Signed</h2>
           <SignedAgreements agreements={signedAgreements} />
         </div>
       )}
 
       {/* Services & total */}
-      <div className="bg-white rounded-xl border border-border p-6 mb-5">
-        <h2 className="font-heading font-black text-lg text-foreground mb-4">Order Summary</h2>
-        <div className="flex flex-col gap-2 text-sm">
+      <div className={PANEL}>
+        <h2 className={`${PANEL_TITLE} mb-5`}>Order Summary</h2>
+        <div className="flex flex-col gap-2 text-[15px]">
           {services?.map((s) => (
-            <div key={s.id} className="flex justify-between">
-              <span className="text-muted-foreground">{s.service_name} × {s.quantity}</span>
-              <span className="font-medium">{formatCurrency(s.price_cents * s.quantity)}</span>
+            <div key={s.id} className="flex justify-between gap-3">
+              <span className="text-ink-soft">{s.service_name} × {s.quantity}</span>
+              <span className="font-semibold">{formatCurrency(s.price_cents * s.quantity)}</span>
             </div>
           ))}
-          <div className="border-t border-border mt-1 pt-2 flex justify-between font-bold">
+          <div className="mt-2 flex items-baseline justify-between border-t-2 border-ink pt-3 font-heading text-[1.75rem] leading-none font-black">
             <span>Total</span>
-            <span className="text-primary">{formatCurrency(order.total_cents)}</span>
+            <span>{formatCurrency(order.total_cents)}</span>
           </div>
         </div>
       </div>
 
       <ReportProblem orderRef={String(order.order_number)} email={email} />
 
-      <p className="text-center text-sm text-muted-foreground">
-        Questions? DM us on Instagram <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="text-primary font-medium">@the_card_doc</a>
+      <p className="text-center text-sm text-ink-soft">
+        Questions? DM us on Instagram <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className={PORTAL_LINK}>@the_card_doc</a>
       </p>
-    </div>
+    </Shell>
   );
 }

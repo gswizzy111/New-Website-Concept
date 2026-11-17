@@ -15,30 +15,40 @@ export default function PrivacyPage() {
   const CONTACT_EMAIL = "thecarddoc1@gmail.com";
 
   return (
-    <div className="min-h-screen bg-white py-16">
-      <div className="max-w-4xl mx-auto px-6 md:px-10">
-        <h1 className="font-heading text-4xl font-bold text-foreground mb-2">
+    <div className="surface-chalk min-h-screen">
+      <div className="wrap pt-14 pb-10 md:pt-24 md:pb-14">
+        <div className="mx-auto max-w-4xl">
+        <p className="hero-in eyebrow mb-5 inline-flex items-center gap-2.5 text-cobalt">
+          <span aria-hidden className="h-[3px] w-6 rounded-full bg-cobalt" />
+          Legal
+        </p>
+        <h1 className="hero-in font-display text-[clamp(3rem,12vw,4.25rem)] leading-[0.9] font-black text-ink md:text-[clamp(4.25rem,7vw,6.5rem)]">
           Privacy Policy
         </h1>
-        <p className="text-sm text-muted-foreground mb-2">
-          Effective Date: {EFFECTIVE_DATE}
+        <div className="hero-in mt-7 max-w-2xl" style={{ ["--d" as string]: 120 }}>
+        <p className="mb-2 text-[16px] text-ink">
+          <span className="font-bold">Effective Date: {EFFECTIVE_DATE}</span>
         </p>
-        <p className="text-sm text-muted-foreground mb-8">
+        <p className="text-[16px] leading-relaxed text-ink-soft">
           Published by <strong>The Card Doc LLC</strong>, a New Jersey limited liability company
           doing business as &ldquo;The Card Doc&rdquo;
         </p>
+        </div>
+        </div>
+      </div>
 
-        <div className="prose prose-sm max-w-none space-y-6 text-foreground [&_p+p]:mt-3 [&_p+ul]:mt-3 [&_ul+p]:mt-3">
+      <div className="wrap pb-24 md:pb-32">
+        <div className="mx-auto max-w-4xl rounded-[22px] bg-white px-5 py-8 font-sans text-[16px] leading-[1.7] text-ink-soft shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:px-8 md:px-12 md:py-14 md:text-[17px] lg:px-16 space-y-6 [&_p+p]:mt-4 [&_p+ul]:mt-4 [&_ul+p]:mt-4 [&_section]:scroll-mt-[calc(var(--header-h)+24px)] [&_section>h2]:mt-12 [&_section>h2]:border-t [&_section>h2]:border-line [&_section>h2]:pt-9 [&_section:first-child>h2]:mt-0 [&_section:first-child>h2]:border-0 [&_section:first-child>h2]:pt-0 [&_h2]:text-ink [&_h3]:text-ink [&_ul]:max-w-[66ch] [&_ol]:max-w-[66ch] [&_li]:marker:text-cobalt [&_strong]:text-ink [&_p]:max-w-[68ch]">
 
           {/* ─── Overview ──────────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">Overview</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">Overview</h2>
             <p>
               This Privacy Policy describes how <strong>The Card Doc LLC</strong>{" "}
               (&ldquo;The Card Doc,&rdquo; &ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;)
               collects, uses, shares, and protects personal information when you interact with us
               through our website at{" "}
-              <a href="https://thecarddoc1.com" className="text-primary underline underline-offset-2">
+              <a href="https://thecarddoc1.com" className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink">
                 thecarddoc1.com
               </a>
               , our Instagram account{" "}
@@ -46,7 +56,7 @@ export default function PrivacyPage() {
                 href="https://www.instagram.com/the_card_doc"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 @the_card_doc
               </a>
@@ -68,16 +78,16 @@ export default function PrivacyPage() {
 
           {/* ─── 1. Information We Collect ─────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               1. Information We Collect
             </h2>
 
-            <h3 className="text-lg font-bold mt-6 mb-2">A. Information You Provide Directly</h3>
+            <h3 className="caps mt-8 mb-3 font-display text-[21px] font-extrabold leading-[1.05] text-ink md:text-[24px]">A. Information You Provide Directly</h3>
             <p>
               When you send us a message on Instagram or Messenger, or place an order on our
               website, we collect:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Message content:</strong> the full text of every message you send us,
                 including questions, order inquiries, complaints, and any other content you choose
@@ -118,7 +128,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
 
-            <h3 className="text-lg font-bold mt-6 mb-2">
+            <h3 className="caps mt-8 mb-3 font-display text-[21px] font-extrabold leading-[1.05] text-ink md:text-[24px]">
               B. Information Received from Meta via the Instagram and Messenger APIs
             </h3>
             <p>
@@ -126,7 +136,7 @@ export default function PrivacyPage() {
               with certain information about you through the Instagram Graph API and Messenger
               Platform API, including:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>User identifier:</strong> your Instagram-scoped user ID or Page-scoped
                 user ID (a unique, non-human-readable number assigned by Meta to identify your
@@ -154,18 +164,18 @@ export default function PrivacyPage() {
                 href="https://www.facebook.com/privacy/policy/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 Meta&rsquo;s Privacy Policy
               </a>
               .
             </p>
 
-            <h3 className="text-lg font-bold mt-6 mb-2">C. Information Collected Automatically</h3>
+            <h3 className="caps mt-8 mb-3 font-display text-[21px] font-extrabold leading-[1.05] text-ink md:text-[24px]">C. Information Collected Automatically</h3>
             <p>
               When you use our website or our messaging integrations, we may automatically collect:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Server logs:</strong> IP addresses, request times, pages visited, HTTP
                 status codes, and error reports
@@ -183,14 +193,14 @@ export default function PrivacyPage() {
 
           {/* ─── 2. How We Use Your Information ───────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               2. How We Use Your Information
             </h2>
             <p>
               We use the information we collect only for the following purposes. Each purpose is
               listed with the type of data used and the reason it is necessary:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Replying to your messages:</strong> message text, user ID, username, and
                 message metadata are used to generate and send automated or human replies to your
@@ -239,7 +249,7 @@ export default function PrivacyPage() {
 
           {/* ─── 3. AI-Generated Replies ───────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               3. AI-Generated Replies
             </h2>
             <p>
@@ -247,7 +257,7 @@ export default function PrivacyPage() {
               generated, in whole or in part, by an artificial intelligence (AI) language model.
               When this occurs:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 The content of your message (text, and in some cases photos) is sent to
                 Anthropic&rsquo;s API (the provider of the Claude AI model) solely for the purpose
@@ -261,7 +271,7 @@ export default function PrivacyPage() {
               <li>
                 If you would prefer to speak with a human at any time, simply reply &ldquo;human&rdquo; or
                 &ldquo;agent,&rdquo; or contact us directly at{" "}
-                <a href={`mailto:${CONTACT_EMAIL}`} className="text-primary underline underline-offset-2">
+                <a href={`mailto:${CONTACT_EMAIL}`} className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink">
                   {CONTACT_EMAIL}
                 </a>
                 .
@@ -271,7 +281,7 @@ export default function PrivacyPage() {
 
           {/* ─── 4. Cookies and Tracking ──────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               4. Cookies and Analytics
             </h2>
             <p>
@@ -297,7 +307,7 @@ export default function PrivacyPage() {
                 href="https://www.facebook.com/privacy/policy/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 Meta&rsquo;s Privacy Policy
               </a>
@@ -306,7 +316,7 @@ export default function PrivacyPage() {
                 href="https://globalprivacycontrol.org/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 Global Privacy Control
               </a>{" "}
@@ -318,7 +328,7 @@ export default function PrivacyPage() {
 
           {/* ─── 5. Service Providers ─────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               5. Who We Share Your Information With
             </h2>
             <p>
@@ -326,7 +336,7 @@ export default function PrivacyPage() {
               business, under contractual obligations to protect it, and only to the extent
               necessary. We do not sell data. Our current service providers are:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Meta Platforms, Inc.</strong> — we use the Instagram Graph API and
                 Messenger Platform API to send and receive messages. Meta processes message
@@ -335,7 +345,7 @@ export default function PrivacyPage() {
                   href="https://www.facebook.com/privacy/policy/"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   Meta&rsquo;s Privacy Policy
                 </a>
@@ -349,7 +359,7 @@ export default function PrivacyPage() {
                   href="https://manychat.com/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   ManyChat Privacy Policy
                 </a>
@@ -363,7 +373,7 @@ export default function PrivacyPage() {
                   href="https://www.anthropic.com/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   Anthropic Privacy Policy
                 </a>
@@ -423,9 +433,9 @@ export default function PrivacyPage() {
 
           {/* ─── 6. Data Retention ────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">6. Data Retention</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">6. Data Retention</h2>
             <p>We retain personal information for the following periods:</p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Conversation data</strong> (message text, contact identifiers, message
                 metadata): 12 months after your last message to us.
@@ -458,19 +468,19 @@ export default function PrivacyPage() {
 
           {/* ─── 7. Data Deletion ─────────────────────────────────────────────── */}
           <section id="delete">
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               7. How to Request Data Deletion
             </h2>
             <p>
               You have the right to request that we delete your personal information. To submit a
               deletion request:
             </p>
-            <ol className="list-decimal pl-6 space-y-3 text-sm">
+            <ol className="list-decimal space-y-3 pl-6 marker:font-bold">
               <li>
                 <strong>Email us at:</strong>{" "}
                 <a
                   href={`mailto:${CONTACT_EMAIL}?subject=Data%20Deletion%20Request`}
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   {CONTACT_EMAIL}
                 </a>
@@ -500,13 +510,13 @@ export default function PrivacyPage() {
 
           {/* ─── 8. Your Rights ───────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">8. Your Privacy Rights</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">8. Your Privacy Rights</h2>
             <p>
               Depending on where you live, you may have the following rights regarding your
               personal information. We will not discriminate against you for exercising any of
               these rights.
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Access:</strong> request a copy of the personal information we hold about
                 you, including copies of anything you signed with us.
@@ -532,7 +542,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
 
-            <h3 className="text-lg font-bold mt-6 mb-2">New Jersey Residents</h3>
+            <h3 className="caps mt-8 mb-3 font-display text-[21px] font-extrabold leading-[1.05] text-ink md:text-[24px]">New Jersey Residents</h3>
             <p>
               If you are a resident of New Jersey, the{" "}
               <strong>New Jersey Data Privacy Act (NJDPA)</strong> grants you additional rights,
@@ -542,14 +552,14 @@ export default function PrivacyPage() {
               rights or to file an appeal, contact us at{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}`}
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 {CONTACT_EMAIL}
               </a>
               .
             </p>
 
-            <h3 className="text-lg font-bold mt-6 mb-2">Other State Laws</h3>
+            <h3 className="caps mt-8 mb-3 font-display text-[21px] font-extrabold leading-[1.05] text-ink md:text-[24px]">Other State Laws</h3>
             <p>
               Residents of California, Virginia, Colorado, Connecticut, and other states with
               comprehensive privacy laws may have similar rights. We honor access, correction, and
@@ -560,13 +570,13 @@ export default function PrivacyPage() {
 
           {/* ─── 9. Security ──────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">9. Security</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">9. Security</h2>
             <p>
               We implement commercially reasonable administrative, technical, and physical
               safeguards to protect your personal information from unauthorized access, disclosure,
               alteration, and destruction. These include:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>Encrypted connections (HTTPS/TLS) for all data transmission</li>
               <li>Access controls limiting who on our team can view customer data</li>
               <li>Secure database hosting with row-level security policies</li>
@@ -577,7 +587,7 @@ export default function PrivacyPage() {
               information has been compromised, please contact us immediately at{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}`}
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 {CONTACT_EMAIL}
               </a>
@@ -587,7 +597,7 @@ export default function PrivacyPage() {
 
           {/* ─── 10. Children ─────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">10. Children&rsquo;s Privacy</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">10. Children&rsquo;s Privacy</h2>
             <p>
               Our services are not directed to children under the age of 13. We do not knowingly
               collect personal information from children under 13. If we learn that we have
@@ -597,7 +607,7 @@ export default function PrivacyPage() {
               please contact us at{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}`}
-                className="text-primary underline underline-offset-2"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 {CONTACT_EMAIL}
               </a>
@@ -607,7 +617,7 @@ export default function PrivacyPage() {
 
           {/* ─── 11. International Transfers ──────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               11. Data Processing Location
             </h2>
             <p>
@@ -621,14 +631,14 @@ export default function PrivacyPage() {
 
           {/* ─── 12. Changes ──────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">
               12. Changes to This Privacy Policy
             </h2>
             <p>
               We may update this Privacy Policy from time to time to reflect changes in our
               practices, services, or applicable law. When we make material changes, we will:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>Update the &ldquo;Effective Date&rdquo; at the top of this page</li>
               <li>Post a notice on our website or send a message through our DM channels</li>
             </ul>
@@ -640,17 +650,17 @@ export default function PrivacyPage() {
 
           {/* ─── 13. Contact ──────────────────────────────────────────────────── */}
           <section>
-            <h2 className="text-2xl font-bold font-heading mt-8 mb-4">13. Contact Us</h2>
+            <h2 className="caps mb-5 font-display text-[28px] font-black leading-[1] text-ink md:text-[36px] [text-wrap:balance]">13. Contact Us</h2>
             <p>
               If you have questions about this Privacy Policy, want to exercise your rights, or
               need to report a concern, contact us by any of the following means:
             </p>
-            <ul className="list-disc pl-6 space-y-2 text-sm">
+            <ul className="list-disc space-y-2.5 pl-6">
               <li>
                 <strong>Email:</strong>{" "}
                 <a
                   href={`mailto:${CONTACT_EMAIL}`}
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   {CONTACT_EMAIL}
                 </a>{" "}
@@ -662,7 +672,7 @@ export default function PrivacyPage() {
                   href="https://www.instagram.com/the_card_doc"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-primary underline underline-offset-2"
+                  className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
                 >
                   @the_card_doc
                 </a>
@@ -676,26 +686,26 @@ export default function PrivacyPage() {
             </ul>
           </section>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-12">
-            <p className="text-sm font-semibold text-foreground mb-2">
+          <div className="mt-12 rounded-[18px] bg-sun p-6 text-ink md:p-8 [&_a]:!text-ink [&_a:hover]:!decoration-cobalt">
+            <p className="label-caps mb-3 text-[18px] text-ink">
               QUICK REFERENCE — DATA DELETION
             </p>
-            <p className="text-sm text-foreground">
+            <p className="text-[16px] leading-relaxed text-ink">
               To request deletion of your data, email{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}?subject=Data%20Deletion%20Request`}
-                className="text-primary underline underline-offset-2 font-semibold"
+                className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink"
               >
                 {CONTACT_EMAIL}
               </a>{" "}
               with subject line <em>Data Deletion Request</em> and your Instagram username or
               Facebook name. We will complete deletion within 30 days and confirm by email.
-              See <a href="#delete" className="text-primary underline underline-offset-2">Section 7</a> for full
+              See <a href="#delete" className="font-bold text-cobalt underline decoration-2 underline-offset-4 hover:text-ink">Section 7</a> for full
               instructions.
             </p>
           </div>
 
-          <p className="text-xs text-muted-foreground text-center mt-12">
+          <p className="mt-12 !max-w-none text-center text-[13px] text-ink-soft">
             &copy; {new Date().getFullYear()} The Card Doc LLC. All rights reserved.
           </p>
         </div>

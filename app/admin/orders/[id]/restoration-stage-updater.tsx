@@ -66,7 +66,7 @@ export function RestorationStageUpdater({
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-sm font-bold text-foreground break-words min-w-0">{card.card_name}</p>
                   {currentStage ? (
-                    <span className="shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-rx-soft text-rx">
+                    <span className="shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full bg-cobalt-wash text-cobalt">
                       {currentStage}
                     </span>
                   ) : (
@@ -91,14 +91,14 @@ export function RestorationStageUpdater({
                       aria-pressed={isCurrent}
                       className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-60 ${
                         isCurrent
-                          ? "bg-rx text-white border-rx"
+                          ? "bg-cobalt text-white border-cobalt"
                           : isDone
-                          ? "bg-rx-soft text-rx border-rx/30 line-through"
-                          : "border-border text-muted-foreground hover:border-rx hover:text-rx"
+                          ? "bg-cobalt-wash text-cobalt border-cobalt/30 line-through"
+                          : "border-border text-muted-foreground hover:border-cobalt hover:text-cobalt"
                       }`}
                     >
                       <span className={`w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
-                        isCurrent ? "bg-white text-rx" : isDone ? "bg-rx text-white" : "bg-muted text-muted-foreground"
+                        isCurrent ? "bg-white text-cobalt" : isDone ? "bg-cobalt text-white" : "bg-muted text-muted-foreground"
                       }`}>
                         {isDone ? "✓" : i + 1}
                       </span>

@@ -72,7 +72,7 @@ export function NewCouponForm() {
         <button
           type="submit"
           disabled={loading}
-          className="h-9 px-5 bg-rx text-white font-bold text-sm rounded-lg hover:bg-rx/90 transition-colors disabled:opacity-50 whitespace-nowrap"
+          className="h-9 px-5 bg-cobalt text-white font-bold text-sm rounded-lg hover:bg-cobalt/90 transition-colors disabled:opacity-50 whitespace-nowrap"
         >
           {loading ? "Adding..." : "Add Coupon"}
         </button>

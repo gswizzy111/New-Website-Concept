@@ -1,6 +1,6 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
+import { Input, PIXEL_FIELD } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { GRADING_COMPANIES } from "@/lib/legal/agreements-v1";
@@ -31,7 +31,7 @@ export function identityPayload(c: Partial<CardIdentity>) {
   return out;
 }
 
-const SELECT = "w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
+const SELECT = PIXEL_FIELD;
 
 export function CardIdentityFields({
   value,

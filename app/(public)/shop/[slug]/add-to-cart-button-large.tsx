@@ -3,7 +3,9 @@
 import { useCart } from "@/lib/cart-context";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ShoppingCart, Zap } from "lucide-react";
+import { Check, ShoppingCart, Zap } from "lucide-react";
+import { cta } from "@/components/brand";
+import { cn } from "@/lib/utils";
 
 const SIZES = ["Small", "Medium", "Large", "XL"] as const;
 
@@ -46,50 +48,48 @@ export function AddToCartButtonLarge({ product, requiresSize }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {requiresSize && (
-        <div className="flex flex-col gap-2">
-          <p className="text-sm font-semibold text-foreground">Select Size</p>
-          <div className="flex gap-2">
+        <fieldset className="flex flex-col">
+          <legend className="label-caps mb-3 text-[15px] text-ink">Select Size</legend>
+          <div className="grid grid-cols-4 gap-2.5">
             {SIZES.map((s) => (
               <button
                 key={s}
                 onClick={() => setSize(s)}
-                className={`flex-1 h-10 border text-sm font-semibold rounded-md transition-all duration-150 active:scale-[0.97] ${
+                aria-pressed={size === s}
+                className={cn(
+                  "min-h-12 rounded-[14px] px-1 text-[15px] font-bold transition-[background-color,box-shadow,color] duration-150 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-cobalt",
                   size === s
-                    ? "border-ink bg-ink text-paper"
-                    : "border-rule text-ink hover:border-ink/50"
-                }`}
+                    ? "bg-ink text-white shadow-[inset_0_0_0_2px_var(--ink)]"
+                    : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line-strong)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"
+                )}
               >
                 {s}
               </button>
             ))}
           </div>
           {!size && (
-            <p className="text-xs text-muted-foreground">Please select a size before adding to cart.</p>
+            <p className="mt-2.5 text-sm text-ink-soft">Please select a size before adding to cart.</p>
           )}
-        </div>
+        </fieldset>
       )}
 
       <button
         onClick={handleBuyNow}
         disabled={requiresSize && !size}
-        className="w-full flex items-center justify-center gap-2 h-13 font-semibold text-[15px] bg-rx text-primary-foreground hover:bg-rx/90 active:scale-[0.98] transition-all duration-150 rounded-md disabled:opacity-40 disabled:cursor-not-allowed"
+        className={cta({ tone: "sun", size: "lg", className: "w-full" })}
       >
-        <Zap className="h-4 w-4 fill-current" />
+        <Zap aria-hidden className="size-5 fill-current" strokeWidth={1.75} />
         Buy It Now
       </button>
       <button
         onClick={handleAdd}
         disabled={requiresSize && !size}
-        className={`w-full flex items-center justify-center gap-2 h-13 font-semibold text-[15px] border transition-all duration-150 rounded-md active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed ${
-          added
-            ? "bg-rx-soft text-rx border-rx/30"
-            : "bg-white text-ink border-ink/70 hover:border-ink hover:bg-secondary"
-        }`}
+        className={cta({ tone: added ? "cobalt" : "outline", size: "lg", className: "w-full" })}
       >
-        <ShoppingCart className="h-4 w-4" />
-        {added ? "Added to Cart!" : "Add to Cart"}
+        {added ? <Check aria-hidden className="size-5" strokeWidth={2.25} /> : <ShoppingCart aria-hidden className="size-5" strokeWidth={1.75} />}
+        <span aria-live="polite">{added ? "Added to Cart!" : "Add to Cart"}</span>
       </button>
     </div>
   );

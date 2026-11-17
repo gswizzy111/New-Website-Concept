@@ -1,9 +1,10 @@
-import { PartyPopper } from "lucide-react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { readCheckoutReturn } from "@/lib/checkout-return";
 import { getSubscriptionPriceCents } from "@/lib/store-config";
 import { formatCurrency } from "@/lib/utils";
+import { cta } from "@/components/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -18,30 +19,37 @@ export default async function SubscribeSuccessPage({
     searchParams.then((p) => readCheckoutReturn(p.session_id, "Kit Club success page")),
   ]);
   return (
-    <div className="min-h-screen bg-secondary/30 flex items-center justify-center px-4">
+    <section className="surface-cobalt relative isolate flex min-h-[70vh] flex-1 items-center overflow-hidden">
       <PurchasePixel sessionId={purchase.sessionId} amountCents={purchase.amountCents} currency={purchase.currency} />
-      <div className="bg-white rounded-lg border border-border p-10 max-w-md w-full text-center">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-lg bg-rx-soft text-rx"><PartyPopper className="h-7 w-7" strokeWidth={1.75} /></div>
-        <h1 className="font-heading font-extrabold text-3xl text-foreground mb-3">
+      <span aria-hidden className="halftone-dots -right-[10%] -top-[20%] h-[130%] w-[64%]" />
+      <span aria-hidden className="halftone-dots -bottom-[30%] -left-[16%] h-[80%] w-[50%] opacity-70" />
+      <div className="wrap py-20 text-center md:py-28">
+        <span
+          aria-hidden
+          className="sticker-pop mx-auto grid size-20 place-items-center rounded-full bg-sun text-ink shadow-[0_0_0_4px_var(--white),var(--pop-shadow)] md:size-24"
+          style={{ ["--d" as string]: 120 }}
+        >
+          <Check className="size-10 md:size-12" strokeWidth={3} />
+        </span>
+        <h1 className="hero-in display-lg mx-auto mt-9 max-w-4xl text-white" style={{ ["--d" as string]: 200 }}>
           You&rsquo;re subscribed!
         </h1>
-        <p className="text-muted-foreground text-base mb-8">
+        <p className="hero-in lead mx-auto mt-6 text-[#e6ebff]" style={{ ["--d" as string]: 300 }}>
           Your first kit will ship within 1-2 business days. You&rsquo;ll be billed {formatCurrency(priceCents)} on the
           same day each month.
         </p>
-        <Link
-          href="/"
-          className="inline-block rounded-lg bg-primary px-6 py-3 text-sm font-bold text-primary-foreground hover:opacity-90 transition-opacity"
-        >
-          Back to home
-        </Link>
-        <p className="text-xs text-muted-foreground mt-6">
+        <div className="hero-in mt-10 flex justify-center" style={{ ["--d" as string]: 380 }}>
+          <Link href="/" className={cta({ size: "lg", className: "w-full sm:w-auto" })}>
+            Back to home
+          </Link>
+        </div>
+        <p className="hero-in mt-10 border-t border-white/20 pt-7 text-[15px] text-[#e6ebff] sm:mx-auto sm:max-w-md" style={{ ["--d" as string]: 440 }}>
           Need to cancel?{" "}
-          <Link href="/subscribe/manage" className="underline hover:text-foreground">
+          <Link href="/subscribe/manage" className="font-bold text-white underline decoration-sun decoration-2 underline-offset-4 hover:text-sun">
             Manage your subscription
           </Link>
         </p>
       </div>
-    </div>
+    </section>
   );
 }
