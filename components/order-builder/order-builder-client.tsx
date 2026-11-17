@@ -336,7 +336,14 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
       {/* The steps start at h2; this gives the page its heading. */}
       <h1 className="sr-only">Restoration order</h1>
       <InAppBrowserBanner />
-      <SlabAuthorizationDialog card={slabDialogCard} state={signing} onChange={changeSigning} onClose={closeSlabDialog} />
+      <SlabAuthorizationDialog
+        card={slabDialogCard}
+        state={signing}
+        onChange={changeSigning}
+        onClose={closeSlabDialog}
+        cardName={slabDialogIndex >= 0 ? cards[slabDialogIndex].card_name : ""}
+        onCardName={(n) => setCards((cs) => cs.map((c) => (c.id === slabDialogId ? { ...c, card_name: n } : c)))}
+      />
       <div className="mb-10 rounded-[22px] bg-white px-2 pt-5 pb-4 shadow-[0_0_0_1px_var(--line)] sm:px-8 md:mb-14">
         <ProgressIndicator currentStep={step} />
       </div>

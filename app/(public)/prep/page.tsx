@@ -78,7 +78,7 @@ export default async function PrepPage() {
 
   const NOT_INCLUDED = ["Crease work", "Edge & corner work", "Dent removal", "Any restorative work"];
   const priceCls = "font-display text-[64px] font-black leading-[0.82] tracking-[-0.01em] text-ink tabular-nums lining-nums md:text-[80px]";
-  const wasCls = "mb-1 text-base font-semibold text-ink-soft line-through tabular-nums";
+  const wasCls = "mb-1 text-base font-semibold text-ink-soft line-through";
 
   return (
     <div className="min-h-screen overflow-x-clip">

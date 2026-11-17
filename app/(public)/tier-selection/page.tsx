@@ -128,7 +128,7 @@ function TierCard({
         {showSlots && (
           <div className={cn(FACT, "max-md:col-span-2 max-md:border-t max-md:border-line")}>
             <dt className={FACT_DT_CENTER}>Slots</dt>
-            <dd className={cn("tabular-nums md:@min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-red-700" : "font-bold text-ink")}>
+            <dd className={cn("md:@min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-red-700" : "font-bold text-ink")}>
               {slotsLeft} left
             </dd>
           </div>
@@ -364,7 +364,7 @@ export default async function TierSelectionPage() {
                         className="group inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white px-3.5 text-[14px] font-extrabold whitespace-nowrap text-ink shadow-[0_0_0_1px_var(--line)] transition-colors hover:bg-ink hover:text-white focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-cobalt motion-reduce:transition-none"
                       >
                         {t.name}
-                        <span className="text-cobalt tabular-nums group-hover:text-sun">{chipPrice(t)}</span>
+                        <span className="text-cobalt group-hover:text-sun">{chipPrice(t)}</span>
                       </a>
                     </li>
                   ))}

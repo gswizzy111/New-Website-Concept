@@ -92,14 +92,14 @@ function ProductCard({ product, eager = false }: { product: Product; eager?: boo
           </Link>
         </h3>
         {product.rating && (
-          <p className="-mt-2 flex items-center gap-1.5 text-sm text-ink-soft">
+          <p className="-mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-ink-soft">
             <span className="flex text-sun-deep" aria-hidden>
               {Array.from({ length: 5 }, (_, i) => (
                 <Star key={i} className="size-3.5 fill-current" strokeWidth={0} />
               ))}
             </span>
-            <span className="font-bold text-ink tabular-nums">{product.rating.value}</span>
-            <span className="tabular-nums">({product.rating.count})</span>
+            <span className="font-bold text-ink">{product.rating.value}</span>
+            <span>({product.rating.count})</span>
             <span className="sr-only">
               Rated {product.rating.value} out of 5 from {product.rating.count} reviews
             </span>
