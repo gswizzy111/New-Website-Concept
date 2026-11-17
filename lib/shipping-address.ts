@@ -11,9 +11,7 @@ export type ShippingAddress = {
   country: string;
 };
 
-/** Kits ship anywhere USPS delivers in the US: the states, DC, the territories and military mail. */
-export const KIT_US_STATES = [
-  ...US_STATES,
+const KIT_EXTRA_STATES = [
   { value: "DC", label: "District of Columbia" },
   { value: "PR", label: "Puerto Rico" },
   { value: "VI", label: "U.S. Virgin Islands" },
@@ -23,6 +21,12 @@ export const KIT_US_STATES = [
   { value: "AA", label: "Armed Forces Americas (AA)" },
   { value: "AE", label: "Armed Forces Europe (AE)" },
   { value: "AP", label: "Armed Forces Pacific (AP)" },
+];
+/** Kits ship anywhere USPS delivers in the US: the states, DC, the territories and military mail. */
+// (US_STATES already lists DC and PR: each extra is added once, so no duplicate options or React keys)
+export const KIT_US_STATES = [
+  ...US_STATES,
+  ...KIT_EXTRA_STATES.filter((e) => !US_STATES.some((s) => s.value === e.value)),
 ];
 
 /** Trimmed, with state and country upper-cased. */

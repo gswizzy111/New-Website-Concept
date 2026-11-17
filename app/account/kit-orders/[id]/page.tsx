@@ -10,26 +10,14 @@ import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { likeExact } from "@/lib/like-exact";
 import { ArrowLeft } from "lucide-react";
 import { replyToAddress } from "@/lib/resend";
+import { trackingCarrier, trackingLink } from "@/lib/tracking-carrier";
 import { Eyebrow, PAGE_TITLE, PANEL, PANEL_LABEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, StatusPill, StatusTrack, TrackingPanel } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
 
-const CARRIER_URLS: Record<string, (n: string) => string> = {
-  USPS:  (n) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`,
-  UPS:   (n) => `https://www.ups.com/track?tracknum=${n}`,
-  FedEx: (n) => `https://www.fedex.com/apps/fedextrack/?tracknumbers=${n}`,
-  DHL:   (n) => `https://www.dhl.com/en/express/tracking.html?AWB=${n}`,
-};
-
-function getTrackUrl(carrier: string | null, tracking: string) {
-  if (!carrier) return `https://parcelsapp.com/en/tracking/${tracking}`;
-  const fn = CARRIER_URLS[carrier];
-  return fn ? fn(tracking) : `https://parcelsapp.com/en/tracking/${tracking}`;
-}
-
 const STATUS_TIMELINE = ["paid", "processing", "shipped", "delivered"];
 const STATUS_LABELS: Record<string, string> = {
-  paid: "Order Received", processing: "Processing", shipped: "Shipped", delivered: "Delivered",
+  paid: "Order Received", processing: "Processing", shipped: "Shipped", delivered: "Delivered", cancelled: "Cancelled",
 };
 const STATUS_TONE: Record<string, "ink" | "cobalt" | "sun" | "success" | "danger" | "muted" | "wash"> = {
   paid:       "wash",
@@ -77,9 +65,21 @@ export default async function KitOrderPage({
   const updateState = await getUpdateRequestState(admin, `K${order.order_number}`);
 
   const currentIdx = STATUS_TIMELINE.indexOf(order.status);
+  // The kit label's carrier: the one saved on the order or with the label
+  // (the webhook saves it in labels[]), else told from the number, as on /orders/K<n>
+  const kitLabels = Array.isArray(order.labels) ? (order.labels as { trackingNumber?: string | null; trackingUrl?: string | null; carrier?: string | null }[]) : [];
+  const kitLabel = kitLabels.find((l) => l?.trackingNumber === order.tracking_number) ?? null;
+  const savedCarrier: string | null = order.carrier ?? kitLabel?.carrier ?? null;
   const trackUrl = order.tracking_number
-    ? getTrackUrl((order as any).carrier ?? null, order.tracking_number)
+    ? trackingLink(order.tracking_number, savedCarrier, kitLabel?.trackingUrl ?? null)
     : null;
+  const carrierName = order.tracking_number && savedCarrier?.trim().toLowerCase() !== "other"
+    ? trackingCarrier(order.tracking_number, savedCarrier).name
+    : savedCarrier;
+
+  // A cancelled kit (admin Cancel & Refund) has no delivery to follow
+  const kitCancelled = order.status === "cancelled";
+  const kitRefundedCents = Number(order.refunded_cents ?? 0);
 
   return (
     <div className="surface-chalk min-h-screen">
@@ -110,8 +110,21 @@ export default async function KitOrderPage({
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2">
+        {/* Cancelled: the same message as the public order page */}
+        {kitCancelled && (
+          <div className={`${PANEL} sm:col-span-2`}>
+            <h2 className={PANEL_LABEL}>Status</h2>
+            <div className="flex flex-col gap-1 text-[15px]">
+              <p className="font-bold text-ink">This order was cancelled.</p>
+              {kitRefundedCents > 0 && (
+                <p className="text-ink-soft">A refund of {formatCurrency(kitRefundedCents)} was issued.</p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Status timeline */}
-        {order.status !== "cancelled" && (
+        {!kitCancelled && (
           <div className={PANEL}>
             <h2 className={PANEL_LABEL}>Status</h2>
             <StatusTrack
@@ -124,7 +137,7 @@ export default async function KitOrderPage({
         )}
 
         {/* Request an update (once a week) */}
-        {order.status !== "cancelled" && (
+        {!kitCancelled && (
           <UpdateRequestPanel
             endpoint={`/api/account/kit-orders/${order.id}/update-request`}
             email={order.customer_email}
@@ -137,12 +150,12 @@ export default async function KitOrderPage({
         </div>
 
         {/* Tracking */}
-        {order.tracking_number && trackUrl && (
+        {order.tracking_number && trackUrl && !kitCancelled && (
           <TrackingPanel
             label="Shipment Tracking"
             number={order.tracking_number}
             href={trackUrl}
-            chip={(order as any).carrier ? <StatusPill tone="sun">{(order as any).carrier}</StatusPill> : null}
+            chip={carrierName ? <StatusPill tone="sun">{carrierName}</StatusPill> : null}
           />
         )}
 
