@@ -25,6 +25,7 @@ import { fbq } from "@/lib/pixel";
 import { loadSavedOrder, saveOrder } from "./saved-order";
 import { INSET, NOTE_SUN } from "@/components/checkout/form-styles";
 import { contactOk } from "@/lib/checkout-validation";
+import { TierAvailabilityNotice, tierAvailabilityProblems, useTierAvailability } from "./tier-availability";
 
 function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
   return {
@@ -244,10 +245,18 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     setShowMissing(true);
     revealMissing();
   }
+  // A tier on the order that closed or sold out since step 1: caught before
+  // signing (./tier-availability.tsx; the server still checks at checkout)
+  const tierAvailability = useTierAvailability(step === 4);
+  const tierProblems = tierAvailabilityProblems(
+    cards.map((c) => ({ tier: c.tier ?? selectedTier, name: c.card_name })),
+    tierAvailability,
+    tiers,
+  );
   function trySign() {
     if (backToFailingStep()) return;
     if (openUnsignedSlab()) return;
-    if (readyToSign) {
+    if (readyToSign && tierProblems.length === 0) {
       setShowMissing(false);
       return handleSubmit();
     }
@@ -494,6 +503,9 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
             </div>
             </Need>
           )}
+
+          {/* A tier on the order closed or sold out: pick another before signing */}
+          {step === 4 && <TierAvailabilityNotice problems={tierProblems} onChooseTier={() => goToStep(1)} />}
 
           <div className="mt-10 flex items-center justify-between gap-3 border-t border-line pt-6">
             <Button
