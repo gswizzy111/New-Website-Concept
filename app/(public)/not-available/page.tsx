@@ -1,27 +1,39 @@
 import Link from "next/link";
-import { Construction } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { PREVIEW_MESSAGE } from "@/lib/preview";
+import { Print, cta } from "@/components/brand";
+import mantleBeforeHeld from "@/public/home/mantle-before-held.jpg";
 
 export const metadata = { title: "Not available yet | The Card Doc" };
 
 export default function NotAvailablePage() {
   return (
-    <div className="bg-paper">
-      <div className="max-w-xl mx-auto px-4 md:px-10 py-24 md:py-32">
-        <span className="flex h-12 w-12 items-center justify-center rounded-md bg-rx-soft text-rx mb-6">
-          <Construction className="h-6 w-6" strokeWidth={1.75} />
-        </span>
-        <h1 className="font-heading text-4xl md:text-5xl font-extrabold tracking-[-0.015em] text-ink mb-4">
-          Not functional yet
-        </h1>
-        <p className="text-lg text-muted-foreground leading-relaxed mb-8">{PREVIEW_MESSAGE}</p>
-        <Link
-          href="/"
-          className="inline-flex h-11 items-center rounded-md bg-rx px-6 text-[15px] font-semibold text-primary-foreground hover:bg-rx/90 transition-colors"
-        >
-          Back to home
-        </Link>
+    <section className="surface-chalk overflow-x-clip">
+      <div className="wrap grid items-center gap-x-16 gap-y-12 py-20 md:py-28 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <div className="min-w-0">
+          <h1 className="hero-in display-lg text-ink">Not functional yet</h1>
+          <p className="hero-in lead mt-6 text-ink-soft" style={{ ["--d" as string]: 120 }}>
+            {PREVIEW_MESSAGE}
+          </p>
+          <div className="hero-in mt-10" style={{ ["--d" as string]: 200 }}>
+            <Link href="/" className={cta({ tone: "ink", size: "lg" })}>
+              <ArrowLeft aria-hidden className="size-5" strokeWidth={2} />
+              Back to home
+            </Link>
+          </div>
+        </div>
+        <Print
+          src={mantleBeforeHeld}
+          alt=""
+          aspect="4/5"
+          position="50% 24%"
+          tilt={4}
+          border="lg"
+          enterDelay={240}
+          sizes="(min-width: 1024px) 340px, 60vw"
+          className="mx-auto w-[64%] max-w-[20rem] lg:w-full"
+        />
       </div>
-    </div>
+    </section>
   );
 }

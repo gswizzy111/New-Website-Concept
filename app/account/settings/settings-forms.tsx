@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { KIT_US_STATES } from "@/lib/shipping-address";
 import { BUTTON_CN, FIELD_CN, LABEL_CN } from "../auth-card";
+import { PANEL, PANEL_TITLE } from "@/components/account/portal";
 
 type Profile = { name: string; phone: string; street1: string; street2: string; city: string; state: string; zip: string };
 
 function Saved({ ok, error }: { ok: boolean; error: string }) {
-  if (error) return <p role="alert" className="text-sm text-red-700">{error}</p>;
-  if (ok) return <p role="status" className="text-sm font-semibold text-green-700">Saved.</p>;
+  if (error) return <p role="alert" className="text-sm text-destructive">{error}</p>;
+  if (ok) return <p role="status" className="text-sm font-semibold text-success">Saved.</p>;
   return null;
 }
 
@@ -45,8 +46,8 @@ export function ProfileForm({ email, initial }: { email: string; initial: Profil
   }
 
   return (
-    <form onSubmit={save} className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
-      <h2 className="font-heading font-black text-lg text-foreground">Your details</h2>
+    <form onSubmit={save} className={`${PANEL} flex flex-col gap-5 sm:p-8`}>
+      <h2 className={PANEL_TITLE}>Your details</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="p-name" className={LABEL_CN}>Full name</label>
@@ -62,7 +63,7 @@ export function ProfileForm({ email, initial }: { email: string; initial: Profil
         </div>
       </div>
 
-      <h3 className="font-heading font-bold text-base text-foreground mt-2">Default shipping address</h3>
+      <h3 className="label-caps mt-3 border-t border-line pt-6 text-[15px] text-ink-soft">Default shipping address</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="sm:col-span-2">
           <label htmlFor="p-street1" className={LABEL_CN}>Street address</label>
@@ -98,7 +99,7 @@ export function ProfileForm({ email, initial }: { email: string; initial: Profil
         </div>
       </div>
       <Saved ok={ok} error={error} />
-      <button type="submit" disabled={saving} className={`${BUTTON_CN} sm:w-auto sm:px-8 sm:self-start`}>{saving ? "Saving…" : "Save details"}</button>
+      <button type="submit" disabled={saving} className={`${BUTTON_CN} sm:w-auto sm:self-start sm:px-8`}>{saving ? "Saving…" : "Save details"}</button>
     </form>
   );
 }
@@ -130,8 +131,8 @@ export function PasswordForm() {
   }
 
   return (
-    <form onSubmit={save} className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
-      <h2 className="font-heading font-black text-lg text-foreground">Change password</h2>
+    <form onSubmit={save} className={`${PANEL} flex flex-col gap-5 sm:p-8`}>
+      <h2 className={PANEL_TITLE}>Change password</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label htmlFor="pw-current" className={LABEL_CN}>Current password</label>
@@ -143,7 +144,7 @@ export function PasswordForm() {
         </div>
       </div>
       <Saved ok={ok} error={error} />
-      <button type="submit" disabled={saving} className={`${BUTTON_CN} sm:w-auto sm:px-8 sm:self-start`}>{saving ? "Saving…" : "Change password"}</button>
+      <button type="submit" disabled={saving} className={`${BUTTON_CN} sm:w-auto sm:self-start sm:px-8`}>{saving ? "Saving…" : "Change password"}</button>
     </form>
   );
 }

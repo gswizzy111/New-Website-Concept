@@ -79,7 +79,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         {/* Header card */}
         <div className="bg-white rounded-xl border border-border p-6 mb-5">
           <div className="flex flex-wrap items-start gap-2 mb-3">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isInquiry ? "bg-rx text-white" : isProblem ? "bg-red-100 text-red-800" : isSupport ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isInquiry ? "bg-cobalt text-white" : isProblem ? "bg-red-100 text-red-800" : isSupport ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
               {isInquiry ? "Update Request" : isProblem ? "Problem Report" : isSupport ? "Support" : "Internal"}
             </span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[c.status] ?? "bg-gray-100 text-gray-500"}`}>

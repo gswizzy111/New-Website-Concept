@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle2 } from "lucide-react";
+import { cta } from "@/components/brand";
 
 export function ComplaintForm({ caseId, token }: { caseId: string; token: string }) {
   const [complaint, setComplaint] = useState("");
@@ -31,9 +33,11 @@ export function ComplaintForm({ caseId, token }: { caseId: string; token: string
   if (done) {
     return (
       <div className="text-center py-6">
-        <div className="text-4xl mb-3">✅</div>
-        <p className="font-black text-lg text-gray-900 mb-2">Complaint submitted</p>
-        <p className="text-sm text-gray-500 leading-relaxed">
+        <span aria-hidden className="mx-auto mb-4 grid size-14 place-items-center rounded-full bg-success-tint text-success">
+          <CheckCircle2 className="size-7" strokeWidth={2} />
+        </span>
+        <p className="mb-2 font-heading text-[1.75rem] leading-none font-black text-ink">Complaint submitted</p>
+        <p className="text-[15px] leading-relaxed text-ink-soft">
           We&apos;ll review your case and get back to you within <strong>3 business days</strong>.
         </p>
       </div>
@@ -43,11 +47,12 @@ export function ComplaintForm({ caseId, token }: { caseId: string; token: string
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
-        <label className="block text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5">
+        <label htmlFor="complaint-text" className="mb-1.5 block text-sm font-semibold text-ink">
           Your complaint *
         </label>
         <textarea
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-gray-400 bg-white resize-none transition-colors"
+          id="complaint-text"
+          className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
           rows={6}
           value={complaint}
           onChange={(e) => setComplaint(e.target.value)}
@@ -55,11 +60,11 @@ export function ComplaintForm({ caseId, token }: { caseId: string; token: string
           autoFocus
         />
       </div>
-      {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
+      {error && <p className="text-sm text-destructive font-medium">{error}</p>}
       <button
         type="submit"
         disabled={submitting || !complaint.trim()}
-        className="w-full h-11 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-800 transition-colors disabled:opacity-40"
+        className={cta({ tone: "sun", size: "md", className: "w-full" })}
       >
         {submitting ? "Submitting..." : "Submit Complaint"}
       </button>

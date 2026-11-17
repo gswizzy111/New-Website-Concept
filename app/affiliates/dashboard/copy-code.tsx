@@ -18,7 +18,7 @@ export function CopyCode({ code }: { code: string }) {
     <button
       type="button"
       onClick={copy}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/10 transition-colors"
+      className="btn btn-sun btn-sm gap-1.5"
     >
       {copied ? <Check className="size-3.5" strokeWidth={1.75} /> : <Copy className="size-3.5" strokeWidth={1.75} />}
       <span aria-live="polite">{copied ? "Copied" : "Copy code"}</span>

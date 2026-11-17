@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getPartner } from "@/lib/partner-portal";
 import { LogSaleButton } from "./log-sale-button";
 import { LogReferralButton } from "./log-referral-button";
+import { PAGE_TITLE, PANEL, PANEL_TITLE, PortalHeader } from "@/components/account/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -41,27 +42,27 @@ export default async function PartnerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-secondary/30">
-      <div className="max-w-3xl mx-auto px-6 py-10">
+    <div className="surface-chalk min-h-screen">
+      <PortalHeader width="max-w-3xl">
+        <form action="/api/partners/logout" method="POST">
+          <button className="inline-flex min-h-11 items-center rounded-full px-3 text-sm font-bold text-ink-soft transition-colors hover:bg-chalk hover:text-ink">Sign out</button>
+        </form>
+      </PortalHeader>
+      <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 md:py-14">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="font-heading font-black text-3xl text-foreground">{partner.store_name ?? partner.name}</h1>
-            <p className="text-muted-foreground text-sm mt-1">Partner Dashboard — The Card Doc</p>
-          </div>
-          <form action="/api/partners/logout" method="POST">
-            <button className="text-sm text-muted-foreground hover:text-foreground transition-colors">Sign out</button>
-          </form>
+        <div className="mb-8">
+          <h1 className={`${PAGE_TITLE} [overflow-wrap:anywhere]`}>{partner.store_name ?? partner.name}</h1>
+          <p className="mt-3 text-[15px] text-ink-soft">Partner Dashboard — The Card Doc</p>
         </div>
 
         {/* Profit banner */}
-        <div className="bg-ink rounded-xl p-6 mb-4 flex items-center justify-between">
+        <div className="surface-ink mb-4 flex flex-wrap items-end justify-between gap-4 rounded-[22px] p-6 sm:p-8">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-primary-foreground/70 mb-1">Total Profit Earned</p>
-            <p className="font-heading font-black text-4xl text-primary-foreground">${totalProfit.toFixed(2)}</p>
+            <p className="label-caps mb-2 text-[15px] text-sun">Total Profit Earned</p>
+            <p className="font-heading text-[3.25rem] leading-none font-black md:text-[4rem]">${totalProfit.toFixed(2)}</p>
           </div>
-          <div className="text-right text-primary-foreground/70 text-xs space-y-0.5">
+          <div className="space-y-0.5 text-xs text-on-dark-muted sm:text-right">
             <p>{kitsSold} kit{kitsSold !== 1 ? "s" : ""} × $18.50</p>
             <p>{polishSold} polish × $7.75</p>
             <p>{spraySold} spray × $8.10</p>
@@ -69,35 +70,35 @@ export default async function PartnerDashboard() {
         </div>
 
         {/* Inventory stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="mb-6 grid grid-cols-3 gap-3 sm:gap-4">
           {[
             { label: "Kits", allocated: partner.kits_allocated ?? 0, sold: kitsSold, remaining: remainingKits },
             { label: "Polish", allocated: partner.polish_allocated ?? 0, sold: polishSold, remaining: remainingPolish },
             { label: "Spray", allocated: partner.spray_allocated ?? 0, sold: spraySold, remaining: remainingSpray },
           ].map(({ label, allocated, sold, remaining }) => (
-            <div key={label} className="bg-white rounded-xl border border-border p-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{label}</p>
-              <p className="font-heading font-black text-2xl text-foreground">{remaining}<span className="text-sm font-normal text-muted-foreground">/{allocated}</span></p>
-              <p className="text-xs text-muted-foreground mt-1">{sold} sold</p>
+            <div key={label} className="rounded-[18px] bg-white p-4 shadow-[0_0_0_1px_var(--line)] sm:p-5">
+              <p className="label-caps mb-2 text-[15px] text-ink-soft">{label}</p>
+              <p className="font-heading text-[2.25rem] leading-none font-black text-ink">{remaining}<span className="font-sans text-sm font-semibold text-ink-soft">/{allocated}</span></p>
+              <p className="mt-1.5 text-xs text-ink-soft">{sold} sold</p>
             </div>
           ))}
         </div>
 
         {/* Actions */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="mb-8 grid grid-cols-2 gap-3 sm:gap-4">
           <LogSaleButton remainingKits={remainingKits} remainingPolish={remainingPolish} remainingSpray={remainingSpray} />
           <LogReferralButton />
         </div>
 
         {/* Sales history */}
-        <div className="bg-white rounded-xl border border-border p-6 mb-4">
-          <h2 className="font-heading font-black text-lg text-foreground mb-4">Sales History</h2>
+        <div className={`${PANEL} mb-4`}>
+          <h2 className={`${PANEL_TITLE} mb-4`}>Sales History</h2>
           {!allSales.length ? (
             <p className="text-sm text-muted-foreground">No sales logged yet.</p>
           ) : (
             <div className="flex flex-col gap-3">
               {allSales.map((s) => (
-                <div key={s.id} className="flex items-center justify-between text-sm border-b border-border pb-3 last:border-0 last:pb-0">
+                <div key={s.id} className="flex items-center justify-between text-sm border-b border-line pb-3 last:border-0 last:pb-0">
                   <div>
                     <p className="font-bold text-foreground">{productLabel(s)} sold</p>
                     {s.notes && <p className="text-muted-foreground text-xs">{s.notes}</p>}
@@ -110,16 +111,16 @@ export default async function PartnerDashboard() {
         </div>
 
         {/* Referrals history */}
-        <div className="bg-white rounded-xl border border-border p-6">
-          <h2 className="font-heading font-black text-lg text-foreground mb-4">
-            Referrals <span className="text-muted-foreground font-normal text-sm">({referrals?.length ?? 0} total)</span>
+        <div className={PANEL}>
+          <h2 className={`${PANEL_TITLE} mb-4`}>
+            Referrals <span className="font-sans text-sm font-semibold text-ink-soft">({referrals?.length ?? 0} total)</span>
           </h2>
           {!referrals?.length ? (
             <p className="text-sm text-muted-foreground">No referrals logged yet.</p>
           ) : (
             <div className="flex flex-col gap-3">
               {referrals.map((r) => (
-                <div key={r.id} className="flex items-center justify-between text-sm border-b border-border pb-3 last:border-0 last:pb-0">
+                <div key={r.id} className="flex items-center justify-between text-sm border-b border-line pb-3 last:border-0 last:pb-0">
                   <div>
                     <p className="font-bold text-foreground">{r.client_name ?? "Client"}</p>
                     {r.notes && <p className="text-muted-foreground text-xs">{r.notes}</p>}

@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 const STATUS_COLORS: Record<string, string> = {
   paid:       "bg-blue-100 text-blue-700",
   processing: "bg-yellow-100 text-yellow-700",
-  shipped:    "bg-ink text-paper",
+  shipped:    "bg-ink text-chalk",
   delivered:  "bg-emerald-100 text-emerald-700",
 };
 

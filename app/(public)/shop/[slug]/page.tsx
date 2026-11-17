@@ -1,23 +1,26 @@
 import { cache } from "react";
 import type { Metadata } from "next";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { catalogProduct } from "@/lib/shop-catalog";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ORG_ID, SITE, breadcrumbs, canonical } from "@/lib/seo";
 import { formatCurrency } from "@/lib/utils";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { AddToCartButtonLarge } from "./add-to-cart-button-large";
-import { Info, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Info, Package } from "lucide-react";
 import { isSoldOut } from "@/lib/site-config";
 import { PixelViewContent } from "@/components/pixel-view-content";
-import { getSubscriptionPriceCents } from "@/lib/store-config";
+import { cta } from "@/components/brand";
+import { KIT_REVIEW } from "@/lib/reviews";
 
 export const dynamic = "force-dynamic";
 
 const getProduct = cache(async (slug: string) => {
   const admin = createAdminClient();
   const { data } = await admin.from("products").select("*").eq("slug", slug).eq("active", true).single();
-  return data;
+  // No database product (this preview has none): fall back to the shop's listed item.
+  return data ?? catalogProduct(slug) ?? null;
 });
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
@@ -43,23 +46,23 @@ function DescriptionBlock({ text }: { text: string }) {
     const items = itemsText.split(/\s+(?=\d+[x×])/).filter(Boolean);
     if (items.length > 1) {
       return (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col">
           {items.map((item, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm">
-              <span className="mt-[9px] h-1 w-1 rounded-full bg-rx shrink-0" aria-hidden />
-              <span className="text-muted-foreground">{item.trim()}</span>
+            <li key={i} className="flex items-start gap-3 border-b border-line py-3 text-[16px] leading-snug last:border-0">
+              <span className="mt-[7px] size-2.5 shrink-0 rounded-[3px] bg-cobalt" aria-hidden />
+              <span className="text-ink">{item.trim()}</span>
             </li>
           ))}
         </ul>
       );
     }
   }
-  return <p className="text-muted-foreground leading-relaxed text-sm">{text}</p>;
+  return <p className="text-[16px] leading-relaxed text-ink">{text}</p>;
 }
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const [product, subscriptionPriceCents] = await Promise.all([getProduct(slug), getSubscriptionPriceCents()]);
+  const product = await getProduct(slug);
 
   if (!product) notFound();
 
@@ -89,87 +92,117 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
     ]),
   ];
 
+  const images: string[] = product.images ?? [];
+  const isKit = product.name.toLowerCase().includes("kit");
+
   return (
-    <div className="max-w-6xl mx-auto px-4 md:px-10 py-10 md:py-14">
+    <div className="surface-chalk">
       <JsonLd data={structured} />
       <PixelViewContent contentName={product.name} contentCategory={product.category ?? "Shop"} />
-      <Link href="/shop" className="text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 block">
-        &larr; Back to Shop
-      </Link>
+      <div className="wrap pt-6 pb-20 md:pt-10 md:pb-28">
+        <Link
+          href="/shop"
+          className="mb-6 -ml-3 inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-[15px] font-bold text-ink-soft transition-colors hover:bg-white hover:text-ink md:mb-10"
+        >
+          <ArrowLeft aria-hidden className="size-4" strokeWidth={2} />
+          Back to Shop
+        </Link>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20">
-        {/* Images */}
-        <div className="flex flex-col gap-3">
-          <div className="aspect-square bg-secondary overflow-hidden rounded-lg border border-rule">
-            {product.images?.[0] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full bg-secondary" />
+        <div className="grid grid-cols-1 gap-10 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] md:gap-14 lg:gap-20">
+          {/* The item, on a studio sweep */}
+          <div className="flex flex-col gap-4 md:sticky md:top-[calc(var(--header-h)+24px)] md:self-start">
+            <div className="seamless relative aspect-square overflow-hidden shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
+              {images[0] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={images[0]} alt={product.name} className="h-full w-full object-cover" />
+              ) : (
+                <div aria-hidden className="grid h-full w-full place-items-center text-ink/20">
+                  <Package className="size-20" strokeWidth={1} />
+                </div>
+              )}
+            </div>
+            {images.length > 1 && (
+              <div className="flex flex-wrap gap-3">
+                {images.slice(1).map((url: string, i: number) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={url} alt={product.name} className="size-20 rounded-[12px] bg-white object-cover shadow-[0_0_0_1px_var(--line)] md:size-24" />
+                ))}
+              </div>
             )}
           </div>
-          {product.images?.length > 1 && (
-            <div className="flex gap-2">
-              {product.images.slice(1).map((url: string, i: number) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={i} src={url} alt={product.name} className="w-16 h-16 object-cover rounded-md border border-rule" />
-              ))}
+
+          {/* Item card */}
+          <div className="flex flex-col gap-8">
+            <div>
+              {product.category && (
+                <p className="eyebrow mb-4 inline-flex items-center gap-2.5 text-cobalt">
+                  <span aria-hidden className="h-[3px] w-6 rounded-full bg-cobalt" />
+                  {product.category}
+                </p>
+              )}
+              <h1 className="font-heading text-[3rem] leading-[0.9] font-black tracking-[-0.01em] text-ink md:text-[4.25rem]">{product.name}</h1>
+
+              <p className="mt-6 font-heading text-[2.75rem] leading-none font-black text-ink tabular-nums">
+                {formatCurrency(product.price_cents)}
+              </p>
             </div>
-          )}
+
+            {product.description && (
+              <div className="rounded-[22px] bg-white p-5 shadow-[0_0_0_1px_var(--line)] sm:p-6">
+                <DescriptionBlock text={product.description} />
+              </div>
+            )}
+
+            {product.inventory_count > 0 && product.inventory_count <= 5 && (
+              <p className="inline-flex items-center gap-2 self-start rounded-full bg-sun-tint px-3.5 py-2 text-sm font-bold text-ink">
+                <span aria-hidden className="size-2 rounded-full bg-sun-deep" />
+                Only {product.inventory_count} left in stock
+              </p>
+            )}
+
+            <div className="flex flex-col gap-4">
+              {isSoldOut() ? (
+                <div className="flex min-h-14 items-center justify-center rounded-full bg-white px-6 shadow-[inset_0_0_0_1.5px_var(--line-strong)]">
+                  <span className="font-heading text-xl font-extrabold text-ink-soft">Sold Out — Back Soon</span>
+                </div>
+              ) : product.inventory_count === 0 ? (
+                <p className="font-heading text-2xl font-extrabold text-ink-soft">Out of stock</p>
+              ) : (
+                <AddToCartButtonLarge
+                  product={{
+                    id: product.id,
+                    name: product.name,
+                    price_cents: product.price_cents,
+                    slug: product.slug,
+                    image: product.images?.[0],
+                  }}
+                  requiresSize={product.name.toLowerCase().includes("glove")}
+                />
+              )}
+
+              <p className="mt-1 flex items-start gap-2.5 text-sm leading-relaxed text-ink-soft">
+                <Info aria-hidden className="mt-0.5 size-4 shrink-0 text-cobalt" strokeWidth={1.75} />
+                All sales final. Defective or missing items are replaced or refunded.
+              </p>
+            </div>
+
+            {isKit && (
+              <figure className="border-t border-line pt-8">
+                <blockquote className="font-heading text-[1.75rem] leading-[1.05] font-extrabold text-ink">
+                  <p><span aria-hidden className="text-sun-deep">&ldquo;</span>{KIT_REVIEW.quote}<span aria-hidden className="text-sun-deep">&rdquo;</span></p>
+                </blockquote>
+                <figcaption className="label-caps mt-3 text-[15px] text-ink-soft">{KIT_REVIEW.from}</figcaption>
+              </figure>
+            )}
+          </div>
         </div>
 
-        {/* Info */}
-        <div className="flex flex-col gap-6">
-          <div>
-            <p className="rx-label text-rx mb-2">
-              {product.category}
-            </p>
-            <h1 className="font-heading text-3xl md:text-5xl font-extrabold tracking-[-0.015em] text-ink mb-3">{product.name}</h1>
-
-            <p className="font-heading text-3xl font-bold tracking-[-0.01em] text-ink tabular-nums">{formatCurrency(product.price_cents)}</p>
-          </div>
-
-          {product.description && <DescriptionBlock text={product.description} />}
-
-          {product.inventory_count > 0 && product.inventory_count <= 5 && (
-            <p className="font-mono text-xs text-rx">Only {product.inventory_count} left in stock</p>
-          )}
-
-          <div className="border-t border-border pt-6 flex flex-col gap-4">
-            {isSoldOut() ? (
-              <div className="flex items-center justify-center h-13 rounded-md bg-secondary border border-rule">
-                <span className="font-bold text-muted-foreground tracking-widest uppercase text-sm">Sold Out — Back Soon</span>
-              </div>
-            ) : product.inventory_count === 0 ? (
-              <p className="text-muted-foreground font-medium">Out of stock</p>
-            ) : (
-              <AddToCartButtonLarge
-                product={{
-                  id: product.id,
-                  name: product.name,
-                  price_cents: product.price_cents,
-                  slug: product.slug,
-                  image: product.images?.[0],
-                }}
-                requiresSize={product.name.toLowerCase().includes("glove")}
-              />
-            )}
-
-            {!isSoldOut() && product.name.toLowerCase().includes("kit") && (
-              <Link
-                href="/subscribe"
-                className="w-full flex items-center justify-center gap-2 h-13 font-semibold text-sm tracking-wide border border-ink/70 text-ink hover:border-rx hover:text-rx active:scale-[0.98] transition-all duration-150 rounded-md"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Subscribe — {formatCurrency(subscriptionPriceCents)}/mo · Save every month
-              </Link>
-            )}
-
-            <p className="flex items-start gap-2 text-sm text-ink">
-              <Info className="h-4 w-4 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
-              All sales final. Defective or missing items are replaced or refunded.
-            </p>
-          </div>
+        <div className="mt-20 flex flex-col items-start justify-between gap-6 rounded-[22px] bg-ink p-7 text-white sm:flex-row sm:items-center md:mt-28 md:p-10">
+          <p className="font-heading text-[2rem] leading-[0.95] font-black md:text-[2.5rem]">Your Collection Means Something.</p>
+          <Link href="/tier-selection" className={cta({ tone: "sun", size: "lg", className: "shrink-0" })}>
+            Book a Restoration
+            <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+          </Link>
         </div>
       </div>
     </div>

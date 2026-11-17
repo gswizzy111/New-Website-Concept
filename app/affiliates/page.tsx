@@ -60,7 +60,7 @@ export default function AffiliateLoginPage() {
             required
           />
         </div>
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <button type="submit" disabled={loading} className={PORTAL_BUTTON_CN}>
           {loading ? "Signing in..." : "Sign In"}
         </button>

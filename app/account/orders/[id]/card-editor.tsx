@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { X, Upload, ChevronDown, ChevronUp } from "lucide-react";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { cta } from "@/components/brand";
 
 interface Card {
   id: string;
@@ -65,14 +66,15 @@ function PhotoEditor({
   return (
     <div className="flex flex-wrap gap-2 mt-1">
       {urls.map((url) => (
-        <div key={url} className="relative w-14 h-14 rounded-lg overflow-hidden border border-border group">
+        <div key={url} className="group relative size-16 overflow-hidden rounded-[10px] shadow-[0_0_0_1px_var(--line)]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={url} alt="" className="w-full h-full object-cover" />
           {!disabled && (
             <button
               type="button"
               onClick={() => onChange(urls.filter((u) => u !== url))}
-              className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+              aria-label="Remove photo"
+              className="absolute inset-0 flex items-center justify-center bg-ink/60 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
             >
               <X className="h-4 w-4 text-white" />
             </button>
@@ -84,9 +86,10 @@ function PhotoEditor({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="w-14 h-14 rounded-lg border-2 border-dashed border-border hover:border-primary transition-colors flex items-center justify-center text-muted-foreground hover:text-primary disabled:opacity-50"
+          aria-label="Upload photos"
+          className="flex size-16 items-center justify-center rounded-[10px] border-2 border-dashed border-ink/25 bg-chalk text-ink-soft transition-colors hover:border-cobalt hover:text-cobalt disabled:opacity-50"
         >
-          {uploading ? <span className="text-[10px]">...</span> : <Upload className="h-4 w-4" />}
+          {uploading ? <span className="text-xs">...</span> : <Upload className="h-4 w-4" />}
         </button>
       )}
       <input
@@ -97,7 +100,7 @@ function PhotoEditor({
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />
-      {uploadError && <p className="w-full text-xs font-semibold text-red-600">{uploadError}</p>}
+      {uploadError && <p className="w-full text-xs font-semibold text-destructive">{uploadError}</p>}
     </div>
   );
 }
@@ -140,13 +143,13 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
 
   if (locked) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+      <div className="rounded-[14px] bg-sun-tint p-4 text-sm text-ink">
         <p className="font-semibold mb-1">Cards locked</p>
         <p>{lockReason ?? "Your package is in transit and can no longer be edited."}</p>
         <div className="mt-3 flex flex-col gap-2">
           {cards.map((card, i) => (
             <div key={card.id} className="flex gap-2">
-              <span className="text-amber-600 font-bold text-xs w-5 shrink-0 pt-0.5">{i + 1}.</span>
+              <span className="w-5 shrink-0 pt-0.5 text-xs font-bold text-ink-soft">{i + 1}.</span>
               <span className="font-medium text-sm">{card.card_name}</span>
             </div>
           ))}
@@ -157,34 +160,35 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
+      <div className="rounded-[14px] bg-cobalt-wash px-4 py-3 text-sm text-cobalt-deep">
         You can edit your card details below until your package is picked up by the carrier.
       </div>
 
       {cards.map((card, i) => {
         const open = expanded[card.id] ?? false;
         return (
-          <div key={card.id} className="border border-border rounded-xl overflow-hidden">
+          <div key={card.id} className="overflow-hidden rounded-[16px] shadow-[0_0_0_1px_var(--line)]">
             <button
               type="button"
               onClick={() => setExpanded((prev) => ({ ...prev, [card.id]: !open }))}
-              className="w-full flex items-center justify-between px-5 py-4 bg-white hover:bg-secondary/30 transition-colors text-left"
+              aria-expanded={open}
+              className="flex min-h-14 w-full items-center justify-between bg-white px-5 py-4 text-left transition-colors hover:bg-chalk"
             >
               <div>
-                <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground mr-2">Card {i + 1}</span>
-                <span className="font-semibold text-foreground text-sm">{card.card_name || "Unnamed card"}</span>
+                <span className="label-caps mr-2.5 text-[14px] text-cobalt">Card {i + 1}</span>
+                <span className="text-[15px] font-semibold text-ink">{card.card_name || "Unnamed card"}</span>
               </div>
               {open ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </button>
 
             {open && (
-              <div className="px-5 pb-5 pt-1 bg-white border-t border-border flex flex-col gap-3">
+              <div className="flex flex-col gap-4 border-t border-line bg-white px-5 pt-4 pb-5">
                 <Field label="Card Name *">
                   <input
                     type="text"
                     value={card.card_name}
                     onChange={(e) => updateCard(card.id, { card_name: e.target.value })}
-                    className="w-full h-9 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary"
+                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                   />
                 </Field>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -193,7 +197,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       type="text"
                       value={card.card_set ?? ""}
                       onChange={(e) => updateCard(card.id, { card_set: e.target.value || null })}
-                      className="w-full h-9 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary"
+                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     />
                   </Field>
                   <Field label="Year">
@@ -201,7 +205,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       type="text"
                       value={card.card_year ?? ""}
                       onChange={(e) => updateCard(card.id, { card_year: e.target.value || null })}
-                      className="w-full h-9 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary"
+                      className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     />
                   </Field>
                 </div>
@@ -215,7 +219,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                       const v = parseFloat(e.target.value);
                       updateCard(card.id, { estimated_value_cents: isNaN(v) ? null : Math.round(v * 100) });
                     }}
-                    className="w-full h-9 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary"
+                    className="w-full h-11 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     placeholder="0"
                   />
                 </Field>
@@ -224,7 +228,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
                     value={card.notes ?? ""}
                     onChange={(e) => updateCard(card.id, { notes: e.target.value || null })}
                     rows={2}
-                    className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary resize-none"
+                    className="w-full resize-none py-2.5 min-w-0 rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px]"
                     placeholder="Any special instructions for this card…"
                   />
                 </Field>
@@ -245,12 +249,12 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
         <button
           onClick={save}
           disabled={saving || !dirty}
-          className="px-6 h-10 bg-primary text-primary-foreground text-sm font-bold rounded-xl hover:bg-primary/90 disabled:opacity-40 transition-colors"
+          className={cta({ tone: "sun", size: "md" })}
         >
           {saving ? "Saving…" : "Save Changes"}
         </button>
         {flash && (
-          <p className={`text-sm font-semibold ${flash.type === "success" ? "text-green-600" : "text-red-600"}`}>
+          <p className={`text-sm font-semibold ${flash.type === "success" ? "text-success" : "text-destructive"}`}>
             {flash.msg}
           </p>
         )}
@@ -262,7 +266,7 @@ export function CardEditor({ orderId, initialCards, locked, lockReason }: Props)
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground block mb-1.5">{label}</label>
+      <label className="mb-1.5 block text-sm font-semibold text-ink">{label}</label>
       {children}
     </div>
   );

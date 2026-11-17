@@ -1,36 +1,44 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import Image from "next/image";
 import {
-  Ban,
+  ArrowRight,
+  ArrowUpRight,
   BadgeCheck,
+  Camera,
+  ClipboardCheck,
   Clock,
-  Eye,
-  Hand,
+  Package,
   Plus,
+  ScanSearch,
   ShieldAlert,
-  ShieldCheck,
-  Truck,
-  Users,
+  Star,
+  UserRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
-import { CountUp } from "@/components/motion/count-up";
-import { VelocityMarquee } from "@/components/motion/velocity-marquee";
 import { BeforeAfter } from "@/components/motion/before-after";
 import { TrustedBy } from "@/components/marketing/trusted-by";
-import { getCardsRestoredStat } from "@/lib/site-stats";
 import { ORG_ID, SITE, INSTAGRAM_URL, canonical } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/json-ld";
-import { ReviewsBand } from "@/components/marketing/comic-reviews";
-import { TrustPills } from "@/components/marketing/trust-pills";
+import { FeaturedReview, ReviewBubbles } from "@/components/marketing/comic-reviews";
+import { ProcessSteps } from "@/components/marketing/process-steps";
+import { TrustMarquee } from "@/components/marketing/trust-pills";
+import { WatchTheWork } from "@/components/marketing/watch-the-work";
 import { SERVICE_CARDS } from "@/lib/service-cards";
-import { CardSlot } from "@/components/marketing/card-slot";
-import { HERO, PROCESS, REASONS, RESULTS } from "@/lib/about";
-import mantleBefore from "@/public/specimen-mantle-before.jpg";
-import mantleAfter from "@/public/specimen-mantle-after.jpg";
-import mantlePair from "@/public/before-after-mickey-mantle.png";
-import charmander from "@/public/specimen-charmander.png";
-import garchomp from "@/public/before-after-garchomp.png";
+import { HERO, PROCESS, REASONS } from "@/lib/about";
+import { AcrylicHolder, Marquee, Print, cta } from "@/components/brand";
+import { cn } from "@/lib/utils";
+import rayquazaCard from "@/public/home/all-cards/rayquaza.webp";
+import mantle1952Card from "@/public/home/all-cards/mantle-1952.webp";
+import jordan1986Card from "@/public/home/all-cards/jordan-1986.webp";
+import charizardPsa from "@/public/home/charizard-psa.jpg";
+import prepMicroscope from "@/public/home/prep-microscope.jpg";
+import restorationKit from "@/public/shop/the-card-doc-restoration-kit.webp";
+import gyaradosProcessBefore from "@/public/home/gyarados-process-before.jpg";
+import gyaradosProcessAfter from "@/public/home/gyarados-process-after.jpg";
+import { CardStack, type StackCard } from "@/components/marketing/card-stack";
+import gyaradosBefore from "@/public/specimen-gyarados-before.jpg";
+import gyaradosAfter from "@/public/specimen-gyarados-after.jpg";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +48,21 @@ export const metadata: Metadata = {
 
 const TAGLINE = "Expert card restoration & PSA prep — every card treated like it's worth a fortune.";
 const INSTAGRAM = INSTAGRAM_URL;
+
+/** The card kinds the owner lists in the FAQ answer below, as labels,
+ * grouped the way the answer groups them (its own words as group names). */
+const CARD_KINDS: { group?: string; items: string[] }[] = [
+  { group: "Trading cards", items: ["Pokémon", "Magic: The Gathering", "Yu-Gi-Oh!"] },
+  { group: "Sports cards", items: ["Baseball", "Basketball", "Football", "Hockey"] },
+  { items: ["Vintage", "Modern", "Raw", "Graded"] },
+];
+
+/** "We do all cards.": one Pokémon, one baseball and one basketball card. */
+const ALL_CARDS: StackCard[] = [
+  { src: mantle1952Card, alt: "A 1952 Topps Mickey Mantle baseball card" },
+  { src: rayquazaCard, alt: "A Rayquaza Gold Star Pokémon card" },
+  { src: jordan1986Card, alt: "A 1986 Fleer Michael Jordan basketball card" },
+];
 
 const FIXES = ["Creases", "Dents", "Dimples", "Edge lifts", "Corner lifts", "Minor bends", "Holo polishing", "Surface cleaning"];
 
@@ -66,32 +89,49 @@ const FAQ = [
   },
 ];
 
-const TOS_HIGHLIGHTS = [
+const TOS_HIGHLIGHTS: { title: string; body: string; icon: LucideIcon }[] = [
   {
     title: "Turnaround times are estimates",
     body: "All turnaround times shown are rough estimates and not guaranteed. Actual processing may be affected by order volume, card condition, shipping delays, or circumstances outside our control.",
-    Icon: Clock,
+    icon: Clock,
   },
   {
     title: "You assume shipping risk",
     body: "You are responsible for selecting your shipping method and carrier. The Card Doc assumes no responsibility for loss or damage in transit until items are physically received and confirmed.",
-    Icon: Truck,
+    icon: Package,
   },
   {
     title: "Alteration Risk",
     body: "Cards can be flagged as altered: professional graders can detect restoration and may give an 'Altered' designation. If your card is damaged during restoration, our liability is limited to the service fee paid — not the card's market value.",
-    Icon: ShieldAlert,
+    icon: ShieldAlert,
   },
   {
     title: "No refunds after work begins",
     body: "All sales are final once restoration work has commenced. If we believe a card won't respond well to treatment, we will contact you before proceeding.",
-    Icon: Ban,
+    icon: ClipboardCheck,
   },
+];
+
+/** The six steps of /how-it-works, titles and notes word for word. */
+const STEPS: { title: string; note: string }[] = [
+  { title: "Choose Your Service, Tier, and Add-Ons", note: "(Tiers, services, and add-ons lock at checkout and cannot be changed afterward)" },
+  { title: "Book Your Order at theonethatsaveditall.com", note: "(Payment is collected in full at checkout)" },
+  { title: "Pack and Ship Your Cards", note: "(US & Puerto Rico orders only)" },
+  { title: "Arrival, Check-In, and Evaluation", note: "(Allow 1–3 business days after carrier delivery for check-in)" },
+  { title: "Hands-On Work", note: "(Order status: In Progress to Completed)" },
+  { title: "Return Shipping", note: "(Order status: Shipped Back to Delivered)" },
 ];
 
 const SERVICES = SERVICE_CARDS;
 
-const REASON_ICONS = [Users, BadgeCheck, Eye, ShieldCheck];
+// "30+ years of combined collecting", set as a big figure and its words.
+const YEARS = (() => {
+  const title = REASONS.items[1].title;
+  const m = title.match(/^(\S+)\s(.*)$/);
+  return m ? { figure: m[1], rest: m[2] } : { figure: title, rest: "" };
+})();
+
+const REASON_ICONS: LucideIcon[] = [UserRound, Star, ScanSearch, BadgeCheck];
 
 function structuredData() {
   return {
@@ -136,238 +176,355 @@ function structuredData() {
   };
 }
 
-function Eyebrow({ children, tone = "rx" }: { children: React.ReactNode; tone?: "rx" | "light" }) {
-  return (
-    <p className={`flex items-center gap-3 font-heading text-xs md:text-[13px] font-extrabold uppercase tracking-[0.14em] ${tone === "rx" ? "text-rx" : "text-white"}`}>
-      <span aria-hidden className={`h-[3px] w-8 rounded-full ${tone === "rx" ? "bg-rx" : "bg-white"}`} />
-      {children}
-    </p>
-  );
+/** A small card-shaped mark: the ticker separator and the category bullets. */
+function CardMark({ className = "" }: { className?: string }) {
+  return <span aria-hidden className={cn("inline-block h-[18px] w-[13px] shrink-0 rounded-[3px]", className)} />;
 }
 
-function Frame({
-  children,
-  label,
-  detail,
-  className = "",
-  tilt = "0deg",
-}: {
-  children: React.ReactNode;
-  label: string;
-  detail?: string;
-  className?: string;
-  tilt?: string;
-}) {
-  return (
-    <figure
-      className={`comic-lift rounded-2xl bg-white comic-border comic-shadow overflow-hidden ${className}`}
-      style={{ transform: `rotate(${tilt})`, ["--tilt" as string]: tilt }}
-    >
-      {children}
-      <figcaption className="flex items-baseline justify-between gap-3 border-t-[3px] border-ink bg-bone px-4 py-3">
-        <span className="font-heading text-sm md:text-base font-extrabold uppercase tracking-[0.02em] text-ink">{label}</span>
-        {detail && <span className="text-xs text-muted-foreground text-right">{detail}</span>}
-      </figcaption>
-    </figure>
-  );
+/** Instagram link label: the visible handle, with the new-tab note for screen readers. */
+function InstagramNote() {
+  return <span className="sr-only">on Instagram (opens in a new tab)</span>;
 }
 
-export default async function HomePage() {
-  const cardsRestored = await getCardsRestoredStat();
-  const mantle = RESULTS.find((r) => r.id === "mickey-mantle");
-  const charmanderCase = RESULTS.find((r) => r.id === "charmander");
+export default function HomePage() {
+  const allCards = FAQ.find((f) => f.q === "What types of cards do you work on?")?.a;
+  const [restoration, prep, kits] = SERVICES;
+
   return (
-    <div className="min-h-screen bg-cream">
+    <div className="min-h-screen overflow-x-clip">
       <JsonLd data={structuredData()} />
 
-      <section className="relative overflow-hidden border-b-[3px] border-ink bg-cream">
-        <div aria-hidden className="pointer-events-none absolute inset-0 halftone halftone-fade" />
+      <TrustMarquee />
 
-        <TrustPills cardsRestored={cardsRestored} className="hero-in relative z-20 mx-auto max-w-7xl px-4 pt-5 md:px-10 md:pt-6" />
+      {/* ── Hero ───────────────────────────────────────────────────────── */}
+      <section aria-labelledby="hero-heading" className="surface-cobalt relative isolate overflow-hidden">
+        <span aria-hidden className="halftone-dots -right-[10%] -top-[18%] h-[120%] w-[70%]" />
+        <span aria-hidden className="halftone-dots -bottom-[30%] -left-[20%] h-[70%] w-[60%] opacity-70" />
+        <div className="wrap grid gap-x-14 pt-7 pb-16 sm:pt-10 md:pt-14 md:pb-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,33rem)] lg:grid-rows-[auto_1fr] lg:pt-16 lg:pb-24 xl:grid-cols-[minmax(0,1fr)_minmax(0,38rem)] xl:gap-x-20">
+          <h1
+            id="hero-heading"
+            className="hero-in font-display text-[clamp(3.25rem,14.2vw,6rem)] font-black leading-[0.86] tracking-[-0.012em] lg:col-start-1 lg:row-start-1 lg:text-[clamp(4.25rem,6.6vw,6.5rem)]"
+          >
+            <span className="block text-white">{HERO.headline[0]}</span>
+            <span className="block text-sun">{HERO.headline[1]}</span>
+          </h1>
 
-        <div className="relative mx-auto grid max-w-7xl gap-x-10 gap-y-14 px-4 pt-10 pb-16 md:px-10 md:pt-14 lg:grid-cols-12 lg:items-center lg:pb-24">
-          <div className="relative z-10 lg:col-span-6">
-            <h1 className="hero-in font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-[clamp(2.5rem,11vw,4.6rem)] lg:text-[clamp(3.4rem,5.1vw,4.75rem)]">
-              <span className="block text-ink">{HERO.headline[0]}</span>
-              <span className="block text-rx">{HERO.headline[1]}</span>
-            </h1>
-            <div aria-hidden className="hero-in mt-7 flex max-w-md items-center gap-3" style={{ ["--d" as string]: 160 }}>
-              <span className="h-[3px] flex-1 rounded-full bg-ink" />
-              <span className="h-3 w-3 rotate-45 border-[3px] border-ink bg-rx" />
-              <span className="h-[3px] flex-1 rounded-full bg-ink" />
+          {/* The Gyarados, drag to compare, in its one-touch holder. Both
+              photos are aligned to the same angle and crop. */}
+          <div className="relative mx-auto mt-7 w-full max-w-[30rem] sm:mt-10 sm:max-w-[34rem] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-2 lg:max-w-none lg:self-start">
+            <div className="hero-in relative z-[1] lg:rotate-[1.5deg]" style={{ ["--d" as string]: 120 }}>
+              <AcrylicHolder title="Gyarados" detail="Delta Species">
+                <BeforeAfter
+                  before={gyaradosBefore}
+                  after={gyaradosAfter}
+                  beforeAlt="Close-up of a Gyarados holo card before restoration: a crease runs from the top edge through the name bar into the artwork, and the colors are dull"
+                  afterAlt="The same corner of the Gyarados card after restoration: the crease is gone and the colors are bright"
+                  sizes="(min-width: 1280px) 608px, (min-width: 1024px) 528px, (min-width: 640px) 544px, 96vw"
+                  priority
+                />
+              </AcrylicHolder>
             </div>
-            <p className="hero-in mt-6 max-w-[32rem] text-lg md:text-xl font-medium leading-relaxed text-ink/80 [text-wrap:pretty]" style={{ ["--d" as string]: 260 }}>
+          </div>
+
+          {/* Tagline, the two actions, and what we never do. */}
+          <div className="hero-in mt-10 lg:col-start-1 lg:row-start-2 lg:mt-8 lg:max-w-[36rem]" style={{ ["--d" as string]: 220 }}>
+            <p className="max-w-[34rem] text-[clamp(1.125rem,1.6vw,1.375rem)] font-medium leading-[1.5] text-[#e6ebff] [text-wrap:pretty]">
               {TAGLINE}
             </p>
-            <div className="hero-in mt-8 flex flex-col gap-4 sm:flex-row" style={{ ["--d" as string]: 360 }}>
-              <Link href="/tier-selection" className="comic-btn press">Restoration Pricing</Link>
-              <Link href="/prep" className="comic-btn comic-btn-light press">PSA Prep Pricing</Link>
+            <div className="mt-8 flex flex-col gap-3.5 sm:flex-row sm:flex-wrap sm:gap-4">
+              <Link href="/tier-selection" className={cta({ size: "lg" })}>
+                Restoration Pricing
+                <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+              </Link>
+              <Link href="/prep" className={cta({ tone: "white", size: "lg" })}>
+                PSA Prep Pricing
+              </Link>
             </div>
-
-            <div className="hero-in relative mt-10 max-w-xl" style={{ ["--d" as string]: 460 }}>
-              <span className="absolute -top-3.5 left-4 z-10 rounded-md border-2 border-ink bg-ink px-2.5 py-0.5 font-heading text-[11px] font-extrabold uppercase tracking-[0.12em] text-white">
-                We never
-              </span>
-              <ul className="grid rounded-xl border-[2.5px] border-ink bg-bone pt-3 sm:grid-cols-3 sm:pt-0">
-                {PROCESS.never.map((item, i) => (
-                  <li key={item} className={`flex items-center gap-2.5 px-4 py-3 sm:pt-6 sm:pb-4 ${i > 0 ? "border-t-2 border-ink/15 sm:border-t-0 sm:border-l-[2.5px] sm:border-ink" : ""}`}>
-                    <X className="h-4 w-4 shrink-0 text-rx" strokeWidth={3} />
-                    <span className="font-heading text-xs font-extrabold uppercase leading-tight tracking-[0.03em] text-ink">{item}</span>
+            <div className="mt-9 flex flex-wrap items-center gap-x-3 gap-y-2.5">
+              <p className="label-caps mr-2 text-[28px] leading-none text-sun md:text-[32px]">We never</p>
+              <ul className="contents">
+                {PROCESS.never.map((item) => (
+                  <li
+                    key={item}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-full bg-ink/35 px-3.5 text-sm font-bold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]"
+                  >
+                    <X aria-hidden className="size-3.5 text-sun" strokeWidth={2.5} />
+                    {item}
                   </li>
                 ))}
               </ul>
             </div>
           </div>
-
-          <div className="relative lg:col-span-6 lg:self-stretch">
-            <div
-              aria-hidden
-              className="wordmark-pattern absolute -inset-x-4 -top-6 -bottom-16 rounded-[2.5rem] border-[3px] border-ink sm:-inset-x-10 lg:inset-y-[-7rem] lg:left-6 lg:-right-[40vw] lg:rounded-[46%_0_0_42%/58%_0_0_44%] lg:border-r-0"
-            />
-            <div className="relative mx-auto max-w-[36rem] pt-8 pb-14 sm:pt-10 lg:min-h-[37rem] lg:py-0">
-              <figure className="specimen-land relative z-10 mx-auto w-[94%] rotate-[2deg] rounded-2xl bg-white comic-border comic-shadow lg:mt-4 lg:mr-[-1.5rem] lg:w-[82%]">
-                <div className="overflow-hidden rounded-t-[13px] bg-white">
-                  <Image
-                    src={mantlePair}
-                    alt="A cracked Mickey Mantle card in a black glove next to the same card after restoration in a blue glove"
-                    sizes="(min-width: 1024px) 480px, 92vw"
-                    className="h-auto w-full"
-                    priority
-                  />
-                </div>
-                <figcaption className="rounded-b-[13px] border-t-[3px] border-ink bg-peach px-4 py-2.5 text-right">
-                  <span className="font-heading text-sm font-extrabold uppercase tracking-[0.04em] text-ink">{mantle?.card ?? "Mickey Mantle"}</span>
-                </figcaption>
-              </figure>
-
-              <CardSlot className="z-20 -mt-16 ml-1 w-[47%] max-w-[15rem] sm:-mt-24 sm:ml-4 lg:absolute lg:bottom-2 lg:left-[-1rem] lg:mt-0 lg:ml-0 lg:w-[41%] lg:max-w-none" />
-
-              <div className="absolute bottom-0 right-0 z-20 rotate-[8deg] sm:right-2 lg:bottom-10 lg:-right-4">
-                <div className="burst grid h-[7.5rem] w-[7.5rem] place-items-center bg-ink sm:h-32 sm:w-32">
-                  <div className="burst grid h-[6.9rem] w-[6.9rem] place-items-center bg-rx-pop sm:h-[7.4rem] sm:w-[7.4rem]">
-                    <span className="px-4 text-center font-heading text-[13px] font-black uppercase leading-[1.05] text-ink sm:text-sm">
-                      Free<br />Photo<br />Review
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </section>
 
+      {/* ── Symptoms ticker: flat and quiet ───────────────────────────── */}
+      <section aria-label="What we can fix" className="border-y border-line bg-white py-4 text-ink md:py-5">
+        <Marquee
+          label="What we can fix"
+          items={FIXES.map((word) => (
+            <span key={word} className="caps font-display text-[30px] font-extrabold leading-none tracking-[0.01em] md:text-[40px]">
+              {word}
+            </span>
+          ))}
+          speed={44}
+          pauseOnHover={false}
+          separator={<CardMark className="mx-6 rotate-[8deg] border-2 border-cobalt md:mx-9" />}
+        />
+      </section>
+
+      {/* ── Trusted by: a second belt, sliding the other way ─────────── */}
       <TrustedBy />
 
-      <ReviewsBand title="What our customers say" />
-
-      <section aria-label="What we can fix" className="overflow-hidden border-b-[3px] border-ink bg-ink py-6 md:py-9">
-        <VelocityMarquee>
-          {[0, 1].map((copy) => (
-            <ul key={copy} aria-hidden={copy === 1 || undefined} className={`flex items-center ${copy === 1 ? "marquee-dupe" : ""}`}>
-              {FIXES.map((word, i) => (
-                <li key={word} className="flex items-center">
-                  <span className={`ticker-word whitespace-nowrap text-[clamp(2.75rem,8vw,6.5rem)] ${i % 2 ? "outline-word" : "text-white"}`}>{word}</span>
-                  <span aria-hidden className="mx-6 h-4 w-4 shrink-0 rounded-full bg-rx md:mx-12 md:h-6 md:w-6" />
-                </li>
-              ))}
-            </ul>
-          ))}
-        </VelocityMarquee>
-      </section>
-
-      <section aria-labelledby="results-heading" className="relative overflow-hidden bg-cream">
-        <div aria-hidden className="pointer-events-none absolute inset-0 halftone halftone-fade-r" />
-        <div className="relative mx-auto max-w-7xl px-4 py-20 md:px-10 md:py-28">
-          <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
-            <div data-reveal className="lg:col-span-7">
-              <Eyebrow>Why Collectors Trust Us</Eyebrow>
-              <h2 id="results-heading" className="mt-4 font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-ink text-[clamp(2.6rem,8vw,5.5rem)]">
-                Proven Results
-              </h2>
-            </div>
-            <div data-reveal className="lg:col-span-5">
-              <p className="text-lg font-medium leading-relaxed text-ink/75">
-                Hundreds of cards restored and prepped. We don&apos;t just claim results, we show them.
-              </p>
-              <Link href="/tier-selection" className="comic-btn press mt-6">See Our Services</Link>
-            </div>
+      {/* ── We do all cards. ──────────────────────────────────────────── */}
+      <section aria-labelledby="all-cards-heading" className="surface-chalk">
+        <div className="wrap grid items-start gap-x-16 gap-y-8 py-16 md:py-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch">
+          <div>
+            <h2 id="all-cards-heading" data-reveal className="font-display text-[clamp(4rem,15vw,6.5rem)] font-black lg:text-[clamp(5.5rem,7vw,7rem)] leading-[0.84] tracking-[-0.015em] text-ink [text-wrap:balance]">
+              We do all cards.
+            </h2>
+            {/* All cards, shown with real cards: a Pokémon, a baseball and a
+                basketball card in one loose stack. Hover, focus or tap any card
+                to bring it to the front. */}
+            <CardStack
+              cards={ALL_CARDS}
+              className="mt-10 max-w-[34rem] lg:mt-12 lg:max-w-none"
+            />
           </div>
-
-          <div className="mt-14 grid gap-10 md:mt-16 lg:grid-cols-12 lg:gap-12">
-            <div data-reveal className="lg:col-span-7">
-              <Frame label={mantle?.card ?? "Mickey Mantle"} detail={mantle?.detail} tilt="-1deg">
-                <div className="bg-white p-2.5 md:p-3">
-                  <BeforeAfter
-                    before={mantleBefore}
-                    after={mantleAfter}
-                    beforeAlt="A Mickey Mantle card before restoration, cracked across the face and jersey"
-                    afterAlt="The same Mickey Mantle card after restoration"
-                    sizes="(min-width: 1280px) 700px, (min-width: 1024px) 56vw, 92vw"
-                  />
+          {/* Sits at the bottom of the row from lg, so the button's bottom
+              lines up with the bottom of the card stack. */}
+          <div className="lg:flex lg:flex-col lg:items-start lg:justify-end">
+            {allCards && <p data-reveal className="lead text-ink-soft">{allCards}</p>}
+            <div data-reveal="stagger" className="mt-8 grid gap-5">
+              {CARD_KINDS.map(({ group, items }) => (
+                <div key={group ?? items[0]} className={cn(!group && "border-t border-line pt-5")}>
+                  {group && <p className="label-caps mb-2.5 text-[13px] text-cobalt">{group}</p>}
+                  <ul aria-label={group ?? "Condition"} className="flex flex-wrap gap-2">
+                    {items.map((label) => (
+                      <li
+                        key={label}
+                        className={cn(
+                          "inline-flex min-h-9 items-center rounded-full px-3.5 text-[15px] font-bold",
+                          group
+                            ? "bg-white text-ink shadow-[0_0_0_1px_var(--line)]"
+                            : "bg-transparent text-ink shadow-[inset_0_0_0_1.5px_var(--ink)]"
+                        )}
+                      >
+                        {label}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </Frame>
-              {mantle && <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-ink/70">{mantle.caption}</p>}
+              ))}
             </div>
-
-            <div className="grid gap-10 sm:grid-cols-2 lg:col-span-5 lg:grid-cols-1">
-              <div data-reveal style={{ transitionDelay: "100ms" }}>
-                <Frame label={charmanderCase?.card ?? "Charmander"} detail={charmanderCase?.detail} tilt="1.5deg">
-                  <div className="bg-peach px-6 py-5">
-                    <Image src={charmander} alt="A Charmander card before and after restoration" sizes="(min-width: 1024px) 420px, 45vw" className="mx-auto h-auto w-full max-w-[22rem]" />
-                  </div>
-                </Frame>
-              </div>
-              <div data-reveal style={{ transitionDelay: "180ms" }}>
-                <Frame label="Garchomp" tilt="-1.5deg">
-                  <div className="relative bg-ink px-6 py-4">
-                    <div aria-hidden className="absolute inset-0 halftone-light" />
-                    <Image src={garchomp} alt="A Garchomp card corner before and after restoration" sizes="(min-width: 1024px) 420px, 45vw" className="relative mx-auto h-auto w-full max-w-[20rem]" />
-                  </div>
-                </Frame>
-              </div>
-            </div>
+            <Link href="/tier-selection" className={cta({ tone: "ink", size: "lg", className: "mt-10" })}>
+              Book a Restoration
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
           </div>
-
-          <dl className="mt-16 grid gap-6 sm:grid-cols-2 md:mt-20">
-            {[
-              { stat: cardsRestored, label: "Cards Restored", tone: "bg-ink text-white" },
-              { stat: "Free", label: "Photo Review", tone: "bg-rx text-white" },
-            ].map((s, i) => (
-              <div
-                key={s.label}
-                data-reveal
-                style={{ transitionDelay: `${i * 90}ms` }}
-                className={`relative flex flex-col-reverse gap-2 overflow-hidden rounded-2xl comic-border comic-shadow px-7 py-7 md:px-9 md:py-9 ${s.tone}`}
-              >
-                <div aria-hidden className="absolute inset-0 halftone-light" />
-                <dt className="relative font-heading text-xs font-extrabold uppercase tracking-[0.14em] text-white/80 md:text-sm">{s.label}</dt>
-                <dd className="relative font-heading text-[clamp(3.5rem,9vw,6.5rem)] font-black leading-[0.9] tracking-[-0.03em] tabular-nums">
-                  <CountUp value={s.stat} />
-                </dd>
-              </div>
-            ))}
-          </dl>
         </div>
       </section>
 
-      <section aria-labelledby="reasons-heading" className="relative overflow-hidden border-y-[3px] border-ink bg-peach py-16 md:py-24">
-        <div aria-hidden className="pointer-events-none absolute inset-0 halftone" />
-        <div className="relative mx-auto max-w-7xl px-4 md:px-10">
-          <div className="relative overflow-hidden rounded-3xl comic-border bg-ink px-6 py-10 text-white comic-shadow-rx md:px-12 md:py-14">
-            <div aria-hidden className="absolute inset-0 halftone-light opacity-60" />
-            <h2 id="reasons-heading" data-reveal className="relative font-heading font-black uppercase leading-[0.92] tracking-[-0.02em] text-[clamp(2.1rem,5vw,3.75rem)]">
+      {/* ── Services ──────────────────────────────────────────────────── */}
+      <section aria-labelledby="services-heading" className="surface-white">
+        <div className="wrap pt-16 pb-[var(--section-y)] md:pt-24">
+          <h2 id="services-heading" data-reveal className="display-lg text-ink">
+            Services
+          </h2>
+
+          <ul className="mt-10 grid gap-6 md:mt-14 md:gap-7 lg:grid-cols-12 lg:grid-rows-[auto_auto]">
+            {/* Restoration: the big cobalt tile. */}
+            <li data-reveal className="lg:col-span-7 lg:row-span-2">
+              <Link
+                href={restoration.href}
+                className="surface-cobalt group relative isolate flex h-full flex-col overflow-hidden rounded-[22px] p-7 md:p-10"
+              >
+                <span aria-hidden className="halftone-dots -right-[10%] -bottom-[20%] h-[90%] w-[70%]" />
+                <span className="caps font-display text-[44px] font-black leading-[0.9] md:text-[64px]">{restoration.name}</span>
+                <span className="mt-4 max-w-[30ch] text-[17px] leading-relaxed text-[#e6ebff] md:text-lg">{restoration.line}</span>
+                <span className="relative my-8 grid min-h-[16rem] flex-1 place-items-center md:my-10">
+                  <Print
+                    src={charizardPsa}
+                    alt="A Charizard Gold Star card in a PSA slab, held in a blue glove"
+                    aspect="800/1407"
+                    position="50% 50%"
+                    surface="dark"
+                    tilt={-5}
+                    sizes="(min-width: 1024px) 300px, 60vw"
+                    className="w-[58%] max-w-[17rem] transition-transform duration-500 ease-[var(--ease-out)] group-hover:rotate-[-2deg] motion-reduce:transition-none"
+                  />
+                </span>
+                <span className="mt-auto flex flex-wrap items-end justify-between gap-5">
+                  <span className="font-display text-[40px] font-black leading-none text-sun md:text-[52px]">{restoration.price}</span>
+                  <span className={cta({ size: "lg" })}>
+                    {restoration.action}
+                    <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+                  </span>
+                </span>
+              </Link>
+            </li>
+
+            {/* Prep: a white tile. */}
+            <li data-reveal style={{ transitionDelay: "90ms" }} className="lg:col-span-5">
+              <Link
+                href={prep.href}
+                className="group grid h-full grid-cols-[minmax(0,1fr)_7rem] gap-x-5 gap-y-6 rounded-[22px] bg-white p-7 text-ink shadow-[0_0_0_1px_var(--line),var(--panel-shadow)] sm:grid-cols-[minmax(0,1fr)_9rem] md:p-8"
+              >
+                <span className="flex flex-col">
+                  <span className="caps font-display text-[40px] font-black leading-[0.9] md:text-[48px]">{prep.name}</span>
+                  <span className="mt-3 text-[16px] leading-relaxed text-ink-soft">{prep.line}</span>
+                  <span className="mt-auto pt-6 font-display text-[30px] font-black leading-[0.95] text-cobalt sm:whitespace-nowrap sm:text-[34px] xl:text-[36px]">{prep.price}</span>
+                </span>
+                <span className="col-start-2 row-span-2 row-start-1 grid place-items-center">
+                  <Print
+                    src={prepMicroscope}
+                    alt="Cleaning the back of a Pokémon card under a digital microscope"
+                    aspect="840/1512"
+                    tilt={-3}
+                    sizes="(min-width: 640px) 144px, 112px"
+                    className="w-full transition-transform duration-500 ease-[var(--ease-out)] group-hover:rotate-[-1deg] motion-reduce:transition-none"
+                  />
+                </span>
+                <span className={cta({ tone: "ink", size: "lg", className: "col-start-1 self-end justify-self-start text-[19px]" })}>
+                  {prep.action}
+                  <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+                </span>
+              </Link>
+            </li>
+
+            {/* DIY Kits: the sun tile. */}
+            <li data-reveal style={{ transitionDelay: "160ms" }} className="lg:col-span-5">
+              <Link
+                href={kits.href}
+                className="surface-sun group grid h-full grid-cols-[minmax(0,1fr)_7rem] gap-x-5 gap-y-6 rounded-[22px] p-7 sm:grid-cols-[minmax(0,1fr)_9rem] md:p-8"
+              >
+                <span className="flex flex-col">
+                  <span className="caps font-display text-[40px] font-black leading-[0.9] md:text-[48px]">{kits.name}</span>
+                  <span className="mt-3 text-[16px] leading-relaxed text-ink">{kits.line}</span>
+                  <span className="mt-auto pt-6 text-[15px] font-extrabold leading-snug text-ink">{kits.price}</span>
+                </span>
+                <span className="col-start-2 row-span-2 row-start-1 grid place-items-center">
+                  <Print
+                    src={restorationKit}
+                    alt="The Official Card Doc Restoration Kit"
+                    aspect="1000/892"
+                    tilt={4}
+                    sizes="(min-width: 640px) 144px, 112px"
+                    className="w-full transition-transform duration-500 ease-[var(--ease-out)] group-hover:rotate-[1deg] motion-reduce:transition-none"
+                  />
+                </span>
+                <span className={cta({ tone: "ink", size: "lg", className: "col-start-1 self-end justify-self-start text-[19px]" })}>
+                  {kits.action}
+                  <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+                </span>
+              </Link>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* ── Watch the work ────────────────────────────────────────────── */}
+      <section aria-labelledby="watch-heading" className="surface-chalk">
+        <div className="wrap section-y">
+          <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
+            <h2 id="watch-heading" data-reveal className="display-lg text-ink">
+              Watch the work
+            </h2>
+            <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className={cta({ tone: "outline", size: "md" })}>
+              <Camera aria-hidden className="size-5" strokeWidth={1.75} />
+              @the_card_doc
+              <InstagramNote />
+            </a>
+          </div>
+          <div className="mt-10 md:mt-14">
+            <WatchTheWork />
+          </div>
+          <div className="mt-6 flex flex-col gap-5 border-t border-line pt-8 sm:flex-row sm:items-center sm:justify-between md:mt-8">
+            <p className="text-[15px] font-medium text-ink-soft">Restoration results vary by card condition.</p>
+            <Link href="/tier-selection" className={cta({ size: "lg", className: "self-start sm:self-auto" })}>
+              Book a Restoration
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* ── What our customers say ────────────────────────────────────── */}
+      <section aria-labelledby="reviews-heading" className="surface-white relative">
+        <div className="wrap section-y">
+          <h2 id="reviews-heading" data-reveal className="display-lg max-w-4xl text-ink">
+            What our customers say
+          </h2>
+          {/* One pull quote, then one receipts strip (text messages from md up). */}
+          <FeaturedReview className="mt-10 max-w-5xl md:mt-14" />
+
+          <div className="mt-12 md:mt-20">
+            <ReviewBubbles textOnPhone={false} />
+          </div>
+          <div className="mt-10 flex md:mt-12 md:justify-center">
+            <Link href="/tier-selection" className={cta({ tone: "ink", size: "lg" })}>
+              Book a Restoration
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ── The Step-by-Step Process ──────────────────────────────────── */}
+      <section aria-labelledby="process-heading" className="surface-ink">
+        <div className="wrap section-y">
+          <div data-reveal className="flex flex-wrap items-end justify-between gap-x-12 gap-y-7">
+            <h2 id="process-heading" className="display-lg text-white">
+              The <span className="whitespace-nowrap">Step-by-Step</span> Process
+            </h2>
+            <Link href="/how-it-works" className={cta({ size: "lg" })}>
+              How It Works
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+          </div>
+          <div className="mt-12 md:mt-16">
+            <ProcessSteps
+              steps={STEPS}
+              photos={{
+                list: [
+                  { src: gyaradosProcessBefore, alt: "A Gold Star Gyarados card before restoration, creased along the top and dull across the holo", aspect: "1200/796" },
+                  { src: gyaradosProcessAfter, alt: "The same Gold Star Gyarados card after restoration", aspect: "1200/796" },
+                ],
+                forStep: [0, 0, 0, 0, 1, 1],
+              }}
+              phonePhoto={{ src: gyaradosProcessBefore, alt: "", aspect: "4/3" }}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Why collectors choose us ──────────────────────────────────── */}
+      <section aria-labelledby="reasons-heading" className="surface-white">
+        <div className="wrap section-y grid items-center gap-x-16 gap-y-14 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          {/* The years figure as a cobalt slab (type, not another photo). */}
+          <div data-reveal className="surface-cobalt relative isolate mx-auto hidden w-full max-w-[34rem] overflow-hidden rounded-[22px] p-8 md:block md:p-12">
+            <span aria-hidden className="halftone-dots -right-[20%] -bottom-[25%] h-[90%] w-[80%]" />
+            <p className="relative">
+              <span className="block font-display text-[clamp(7rem,30vw,12rem)] font-black leading-[0.8] tracking-[-0.02em] text-sun">{YEARS.figure}</span>
+              <span className="mt-4 block max-w-[14ch] font-display text-[clamp(2rem,7vw,3rem)] font-extrabold leading-[0.95] text-white">{YEARS.rest}</span>
+            </p>
+          </div>
+          <div>
+            <h2 id="reasons-heading" data-reveal className="display-lg text-ink">
               {REASONS.title}
             </h2>
-            <ul data-reveal="stagger" className="relative mt-10 grid gap-8 md:grid-cols-2 lg:grid-cols-4 lg:gap-0">
+            <p data-reveal className="lead mt-6 text-ink-soft">{REASONS.lead}</p>
+            <ul data-reveal="stagger" className="mt-10 grid gap-x-10 gap-y-9 sm:grid-cols-2">
               {REASONS.items.map((item, i) => {
-                const Icon = REASON_ICONS[i] ?? Hand;
+                const Icon = REASON_ICONS[i] ?? BadgeCheck;
                 return (
-                  <li key={item.title} className={`lg:px-7 ${i === 0 ? "lg:pl-0" : "lg:border-l-2 lg:border-white/15"} ${i === REASONS.items.length - 1 ? "lg:pr-0" : ""}`}>
-                    <span className="grid h-11 w-11 place-items-center rounded-full border-2 border-white/80 text-rx-bright">
-                      <Icon className="h-5 w-5" strokeWidth={2} />
+                  <li key={item.title} className="border-t-2 border-ink pt-5">
+                    <span aria-hidden className="grid size-11 place-items-center rounded-xl bg-cobalt-wash text-cobalt">
+                      <Icon className="size-5" strokeWidth={1.75} />
                     </span>
-                    <h3 className="mt-5 font-heading text-base font-extrabold uppercase leading-tight tracking-[0.02em]">{item.title}</h3>
-                    <p className="mt-2 text-[15px] leading-relaxed text-white/70">{item.body}</p>
+                    <h3 className="mt-4 font-display text-[26px] font-extrabold leading-[1] text-ink">{item.title}</h3>
+                    <p className="mt-2.5 text-[15px] leading-relaxed text-ink-soft">{item.body}</p>
                   </li>
                 );
               })}
@@ -376,108 +533,98 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section aria-labelledby="services-heading" className="bg-cream">
-        <div className="mx-auto max-w-7xl px-4 py-20 md:px-10 md:py-28">
-          <h2 id="services-heading" data-reveal className="font-heading font-black uppercase leading-[0.9] tracking-[-0.025em] text-ink text-[clamp(2.6rem,8vw,5.5rem)]">
-            Services
-          </h2>
-          <ul className="mt-12 grid gap-8 md:mt-14 lg:grid-cols-3">
-            {SERVICES.map(({ href, code, name, line, price, action, Icon, band, dots }, i) => (
-              <li key={href} data-reveal style={{ transitionDelay: `${i * 90}ms` }}>
-                <Link href={href} className="comic-lift group flex h-full flex-col overflow-hidden rounded-2xl comic-border comic-shadow bg-bone">
-                  <span className={`relative flex h-36 items-center justify-between border-b-[3px] border-ink px-6 md:h-40 ${band}`}>
-                    <span aria-hidden className={`absolute inset-0 ${dots}`} />
-                    <Icon className="relative h-14 w-14 md:h-16 md:w-16" strokeWidth={1.5} />
-                    <span className="relative rounded-full border-2 border-current px-3 py-1 font-heading text-[11px] font-extrabold uppercase tracking-[0.12em]">
-                      {code}
-                    </span>
-                  </span>
-                  <span className="flex flex-1 flex-col p-6 md:p-7">
-                    <span className="font-heading text-3xl font-black uppercase leading-none tracking-[-0.02em] text-ink md:text-[2.4rem]">{name}</span>
-                    <span className="mt-3 text-[15px] leading-relaxed text-ink/70">{line}</span>
-                    <span className="mt-5 mb-7 inline-flex self-start rounded-md border-2 border-ink bg-white px-2.5 py-1 font-heading text-xs font-extrabold uppercase tracking-[0.06em] text-ink tabular-nums">
-                      {price}
-                    </span>
-                    <span className="comic-btn mt-auto w-full">{action}</span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </section>
-
-      <section aria-labelledby="faq-heading" className="relative overflow-hidden border-t-[3px] border-ink bg-bone">
-        <div className="mx-auto grid max-w-6xl gap-10 px-4 py-20 md:grid-cols-[1fr_1.5fr] md:gap-16 md:px-10 md:py-28">
-          <div className="md:sticky md:top-28 md:self-start">
-            <Eyebrow>Before You Order</Eyebrow>
-            <h2 id="faq-heading" className="mt-4 mb-7 font-heading font-black uppercase leading-[0.92] tracking-[-0.02em] text-ink text-[clamp(2.3rem,5vw,3.75rem)]">
+      {/* ── FAQ ───────────────────────────────────────────────────────── */}
+      <section aria-labelledby="faq-heading" className="surface-chalk">
+        <div className="wrap section-y grid gap-x-20 gap-y-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+          <div className="md:sticky md:top-[calc(var(--header-h)+2.5rem)] md:self-start">
+            <p className="eyebrow mb-4 text-cobalt">Before You Order</p>
+            <h2 id="faq-heading" className="display-md text-ink">
               Frequently asked questions
             </h2>
-            <Link href="/faq" className="comic-btn comic-btn-light press h-12 text-[13px]">See all FAQs</Link>
+            <Link href="/faq" className={cta({ tone: "outline", className: "mt-8" })}>
+              See all FAQs
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
           </div>
-          <div data-reveal className="border-t-[3px] border-ink">
-            {FAQ.map((item) => (
-              <details key={item.q} className="group border-b-2 border-ink/80">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 font-heading text-base font-extrabold text-ink select-none md:text-lg [&::-webkit-details-marker]:hidden">
-                  <span>{item.q}</span>
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border-[2.5px] border-ink bg-white transition-colors duration-200 group-open:bg-rx group-hover:bg-peach group-open:group-hover:bg-rx">
-                    <Plus className="h-4 w-4 text-ink transition-transform duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:text-white" strokeWidth={3} />
+          <div data-reveal className="border-t-2 border-ink">
+            {FAQ.map((item, i) => (
+              <details key={item.q} open={i === 0} className="group border-b border-ink/20">
+                <summary className="flex min-h-16 cursor-pointer list-none items-center gap-5 py-5 select-none [&::-webkit-details-marker]:hidden">
+                  <span className="flex-1 text-lg font-extrabold leading-snug text-ink transition-colors duration-150 group-hover:text-cobalt md:text-xl">
+                    {item.q}
+                  </span>
+                  <span
+                    aria-hidden
+                    className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-ink shadow-[0_0_0_1px_var(--line)] transition-[rotate,background-color] duration-300 ease-[var(--ease-out)] group-open:rotate-45 group-open:bg-sun motion-reduce:transition-none"
+                  >
+                    <Plus className="size-5" strokeWidth={2} />
                   </span>
                 </summary>
-                <div className="max-w-[62ch] pr-14 pb-7 text-base leading-relaxed text-ink/75">{item.a}</div>
+                <div className="pb-7 pr-4 md:pr-16">
+                  <p className="max-w-[62ch] text-base leading-relaxed text-ink-soft md:text-[17px]">{item.a}</p>
+                </div>
               </details>
             ))}
           </div>
         </div>
       </section>
 
-      <section aria-labelledby="terms-heading" className="border-t-[3px] border-ink bg-cream py-20 md:py-28">
-        <div className="mx-auto max-w-6xl px-4 md:px-10">
-          <div className="mb-12 max-w-2xl md:mb-14">
-            <h2 id="terms-heading" className="mb-5 font-heading font-black uppercase leading-[0.92] tracking-[-0.02em] text-ink text-[clamp(2.3rem,5vw,3.75rem)]">
+      {/* ── Terms of Service ──────────────────────────────────────────── */}
+      <section aria-labelledby="terms-heading" className="surface-white">
+        <div className="wrap section-y">
+          <div className="grid gap-x-16 gap-y-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-end">
+            <h2 id="terms-heading" className="display-md text-ink">
               Terms of Service
             </h2>
-            <p className="text-base leading-relaxed text-ink/75">
+            <p className="max-w-[46ch] text-[17px] leading-relaxed text-ink-soft md:text-lg">
               By placing an order you agree to these terms. Key points are summarized below.{" "}
-              <Link href="/terms" className="font-semibold text-rx underline decoration-2 underline-offset-2">Read the full terms</Link>
+              <Link href="/terms" className="tlink text-cobalt">Read the full terms</Link>
             </p>
           </div>
-          <div data-reveal="stagger" className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            {TOS_HIGHLIGHTS.map(({ title, body, Icon }) => (
-              <div key={title} className="rounded-2xl border-[2.5px] border-ink bg-bone p-6 md:p-8">
-                <span className="mb-5 grid h-10 w-10 place-items-center rounded-full border-2 border-ink bg-peach">
-                  <Icon className="h-5 w-5 text-ink" strokeWidth={2} />
+          <div data-reveal="stagger" className="mt-12 grid grid-cols-1 gap-x-14 gap-y-10 md:mt-14 md:grid-cols-2">
+            {TOS_HIGHLIGHTS.map(({ title, body, icon: Icon }) => (
+              <div key={title} className="flex gap-5 border-t-2 border-ink pt-6">
+                <span aria-hidden className="grid size-11 shrink-0 place-items-center rounded-xl bg-chalk text-ink">
+                  <Icon className="size-5" strokeWidth={1.75} />
                 </span>
-                <h3 className="mb-2 font-heading text-lg font-extrabold uppercase tracking-[0.01em] text-ink">{title}</h3>
-                <p className="text-sm leading-relaxed text-ink/70 md:text-[15px]">{body}</p>
+                <div className="min-w-0">
+                  <h3 className="mb-2 text-xl font-extrabold leading-snug text-ink">{title}</h3>
+                  <p className="text-[15px] leading-relaxed text-ink-soft">{body}</p>
+                </div>
               </div>
             ))}
           </div>
-          <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm leading-relaxed text-amber-950 md:p-6">
-            <strong>Important:</strong> All sales are final once work begins. Turnaround times are estimates only and are not guaranteed.
-            The Card Doc LLC is not responsible for loss or damage during transit. Restoration results vary by card condition.
-            By submitting an order, you acknowledge and agree to the full{" "}
-            <Link href="/terms" className="font-semibold underline hover:text-amber-800">Terms and Conditions</Link>.
+          <div className="surface-sun mt-14 rounded-[22px] p-7 md:mt-16 md:p-10">
+            <p className="max-w-[80ch] text-[16px] leading-relaxed md:text-[17px]">
+              <strong className="font-extrabold">Important:</strong> All sales are final once work begins. Turnaround times are estimates only and are not guaranteed.
+              The Card Doc LLC is not responsible for loss or damage during transit. Restoration results vary by card condition.
+              By submitting an order, you acknowledge and agree to the full{" "}
+              <Link href="/terms" className="font-extrabold underline decoration-2 underline-offset-4 hover:decoration-cobalt">Terms and Conditions</Link>.
+            </p>
           </div>
         </div>
       </section>
 
-      <section aria-labelledby="close-heading" className="border-t-[3px] border-ink bg-peach px-4 py-16 md:px-10 md:py-24">
-        <div className="relative mx-auto max-w-6xl overflow-hidden rounded-3xl comic-border comic-shadow bg-rx px-6 py-14 text-center text-white md:px-12 md:py-20">
-          <div aria-hidden className="absolute inset-0 halftone-light" />
-          <h2 id="close-heading" data-reveal className="relative font-heading font-black uppercase leading-[0.92] tracking-[-0.025em] text-[clamp(2.1rem,6vw,4.5rem)] [text-shadow:4px_4px_0_var(--ink)]">
-            <span className="block">Your Collection Means Something.</span>
-            <span className="block">We Understand Why.</span>
+      {/* ── Closing ───────────────────────────────────────────────────── */}
+      <section aria-labelledby="close-heading" className="surface-cobalt relative isolate overflow-hidden">
+        <span aria-hidden className="halftone-dots -left-[10%] -top-[20%] h-[140%] w-[60%]" />
+        <div className="wrap relative py-24 text-center md:py-36">
+          <h2 id="close-heading" data-reveal className="mx-auto max-w-5xl font-display text-[clamp(3rem,7.4vw,6.75rem)] font-black leading-[0.88] tracking-[-0.01em] [text-wrap:balance]">
+            <span className="block text-white">Your Collection Means Something.</span>
+            <span className="mt-2 block text-sun">We Understand Why.</span>
           </h2>
-          <p data-reveal className="relative mx-auto mt-6 max-w-xl text-lg font-medium leading-relaxed text-white/90 md:text-xl">
+          <p data-reveal className="mx-auto mt-8 max-w-xl text-lg leading-relaxed text-[#e6ebff] md:text-xl">
             From childhood favorites to prized collectibles, every card deserves thoughtful care.
           </p>
-          <div data-reveal className="relative mt-10 flex flex-col justify-center gap-4 sm:flex-row">
-            <Link href="/tier-selection" className="comic-btn comic-btn-ink press">Explore Restoration Services</Link>
-            <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className="comic-btn comic-btn-light press">
+          <div data-reveal className="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
+            <Link href="/tier-selection" className={cta({ size: "lg" })}>
+              Explore Restoration Services
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+            <a href={INSTAGRAM} target="_blank" rel="noopener noreferrer" className={cta({ tone: "outline-light", size: "lg" })}>
               Contact Us
-              <span className="sr-only">on Instagram (opens in a new tab)</span>
+              <ArrowUpRight aria-hidden className="size-5" strokeWidth={2} />
+              <InstagramNote />
             </a>
           </div>
         </div>

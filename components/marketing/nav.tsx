@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, CircleUserRound, Menu, ShoppingCart, X } from "lucide-react";
+import { ArrowRight, ChevronDown, CircleUserRound, Menu, ShoppingCart, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { AnimatePresence, motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/components/motion/use-reduced-motion";
 import { useCart } from "@/lib/cart-context";
+import { BrandLogo } from "@/components/brand/brand-logo";
+import { cta } from "@/components/brand/button-class";
 
 // Primary service tabs — shown prominently
 const TABS = [
@@ -48,8 +50,6 @@ const EXPLORE_GROUPS = [
   { label: "Orders & Account", links: ACCOUNT_LINKS },
 ];
 
-const EASE_OUT = [0.23, 1, 0.32, 1] as const;
-
 // One-line hints under each service in the mobile menu (owner's own copy).
 const TAB_HINTS: Record<string, string> = {
   "/tier-selection": "From $75 / card",
@@ -57,7 +57,16 @@ const TAB_HINTS: Record<string, string> = {
   "/shop": "US shipping at cost + $2 handling",
 };
 
-export function Nav() {
+const EASE = [0.16, 1, 0.3, 1] as const;
+
+/**
+ * The site header: the framed logo and wordmark, three service tabs and
+ * Explore, cart and account, and the sun "Book a Restoration" pill, which
+ * stays on phones as a compact "Book" pill beside the cart and menu.
+ * `sprite` is accepted for older callers and no longer drawn.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function Nav(_props: { sprite?: React.ReactNode } = {}) {
   const [open, setOpen] = useState(false);
   // Client-only flag for the portal (no setState-in-effect, no hydration mismatch).
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -66,7 +75,6 @@ export function Nav() {
   const { itemCount } = useCart();
   const pathname = usePathname();
   const reduce = usePrefersReducedMotion();
-  const glide = reduce ? { duration: 0 } : { type: "spring" as const, bounce: 0.15, duration: 0.45 };
 
   // Close on navigation (derived during render), then lock page scroll and
   // listen for Escape while open.
@@ -95,17 +103,28 @@ export function Nav() {
   const isCurrent = (href: string) => pathname === href;
   const exploreActive = LEARN_LINKS.some((l) => isCurrent(l.href));
   // Keep the hover pill on Explore while its menu is open and the pointer is in it.
-  const exploreHighlighted = hovered === "explore" || (exploreOpen && hovered === null);
+  const pillOn = hovered ?? (exploreOpen ? "explore" : null);
+
+  // A soft chalk pill that slides between the hovered tabs.
+  const hoverPill = (key: string) =>
+    pillOn === key && (
+      <motion.span
+        layoutId="nav-hover-pill"
+        aria-hidden
+        className="absolute inset-0 -z-10 rounded-full bg-chalk"
+        transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 40, mass: 0.6 }}
+      />
+    );
 
   const cartLink = (
     <Link
       href="/cart"
       aria-label="Cart"
-      className="relative inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.06] transition-colors"
+      className="press relative inline-flex h-11 w-11 items-center justify-center rounded-full text-ink transition-colors duration-150 hover:bg-chalk"
     >
-      <ShoppingCart className="h-5 w-5" strokeWidth={2} />
+      <ShoppingCart className="h-[22px] w-[22px]" strokeWidth={1.75} />
       {itemCount > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 bg-rx text-primary-foreground font-mono text-[10px] font-medium rounded-full flex items-center justify-center">
+        <span className="absolute top-0.5 right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-cobalt px-1 text-[11px] font-extrabold leading-none text-white tabular-nums shadow-[0_0_0_2px_var(--white)]">
           {itemCount}
         </span>
       )}
@@ -113,21 +132,15 @@ export function Nav() {
   );
 
   return (
-    <header className="relative bg-paper/90 backdrop-blur-xl backdrop-saturate-150 border-b-2 border-ink">
-      <nav className="max-w-7xl mx-auto px-4 md:px-10 h-16 flex items-center justify-between gap-4 md:grid md:grid-cols-[1fr_auto_1fr] lg:gap-6">
-        {/* Logo */}
-        <Link href="/" className="group flex items-center gap-2.5 shrink-0 justify-self-start rounded-md">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/card-doctor.jpg"
-            alt="The Card Doc"
-            className="w-8 h-8 rounded-md object-cover border-2 border-ink transition-transform duration-300 ease-[var(--ease-out)] group-hover:-rotate-6"
-          />
-          <span className="font-heading text-lg font-extrabold tracking-[-0.01em] text-ink whitespace-nowrap">The Card Doc</span>
+    <header className="relative border-b border-line bg-white/[0.94] backdrop-blur-md backdrop-saturate-150">
+      <nav aria-label="Main" className="wrap flex h-16 items-center gap-2 md:h-[74px] lg:grid lg:grid-cols-[1fr_auto_1fr] lg:gap-6">
+        <Link href="/" aria-label="The Card Doc, home" className="mr-auto flex min-h-11 shrink-0 items-center rounded-xl justify-self-start lg:mr-0">
+          <BrandLogo size={40} priority className="gap-2.5 md:hidden" wordmarkClassName="text-[22px]" />
+          <BrandLogo size={46} priority className="hidden md:inline-flex" />
         </Link>
 
-        {/* Desktop — three service tabs */}
-        <div className="hidden md:flex items-center gap-0.5 self-stretch" onMouseLeave={() => setHovered(null)}>
+        {/* Desktop: three service tabs and Explore */}
+        <div className="hidden items-center gap-0.5 lg:flex" onMouseLeave={() => setHovered(null)}>
           {TABS.map((tab) => {
             const active = isTabActive(tab);
             return (
@@ -136,27 +149,15 @@ export function Nav() {
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
                 onMouseEnter={() => setHovered(tab.href)}
-                className={`relative flex items-center px-3.5 text-[15px] font-semibold transition-colors duration-150 ${
-                  active ? "text-ink" : "text-ink/65 hover:text-ink"
+                onFocus={() => setHovered(tab.href)}
+                onBlur={() => setHovered(null)}
+                className={`relative isolate inline-flex h-11 items-center rounded-full px-4 text-[15px] transition-colors duration-150 ${
+                  active ? "font-bold text-ink" : "font-semibold text-ink/80 hover:text-ink"
                 }`}
               >
-                {hovered === tab.href && (
-                  <motion.span
-                    layoutId="nav-hover"
-                    transition={glide}
-                    className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-9 rounded-md bg-ink/[0.05]"
-                    aria-hidden
-                  />
-                )}
-                <span className="relative">{tab.label}</span>
-                {active && (
-                  <motion.span
-                    layoutId="nav-active"
-                    transition={glide}
-                    className="absolute inset-x-3.5 bottom-0 h-0.5 rounded-full bg-rx"
-                    aria-hidden
-                  />
-                )}
+                {hoverPill(tab.href)}
+                {tab.label}
+                {active && <span aria-hidden className="absolute inset-x-4 bottom-1.5 h-[3px] rounded-full bg-sun" />}
               </Link>
             );
           })}
@@ -168,51 +169,42 @@ export function Nav() {
               delay={80}
               closeDelay={120}
               onMouseEnter={() => setHovered("explore")}
-              className={`group relative flex items-center gap-1 px-3.5 text-[15px] font-semibold outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-rx focus-visible:ring-offset-2 focus-visible:ring-offset-paper rounded-md ${
-                exploreActive || exploreOpen ? "text-ink" : "text-ink/65 hover:text-ink"
+              className={`group relative isolate inline-flex h-11 items-center gap-1.5 rounded-full px-4 text-[15px] outline-none transition-colors duration-150 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-cobalt ${
+                exploreActive || exploreOpen ? "font-bold text-ink" : "font-semibold text-ink/80 hover:text-ink"
               }`}
             >
-              {exploreHighlighted && (
-                <motion.span
-                  layoutId="nav-hover"
-                  transition={glide}
-                  className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-9 rounded-md bg-ink/[0.05]"
-                  aria-hidden
-                />
-              )}
-              <span className="relative">Explore</span>
+              {hoverPill("explore")}
+              Explore
               <ChevronDown
-                className="relative h-4 w-4 transition-transform duration-200 ease-[var(--ease-out)] group-data-[popup-open]:rotate-180"
+                className="h-4 w-4 transition-transform duration-200 group-data-[popup-open]:rotate-180"
                 strokeWidth={2}
                 aria-hidden
               />
-              {exploreActive && (
-                <motion.span
-                  layoutId="nav-active"
-                  transition={glide}
-                  className="absolute inset-x-3.5 bottom-0 h-0.5 rounded-full bg-rx"
-                  aria-hidden
-                />
-              )}
+              {exploreActive && <span aria-hidden className="absolute inset-x-4 bottom-1.5 h-[3px] rounded-full bg-sun" />}
             </MenuPrimitive.Trigger>
             <MenuPrimitive.Portal>
-              <MenuPrimitive.Positioner side="bottom" align="center" sideOffset={6} collisionPadding={16} className="z-[60] outline-none">
+              <MenuPrimitive.Positioner side="bottom" align="center" sideOffset={12} collisionPadding={16} className="z-[60] outline-none">
                 <MenuPrimitive.Popup
-                  className="w-[min(44rem,calc(100vw-2rem))] origin-(--transform-origin) overflow-hidden rounded-xl border border-ink/70 bg-white text-ink shadow-[0_40px_70px_-40px_oklch(0.25_0.006_70/0.55)] outline-none transition-[opacity,transform] duration-200 ease-[var(--ease-out)] data-[starting-style]:opacity-0 data-[ending-style]:opacity-0 data-[ending-style]:duration-150 motion-safe:data-[starting-style]:-translate-y-1 motion-safe:data-[starting-style]:scale-[0.98] motion-safe:data-[ending-style]:scale-[0.98]"
+                  className="w-[min(46rem,calc(100vw-2rem))] origin-(--transform-origin) overflow-hidden rounded-[22px] bg-white text-ink shadow-[0_0_0_1px_var(--line),var(--pop-shadow)] outline-none transition-[opacity,transform] duration-200 ease-[cubic-bezier(.16,1,.3,1)] data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[ending-style]:duration-120"
                 >
                   <div className="p-3">
                     <MenuPrimitive.LinkItem
                       closeOnClick
                       render={<Link href={FIX_PAGE.href} />}
                       aria-current={isCurrent(FIX_PAGE.href) ? "page" : undefined}
-                      className="group/fix flex items-center justify-between gap-6 rounded-lg border-t-[4px] border-t-rx bg-rx-soft px-5 py-4 outline-none transition-colors duration-150 data-[highlighted]:bg-[oklch(0.94_0.035_55)]"
+                      className="group/fix flex items-center justify-between gap-6 rounded-[16px] bg-sun-tint px-5 py-4 outline-none transition-colors duration-150 data-[highlighted]:bg-sun"
                     >
                       <span>
-                        <span className="rx-label block text-rx">Sports cards &amp; TCG</span>
-                        <span className="mt-1 block font-heading text-2xl tracking-[-0.01em] text-ink">{FIX_PAGE.label}</span>
-                        <span className="mt-1 block text-sm text-muted-foreground">
+                        <span className="label-caps block text-[15px] text-cobalt-deep">Sports cards &amp; TCG</span>
+                        <span className="mt-1.5 block font-heading text-[30px] leading-none font-black">
+                          {FIX_PAGE.label}
+                        </span>
+                        <span className="mt-1.5 block text-sm text-ink-soft group-data-[highlighted]/fix:text-ink">
                           Restoration has real limits. Here&apos;s an honest breakdown.
                         </span>
+                      </span>
+                      <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white transition-transform duration-200 group-data-[highlighted]/fix:translate-x-1">
+                        <ArrowRight className="h-5 w-5" strokeWidth={1.75} />
                       </span>
                     </MenuPrimitive.LinkItem>
                   </div>
@@ -220,7 +212,7 @@ export function Nav() {
                   <div className="grid grid-cols-3 gap-x-2 px-3 pb-3">
                     {EXPLORE_GROUPS.map((group) => (
                       <MenuPrimitive.Group key={group.label} className="flex flex-col">
-                        <MenuPrimitive.GroupLabel className="rx-label px-3 pt-2 pb-1.5 text-muted-foreground">
+                        <MenuPrimitive.GroupLabel className="label-caps px-3 pt-2 pb-2 text-[14px] text-ink-soft">
                           {group.label}
                         </MenuPrimitive.GroupLabel>
                         {group.links.map((l) => {
@@ -231,11 +223,11 @@ export function Nav() {
                               closeOnClick
                               render={<Link href={l.href} />}
                               aria-current={current ? "page" : undefined}
-                              className="flex flex-col rounded-md px-3 py-2 outline-none transition-colors duration-150 data-[highlighted]:bg-ink/[0.05]"
+                              className="flex min-h-11 flex-col justify-center rounded-[12px] px-3 py-2 outline-none transition-colors duration-150 data-[highlighted]:bg-chalk"
                             >
-                              <span className={`text-[15px] font-semibold ${current ? "text-rx" : "text-ink"}`}>{l.label}</span>
+                              <span className={`text-[15px] font-bold ${current ? "text-cobalt" : "text-ink"}`}>{l.label}</span>
                               {TAB_HINTS[l.href] && (
-                                <span className="font-mono text-xs text-muted-foreground tabular-nums">{TAB_HINTS[l.href]}</span>
+                                <span className="text-[13px] text-ink-soft tabular-nums">{TAB_HINTS[l.href]}</span>
                               )}
                             </MenuPrimitive.LinkItem>
                           );
@@ -244,14 +236,14 @@ export function Nav() {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-5 border-t border-rule bg-paper px-6 py-3">
+                  <div className="flex items-center gap-6 border-t border-line bg-chalk px-6 py-2">
                     {LEGAL_LINKS.map((l) => (
                       <MenuPrimitive.LinkItem
                         key={l.href}
                         closeOnClick
                         render={<Link href={l.href} />}
                         aria-current={isCurrent(l.href) ? "page" : undefined}
-                        className="rounded-sm text-xs font-medium text-muted-foreground outline-none transition-colors duration-150 data-[highlighted]:text-ink data-[highlighted]:underline"
+                        className="inline-flex min-h-10 items-center text-[13px] font-semibold text-ink-soft outline-none transition-colors duration-150 data-[highlighted]:text-ink data-[highlighted]:underline"
                       >
                         {l.label}
                       </MenuPrimitive.LinkItem>
@@ -263,50 +255,40 @@ export function Nav() {
           </MenuPrimitive.Root>
         </div>
 
-        <div className="hidden md:flex items-center justify-self-end gap-1 shrink-0">
+        <div className="flex shrink-0 items-center gap-1 justify-self-end">
+          <Link
+            href="/restoration"
+            aria-label="Book a Restoration"
+            className={cta({ size: "sm", className: "order-first mr-1 min-h-11 px-4 text-[14px] sm:hidden" })}
+          >
+            Book
+          </Link>
           {cartLink}
           <Link
             href="/account"
             aria-label="My Account"
             title="My Account"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.06] transition-colors"
+            className="press hidden h-11 w-11 items-center justify-center rounded-full text-ink transition-colors duration-150 hover:bg-chalk lg:inline-flex"
           >
-            <CircleUserRound className="h-5 w-5" strokeWidth={2} />
+            <CircleUserRound className="h-[22px] w-[22px]" strokeWidth={1.75} />
           </Link>
-          <div className="ml-2 hidden lg:block">
-            <Link href="/restoration" className="comic-btn comic-btn-sm press">
-              Book a Restoration
-            </Link>
-          </div>
-        </div>
-
-        {/* Mobile right */}
-        <div className="flex items-center gap-1 md:hidden">
-          {cartLink}
+          <Link href="/restoration" className={cta({ size: "sm", className: "ml-2 hidden sm:inline-flex" })}>
+            Book a Restoration
+          </Link>
           <button
+            type="button"
             onClick={() => setOpen(!open)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-ink/[0.05]"
+            className="press ml-1 inline-flex h-11 w-11 items-center justify-center rounded-full bg-ink text-white transition-colors duration-150 hover:bg-ink-2 lg:hidden"
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
           >
-            <AnimatePresence mode="popLayout" initial={false}>
-              <motion.span
-                key={open ? "x" : "menu"}
-                initial={reduce ? false : { opacity: 0, rotate: -45, scale: 0.6 }}
-                animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                exit={reduce ? undefined : { opacity: 0, rotate: 45, scale: 0.6 }}
-                transition={{ duration: 0.2, ease: EASE_OUT }}
-                className="inline-flex"
-              >
-                {open ? <X className="h-5 w-5" strokeWidth={1.75} /> : <Menu className="h-5 w-5" strokeWidth={1.75} />}
-              </motion.span>
-            </AnimatePresence>
+            {open ? <X className="h-5 w-5" strokeWidth={2} /> : <Menu className="h-5 w-5" strokeWidth={2} />}
           </button>
         </div>
       </nav>
 
-      {/* Mobile menu: full-screen sheet on the ink stage, portaled to <body> so the
-          header's backdrop-filter doesn't trap its fixed positioning. */}
+      {/* Phone menu: a full-screen ink sheet, portaled to <body> so its fixed
+          positioning is never trapped. */}
       {mounted && createPortal(
       <AnimatePresence>
         {open && (
@@ -315,78 +297,77 @@ export function Nav() {
             role="dialog"
             aria-modal="true"
             aria-label="Menu"
-            initial={reduce ? { opacity: 0 } : { clipPath: "circle(0% at calc(100% - 2.25rem) 2rem)" }}
-            animate={reduce ? { opacity: 1 } : { clipPath: "circle(150% at calc(100% - 2.25rem) 2rem)" }}
-            exit={reduce ? { opacity: 0 } : { clipPath: "circle(0% at calc(100% - 2.25rem) 2rem)" }}
-            transition={{ duration: reduce ? 0.2 : 0.6, ease: EASE_OUT }}
-            className="stage vt-menu md:hidden !fixed inset-0 z-[70] flex flex-col overflow-y-auto overscroll-contain bg-ink text-paper pt-[env(safe-area-inset-top)] pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+            transition={{ duration: reduce ? 0.12 : 0.22, ease: EASE }}
+            className="surface-ink vt-menu !fixed inset-0 z-[70] flex flex-col overflow-y-auto overscroll-contain pt-[env(safe-area-inset-top)] pb-[calc(1.5rem+env(safe-area-inset-bottom))] lg:hidden"
           >
-            <div className="flex h-16 shrink-0 items-center justify-between px-4">
-              <Link href="/" onClick={() => setOpen(false)} className="flex items-center gap-2.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/card-doctor.jpg" alt="The Card Doc" className="w-8 h-8 rounded-md object-cover ring-1 ring-white/20" />
-                <span className="font-heading text-lg font-extrabold tracking-[-0.01em]">The Card Doc</span>
+            <div className="wrap flex h-16 shrink-0 items-center justify-between border-b border-line-dark md:h-[74px]">
+              <Link href="/" onClick={() => setOpen(false)} aria-label="The Card Doc, home" className="rounded-xl">
+                <BrandLogo size={40} surface="dark" className="gap-2.5" wordmarkClassName="text-[22px] md:text-[26px]" />
               </Link>
               <button
+                type="button"
                 onClick={() => setOpen(false)}
-                className="press inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-paper"
+                className="press inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-ink"
                 aria-label="Close menu"
               >
-                <X className="h-5 w-5" strokeWidth={1.75} />
+                <X className="h-5 w-5" strokeWidth={2} />
               </button>
             </div>
 
-            <nav className="mt-6 flex-1 px-4">
-              <ul className="border-t border-white/15">
+            <nav aria-label="Menu" className="wrap mt-7 flex-1">
+              <p className="eyebrow mb-3 text-sun">Services</p>
+              <ul className="flex flex-col border-t border-line-dark">
                 {TABS.map((tab, i) => {
                   const active = isTabActive(tab);
                   return (
-                    <li key={tab.href} className="overflow-hidden border-b border-white/15">
-                      <motion.div
-                        initial={reduce ? false : { y: "110%" }}
-                        animate={{ y: 0 }}
-                        transition={{ duration: 0.7, ease: EASE_OUT, delay: 0.15 + i * 0.07 }}
+                    <motion.li
+                      key={tab.href}
+                      initial={reduce ? false : { opacity: 0, y: 14 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.45, ease: EASE, delay: 0.05 + i * 0.05 }}
+                      className="border-b border-line-dark"
+                    >
+                      <Link
+                        href={tab.href}
+                        onClick={() => setOpen(false)}
+                        aria-current={active ? "page" : undefined}
+                        className="group flex items-center justify-between gap-4 py-3.5"
                       >
-                        <Link
-                          href={tab.href}
-                          onClick={() => setOpen(false)}
-                          aria-current={active ? "page" : undefined}
-                          className="press group flex items-end justify-between gap-4 py-5"
-                        >
-                          <span>
-                            <span className={`block font-heading text-[2.75rem] leading-[0.95] font-extrabold tracking-[-0.02em] ${active ? "text-rx-bright" : "text-paper"}`}>
-                              {tab.label}
-                            </span>
-                            <span className="mt-2 block font-mono text-xs text-paper/55">{TAB_HINTS[tab.href]}</span>
+                        <span>
+                          <span className={`block font-heading text-[44px] leading-[0.9] font-black ${active ? "text-sun" : "text-white"}`}>
+                            {tab.label}
                           </span>
-                        </Link>
-                      </motion.div>
-                    </li>
+                          <span className="mt-1.5 block text-sm font-semibold text-on-dark-muted">{TAB_HINTS[tab.href]}</span>
+                        </span>
+                        <ArrowRight aria-hidden className="h-6 w-6 shrink-0 text-sun transition-transform duration-200 group-active:translate-x-1" strokeWidth={1.75} />
+                      </Link>
+                    </motion.li>
                   );
                 })}
               </ul>
 
               <motion.div
-                initial={reduce ? false : { opacity: 0, y: 12 }}
+                initial={reduce ? false : { opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, ease: EASE_OUT, delay: 0.36 }}
-                className="mt-8"
+                transition={{ duration: 0.45, ease: EASE, delay: 0.2 }}
+                className="mt-9"
               >
-                <p className="rx-label !text-paper/50 mb-2">Before You Order</p>
-                <ul className="border-t border-white/15">
+                <p className="eyebrow mb-2 text-sun">Before You Order</p>
+                <ul className="grid grid-cols-2 gap-x-4">
                   {LEARN_LINKS.map((l) => {
                     const current = isCurrent(l.href);
                     return (
-                      <li key={l.href} className="border-b border-white/15">
+                      <li key={l.href}>
                         <Link
                           href={l.href}
                           onClick={() => setOpen(false)}
                           aria-current={current ? "page" : undefined}
-                          className="press flex h-14 items-center justify-between gap-4"
+                          className={`flex min-h-12 items-center text-lg font-bold ${current ? "text-sun" : "text-white"}`}
                         >
-                          <span className={`font-heading text-[1.375rem] tracking-[-0.01em] ${current ? "text-rx-bright" : "text-paper"}`}>
-                            {l.label}
-                          </span>
+                          {l.label}
                         </Link>
                       </li>
                     );
@@ -395,41 +376,45 @@ export function Nav() {
               </motion.div>
 
               <motion.div
-                initial={reduce ? false : { opacity: 0, y: 12 }}
+                initial={reduce ? false : { opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, ease: EASE_OUT, delay: 0.44 }}
-                className="mt-8 grid grid-cols-2 gap-2"
+                transition={{ duration: 0.45, ease: EASE, delay: 0.26 }}
+                className="mt-8 grid grid-cols-2 gap-3"
               >
                 {[...ACCOUNT_LINKS, { href: "/cart", label: "Cart" }].map((l) => (
                   <Link
                     key={l.href}
                     href={l.href}
                     onClick={() => setOpen(false)}
-                    className="press flex h-12 items-center justify-between rounded-lg border border-white/12 bg-white/[0.04] px-4 text-[15px] font-semibold text-paper"
+                    className={cta({ tone: "outline-light", size: "sm", className: "justify-between px-5" })}
                   >
                     {l.label}
                     {l.href === "/cart" && itemCount > 0 && (
-                      <span className="min-w-5 h-5 px-1.5 rounded-full bg-rx font-mono text-[11px] flex items-center justify-center">{itemCount}</span>
+                      <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-sun px-1.5 text-xs font-extrabold text-ink tabular-nums">{itemCount}</span>
                     )}
                   </Link>
                 ))}
+                <Link href="/restoration" onClick={() => setOpen(false)} className={cta({ size: "lg", className: "col-span-2 mt-2" })}>
+                  Book a Restoration
+                  <ArrowRight className="h-5 w-5" strokeWidth={2} aria-hidden />
+                </Link>
               </motion.div>
             </nav>
 
             <motion.div
               initial={reduce ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.55 }}
-              className="mt-10 px-4 text-sm"
+              transition={{ duration: 0.4, ease: EASE, delay: 0.34 }}
+              className="wrap mt-10 text-sm"
             >
-              <p className="rx-label !text-paper/50 mb-2">Contact</p>
-              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="block font-semibold text-paper">
+              <p className="eyebrow mb-2 text-sun">Contact</p>
+              <a href="https://www.instagram.com/the_card_doc" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-base font-bold text-white underline decoration-sun decoration-2 underline-offset-4">
                 DM us on @the_card_doc
               </a>
-              <p className="mt-1 text-paper/55">We reply within 1 business day.</p>
-              <div className="mt-6 flex items-center gap-5">
+              <p className="text-on-dark-muted">We reply within 1 business day.</p>
+              <div className="mt-4 flex items-center gap-6">
                 {LEGAL_LINKS.map((l) => (
-                  <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="text-xs font-medium text-paper/55 hover:text-paper">
+                  <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="inline-flex min-h-11 items-center text-[13px] font-semibold text-on-dark-muted hover:text-white">
                     {l.label}
                   </Link>
                 ))}

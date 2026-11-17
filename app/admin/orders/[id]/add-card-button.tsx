@@ -173,7 +173,7 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
           <button
             onClick={handleSave}
             disabled={saving || !name.trim()}
-            className="px-4 py-1.5 text-sm font-bold bg-rx text-white rounded-lg hover:bg-rx/90 transition-colors disabled:opacity-40"
+            className="px-4 py-1.5 text-sm font-bold bg-cobalt text-white rounded-lg hover:bg-cobalt/90 transition-colors disabled:opacity-40"
           >
             {saving ? "Adding…" : "Add Card"}
           </button>

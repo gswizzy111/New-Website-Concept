@@ -1,7 +1,8 @@
-import { PartyPopper } from "lucide-react";
 import Link from "next/link";
+import { ArrowRight, Check } from "lucide-react";
 import { PurchasePixel } from "@/components/purchase-pixel";
 import { readCheckoutReturn } from "@/lib/checkout-return";
+import { cta } from "@/components/brand";
 
 export default async function GiftCardSuccessPage({
   searchParams,
@@ -14,29 +15,34 @@ export default async function GiftCardSuccessPage({
     "Gift card success page",
   );
   return (
-    <div className="min-h-screen bg-paper flex items-center justify-center px-6">
+    <section className="surface-cobalt relative isolate flex min-h-[70vh] flex-1 items-center overflow-hidden">
       <PurchasePixel sessionId={sessionId} amountCents={amountCents} currency={currency} />
-      <div className="max-w-md w-full text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-lg bg-rx-soft text-rx"><PartyPopper className="h-8 w-8" strokeWidth={1.75} /></div>
-        <h1 className="font-heading text-3xl font-bold text-foreground mb-3">Gift Card Purchased!</h1>
-        <p className="text-muted-foreground mb-8">
+      <span aria-hidden className="halftone-dots -right-[10%] -top-[20%] h-[130%] w-[64%]" />
+      <span aria-hidden className="halftone-dots -bottom-[30%] -left-[16%] h-[80%] w-[50%] opacity-70" />
+      <div className="wrap py-20 text-center md:py-28">
+        <span
+          aria-hidden
+          className="sticker-pop mx-auto grid size-20 place-items-center rounded-full bg-sun text-ink shadow-[0_0_0_4px_var(--white),var(--pop-shadow)] md:size-24"
+          style={{ ["--d" as string]: 120 }}
+        >
+          <Check className="size-10 md:size-12" strokeWidth={3} />
+        </span>
+        <h1 className="hero-in display-lg mx-auto mt-9 max-w-4xl text-white" style={{ ["--d" as string]: 200 }}>
+          Gift Card Purchased!
+        </h1>
+        <p className="hero-in lead mx-auto mt-6 text-[#e6ebff]" style={{ ["--d" as string]: 300 }}>
           The gift card code has been emailed. It can be applied at checkout on any restoration order.
         </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link
-            href="/gift-cards"
-            className="px-6 py-3 bg-primary text-white font-semibold rounded-lg hover:bg-primary/90 transition-colors"
-          >
+        <div className="hero-in mt-10 flex flex-col justify-center gap-4 sm:flex-row" style={{ ["--d" as string]: 380 }}>
+          <Link href="/gift-cards" className={cta({ size: "lg" })}>
             Buy Another
+            <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
           </Link>
-          <Link
-            href="/"
-            className="px-6 py-3 bg-secondary text-foreground font-semibold rounded-lg hover:bg-border transition-colors"
-          >
+          <Link href="/" className={cta({ tone: "outline-light", size: "lg" })}>
             Back to Home
           </Link>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

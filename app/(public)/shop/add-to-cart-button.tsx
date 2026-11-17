@@ -1,7 +1,9 @@
 "use client";
 
+import { Check, Plus } from "lucide-react";
 import { useCart } from "@/lib/cart-context";
 import { useState } from "react";
+import { cta } from "@/components/brand";
 
 interface Props {
   product: {
@@ -26,13 +28,15 @@ export function AddToCartButton({ product }: Props) {
   return (
     <button
       onClick={handleAdd}
-      className={`h-8 rounded-md text-xs font-semibold px-3.5 transition-colors ${
-        added
-          ? "bg-rx-soft text-rx"
-          : "bg-ink text-paper hover:bg-rx"
-      }`}
+      aria-label={added ? undefined : `Add ${product.name} to cart`}
+      className={cta({
+        tone: added ? "cobalt" : "sun",
+        size: "sm",
+        className: "w-full gap-1.5 px-4 sm:w-auto sm:min-w-24",
+      })}
     >
-      {added ? "Added!" : "Add"}
+      {added ? <Check aria-hidden className="size-4" strokeWidth={2.5} /> : <Plus aria-hidden className="size-4" strokeWidth={2.5} />}
+      <span aria-live="polite">{added ? "Added!" : "Add"}</span>
     </button>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Info } from "lucide-react";
+import { ArrowRight, Check, Globe, Info, Lock, ShoppingBag } from "lucide-react";
 import { useEffect, useState, Suspense } from "react";
 import { useCart } from "@/lib/cart-context";
 import { formatCurrency } from "@/lib/utils";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, PIXEL_FIELD } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { KIT_US_STATES, addressProblem } from "@/lib/shipping-address";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
@@ -16,8 +16,13 @@ import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/req
 import { useAccountPrefill } from "@/lib/use-account-prefill";
 import type { KitRate } from "@/lib/kit-shipping";
 import { giftCardCents } from "@/lib/order-totals";
+import { cta } from "@/components/brand";
+import { cn } from "@/lib/utils";
+import {
+  BLOCK_TITLE, CHOICE, CHOICE_FOCUS, CHOICE_ON, FORM_PANEL, MINI_LABEL, NOTE_SUN, SUM_ROW, SUM_TOTAL,
+} from "@/components/checkout/form-styles";
 
-const INPUT_CN = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
+const INPUT_CN = PIXEL_FIELD;
 
 const COUNTRIES = [
   { code: "CA", name: "Canada" },
@@ -53,7 +58,7 @@ const COUNTRIES = [
 // If Shippo can't quote at all, US orders still go through at the old flat
 // rate (no rate ID, so the label is bought by hand as before)
 const FLAT_US_SHIPPING: KitRate = { id: "", provider: "", service: "Standard Shipping", days: null, postageCents: 599, priceCents: 599 };
-const SELECT_CN = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none";
+const SELECT_CN = `flex ${PIXEL_FIELD}`;
 
 function rateName(r: KitRate) {
   return [r.provider, r.service].filter(Boolean).join(" ");
@@ -292,29 +297,46 @@ function CheckoutInner() {
 
   if (items.length === 0) {
     return (
-      <div className="max-w-xl mx-auto px-6 py-24 text-center">
-        <p className="text-muted-foreground mb-4">Your cart is empty.</p>
-        <Button render={<Link href="/shop" />}>Browse Shop</Button>
-      </div>
+      <section className="surface-chalk flex min-h-[70vh] items-center py-16 md:py-24">
+        <div className="wrap">
+          <div className="mx-auto flex max-w-xl flex-col items-center gap-6 rounded-[22px] bg-white px-6 py-12 text-center shadow-[0_0_0_1px_var(--line),var(--panel-shadow)]">
+            <span aria-hidden className="grid size-20 place-items-center rounded-[22px] bg-chalk text-ink/40">
+              <ShoppingBag className="size-10" strokeWidth={1.5} />
+            </span>
+            <p className="font-heading text-[2.25rem] leading-none font-black text-ink">Your cart is empty.</p>
+            <Link href="/shop" className={cta({ tone: "sun", size: "lg" })}>
+              Browse Shop
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+          </div>
+        </div>
+      </section>
     );
   }
 
+  const codeRow = "flex gap-2.5";
+  const applyBtn = cta({ tone: "outline", size: "sm", className: "shrink-0 px-5" });
+  const ok = "mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-success";
+
   return (
-    <div className="max-w-4xl mx-auto px-6 md:px-8 py-12">
-      <div className="flex items-center gap-3 mb-8">
-        <h1 className="font-heading font-extrabold text-3xl text-foreground">Checkout</h1>
+    <div className="surface-chalk">
+      <div className="wrap pt-10 pb-24 md:pt-16 md:pb-28">
+      <div className="mb-8 flex flex-wrap items-end gap-4 md:mb-12">
+        <h1 className="font-heading text-[3rem] leading-[0.9] font-black text-ink md:text-[4.5rem]">Checkout</h1>
         {isInternational && (
-          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">International</span>
+          <span className="mb-1.5 inline-flex min-h-9 items-center gap-2 rounded-full bg-cobalt px-3.5 text-sm font-bold text-white md:mb-3">
+            <Globe aria-hidden className="size-4" strokeWidth={2} />International
+          </span>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-10">
         {/* Form */}
-        <div className="lg:col-span-3 flex flex-col gap-6">
+        <div className="flex flex-col gap-6">
 
           {/* Contact */}
-          <div className="bg-white border border-border rounded-lg p-6">
-            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Contact</h2>
+          <div className={FORM_PANEL}>
+            <h2 className={`${BLOCK_TITLE} mb-6 flex items-center gap-3`}><StepNum n={1} />Contact</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Need missing={miss(form.name)} className="sm:col-span-2 flex flex-col gap-1.5">
                 <Label>Full Name<Req /></Label>
@@ -332,8 +354,8 @@ function CheckoutInner() {
           </div>
 
           {/* Shipping Address */}
-          <div className="bg-white border border-border rounded-lg p-6">
-            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Shipping Address</h2>
+          <div className={FORM_PANEL}>
+            <h2 className={`${BLOCK_TITLE} mb-6 flex items-center gap-3`}><StepNum n={2} />Shipping Address</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {isInternational && (
                 <Need missing={miss(form.country)} className="sm:col-span-2 flex flex-col gap-1.5">
@@ -396,41 +418,39 @@ function CheckoutInner() {
             </div>
 
             {addressStarted && addressIssue && (
-              <p role="alert" className="text-xs font-semibold text-red-600 mt-3">{addressIssue}</p>
+              <p role="alert" className="mt-3 text-sm font-semibold text-destructive">{addressIssue}</p>
             )}
 
             {/* Shipping options: live prices for this address, by speed */}
-            <Need missing={showMissing && isAddressValid() && !(rateStatus === "done" && chosenRate)} note="See shipping options and choose one." className="mt-5 pt-5 border-t border-border">
-              <h3 className="text-sm font-bold text-foreground mb-3">Shipping speed<Req /></h3>
+            <Need missing={showMissing && isAddressValid() && !(rateStatus === "done" && chosenRate)} note="See shipping options and choose one." className="mt-7 border-t border-line pt-6">
+              <h3 className={`${MINI_LABEL} mb-3 text-ink`}>Shipping speed<Req /></h3>
               {rateStatus !== "done" && (
                 <button
                   type="button"
                   onClick={() => (isAddressValid() ? calculateShipping() : showWhatsMissing())}
                   disabled={rateStatus === "loading"}
-                  className="w-full h-10 bg-secondary text-foreground text-sm font-bold rounded-lg hover:bg-secondary/70 disabled:opacity-40 transition-colors"
+                  className={cta({ tone: "cobalt", size: "md", className: "w-full" })}
                 >
                   {rateStatus === "loading" ? "Getting prices..." : "See shipping options"}
                 </button>
               )}
               {rateStatus === "idle" && !isAddressValid() && (
-                <p className="text-xs text-muted-foreground mt-2">Fill in your contact details and address to see prices.</p>
+                <p className="mt-2 text-sm text-ink-soft">Fill in your contact details and address to see prices.</p>
               )}
               {rateStatus === "error" && (
-                <p role="alert" className="text-xs font-semibold text-red-600 mt-2">{rateError}</p>
+                <p role="alert" className="mt-2 text-sm font-semibold text-destructive">{rateError}</p>
               )}
 
               {rateStatus === "done" && rates.length > 0 && (
                 <fieldset>
                   <legend className="sr-only">Choose a shipping speed</legend>
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col gap-3">
                     {rates.map((r) => {
                       const chosen = chosenRate?.id === r.id;
                       return (
                         <label
                           key={r.id || "flat"}
-                          className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 ${
-                            chosen ? "border-rx bg-rx-soft" : "border-border hover:border-rx/50"
-                          }`}
+                          className={cn("flex min-h-16 cursor-pointer items-center gap-3 px-4 py-3", CHOICE, CHOICE_FOCUS, chosen && CHOICE_ON)}
                         >
                           <input
                             type="radio"
@@ -438,18 +458,18 @@ function CheckoutInner() {
                             value={r.id}
                             checked={chosen}
                             onChange={() => setChosenRate(r)}
-                            className="h-4 w-4 shrink-0 accent-[var(--rx)]"
+                            className="shrink-0"
                           />
                           <span className="flex-1 min-w-0">
-                            <span className={`block text-sm font-semibold ${chosen ? "text-rx" : "text-foreground"}`}>{rateName(r)}</span>
-                            {rateEta(r) && <span className="block text-xs text-muted-foreground">{rateEta(r)}</span>}
+                            <span className="block text-[15px] font-bold text-ink">{rateName(r)}</span>
+                            {rateEta(r) && <span className="block text-sm text-ink-soft">{rateEta(r)}</span>}
                           </span>
-                          <span className={`text-sm font-bold tabular-nums ${chosen ? "text-rx" : "text-foreground"}`}>{formatCurrency(r.priceCents)}</span>
+                          <span className={cn("font-heading text-[1.5rem] font-black tabular-nums", chosen ? "text-cobalt-deep" : "text-ink")}>{formatCurrency(r.priceCents)}</span>
                         </label>
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
+                  <p className="mt-3 text-sm text-ink-soft">
                     {rates[0].id
                       ? `Prices include ${formatCurrency(rates[0].priceCents - rates[0].postageCents)} handling. Your shipping label is created as soon as you pay.`
                       : "Live shipping prices aren't available right now, so standard shipping applies."}
@@ -459,111 +479,122 @@ function CheckoutInner() {
             </Need>
           </div>
 
-          {/* Creator Code */}
-          <div className="bg-white border border-border rounded-lg p-6">
-            <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Creator Code</h2>
-            <p className="text-xs text-muted-foreground mb-3">Have a creator code? Enter it here.</p>
-            <div className="flex gap-2">
+          {/* Creator Code and Gift Card */}
+          <div className={cn(FORM_PANEL, "grid gap-8 sm:grid-cols-2 sm:gap-6")}>
+          <div>
+            <h2 className={`${BLOCK_TITLE} mb-1.5 text-[1.375rem] md:text-[1.5rem]`}>Creator Code</h2>
+            <p className="mb-4 text-sm text-ink-soft">Have a creator code? Enter it here.</p>
+            <div className={codeRow}>
               <Input
                 value={codeInput}
                 onChange={(e) => { setCodeInput(e.target.value.toUpperCase()); setCodeStatus("idle"); setCreatorCode(""); setDiscountPercent(0); }}
                 onBlur={applyCreatorCode}
                 placeholder="CREATORCODE"
-                className="flex-1 font-mono uppercase"
+                className="h-11 flex-1 font-mono uppercase"
               />
-              <button type="button" onClick={applyCreatorCode}
-                className="px-4 h-9 bg-secondary text-foreground text-sm font-bold rounded-lg hover:bg-secondary/70 transition-colors whitespace-nowrap">
+              <button type="button" onClick={applyCreatorCode} className={applyBtn}>
                 Apply
               </button>
             </div>
-            {codeStatus === "checking" && <p className="text-xs text-muted-foreground mt-2">Checking...</p>}
-            {codeStatus === "valid" && discountPercent > 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{discountPercent}% discount applied</p>}
-            {codeStatus === "valid" && discountPercent === 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />Code applied</p>}
-            {codeStatus === "invalid" && <p className="text-xs text-red-600 mt-2">Invalid code. Please try again.</p>}
+            {codeStatus === "checking" && <p className="mt-2.5 text-sm text-ink-soft">Checking...</p>}
+            {codeStatus === "valid" && discountPercent > 0 && <p className={ok}><Check className="size-4" strokeWidth={2.5} />{discountPercent}% discount applied</p>}
+            {codeStatus === "valid" && discountPercent === 0 && <p className={ok}><Check className="size-4" strokeWidth={2.5} />Code applied</p>}
+            {codeStatus === "invalid" && <p className="mt-2.5 text-sm font-semibold text-destructive">Invalid code. Please try again.</p>}
           </div>
 
-          {/* Gift Card */}
-          <div className="bg-white border border-border rounded-lg p-6">
-            <h2 className="font-heading font-extrabold text-lg text-foreground mb-1">Gift Card</h2>
-            <p className="text-xs text-muted-foreground mb-3">Have a gift card code? Enter it here.</p>
-            <div className="flex gap-2">
+          <div>
+            <h2 className={`${BLOCK_TITLE} mb-1.5 text-[1.375rem] md:text-[1.5rem]`}>Gift Card</h2>
+            <p className="mb-4 text-sm text-ink-soft">Have a gift card code? Enter it here.</p>
+            <div className={codeRow}>
               <Input
                 value={gcInput}
                 onChange={(e) => { setGcInput(e.target.value.toUpperCase()); setGcStatus("idle"); setGiftCardCode(""); setGiftCardAmountCents(0); }}
                 placeholder="GIFT-XXXX-XXXX"
-                className="flex-1 font-mono uppercase"
+                className="h-11 flex-1 font-mono uppercase"
               />
-              <button type="button" onClick={validateGiftCard}
-                className="px-4 h-9 bg-secondary text-foreground text-sm font-bold rounded-lg hover:bg-secondary/70 transition-colors whitespace-nowrap">
+              <button type="button" onClick={validateGiftCard} className={applyBtn}>
                 Apply
               </button>
             </div>
-            {gcStatus === "valid" && gcApplied > 0 && <p className="text-xs text-rx font-semibold mt-2"><Check className="inline h-3 w-3 mr-1 -mt-0.5" strokeWidth={2.5} />{formatCurrency(gcApplied)} off applied</p>}
-            {gcStatus === "invalid" && <p className="text-xs text-red-600 mt-2">Invalid or already used gift card.</p>}
+            {gcStatus === "valid" && gcApplied > 0 && <p className={ok}><Check className="size-4" strokeWidth={2.5} />{formatCurrency(gcApplied)} off applied</p>}
+            {gcStatus === "invalid" && <p className="mt-2.5 text-sm font-semibold text-destructive">Invalid or already used gift card.</p>}
+          </div>
           </div>
         </div>
 
         {/* Order summary */}
-        <div className="lg:col-span-2">
-          <div className="bg-white border border-border rounded-lg p-6 sticky top-24">
-            <h2 className="font-heading font-extrabold text-lg text-foreground mb-4">Order Summary</h2>
-            <div className="flex flex-col gap-3 mb-4">
+        <div>
+          <div className={`${FORM_PANEL} lg:sticky lg:top-[calc(var(--header-h)+24px)]`}>
+            <h2 className={`${BLOCK_TITLE} mb-6`}>Order Summary</h2>
+            <div className="mb-6 flex flex-col gap-3">
               {items.map((item) => (
-                <div key={item.id} className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">{item.name} × {item.quantity}</span>
-                  <span className="font-medium">{formatCurrency(item.price_cents * item.quantity)}</span>
+                <div key={item.id} className={SUM_ROW}>
+                  <span>{item.name} × {item.quantity}</span>
+                  <span className="shrink-0 font-semibold text-ink tabular-nums">{formatCurrency(item.price_cents * item.quantity)}</span>
                 </div>
               ))}
               {discountCents > 0 && (
-                <div className="flex justify-between text-sm text-green-600 font-semibold">
+                <div className="flex justify-between gap-3 text-[15px] font-semibold text-success">
                   <span>Discount ({discountPercent}% off)</span>
                   <span>−{formatCurrency(discountCents)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Sales Tax (6.625%)</span>
-                <span className="font-medium">{formatCurrency(taxCents)}</span>
+              <div className={SUM_ROW}>
+                <span>Sales Tax (6.625%)</span>
+                <span className="font-semibold text-ink tabular-nums">{formatCurrency(taxCents)}</span>
               </div>
-              <div className="flex justify-between gap-3 text-sm">
-                <span className="text-muted-foreground">
+              <div className={SUM_ROW}>
+                <span>
                   Shipping{chosenRate ? <span className="block text-xs">{rateName(chosenRate)}</span> : null}
                 </span>
                 {chosenRate
-                  ? <span className="font-medium">{formatCurrency(shippingCents)}</span>
-                  : <span className="text-muted-foreground text-xs">Choose a speed</span>}
+                  ? <span className="font-semibold text-ink tabular-nums">{formatCurrency(shippingCents)}</span>
+                  : <span className="text-sm">Choose a speed</span>}
               </div>
               {gcApplied > 0 && (
-                <div className="flex justify-between text-sm text-green-600 font-semibold">
+                <div className="flex justify-between gap-3 text-[15px] font-semibold text-success">
                   <span>Gift Card</span>
                   <span>−{formatCurrency(gcApplied)}</span>
                 </div>
               )}
-              <div className="border-t border-border pt-2 flex justify-between font-bold">
+              <div className={SUM_TOTAL}>
                 <span>Total</span>
-                <span className="text-primary">{formatCurrency(finalTotal)}</span>
+                <span className="tabular-nums">{formatCurrency(finalTotal)}</span>
               </div>
             </div>
             {!chosenRate && (
-              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+              <p className={`${NOTE_SUN} mb-5`}>
                 Enter your address and choose a shipping speed before paying.
               </p>
             )}
-            <p className="flex items-start gap-2 text-sm text-ink mb-4">
-              <Info className="h-4 w-4 mt-0.5 shrink-0 text-rx" strokeWidth={1.75} />
+            <p className="mb-6 flex items-start gap-2 text-sm leading-relaxed text-ink-soft">
+              <Info className="mt-0.5 size-4 shrink-0 text-cobalt" strokeWidth={1.75} />
               All sales final. Defective or missing items are replaced or refunded.
             </p>
             <Button
               onClick={handleCheckout}
               disabled={submitting}
-              className="w-full font-bold"
+              size="lg"
+              className="w-full"
             >
+              <Lock aria-hidden className="size-4" strokeWidth={2.25} />
               {submitting ? "Redirecting..." : "Pay Securely with Stripe"}
             </Button>
             <MissingNote show={showMissing && !canPay()} />
           </div>
         </div>
       </div>
+      </div>
     </div>
+  );
+}
+
+/** The numbered disc beside a checkout panel's heading. */
+function StepNum({ n }: { n: number }) {
+  return (
+    <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full bg-ink font-heading text-lg font-black text-white">
+      {n}
+    </span>
   );
 }
 

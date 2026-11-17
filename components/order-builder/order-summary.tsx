@@ -4,6 +4,8 @@ import type { CardEntry, ShippingRate, InsuranceSelection } from "@/lib/types";
 import { INSURANCE_ENABLED } from "@/lib/site-config";
 import { computeOrderTotals, tierFor } from "@/lib/order-totals";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
+import { Clock } from "lucide-react";
+import { BLOCK_TITLE, FORM_PANEL, SUM_TOTAL } from "@/components/checkout/form-styles";
 
 interface OrderSummaryProps {
   cards: CardEntry[];
@@ -68,10 +70,10 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
     : "Est. turnaround: 15–20 days from receipt";
 
   return (
-    <div className="bg-white border border-border rounded-lg p-6 flex flex-col gap-4">
-      <h3 className="font-heading font-extrabold text-lg text-foreground">Order Summary</h3>
+    <div className={`${FORM_PANEL} flex flex-col gap-5`}>
+      <h3 className={BLOCK_TITLE}>Order Summary</h3>
 
-      <div className="flex flex-col gap-1 text-sm border-b border-border pb-3">
+      <div className="flex flex-col gap-1.5 rounded-[14px] bg-chalk p-4 text-sm">
         {isMixed ? (
           tierEntries.map(([tierId, count]) => {
             const tier = tierOf(tierId);
@@ -84,7 +86,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           })
         ) : (
           <>
-            <div className="flex justify-between text-muted-foreground">
+            <div className="flex justify-between font-bold text-ink">
               <span>{tierEntries[0] ? tierOf(tierEntries[0][0]).name : "Full Restoration & PSA Prep"}</span>
               <span>{cards.length} card{cards.length !== 1 ? "s" : ""}</span>
             </div>
@@ -99,13 +101,13 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
         )}
       </div>
 
-      <div className="flex flex-col gap-1 text-sm">
+      <div className="flex flex-col gap-2 text-[15px]">
         <div className="flex justify-between text-muted-foreground">
           <span>Subtotal</span>
           <span>{formatCurrency(subtotal)}</span>
         </div>
         {discountCents > 0 && (
-          <div className="flex justify-between text-green-700 font-semibold">
+          <div className="flex justify-between text-success font-semibold">
             <span>
               {discountKind === "bulk"
                 ? `Bulk discount (${discountPercentApplied}% off, ${cards.length} cards)`
@@ -137,13 +139,13 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           </div>
         )}
         {slabCrackCents > 0 && (
-          <div className="flex justify-between text-amber-700">
+          <div className="flex justify-between text-ink">
             <span>Slab Cracking × {slabCrackCount}</span>
             <span>{formatCurrency(slabCrackCents)}</span>
           </div>
         )}
         {pregradeCents > 0 && (
-          <div className="flex justify-between text-green-700">
+          <div className="flex justify-between text-success">
             <span>Pregrade × {pregradeCount}</span>
             <span>{formatCurrency(pregradeCents)}</span>
           </div>
@@ -155,7 +157,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           </div>
         )}
         {giftCardCents > 0 && (
-          <div className="flex justify-between text-green-700 font-semibold">
+          <div className="flex justify-between text-success font-semibold">
             <span>Gift Card</span>
             <span>−{formatCurrency(giftCardCents)}</span>
           </div>
@@ -166,13 +168,13 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
             <span>{formatCurrency(tipCents)}</span>
           </div>
         )}
-        <div className="flex justify-between font-bold text-foreground pt-1 border-t border-border text-base">
+        <div className={SUM_TOTAL}>
           <span>Total</span>
-          <span className="text-primary">{formatCurrency(total)}</span>
+          <span className="tabular-nums">{formatCurrency(total)}</span>
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">{turnaroundText}</p>
+      <p className="flex items-center gap-2 rounded-full bg-cobalt-wash px-3.5 py-2 text-sm font-semibold text-cobalt-deep"><Clock aria-hidden className="size-4 shrink-0" strokeWidth={2} />{turnaroundText}</p>
     </div>
   );
 }

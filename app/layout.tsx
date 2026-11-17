@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Poppins, Schibsted_Grotesk } from "next/font/google";
+import { Big_Shoulders, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { MetaPixelRouteTracker } from "@/components/meta-pixel-route-tracker";
@@ -8,14 +8,18 @@ import { siteUrl } from "@/lib/site-url";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ORGANIZATION } from "@/lib/seo";
 
-const poppins = Poppins({
+// Display: headlines, step numerals, stickers and short uppercase labels.
+// Big Shoulders is the merged Google family; its optical-size axis gives the
+// condensed "Display" cut at headline sizes and a more open cut at label
+// sizes (font-optical-sizing: auto).
+const bigShoulders = Big_Shoulders({
   variable: "--font-heading",
   subsets: ["latin"],
-  weight: ["600", "700", "800", "900"],
+  axes: ["opsz"],
   display: "swap",
 });
 
-// Body, UI, labels and figures: a newspaper grotesque with tabular numerals.
+// Body, UI, forms, buttons and legal text.
 const schibsted = Schibsted_Grotesk({
   variable: "--font-sans",
   subsets: ["latin"],
@@ -27,8 +31,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  // Matches the paper header at the top of every page.
-  themeColor: "#f7efe1",
+  // Matches the white header at the top of every page.
+  themeColor: "#ffffff",
 };
 
 export const metadata: Metadata = {
@@ -62,7 +66,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${poppins.variable} ${schibsted.variable} h-full antialiased`}>
+    <html lang="en" className={`${bigShoulders.variable} ${schibsted.variable} h-full antialiased`}>
       <head>
         <meta name="facebook-domain-verification" content="ihjnpqbitwq29e5kx3x0dujilxh1n9" />
         {/* Runs before anything else on the page and loads Google Analytics

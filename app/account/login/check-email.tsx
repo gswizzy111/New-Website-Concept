@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { MailCheck } from "lucide-react";
+import { PORTAL_BUTTON, PORTAL_LINK } from "@/components/account/portal";
 
 export type ConfirmSent = {
   email: string;
@@ -85,8 +87,11 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-border shadow-sm p-6 sm:p-8">
-      <h1 ref={heading} tabIndex={-1} className="font-heading font-black text-2xl text-foreground text-center outline-none">
+    <div className="rounded-[22px] bg-white p-6 shadow-[0_0_0_1px_var(--line),var(--pop-shadow)] sm:p-8">
+      <span aria-hidden className="mx-auto mb-5 grid size-14 place-items-center rounded-[18px] bg-sun text-ink shadow-[var(--cut-edge),0_8px_16px_-8px_rgba(8,12,40,0.5)]">
+        <MailCheck className="size-7" strokeWidth={1.75} />
+      </span>
+      <h1 ref={heading} tabIndex={-1} className="text-center font-heading text-[2.25rem] leading-[0.95] font-black text-ink outline-none">
         {state.sent ? "Check your email" : "We couldn't send your link"}
       </h1>
 
@@ -112,15 +117,15 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
         </li>
       </ul>
 
-      {note && <p role="status" className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{note}</p>}
-      {error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
+      {note && <p role="status" className="mt-4 rounded-[14px] bg-success-tint px-4 py-3 text-sm text-success">{note}</p>}
+      {error && <p role="alert" className="mt-4 rounded-[14px] bg-red-50 px-4 py-3 text-sm text-destructive">{error}</p>}
 
       {!wrongPassword && (
         <button
           type="button"
           onClick={sendAgain}
           disabled={busy || wait > 0}
-          className="mt-5 w-full h-11 bg-primary text-primary-foreground font-bold text-sm rounded-lg hover:bg-primary/90 disabled:opacity-60 transition-colors"
+          className={`${PORTAL_BUTTON} mt-6`}
         >
           {busy ? "Sending…" : "Send it again"}
           {!busy && wait > 0 && <span className="font-medium"> (in {wait}s)</span>}
@@ -128,10 +133,10 @@ export function CheckEmail({ info, onConfirmed, onStartOver, onBack }: {
       )}
 
       <div className="mt-4 flex flex-col items-center gap-2 text-sm">
-        <button type="button" onClick={onStartOver} className="font-semibold text-primary hover:underline">
+        <button type="button" onClick={onStartOver} className={`min-h-11 ${PORTAL_LINK}`}>
           Wrong email? Start over
         </button>
-        <button type="button" onClick={onBack} className="text-muted-foreground hover:text-foreground hover:underline">
+        <button type="button" onClick={onBack} className="min-h-11 font-semibold text-ink-soft hover:text-ink hover:underline">
           Back to sign in
         </button>
       </div>

@@ -2,12 +2,22 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Gem } from "lucide-react";
-import { FACT_ROW } from "./fact-row";
+import { ArrowRight } from "lucide-react";
+import { cta } from "@/components/brand";
+import { cn } from "@/lib/utils";
+import { CLOSED_ACTION, FACT_ROW } from "./fact-row";
+import { ValueNote } from "./value-note";
 
 const RATE = 0.07;
 const MIN_VALUE = 5000;
 
+/** The closed / sold-out plate, recoloured for the ink card. */
+const CLOSED_DARK = "bg-white/10 text-on-dark-muted shadow-[inset_0_0_0_1.5px_var(--line-dark)] [background-image:repeating-linear-gradient(135deg,transparent_0_7px,rgba(255,255,255,0.05)_7px_10px)]";
+
+/**
+ * Diamond: the one tier priced from the card's value, so it carries its own
+ * calculator. Printed on ink (the dark card in the grid) with its price in sun.
+ */
 export function DiamondCard({
   slotsLeft,
   isSoldOut,
@@ -23,79 +33,83 @@ export function DiamondCard({
   const priceDollars = numericValue >= MIN_VALUE ? (numericValue * RATE).toFixed(2) : null;
   const tooLow = rawValue !== "" && numericValue > 0 && numericValue < MIN_VALUE;
 
-  // Same structure as the other tiers: the badge in the corner, slots in the facts
   const bannerLabel = isSoldOut ? "SOLD OUT" : "White Glove";
-  const bannerCls = isSoldOut ? "bg-secondary text-muted-foreground" : "bg-ink text-white";
   const showSlots = !isSoldOut && slotsLeft !== null && restorationsOpen;
+  const closed = isSoldOut || !restorationsOpen;
 
   return (
-    <div className={`comic-lift relative h-full rounded-2xl border-[2.5px] border-ink bg-bone flex flex-col comic-shadow-rx ${(isSoldOut || !restorationsOpen) ? "opacity-70" : ""}`}>
-      {/* Foil wash: Diamond is the one tier printed on holo stock */}
-      <div aria-hidden className="holo-bands pointer-events-none absolute inset-x-0 top-0 h-28 rounded-t-[13px] opacity-[0.22] [background-position:30%_40%] [mask-image:linear-gradient(to_bottom,#000,transparent)]" />
-      <div className="relative flex h-12 items-end justify-between gap-3 px-6">
-        <span className="metal metal-diamond mb-[5px] h-3.5 w-11 rounded-[3px]" aria-hidden />
-        <span className={`whitespace-nowrap font-heading font-extrabold text-[10px] leading-4 uppercase tracking-[0.08em] rounded-full border-2 border-ink px-2.5 py-0.5 ${bannerCls}`}>
-          {bannerLabel}
-        </span>
-      </div>
-
-      <div className="relative p-6 pt-4 flex flex-col flex-1">
-        <div className="flex items-start gap-3 mb-5">
-          <Gem className="w-5 h-5 flex-shrink-0 mt-0.5 text-rx" strokeWidth={2} />
-          <div>
-            <h3 className="font-heading text-[1.6rem] font-black uppercase tracking-[-0.015em] text-ink leading-none">Diamond</h3>
-            <p className="text-sm text-muted-foreground mt-0.5 min-h-10">White-glove service for high-value cards</p>
-          </div>
+    <article id="tier-elite" className="lift surface-ink relative isolate flex h-full scroll-mt-[calc(var(--header-h)+5.5rem)] flex-col overflow-hidden rounded-2xl shadow-[0_30px_60px_-30px_rgba(13,18,51,0.75)]">
+      <span aria-hidden className="metal metal-diamond absolute inset-x-0 top-0 h-1.5" />
+      <div className="flex flex-1 flex-col p-6 md:p-7">
+        <div className="flex min-h-9 items-center justify-between gap-3">
+          <span
+            aria-hidden
+            className={cn(
+              "metal metal-diamond block h-9 w-[26px] -rotate-6 rounded-[5px] shadow-[0_0_0_2px_var(--ink),0_0_0_3.5px_rgba(255,255,255,0.35)]",
+              closed && "grayscale"
+            )}
+          />
+          <span
+            className={cn(
+              "inline-flex min-h-8 items-center rounded-full px-3.5 text-[13px] font-extrabold uppercase tracking-[0.06em]",
+              isSoldOut ? "bg-white/15 text-white" : "bg-sun text-ink"
+            )}
+          >
+            {bannerLabel}
+          </span>
         </div>
+
+        <h3 className="caps mt-5 font-display text-[40px] font-black leading-[0.9] text-white">Diamond</h3>
+        <p className="mt-2 mb-6 min-h-12 text-[15px] leading-snug text-on-dark-muted">White-glove service for high-value cards</p>
 
         {/* Dynamic price display */}
         <div className="mb-6">
-          <div className="font-heading text-5xl font-black tracking-[-0.03em] text-ink tabular-nums">
+          <div className="font-display text-[72px] font-black leading-[0.82] tracking-[-0.01em] text-sun tabular-nums lining-nums">
             {priceDollars ? `$${priceDollars}` : "7%"}
           </div>
-          <p className="font-mono text-xs text-muted-foreground mt-1">
+          <p className="label-caps mt-3 text-[13px] text-on-dark-muted">
             {priceDollars
               ? `of your $${numericValue.toLocaleString()} card value`
               : "of declared card value · cards $5,000+"}
           </p>
         </div>
 
-        {/* Facts, then the value field as one more row of them */}
         <div className="@container">
-          <dl className="divide-y-2 divide-dashed divide-ink/15 border-t-2 border-ink">
+          <dl className="divide-y divide-line-dark border-t-2 border-white">
             <div className={FACT_ROW}>
-              <dt className="rx-label @min-[16.5rem]:self-center">Turnaround</dt>
-              <dd className="font-medium text-ink @min-[16.5rem]:text-right">5–10 business days <span className="text-xs text-muted-foreground">(est.)</span></dd>
+              <dt className="label-caps text-[14px] text-on-dark-muted @min-[16.5rem]:self-center">Turnaround</dt>
+              <dd className="font-bold text-white @min-[16.5rem]:text-right">
+                5–10 business days <span className="text-xs font-medium text-on-dark-muted">(est.)</span>
+              </dd>
             </div>
             <div className={`${FACT_ROW} @min-[16.5rem]:items-center`}>
-              <dt className="rx-label">Card value</dt>
-              <dd className="font-medium text-ink flex items-center gap-1">
+              <dt className="label-caps text-[14px] text-on-dark-muted">Card value</dt>
+              <dd className="flex flex-wrap items-center gap-x-1 font-bold text-white">
                 $5,000+
-                <span className="relative group">
-                  <span className="text-xs text-muted-foreground cursor-help">*</span>
-                  <span className="pointer-events-none absolute bottom-full right-0 mb-1.5 w-max max-w-[180px] rounded-md bg-ink px-2.5 py-1.5 text-xs text-paper opacity-0 group-hover:opacity-100 transition-opacity z-20 leading-snug">
-                    Current value, raw or graded
-                  </span>
-                </span>
+                <ValueNote dark />
               </dd>
             </div>
             {showSlots && (
               <div className={FACT_ROW}>
-                <dt className="rx-label @min-[16.5rem]:self-center">Slots</dt>
-                <dd className={`tabular-nums @min-[16.5rem]:text-right ${slotsLeft! <= 3 ? "font-semibold text-red-700" : "font-medium text-ink"}`}>
+                <dt className="label-caps text-[14px] text-on-dark-muted @min-[16.5rem]:self-center">Slots</dt>
+                <dd className={cn("tabular-nums @min-[16.5rem]:text-right", slotsLeft! <= 3 ? "font-extrabold text-sun" : "font-bold text-white")}>
                   {slotsLeft} left
                 </dd>
               </div>
             )}
           </dl>
 
-          <div className="border-t border-rule py-2.5">
-            <div className="flex flex-col gap-1.5 @min-[16.5rem]:flex-row @min-[16.5rem]:items-center @min-[16.5rem]:gap-3">
-              <label htmlFor="diamond-card-value" className="rx-label @min-[16.5rem]:min-w-0 @min-[16.5rem]:flex-1">
+          {/* The value field: a small calculator on the card */}
+          <div className="border-t border-line-dark pt-4 pb-1">
+            <div className="flex flex-col gap-2 @min-[16.5rem]:flex-row @min-[16.5rem]:items-center @min-[16.5rem]:gap-3">
+              <label
+                htmlFor="diamond-card-value"
+                className="label-caps text-[14px] leading-tight text-on-dark-muted @min-[16.5rem]:min-w-0 @min-[16.5rem]:flex-1"
+              >
                 Estimated card value (USD)
               </label>
-              <div className="relative shrink-0 @min-[16.5rem]:w-[8rem]">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted-foreground">$</span>
+              <div className="relative shrink-0 @min-[16.5rem]:w-[9rem]">
+                <span className="absolute top-1/2 left-3.5 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
                 <input
                   id="diamond-card-value"
                   type="number"
@@ -103,43 +117,36 @@ export function DiamondCard({
                   placeholder="e.g. 6000"
                   value={rawValue}
                   onChange={(e) => setRawValue(e.target.value)}
-                  className="w-full h-10 pl-6 pr-2.5 rounded-md border border-input bg-white text-base md:text-sm tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none placeholder:text-muted-foreground focus:outline-none focus:border-rx focus:ring-2 focus:ring-rx/20"
+                  className="h-11 w-full rounded-[12px] border-[1.5px] border-transparent bg-white pr-3 pl-7 text-base text-ink tabular-nums outline-none [appearance:textfield] placeholder:text-ink-soft focus-visible:border-sun focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sun md:text-[15px] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 />
               </div>
             </div>
             {tooLow && (
-              <p className="text-xs text-amber-800 font-semibold mt-2">
+              <p className="mt-3 rounded-lg bg-sun-tint px-3 py-2 text-xs font-bold leading-snug text-ink">
                 Diamond requires cards valued at $5,000+. Consider Fast Pass for cards under $5,000.
               </p>
             )}
             {priceDollars && (
-              <p className="text-xs text-rx font-semibold mt-2">
-                Your price: <span className="text-lg font-bold">${priceDollars}</span> per card
+              <p className="mt-3 flex flex-wrap items-baseline gap-x-1.5 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white">
+                Your price: <span className="font-display text-xl font-black leading-none tabular-nums text-sun">${priceDollars}</span> per card
               </p>
             )}
           </div>
         </div>
 
-        {/* The action sits on the card's floor, level with the other tiers */}
-        <div className="mt-auto pt-6">
-        {isSoldOut ? (
-          <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
-            Sold Out
-          </div>
-        ) : !restorationsOpen ? (
-          <div className="w-full h-12 flex items-center justify-center rounded-[0.7rem] border-2 border-ink/25 font-heading font-extrabold uppercase tracking-[0.03em] text-[13px] bg-secondary text-muted-foreground cursor-not-allowed">
-            Currently Closed
-          </div>
-        ) : (
-          <Link
-            href="/restoration?tier=elite"
-            className="comic-btn press w-full h-12 text-[13px]"
-          >
-            Select Diamond
-          </Link>
-        )}
+        <div className="mt-auto pt-7">
+          {isSoldOut ? (
+            <div className={cn(CLOSED_ACTION, CLOSED_DARK)}>Sold Out</div>
+          ) : !restorationsOpen ? (
+            <div className={cn(CLOSED_ACTION, CLOSED_DARK)}>Currently Closed</div>
+          ) : (
+            <Link href="/restoration?tier=elite" className={cta({ size: "lg", className: "w-full" })}>
+              Select Diamond
+              <ArrowRight aria-hidden className="size-5" strokeWidth={2} />
+            </Link>
+          )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }

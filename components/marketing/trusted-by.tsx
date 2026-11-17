@@ -1,61 +1,65 @@
-import { VelocityMarquee } from "@/components/motion/velocity-marquee";
+import { ArrowUpRight } from "lucide-react";
+import { Marquee } from "@/components/brand";
 import { TRUSTED_BY, type TrustedPage } from "@/lib/trusted-by";
+import { cn } from "@/lib/utils";
 
-// Each copy of the marquee row repeats the list until it holds at least this
-// many names, so even a short list is wider than the screen and loops without
-// a gap.
-const MIN_PER_COPY = 4;
-
-function Entry({ page, decorative }: { page: TrustedPage; decorative: boolean }) {
+/** One person on the belt: name, what they're known for, handle and followers, linking to their page. */
+function Person({ page }: { page: TrustedPage }) {
   return (
-    <li className={`shrink-0 flex items-center ${decorative ? "marquee-repeat" : ""}`} aria-hidden={decorative || undefined}>
-      <a
-        href={page.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        tabIndex={decorative ? -1 : undefined}
-        className="group flex items-baseline gap-3 px-6 md:px-10 py-1.5"
-      >
-        <span className="whitespace-nowrap font-heading text-2xl md:text-4xl leading-none tracking-[-0.015em] text-ink transition-colors duration-300 ease-[var(--ease-out)] group-hover:text-rx">
+    <a
+      href={page.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group flex items-center gap-3.5 rounded-full px-1 py-1 text-white focus-visible:outline-sun"
+    >
+      {/* The name, with the follower count right underneath it. */}
+      <span className="flex flex-col">
+        <span className="caps font-display text-[26px] font-extrabold leading-none tracking-[0.01em] transition-colors duration-200 group-hover:text-sun md:text-[34px]">
           {page.name}
         </span>
-        <span className="whitespace-nowrap text-[13px] text-muted-foreground">
-          {page.role && <>{page.role} · </>}
-          <span className="font-semibold text-ink">{page.handle}</span>
-          {page.followers && <> {page.followers} followers</>}
-        </span>
-      </a>
-      <span aria-hidden className="h-5 w-px bg-rule" />
-    </li>
+        {page.followers && (
+          <span className="mt-1 text-[13px] leading-none text-on-dark-muted md:text-sm">
+            <span className="font-display text-base font-black text-sun md:text-lg">{page.followers}</span> followers
+          </span>
+        )}
+      </span>
+      <span className="flex items-baseline gap-2 self-start pt-1.5 text-[13px] leading-none md:pt-2.5 md:text-sm">
+        {page.role && <span className="text-on-dark-muted">{page.role}</span>}
+        <span className="font-bold text-white/90">{page.handle}</span>
+        <ArrowUpRight aria-hidden className="size-4 self-center text-sun" strokeWidth={1.75} />
+      </span>
+      <span className="sr-only">(opens {page.platform} in a new tab)</span>
+    </a>
   );
 }
 
 /**
- * "Trusted by": people The Card Doc has restored cards for, as a thin, slow
- * marquee of names (role, handle and followers beside each, linking to their
- * page) that surges with scroll speed and pauses under a mouse. Static,
- * one of each, wrapping under reduced motion. Renders nothing until
+ * "Trusted by": the people The Card Doc has restored cards for, as an ink
+ * belt sliding the opposite way to the symptoms ticker above it. Each name
+ * links to their page. No photos or likeness. Renders nothing until
  * lib/trusted-by.ts has entries.
  */
-export function TrustedBy() {
+export function TrustedBy({ className = "" }: { className?: string }) {
   if (TRUSTED_BY.length === 0) return null;
-  const reps = Math.ceil(MIN_PER_COPY / TRUSTED_BY.length);
-  const row = Array.from({ length: reps }, (_, r) => TRUSTED_BY.map((page) => ({ page, decorative: r > 0 }))).flat();
 
   return (
-    <section aria-labelledby="trusted-by" className="border-b border-rule bg-paper py-7 md:py-9">
-      <p id="trusted-by" data-reveal className="rx-label text-center mb-3 md:mb-4">
-        Trusted by
-      </p>
-      <div className="marquee-mask overflow-hidden">
-        <VelocityMarquee>
-          <ul className="flex">
-            {row.map(({ page, decorative }, i) => <Entry key={i} page={page} decorative={decorative} />)}
-          </ul>
-          <ul aria-hidden className="marquee-dupe flex">
-            {row.map(({ page }, i) => <Entry key={i} page={page} decorative />)}
-          </ul>
-        </VelocityMarquee>
+    <section aria-labelledby="trusted-by" className={cn("surface-ink relative", className)}>
+      <div className="flex flex-col md:flex-row md:items-stretch">
+        <h2
+          id="trusted-by"
+          className="caps relative z-[2] flex shrink-0 items-center gap-2 bg-sun px-[var(--gut)] py-2 font-display text-lg font-black leading-none tracking-[0.02em] text-ink md:px-7 md:text-[22px] md:shadow-[18px_0_24px_-6px_rgb(13_18_51/0.9)]"
+        >
+          Trusted by
+        </h2>
+        <Marquee
+          reverse
+          tone="dark"
+          label="Trusted by"
+          speed={40}
+          className="min-w-0 flex-1 py-3 md:py-4"
+          items={TRUSTED_BY.map((page) => <Person key={page.href} page={page} />)}
+          separator={<span aria-hidden className="mx-7 block size-2 rotate-45 rounded-[2px] bg-sun md:mx-10" />}
+        />
       </div>
     </section>
   );

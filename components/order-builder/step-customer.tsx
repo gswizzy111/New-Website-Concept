@@ -1,6 +1,6 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
+import { Input, PIXEL_FIELD } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -13,8 +13,9 @@ import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { US_STATES } from "@/lib/constants";
 import type { CustomerInfo } from "@/lib/types";
 import { Need, Req } from "@/components/checkout/required";
+import { FORM_PANEL, STEP_TITLE } from "@/components/checkout/form-styles";
 
-const INPUT_CN = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm";
+const INPUT_CN = PIXEL_FIELD;
 
 
 interface StepCustomerProps {
@@ -35,13 +36,13 @@ export function StepCustomer({ customer, onChange, showMissing = false }: StepCu
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-heading text-3xl font-extrabold tracking-[-0.01em] text-ink mb-1">
+        <h2 className={`${STEP_TITLE} mb-4`}>
           Where should we ship them back?
         </h2>
-        <p className="text-muted-foreground">We&apos;ll also use this to confirm your order.</p>
+        <p className="lead text-ink-soft">We&apos;ll also use this to confirm your order.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className={`${FORM_PANEL} grid grid-cols-1 gap-5 sm:grid-cols-2`}>
         <Need missing={miss(customer.name)} className="sm:col-span-2 flex flex-col gap-1.5">
           <Label htmlFor="full-name">Full Name<Req /></Label>
           <Input
@@ -78,7 +79,7 @@ export function StepCustomer({ customer, onChange, showMissing = false }: StepCu
 
         <div className="sm:col-span-2 flex flex-col gap-1.5">
           <Label>Country</Label>
-          <p className="h-8 flex items-center px-2.5 text-sm rounded-lg border border-input bg-muted/40 text-muted-foreground">
+          <p className="flex h-11 items-center rounded-[12px] bg-chalk px-3.5 text-[15px] font-semibold text-ink-soft">
             United States
           </p>
         </div>

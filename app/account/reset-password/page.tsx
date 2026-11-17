@@ -48,7 +48,7 @@ function ResetPassword() {
             <input id="confirm-password" type="password" autoComplete="new-password" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} className={FIELD_CN} />
           </div>
           {error && (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-destructive">
               {error}{" "}
               {/expired|used/i.test(error) && <Link href="/account/forgot-password" className="font-semibold underline">Request a new link</Link>}
             </p>
