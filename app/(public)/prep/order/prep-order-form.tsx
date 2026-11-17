@@ -11,6 +11,7 @@ import { useAccountPrefill } from "@/lib/use-account-prefill";
 import { useState, useCallback, useId } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
+import { MobileTotalBar } from "@/components/order-builder/mobile-total-bar";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { US_STATES } from "@/lib/constants";
 import { bulkDiscountCentsOf, bulkDiscountPercent } from "@/lib/bulk-pricing";
@@ -789,71 +790,90 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             placeholder="Special instructions, condition notes, etc." />
         </div>
 
-        {/* Order Summary */}
-        <div className="rounded-2xl bg-white p-5 shadow-[0_0_0_2px_var(--ink),var(--panel-shadow)] md:p-7">
-          <h2 className={`${h2Cls} mb-5`}>Order Summary</h2>
-          <div className="flex flex-col gap-1.5 text-sm">
-            {filledCards.length > 0 && (
+        {/* Order Summary. On phones the total also rides in a bar pinned to the
+            bottom of the screen; its Details sheet lists these same lines. */}
+        {(() => {
+          const summaryLines = (
+            <div className="flex flex-col gap-1.5 text-sm">
+              {filledCards.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Prep ({filledCards.length} card{filledCards.length !== 1 ? "s" : ""})</span>
+                  <span className="font-semibold">{fmt(prepSubtotal)}</span>
+                </div>
+              )}
+              {bulkDiscountCents > 0 && (
+                <div className="flex justify-between font-semibold text-success">
+                  <span>Bulk discount ({bulkPercent}% off, {filledCards.length} cards)</span>
+                  <span>−{fmt(bulkDiscountCents)}</span>
+                </div>
+              )}
+              {addPreGrade && filledCards.length > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Pre-Grade Assessment × {filledCards.length}</span>
+                  <span className="font-semibold">{fmt(preGradeSubtotal)}</span>
+                </div>
+              )}
+              {slabCrackCount > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Slab Crack × {slabCrackCount}</span>
+                  <span className="font-semibold">{fmt(slabCrackSubtotal)}</span>
+                </div>
+              )}
+              {!bulkWon && codeDiscountCents > 0 && (
+                <div className="flex justify-between font-semibold text-success">
+                  <span>{discountPercent}% off — {appliedCode}</span>
+                  <span>−{fmt(codeDiscountCents)}</span>
+                </div>
+              )}
+              {taxCents > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">NJ Sales Tax (6.625%)</span>
+                  <span className="font-semibold">{fmt(taxCents)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Prep ({filledCards.length} card{filledCards.length !== 1 ? "s" : ""})</span>
-                <span className="font-semibold">{fmt(prepSubtotal)}</span>
+                <span className="text-muted-foreground">{shippingMethod === "buy_label" ? "Shipping (inbound + return)" : "Return shipping"}</span>
+                {selectedRate
+                  ? <span className="font-semibold">{fmt(shippingCents)}</span>
+                  : <span className="text-xs font-semibold text-muted-foreground">select above</span>}
               </div>
-            )}
-            {bulkDiscountCents > 0 && (
-              <div className="flex justify-between font-semibold text-success">
-                <span>Bulk discount ({bulkPercent}% off, {filledCards.length} cards)</span>
-                <span>−{fmt(bulkDiscountCents)}</span>
+              {addInsurance && insuranceDeclaredValueCents > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Shipment Insurance (~1.5% of value)</span>
+                  <span className="font-semibold">{fmt(estimatedInsuranceCents)}</span>
+                </div>
+              )}
+              <div className="mt-3 flex items-baseline justify-between border-t-2 border-ink pt-4" data-summary-total>
+                <span className="font-display text-[26px] font-black leading-none text-ink">
+                  {!selectedRate ? "Subtotal" : "Total"}
+                </span>
+                <span className="font-display text-[40px] font-black leading-[0.85] text-ink tabular-nums">{totalEstimate > 0 ? fmt(totalEstimate) : "—"}</span>
               </div>
-            )}
-            {addPreGrade && filledCards.length > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Pre-Grade Assessment × {filledCards.length}</span>
-                <span className="font-semibold">{fmt(preGradeSubtotal)}</span>
-              </div>
-            )}
-            {slabCrackCount > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Slab Crack × {slabCrackCount}</span>
-                <span className="font-semibold">{fmt(slabCrackSubtotal)}</span>
-              </div>
-            )}
-            {!bulkWon && codeDiscountCents > 0 && (
-              <div className="flex justify-between font-semibold text-success">
-                <span>{discountPercent}% off — {appliedCode}</span>
-                <span>−{fmt(codeDiscountCents)}</span>
-              </div>
-            )}
-            {taxCents > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">NJ Sales Tax (6.625%)</span>
-                <span className="font-semibold">{fmt(taxCents)}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">{shippingMethod === "buy_label" ? "Shipping (inbound + return)" : "Return shipping"}</span>
-              {selectedRate
-                ? <span className="font-semibold">{fmt(shippingCents)}</span>
-                : <span className="text-xs font-semibold text-muted-foreground">select above</span>}
+              <p className="text-xs text-muted-foreground">
+                {!selectedRate
+                  ? "* Select a shipping option above to see your full total."
+                  : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
+              </p>
             </div>
-            {addInsurance && insuranceDeclaredValueCents > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Shipment Insurance (~1.5% of value)</span>
-                <span className="font-semibold">{fmt(estimatedInsuranceCents)}</span>
+          );
+          return (
+            <>
+              <div id="prep-order-summary" className="rounded-2xl bg-white p-5 shadow-[0_0_0_2px_var(--ink),var(--panel-shadow)] md:p-7">
+                <h2 className={`${h2Cls} mb-5`}>Order Summary</h2>
+                {summaryLines}
               </div>
-            )}
-            <div className="mt-3 flex items-baseline justify-between border-t-2 border-ink pt-4">
-              <span className="font-display text-[26px] font-black leading-none text-ink">
-                {!selectedRate ? "Subtotal" : "Total"}
-              </span>
-              <span className="font-display text-[40px] font-black leading-[0.85] text-ink tabular-nums">{totalEstimate > 0 ? fmt(totalEstimate) : "—"}</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {!selectedRate
-                ? "* Select a shipping option above to see your full total."
-                : "* Includes NJ sales tax. Confirmed at Stripe checkout."}
-            </p>
-          </div>
-        </div>
+              <MobileTotalBar
+                total={totalEstimate > 0 ? fmt(totalEstimate) : "—"}
+                label={!selectedRate ? "Subtotal" : "Total"}
+                cardCount={filledCards.length}
+                title="Order Summary"
+                summaryId="prep-order-summary"
+                show={filledCards.length > 0}
+                details={summaryLines}
+              />
+            </>
+          );
+        })()}
 
         <div className={panel}>
           <SigningSection

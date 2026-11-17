@@ -1,3 +1,6 @@
+"use client";
+
+import { useId } from "react";
 import { formatCurrency } from "@/lib/utils";
 import { getCardPriceCents, formatCents } from "@/lib/restoration-tiers";
 import type { CardEntry, ShippingRate, InsuranceSelection } from "@/lib/types";
@@ -6,8 +9,9 @@ import { computeOrderTotals, tierFor } from "@/lib/order-totals";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { Clock } from "lucide-react";
 import { BLOCK_TITLE, FORM_PANEL, SUM_TOTAL } from "@/components/checkout/form-styles";
+import { MobileTotalBar } from "./mobile-total-bar";
 
-interface OrderSummaryProps {
+export interface OrderSummaryProps {
   cards: CardEntry[];
   shippingMethod: "buy_label" | "self_ship" | null;
   selectedRate: ShippingRate | null;
@@ -26,7 +30,12 @@ interface OrderSummaryProps {
   tiers?: RestorationTier[];
 }
 
-export function OrderSummary({ cards, shippingMethod, selectedRate, discountPercent = 0, loyaltyPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0, tipCents: tip = 0, tiers }: OrderSummaryProps) {
+/**
+ * Everything the order summary shows, worked out once: the per-tier
+ * breakdown, the charges (lib/order-totals.ts) and the turnaround line. The
+ * sidebar panel and the phone total bar both read it, so they always agree.
+ */
+export function summarizeOrder({ cards, shippingMethod, selectedRate, discountPercent = 0, isInternational = false, selectedTier, insurance, addSignatureConfirmation = false, instagramFeature = false, giftCardAmountCents = 0, tipCents: tip = 0, tiers }: OrderSummaryProps) {
   // Only tiers that exist reach the breakdown below (cards without one are skipped)
   const tierOf = (id: RestorationTierId) => tierFor(id, tiers) as RestorationTier;
   // Build per-tier breakdown
@@ -44,10 +53,7 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
   const tierEntries = Object.entries(tierCounts) as [RestorationTierId, number][];
   const isMixed = tierEntries.length > 1;
 
-  const {
-    subtotal, discountCents, discountKind, discountPercentApplied, taxCents, signatureCents, insuranceCents,
-    slabCrackCount, slabCrackCents, pregradeCount, pregradeCents, instagramCents, tipCents, giftCardCents, total,
-  } = computeOrderTotals({
+  const totals = computeOrderTotals({
     cards,
     selectedTier,
     tiers,
@@ -69,10 +75,21 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
     ? `Est. turnaround: ${turnaroundOf(tierOf(tierEntries[0][0]))} from receipt`
     : "Est. turnaround: 15–20 days from receipt";
 
-  return (
-    <div className={`${FORM_PANEL} flex flex-col gap-5`}>
-      <h3 className={BLOCK_TITLE}>Order Summary</h3>
+  return { ...totals, tierOf, tierCents, tierEntries, isMixed, turnaroundText };
+}
 
+type OrderSummaryData = ReturnType<typeof summarizeOrder>;
+
+/** The summary's lines under its heading: the tiers, every charge, the total and the turnaround. */
+function SummaryLines({ cards, shippingMethod, selectedRate, discountPercent = 0, loyaltyPercent = 0, isInternational = false, summary }: OrderSummaryProps & { summary: OrderSummaryData }) {
+  const {
+    tierOf, tierCents, tierEntries, isMixed, turnaroundText,
+    subtotal, discountCents, discountKind, discountPercentApplied, taxCents, signatureCents, insuranceCents,
+    slabCrackCount, slabCrackCents, pregradeCount, pregradeCents, instagramCents, tipCents, giftCardCents, total,
+  } = summary;
+
+  return (
+    <>
       <div className="flex flex-col gap-1.5 rounded-[14px] bg-chalk p-4 text-sm">
         {isMixed ? (
           tierEntries.map(([tierId, count]) => {
@@ -122,9 +139,10 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
           <span>Sales Tax (6.625%)</span>
           <span>{formatCurrency(taxCents)}</span>
         </div>
-        <div className="flex justify-between text-muted-foreground">
+        <div className="flex justify-between gap-3 text-muted-foreground">
           <span>{isInternational || shippingMethod === "self_ship" ? "Return shipping" : "Shipping"}</span>
-          <span>{selectedRate ? formatCurrency(selectedRate.amount_cents) : "—"}</span>
+          {/* No estimate before a rate is picked: the shipping step quotes it */}
+          {selectedRate ? <span>{formatCurrency(selectedRate.amount_cents)}</span> : <span className="text-right text-sm">Added at step 3</span>}
         </div>
         {signatureCents > 0 && (
           <div className="flex justify-between text-muted-foreground">
@@ -168,13 +186,42 @@ export function OrderSummary({ cards, shippingMethod, selectedRate, discountPerc
             <span>{formatCurrency(tipCents)}</span>
           </div>
         )}
-        <div className={SUM_TOTAL}>
+        <div className={SUM_TOTAL} data-summary-total>
           <span>Total</span>
           <span className="tabular-nums">{formatCurrency(total)}</span>
         </div>
       </div>
 
       <p className="flex items-center gap-2 rounded-full bg-cobalt-wash px-3.5 py-2 text-sm font-semibold text-cobalt-deep"><Clock aria-hidden className="size-4 shrink-0" strokeWidth={2} />{turnaroundText}</p>
-    </div>
+    </>
+  );
+}
+
+/**
+ * The order summary panel. With `phoneBar`, phones also get a total bar
+ * pinned to the bottom of the screen (./mobile-total-bar.tsx) whose Details
+ * sheet lists these same lines; the desktop sidebar is unchanged.
+ */
+export function OrderSummary({ phoneBar = false, ...props }: OrderSummaryProps & { phoneBar?: boolean }) {
+  const summary = summarizeOrder(props);
+  const panelId = useId();
+  const lines = <SummaryLines {...props} summary={summary} />;
+
+  return (
+    <>
+      <div id={panelId} className={`${FORM_PANEL} flex flex-col gap-5`}>
+        <h3 className={BLOCK_TITLE}>Order Summary</h3>
+        {lines}
+      </div>
+      {phoneBar && (
+        <MobileTotalBar
+          total={formatCurrency(summary.total)}
+          cardCount={props.cards.length}
+          title="Order Summary"
+          summaryId={panelId}
+          details={<div className="flex flex-col gap-5">{lines}</div>}
+        />
+      )}
+    </>
   );
 }
