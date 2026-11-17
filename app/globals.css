@@ -586,6 +586,9 @@
     box-shadow 180ms var(--ease-out),
     background-color 180ms ease;
 }
+.btn > svg {
+  flex-shrink: 0;
+}
 .btn > svg:last-child,
 .btn .arrow {
   transition: transform 250ms var(--ease-out);

@@ -52,7 +52,7 @@ export default function StartPage() {
                 <span aria-hidden className="halftone-dots -right-[10%] -bottom-[25%] h-[90%] w-[70%]" />
                 <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem] lg:grid-cols-[minmax(0,1fr)_7.5rem] xl:grid-cols-[minmax(0,1fr)_9.5rem]">
                   <span>
-                    <span className="caps block font-display text-[36px] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{restoration.name}</span>
+                    <span className="caps block font-display text-[clamp(28px,9.2vw,36px)] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{restoration.name}</span>
                     <span className="mt-4 block text-[16px] leading-relaxed text-[#e6ebff] md:text-[17px]">{restoration.line}</span>
                   </span>
                   <Print
@@ -83,7 +83,7 @@ export default function StartPage() {
               >
                 <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-4 sm:gap-5 sm:grid-cols-[minmax(0,1fr)_9.5rem] lg:grid-cols-[minmax(0,1fr)_7.5rem] xl:grid-cols-[minmax(0,1fr)_9.5rem]">
                   <span>
-                    <span className="caps block font-display text-[36px] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{prep.name}</span>
+                    <span className="caps block font-display text-[clamp(28px,9.2vw,36px)] font-black leading-[0.88] sm:text-[48px] md:text-[60px] lg:text-[46px] xl:text-[60px]">{prep.name}</span>
                     <span className="mt-4 block text-[16px] leading-relaxed text-ink-soft md:text-[17px]">{prep.line}</span>
                   </span>
                   <Print
@@ -178,7 +178,7 @@ export default function StartPage() {
                 <p className="mt-2 text-[15px] font-medium text-ink-soft">We reply within 1 business day.</p>
               </div>
             </div>
-            <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={cta({ size: "lg", className: "self-start whitespace-normal sm:self-auto" })}>
+            <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={cta({ size: "lg", className: "w-full justify-center text-center sm:w-auto sm:self-auto sm:whitespace-nowrap" })}>
               DM us on @the_card_doc
               <span className="sr-only">on Instagram (opens in a new tab)</span>
             </a>

@@ -171,10 +171,10 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                 </div>
 
                 <Need missing={missing.has("value")} className="sm:col-span-2 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor={`value-${uid}-${i}`}>Declared value (USD)<Req /></Label>
+                  <div className="flex items-start justify-between gap-3">
+                    <Label htmlFor={`value-${uid}-${i}`} className="block">Declared value (USD)<Req /></Label>
                     {activeTier && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-right text-xs text-muted-foreground">
                         {activeTier.max_card_value_cents === null
                           ? `${activeTier.name}: no max value`
                           : `${activeTier.name} max: $${(activeTier.max_card_value_cents / 100).toLocaleString()}`}
@@ -241,7 +241,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                         <span className="block pr-6 font-heading text-[1.3rem] leading-tight font-extrabold">
                           {t.name}
                           {!available && t.max_card_value_cents && (
-                            <span className="ml-1 font-sans text-xs normal-case tracking-normal">(max ${(t.max_card_value_cents / 100).toLocaleString()})</span>
+                            <span className="mt-0.5 block whitespace-nowrap font-sans text-xs normal-case tracking-normal">(max ${(t.max_card_value_cents / 100).toLocaleString()})</span>
                           )}
                         </span>
                         <span className="mt-0.5 block text-[13px] leading-snug text-ink-soft">

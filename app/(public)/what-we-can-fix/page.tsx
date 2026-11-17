@@ -227,10 +227,10 @@ export default function WhatWeCanFixPage() {
                   white-bordered print on the studio sweep, like its framed
                   neighbours, set to the right so the tag sits in the open
                   sweep on the left, off the cards. */}
-              <div className="seamless aspect-[16/10]">
+              <div className="seamless aspect-[4/3] lg:aspect-[16/10]">
                 <span aria-hidden className="seamless-floor" />
                 <div
-                  className="group/print absolute top-[8%] right-[6%] bottom-[8%] md:top-[14%] md:bottom-[14%] lg:top-[8%] lg:bottom-[8%] overflow-hidden rounded-[10px] bg-white p-[5px] shadow-[0_0_0_1px_rgba(8,12,40,0.08),0_14px_28px_-14px_rgba(8,12,40,0.45)]"
+                  className="group/print absolute top-[8%] right-[6%] bottom-[8%] overflow-hidden rounded-[10px] bg-white p-[5px] shadow-[0_0_0_1px_rgba(8,12,40,0.08),0_14px_28px_-14px_rgba(8,12,40,0.45)]"
                   style={{ aspectRatio: "586/523" }}
                 >
                   <div className="relative h-full w-full overflow-hidden rounded-[6px] bg-[#0e1330]">
@@ -268,7 +268,7 @@ export default function WhatWeCanFixPage() {
                 floor={false}
                 sizes="(min-width: 768px) 30vw, 70vw"
               >
-                {lifts && <Tag className="right-4 bottom-4">{lifts}</Tag>}
+                {lifts && <Tag className="right-4 top-4">{lifts}</Tag>}
               </Seamless>
             </figure>
             </div>

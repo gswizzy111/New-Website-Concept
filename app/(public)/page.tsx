@@ -288,7 +288,7 @@ export default function HomePage() {
                 to bring it to the front. */}
             <CardStack
               cards={ALL_CARDS}
-              className="mt-10 max-w-[34rem] lg:mt-12 lg:max-w-none"
+              className="mx-auto mt-10 max-w-[34rem] lg:mx-0 lg:mt-12 lg:max-w-none"
             />
           </div>
           {/* Sits at the bottom of the row from lg, so the button's bottom

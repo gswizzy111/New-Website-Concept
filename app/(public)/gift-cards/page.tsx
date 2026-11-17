@@ -256,7 +256,7 @@ export default function GiftCardsPage() {
             type="button"
             onClick={handleCheckout}
             disabled={loading}
-            className="btn btn-sun btn-lg w-full disabled:opacity-60"
+            className="btn btn-sun btn-lg w-full whitespace-normal text-center max-sm:px-5 disabled:opacity-60"
           >
             {loading
               ? "Redirecting..."

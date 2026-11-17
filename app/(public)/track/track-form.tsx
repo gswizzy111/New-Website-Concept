@@ -58,7 +58,7 @@ export function TrackForm({ initialOrder = "" }: { initialOrder?: string }) {
                 value={orderNumber}
                 onChange={(e) => setOrderNumber(e.target.value)}
                 autoComplete="off"
-                className="h-12 font-bold tracking-[0.02em] md:text-[16px]"
+                className="h-12 font-bold tracking-[0.02em] placeholder:font-normal placeholder:tracking-normal md:text-[16px]"
               />
             </div>
 

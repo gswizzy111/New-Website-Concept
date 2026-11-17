@@ -134,7 +134,7 @@ const SECTION_GRID: Record<number, string> = {
   1: "grid-cols-1 max-w-[300px] sm:max-w-sm",
   2: "grid-cols-2 max-w-3xl",
   3: "grid-cols-2 md:grid-cols-3",
-  4: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
+  4: "grid-cols-2 lg:grid-cols-4",
   5: "grid-cols-2 md:grid-cols-3",
   6: "grid-cols-2 md:grid-cols-3",
   7: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",

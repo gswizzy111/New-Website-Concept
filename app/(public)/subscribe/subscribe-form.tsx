@@ -85,7 +85,7 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
             <div className="hero-in surface-ink relative isolate mt-9 overflow-hidden rounded-[22px] p-7 md:mt-12 md:p-10" style={{ ["--d" as string]: 160 }}>
               <p className="max-w-[30ch] text-[18px] font-medium leading-relaxed text-on-dark-muted md:text-[20px]">
                 Get a fresh restoration kit delivered every month —{" "}
-                <span className="mt-3 block font-display text-[64px] font-black leading-[0.85] whitespace-nowrap text-sun tabular-nums md:text-[84px]">
+                <span className="mt-3 block font-display text-[clamp(48px,17vw,64px)] font-black leading-[0.85] whitespace-nowrap text-sun md:text-[84px]">
                   {priceLabel}/mo
                 </span>
               </p>
