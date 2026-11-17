@@ -11,6 +11,7 @@ import { siteUrl } from "@/lib/site-url";
 import {
   GIFT_CARD_IN_USE_MESSAGE, attachGiftCardHold, giftCardExpiry, holdGiftCard, releaseGiftCardHold,
 } from "@/lib/gift-card-holds";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const BodySchema = z.object({
   items: z.array(z.object({ id: z.string(), quantity: z.number().int().positive(), slug: z.string(), size: z.string().optional() })).min(1),
@@ -29,7 +30,12 @@ const BodySchema = z.object({
   shipping_rate_id: z.string().min(1).optional(),
 });
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(request: Request) {
+  return withRefusalTracking("kits", request, () => createKitCheckout(request));
+}
+
+async function createKitCheckout(request: Request) {
   if (isSoldOut()) {
     return Response.json({ error: "The shop is currently sold out. Please check back soon." }, { status: 503 });
   }

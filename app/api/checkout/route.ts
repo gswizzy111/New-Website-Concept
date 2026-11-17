@@ -24,6 +24,7 @@ import { MAX_TIP_CENTS } from "@/lib/order-totals";
 import {
   GIFT_CARD_IN_USE_MESSAGE, attachGiftCardHold, giftCardExpiry, holdGiftCard, releaseGiftCardHold,
 } from "@/lib/gift-card-holds";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const AddressSchema = z.object({
   street1: z.string().min(1),
@@ -79,7 +80,12 @@ const BodySchema = z.object({
   tip_cents: z.number().int().min(0).max(MAX_TIP_CENTS).optional(),
 }).extend(SigningSchema.shape);
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(request: Request) {
+  return withRefusalTracking("restoration", request, () => createRestorationCheckout(request));
+}
+
+async function createRestorationCheckout(request: Request) {
   const userAgent = request.headers.get("user-agent") ?? "";
 
   if (isSoldOut()) {

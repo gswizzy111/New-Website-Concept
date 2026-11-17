@@ -2,6 +2,7 @@ import { z } from "zod";
 import { stripe } from "@/lib/stripe";
 import { siteUrl } from "@/lib/site-url";
 import { logCheckoutError } from "@/lib/checkout-error-log";
+import { withRefusalTracking } from "@/lib/checkout-funnel-server";
 
 const Schema = z.object({
   amount_cents: z.number().int().min(1000).max(100000),
@@ -12,7 +13,12 @@ const Schema = z.object({
   personal_message: z.string().max(500).optional(),
 });
 
+// Records refusals for the admin's Checkout Funnel (lib/checkout-funnel-server.ts)
 export async function POST(req: Request) {
+  return withRefusalTracking("gift_card", req, () => createGiftCardCheckout(req));
+}
+
+async function createGiftCardCheckout(req: Request) {
   const body = await req.json().catch(() => null);
   const parsed = Schema.safeParse(body);
   if (!parsed.success) {
