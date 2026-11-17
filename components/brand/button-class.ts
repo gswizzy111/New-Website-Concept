@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 export type CtaTone = "sun" | "ink" | "cobalt" | "outline" | "outline-light" | "white" | "ghost";
-export type CtaSize = "sm" | "md" | "lg";
+export type CtaSize = "sm" | "md" | "lg" | "xl";
 
 /**
  * Class string for a pill button on a link or any element:
@@ -16,5 +16,5 @@ export function cta({
   size = "md",
   className,
 }: { tone?: CtaTone; size?: CtaSize; className?: string } = {}) {
-  return cn("btn", `btn-${tone}`, size === "sm" && "btn-sm", size === "lg" && "btn-lg", className);
+  return cn("btn", `btn-${tone}`, size === "sm" && "btn-sm", size === "lg" && "btn-lg", size === "xl" && "btn-xl", className);
 }
