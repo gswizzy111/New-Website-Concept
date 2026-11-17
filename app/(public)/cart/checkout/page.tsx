@@ -202,6 +202,7 @@ function CheckoutInner() {
             country: isInternational ? form.country : "US",
           },
           item_names: items.map((i) => i.name),
+          items: items.map((i) => ({ name: i.name, quantity: i.quantity })),
           declared_value_cents: totalCents,
         }),
       });

@@ -19,12 +19,45 @@ export const INTERNATIONAL_HANDLING_CENTS = 1000;
 
 const BOX_KEYWORDS = ["official", "essential", "clamp"];
 
-/** The parcel the admin label routes use: a box for kits with tools, else a mailer. */
-export function kitParcel(itemNames: string[]) {
-  const needsBox = itemNames.some((n) => BOX_KEYWORDS.some((kw) => n.toLowerCase().includes(kw)));
-  return needsBox
-    ? { massUnit: WeightUnitEnum.Lb, weight: "4", distanceUnit: DistanceUnitEnum.In, length: "10", width: "7", height: "7" }
-    : { massUnit: WeightUnitEnum.Oz, weight: "6", distanceUnit: DistanceUnitEnum.In, length: "8", width: "5", height: "1" };
+export type KitParcelItem = { name: string; quantity?: number };
+
+/**
+ * The kit parcel: a box for kits with tools, else a mailer, scaled by
+ * quantity so several kits are quoted (and their label bought) at their real
+ * weight. One box kit is 10x7x7 in, 4 lb; each extra box kit stacks another
+ * 7 in and 4 lb. Mailer-only items are 6 oz each (8x5x1 in, 1 in per extra
+ * item); inside a box they add their weight only.
+ */
+export function kitParcel(items: (string | KitParcelItem)[]) {
+  let boxUnits = 0;
+  let mailerUnits = 0;
+  for (const raw of items) {
+    const item = typeof raw === "string" ? { name: raw, quantity: 1 } : raw;
+    const qty = Math.max(1, Math.min(99, Math.floor(item.quantity ?? 1) || 1));
+    const name = item.name.toLowerCase();
+    if (BOX_KEYWORDS.some((kw) => name.includes(kw))) boxUnits += qty;
+    else mailerUnits += qty;
+  }
+  if (boxUnits > 0) {
+    const pounds = boxUnits * 4 + (mailerUnits * 6) / 16;
+    return {
+      massUnit: WeightUnitEnum.Lb,
+      weight: String(Math.round(pounds * 100) / 100),
+      distanceUnit: DistanceUnitEnum.In,
+      length: "10",
+      width: "7",
+      height: String(7 * boxUnits),
+    };
+  }
+  const units = Math.max(1, mailerUnits);
+  return {
+    massUnit: WeightUnitEnum.Oz,
+    weight: String(6 * units),
+    distanceUnit: DistanceUnitEnum.In,
+    length: "8",
+    width: "5",
+    height: String(units),
+  };
 }
 
 export type KitRate = {
@@ -47,11 +80,12 @@ export async function quoteKitRates(opts: {
   name: string;
   phone?: string;
   email?: string;
-  itemNames: string[];
+  /** Cart items with quantities (or bare names, counted once each). */
+  items: (string | KitParcelItem)[];
   declaredValueCents: number;
 }): Promise<KitRate[]> {
   const { address: a } = opts;
-  const parcel = kitParcel(opts.itemNames);
+  const parcel = kitParcel(opts.items);
   const international = a.country !== "US";
   const shipment = await shippo.shipments.create({
     addressFrom: businessAddress,

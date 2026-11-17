@@ -16,6 +16,8 @@ const Body = z.object({
     country: z.string().default("US"),
   }),
   item_names: z.array(z.string()).max(50).default([]),
+  // Names with quantities, so several kits are quoted at their real weight
+  items: z.array(z.object({ name: z.string().max(200), quantity: z.number().int().min(1).max(99) })).max(50).optional(),
   declared_value_cents: z.number().int().min(0).max(10_000_00).default(0),
 });
 
@@ -43,7 +45,7 @@ export async function POST(request: Request) {
       name: parsed.data.name,
       phone: parsed.data.phone,
       email: parsed.data.email,
-      itemNames: parsed.data.item_names,
+      items: parsed.data.items ?? parsed.data.item_names,
       declaredValueCents: parsed.data.declared_value_cents,
     });
     if (rates.length === 0) {

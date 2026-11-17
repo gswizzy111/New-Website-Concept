@@ -17,11 +17,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { SplitReveal } from "@/components/motion/split-reveal";
-import { CountUp } from "@/components/motion/count-up";
 import { FeaturedReview, ReviewBubbles } from "@/components/marketing/comic-reviews";
 import { PhotoFigure } from "@/components/about/photo-figure";
-import { AcrylicHolder, SectionHead, StatBlock, cta } from "@/components/brand";
-import { getCardsFinishedStat } from "@/lib/site-stats";
+import { AcrylicHolder, SectionHead, cta } from "@/components/brand";
 import { FOUNDERS, FOUNDERS_MESSAGE, HERO, PROCESS, REASONS, STORY } from "@/lib/about";
 import { siteUrl } from "@/lib/site-url";
 import { cn } from "@/lib/utils";
@@ -97,8 +95,7 @@ function BookCta({ tone = "sun", className }: { tone?: "sun" | "ink"; className?
   );
 }
 
-export default async function AboutPage() {
-  const cardsFinished = await getCardsFinishedStat();
+export default function AboutPage() {
   const [lineOne, lineTwo] = HERO.headline;
 
   return (
@@ -336,23 +333,9 @@ export default async function AboutPage() {
       {/* ── What our customers say ───────────────────────────────────────── */}
       <section aria-labelledby="reviews-heading" className="surface-white">
         <div className="wrap section-y">
-          <div className="grid gap-10 lg:grid-cols-12 lg:items-end">
-            <h2 id="reviews-heading" data-reveal className="display-lg text-ink lg:col-span-7">
-              What our customers say
-            </h2>
-            {cardsFinished ? (
-              <div data-reveal className="lg:col-span-5 lg:justify-self-end">
-                <StatBlock
-                  tone="cobalt"
-                  value={<CountUp value={cardsFinished} />}
-                  label="Cards restored and prepped"
-                  className="min-h-0 min-w-[18rem]"
-                >
-                  <p className="mt-1 text-[13px] text-cobalt-tint">Counted live from finished website orders.</p>
-                </StatBlock>
-              </div>
-            ) : null}
-          </div>
+          <h2 id="reviews-heading" data-reveal className="display-lg text-ink">
+            What our customers say
+          </h2>
           <FeaturedReview className="mt-12 max-w-5xl md:mt-14" />
           <div className="mt-14 md:mt-20">
             <ReviewBubbles />

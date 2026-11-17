@@ -166,7 +166,7 @@ async function KitOrderView({ kitNumber, email }: { kitNumber: string; email: st
         )}
       </div>
 
-      {order.tracking_number && (
+      {order.tracking_number && !kitCancelled && (
         <TrackingPanel label="Shipment Tracking" number={order.tracking_number} href={kitTrackUrl} />
       )}
 

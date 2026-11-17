@@ -53,6 +53,38 @@ function missingSchema(err: { code?: string } | null | undefined) {
   return !!err && ["PGRST202", "PGRST205", "42P01", "42883"].includes(err.code ?? "");
 }
 
+/**
+ * Takes kit stock in one step (decrement_product_inventory, migration
+ * 20261117_decrement_product_inventory.sql), never below 0. Until that
+ * function exists: re-read the count and update only if it hasn't changed
+ * since, a few times, so concurrent payments don't overwrite each other.
+ * Returns an error message, or null.
+ */
+async function decrementInventory(admin: Admin, productId: string, qty: number): Promise<string | null> {
+  const { error: rpcError } = await admin.rpc("decrement_product_inventory", { p_product_id: productId, p_qty: qty });
+  if (!rpcError) return null;
+  if (!missingSchema(rpcError)) return rpcError.message;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { data: row, error: readError } = await admin
+      .from("products")
+      .select("inventory_count")
+      .eq("id", productId)
+      .maybeSingle();
+    if (readError) return readError.message;
+    if (!row) return null;
+    const current = (row.inventory_count as number | null) ?? 0;
+    let update = admin
+      .from("products")
+      .update({ inventory_count: Math.max(0, current - qty) })
+      .eq("id", productId);
+    update = row.inventory_count === null ? update.is("inventory_count", null) : update.eq("inventory_count", current);
+    const { data: changed, error: updateError } = await update.select("id");
+    if (updateError) return updateError.message;
+    if (changed?.length) return null;
+  }
+  return "stock kept changing; not decremented";
+}
+
 /** This delivery's hold on one checkout session. */
 type Claim = {
   admin: Admin;
@@ -598,25 +630,7 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
 
     // ── Shop / kit order ──────────────────────────────────────────────────
     if (session.metadata?.type === "shop") {
-      const items: { id: string; qty: number }[] = JSON.parse(session.metadata.items ?? "[]");
-
-      // Fetch product names from DB
-      const productIds = items.map((i) => i.id);
-      const { data: products } = await admin
-        .from("products")
-        .select("id, name, price_cents, inventory_count")
-        .in("id", productIds);
-
-      const productMap = Object.fromEntries((products ?? []).map((p) => [p.id, p]));
-
-      // Build items array for storage
-      const itemsForDb = items.map((i) => ({
-        product_id: i.id,
-        product_name: productMap[i.id]?.name ?? "Unknown product",
-        quantity: i.qty,
-        price_cents: productMap[i.id]?.price_cents ?? 0,
-      }));
-
+      const items: { id: string; qty: number; size?: string | null }[] = JSON.parse(session.metadata.items ?? "[]");
       // The address checked in the cart (older orders: the one Stripe collected)
       const shippingAddress = addressFromSession(session);
       const isInternationalShop = session.metadata.is_international === "true";
@@ -637,6 +651,30 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
 
       const claim = await claimSession(admin, session, "shop", event.created);
       if (claim instanceof Response) return claim;
+
+      // Product names and prices for the saved order. A failed read is retried
+      // (nothing is saved yet) rather than saving the kit as "Unknown product"
+      const productIds = [...new Set(items.map((i) => i.id))];
+      const { data: products, error: productsError } = await admin
+        .from("products")
+        .select("id, name, price_cents, inventory_count")
+        .in("id", productIds);
+      if (productsError) return retryLater(claim, `could not read the kit products (${productsError.message})`);
+
+      const productMap = Object.fromEntries((products ?? []).map((p) => [p.id, p]));
+
+      // Build items array for storage, with the size picked in the cart (the
+      // same display name the checkout's Stripe line uses)
+      const itemsForDb = items.map((i) => {
+        const name = productMap[i.id]?.name ?? "Unknown product";
+        return {
+          product_id: i.id,
+          product_name: i.size ? `${name} — ${i.size}` : name,
+          ...(i.size ? { size: i.size } : {}),
+          quantity: i.qty,
+          price_cents: productMap[i.id]?.price_cents ?? 0,
+        };
+      });
 
       // Save shop order to DB
       const { data: savedKitOrder, error: kitInsertError } = await admin.from("shop_orders").insert({
@@ -713,13 +751,12 @@ async function handleEvent(event: Stripe.Event): Promise<Response> {
 
         // Decrement inventory for each product
         stage = "inventory";
-        for (const item of items) {
-          const current = productMap[item.id]?.inventory_count ?? 0;
-          const { error: stockError } = await admin
-            .from("products")
-            .update({ inventory_count: Math.max(0, current - item.qty) })
-            .eq("id", item.id);
-          if (stockError) console.error(`Inventory update failed for product ${item.id} (session ${session.id}):`, stockError.message);
+        // Two sizes of one product share its stock: take their total once
+        const qtyByProduct = new Map<string, number>();
+        for (const item of items) qtyByProduct.set(item.id, (qtyByProduct.get(item.id) ?? 0) + item.qty);
+        for (const [productId, qty] of qtyByProduct) {
+          const stockError = await decrementInventory(admin, productId, qty);
+          if (stockError) console.error(`Inventory update failed for product ${productId} (session ${session.id}):`, stockError);
         }
 
         const addrLine = shippingAddress
