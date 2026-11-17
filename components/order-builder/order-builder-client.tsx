@@ -542,6 +542,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
               giftCardAmountCents={giftCardAmountCents}
               tipCents={tipCents}
               tiers={tiers}
+              // Phones: the total pinned to the bottom of the screen (./mobile-total-bar.tsx)
+              phoneBar
             />
             {step === 4 && (
               <div className="mt-4">
