@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PrepOrderForm } from "./prep-order-form";
+import { InAppBrowserNotice } from "@/components/checkout/in-app-browser-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +34,14 @@ export default async function PrepOrderPage() {
   }
 
   return (
-    <PrepOrderForm
-      standardPriceCents={prices.standardPriceCents}
-      preGradePriceCents={prices.preGradePriceCents}
-      slabCrackPriceCents={prices.slabCrackPriceCents}
-    />
+    <>
+      {/* Instagram, Facebook, X and TikTok's own browsers only: open this in Safari or Chrome */}
+      <InAppBrowserNotice flow="prep" className="mx-auto mt-6 w-[calc(100%-2.5rem)] max-w-[calc(42rem-2.5rem)] md:mt-10" />
+      <PrepOrderForm
+        standardPriceCents={prices.standardPriceCents}
+        preGradePriceCents={prices.preGradePriceCents}
+        slabCrackPriceCents={prices.slabCrackPriceCents}
+      />
+    </>
   );
 }

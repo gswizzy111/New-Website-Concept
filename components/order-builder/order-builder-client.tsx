@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ArrowLeft, ArrowRight, Copy, Gem } from "lucide-react";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useEffect, useState, useRef, useSyncExternalStore } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ProgressIndicator } from "./progress-indicator";
@@ -14,6 +14,7 @@ import { YourInformation } from "./your-information";
 import { StepReview } from "./step-review";
 import { SigningSection, emptySigning, signingReady, slabSigned, submittedSigning, type SigningState, type SlabCard } from "@/components/checkout/signing-section";
 import { SlabAuthorizationDialog } from "@/components/checkout/slab-authorization-dialog";
+import { InAppBrowserNotice } from "@/components/checkout/in-app-browser-notice";
 import { MissingNote, Need, revealMissing } from "@/components/checkout/required";
 import { emptyIdentity, identityPayload } from "@/components/checkout/card-identity-fields";
 import type { InsuranceElection } from "@/components/checkout/insurance-election";
@@ -40,29 +41,6 @@ function defaultCard(serviceId: string, tier?: RestorationTierId): CardEntry {
 
 function emptyCustomer(): CustomerInfo {
   return { name: "", email: "", phone: "", street1: "", street2: "", city: "", state: "", zip: "", country: "US" };
-}
-
-const noSubscription = () => () => {};
-
-function InAppBrowserBanner() {
-  // Read in the browser only (the server render shows nothing)
-  const show = useSyncExternalStore(
-    noSubscription,
-    () => /Instagram|FBAN|FBAV|FB_IAB|Twitter|TikTok/i.test(navigator.userAgent),
-    () => false,
-  );
-  if (!show) return null;
-  return (
-    <div className="mb-8 rounded-[18px] bg-white p-5 text-sm text-ink shadow-[inset_6px_0_0_var(--danger),0_0_0_1px_var(--line),var(--panel-shadow)]">
-      <p className="mb-2 flex items-center gap-2 font-heading text-[1.5rem] leading-tight font-extrabold text-destructive"><AlertTriangle className="h-5 w-5 shrink-0" strokeWidth={2.25} />You must open this in Safari or Chrome</p>
-      <p className="mb-3 leading-relaxed text-ink">
-        Instagram&apos;s built-in browser <strong>blocks photo uploads and payments</strong>. You won&apos;t be able to complete your order here.
-      </p>
-      <p className="font-bold text-ink">
-        Tap the <strong>···</strong> menu (top right) → <strong>&quot;Open in browser&quot;</strong>
-      </p>
-    </div>
-  );
 }
 
 // Steps: 1=Cards, 2=Customer, 3=Shipping, 4=Review
@@ -355,7 +333,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     <div className="wrap py-8 md:py-12">
       {/* The steps start at h2; this gives the page its heading. */}
       <h1 className="sr-only">Restoration order</h1>
-      <InAppBrowserBanner />
+      <InAppBrowserNotice flow="restoration" carryProgress className="mb-8" />
       <SlabAuthorizationDialog
         card={slabDialogCard}
         state={signing}

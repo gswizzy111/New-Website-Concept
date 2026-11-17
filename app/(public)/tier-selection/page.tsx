@@ -21,6 +21,7 @@ import { PixelViewContent } from "@/components/pixel-view-content";
 import { PageHero } from "@/components/marketing/page-hero";
 import { cta } from "@/components/brand";
 import { cn } from "@/lib/utils";
+import { InAppBrowserNotice } from "@/components/checkout/in-app-browser-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -347,6 +348,9 @@ export default async function TierSelectionPage() {
               </div>
 
           </div>
+
+          {/* Instagram, Facebook, X and TikTok's own browsers only: open this in Safari or Chrome */}
+          <InAppBrowserNotice flow="restoration" className="mt-6 md:mt-10" />
 
           {/* The tiers. The id anchors the heading for screen readers. */}
           <h2 id="tiers-heading" className="sr-only">Restoration tiers</h2>
