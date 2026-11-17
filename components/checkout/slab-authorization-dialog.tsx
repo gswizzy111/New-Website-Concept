@@ -26,19 +26,28 @@ export function SlabAuthorizationDialog(props: {
   onChange: (s: SigningState) => void;
   /** signed: the customer signed; otherwise the slab comes off the card */
   onClose: (signed: boolean) => void;
+  /** The card's name as typed, and how to change it: picked before the card
+   *  was named, the dialog asks for the name first so the authorization
+   *  names the card it is signed for. */
+  cardName?: string;
+  onCardName?: (name: string) => void;
 }) {
   if (!props.card) return null;
   // A fresh form per card, starting from any signature already given for it
   return <SlabDialog key={props.card.id ?? props.card.index} {...props} card={props.card} />;
 }
 
-function SlabDialog({ card, state, onChange, onClose }: {
+function SlabDialog({ card, state, onChange, onClose, cardName, onCardName }: {
   card: SlabCard;
   state: SigningState;
   onChange: (s: SigningState) => void;
   onClose: (signed: boolean) => void;
+  cardName?: string;
+  onCardName?: (name: string) => void;
 }) {
   const id = useId();
+  // Opened before the card had a name: ask for it here (it stays shown while typed)
+  const [askName] = useState(() => !!onCardName && !card.details.card_name.trim());
   const [agreed, setAgreed] = useState(() => !!slabSignature(state, card)?.agreed);
   const [name, setName] = useState(() => slabSignature(state, card)?.signer_name ?? "");
   // Pressed "Sign" with something missing: outline it in red
@@ -46,7 +55,8 @@ function SlabDialog({ card, state, onChange, onClose }: {
   const [box, setBox] = useState<HTMLDivElement | null>(null);
 
   const d = card.details;
-  const ready = agreed && name.trim().length >= 2;
+  const hasCardName = d.card_name.trim().length > 0;
+  const ready = hasCardName && agreed && name.trim().length >= 2;
   const doc = slabAuthorization(d);
 
   function sign() {
@@ -68,6 +78,13 @@ function SlabDialog({ card, state, onChange, onClose }: {
             {cardTitle(d) || "This card"}: slab cracking is ${(SLAB_FEE_CENTS / 100).toFixed(0)}. We only open this holder once you sign below.
           </DialogDescription>
         </DialogHeader>
+
+        {askName && (
+          <Need missing={tried && !hasCardName} note="Enter the card name." className="flex flex-col gap-1.5">
+            <label htmlFor={`${id}-card`} className="label-caps text-[15px] text-ink">Card Name<Req /></label>
+            <input id={`${id}-card`} className={cn(FIELD, "h-11")} placeholder="e.g. 1986 Fleer Michael Jordan" value={cardName ?? ""} onChange={(e) => onCardName?.(e.target.value)} />
+          </Need>
+        )}
 
         <div className="max-h-[38dvh] overflow-y-auto rounded-[14px] bg-chalk p-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-cobalt" tabIndex={0} aria-label={`${SLAB_TITLE} for ${d.card_name}`}>
           <LegalDocument blocks={doc.blocks} variant="compact" />

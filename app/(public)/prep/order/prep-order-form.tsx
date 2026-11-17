@@ -8,7 +8,7 @@ import { CardIdentityFields, emptyIdentity, identityPayload, type CardIdentity }
 import { InsuranceElectionBox, type InsuranceElection } from "@/components/checkout/insurance-election";
 import { SIGN_BUTTON_LABEL, VALUE_HELP } from "@/lib/legal/current-terms";
 import { useAccountPrefill } from "@/lib/use-account-prefill";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/order-builder/photo-uploader";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
@@ -75,6 +75,8 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
 
   // Cards
   const [cards, setCards] = useState<CardRow[]>([emptyCard()]);
+  // Field ids from useId + position: card.id is a random UUID that differs between server and browser
+  const cardsUid = useId();
 
   // Add-ons
   const [addPreGrade, setAddPreGrade] = useState(false);
@@ -390,7 +392,14 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
   return (
     <div className="min-h-screen bg-chalk">
     <div className="mx-auto max-w-2xl px-5 pt-10 pb-16 md:pt-16 md:pb-24">
-      <SlabAuthorizationDialog card={slabDialogCard} state={signing} onChange={setSigning} onClose={closeSlabDialog} />
+      <SlabAuthorizationDialog
+        card={slabDialogCard}
+        state={signing}
+        onChange={setSigning}
+        onClose={closeSlabDialog}
+        cardName={slabDialogRow?.name ?? ""}
+        onCardName={(n) => { if (slabDialogId) updateCardName(slabDialogId, n); }}
+      />
       <div className="mb-8">
         <Link href="/prep" className="-ml-1 inline-flex min-h-11 items-center gap-1.5 rounded-full px-1 text-sm font-bold text-cobalt underline-offset-4 hover:underline"><ArrowLeft aria-hidden className="size-4" strokeWidth={2} />Back to Prep Pricing</Link>
         <div className="mt-3">
@@ -493,7 +502,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                 <p className="text-xs text-ink-soft">{VALUE_HELP}</p>
               </div>
               <div className="sm:pl-9">
-                <CardIdentityFields idPrefix={`prep-${card.id}`} value={card} onChange={(patch) => updateCard(card.id, patch)} />
+                <CardIdentityFields idPrefix={`prep-${cardsUid}-${i}`} value={card} onChange={(patch) => updateCard(card.id, patch)} />
               </div>
               <label className="flex cursor-pointer sm:ml-9 items-start gap-3 rounded-xl bg-white px-3.5 py-3.5 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)] has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]">
                 <input

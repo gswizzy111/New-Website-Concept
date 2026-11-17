@@ -390,7 +390,7 @@ export function StepReview({
                 onTipCentsChange(cents);
               }}
               className={cn(
-                "min-h-11 rounded-full px-4 text-[15px] font-bold tabular-nums transition-[background-color,box-shadow,color] duration-150 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt",
+                "min-h-11 rounded-full px-4 text-[15px] font-bold transition-[background-color,box-shadow,color] duration-150 focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-cobalt",
                 tipCents === cents
                   ? "bg-ink text-white"
                   : "bg-white text-ink shadow-[inset_0_0_0_1.5px_var(--line-strong)] hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)]"

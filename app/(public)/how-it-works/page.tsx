@@ -231,7 +231,7 @@ export default function HowItWorksPage() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <div className="min-w-0">
-                      <h3 className="font-display text-[32px] font-extrabold leading-[0.98] text-white [overflow-wrap:anywhere] hyphens-none md:text-[44px]">
+                      <h3 className="font-display text-[clamp(26px,8.4vw,32px)] font-extrabold leading-[0.98] text-white [overflow-wrap:anywhere] hyphens-none md:text-[44px]">
                         <span className="sr-only">Step {step.n}: </span>
                         {step.title}
                       </h3>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { AlertTriangle, Check, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +75,9 @@ export function cardProblems(c: CardEntry, defaultTier?: RestorationTierId, tier
 }
 
 export function StepCards({ cards, services, selectedServiceIds, onChange, defaultTier, tiers = DEFAULT_TIERS, onOpenSlab, showMissing = false }: StepCardsProps) {
+  // DOM ids come from useId + the card's position, not card.id (a random UUID
+  // that differs between the server and the browser, which broke hydration)
+  const uid = useId();
   const availableServices = services.filter((s) => selectedServiceIds.includes(s.id));
 
   function updateCard(id: string, patch: Partial<CardEntry>) {
@@ -149,9 +153,9 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Need missing={missing.has("name")} className="sm:col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor={`name-${card.id}`}>Card Name<Req /></Label>
+                  <Label htmlFor={`name-${uid}-${i}`}>Card Name<Req /></Label>
                   <Input
-                    id={`name-${card.id}`}
+                    id={`name-${uid}-${i}`}
                     placeholder="e.g. 1986 Fleer Michael Jordan"
                     value={card.card_name}
                     onChange={(e) => updateCard(card.id, { card_name: e.target.value })}
@@ -160,7 +164,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
                 <div className="sm:col-span-2">
                   <CardIdentityFields
-                    idPrefix={`card-${card.id}`}
+                    idPrefix={`card-${uid}-${i}`}
                     value={identityOf(card)}
                     onChange={(patch) => updateCard(card.id, patch)}
                   />
@@ -168,7 +172,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
 
                 <Need missing={missing.has("value")} className="sm:col-span-2 flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor={`value-${card.id}`}>Declared value (USD)<Req /></Label>
+                    <Label htmlFor={`value-${uid}-${i}`}>Declared value (USD)<Req /></Label>
                     {activeTier && (
                       <span className="text-xs text-muted-foreground">
                         {activeTier.max_card_value_cents === null
@@ -178,7 +182,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                     )}
                   </div>
                   <Input
-                    id={`value-${card.id}`}
+                    id={`value-${uid}-${i}`}
                     placeholder="e.g. 500"
                     inputMode="decimal"
                     value={card.estimated_value}
@@ -198,9 +202,9 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                 </Need>
 
                 <div className="sm:col-span-2 flex flex-col gap-1.5">
-                  <Label htmlFor={`notes-${card.id}`}>Notes</Label>
+                  <Label htmlFor={`notes-${uid}-${i}`}>Notes</Label>
                   <Textarea
-                    id={`notes-${card.id}`}
+                    id={`notes-${uid}-${i}`}
                     placeholder="Special instructions or areas of concern"
                     value={card.notes}
                     onChange={(e) => updateCard(card.id, { notes: e.target.value })}
@@ -303,7 +307,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               <div className={cn("flex items-start gap-3.5 px-4 py-4", CHOICE, CHOICE_FOCUS, "has-[:checked]:bg-cobalt-wash has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]")}>
                 <input
                   type="checkbox"
-                  id={`slab-${card.id}`}
+                  id={`slab-${uid}-${i}`}
                   checked={card.needs_slab_crack ?? false}
                   onChange={(e) => {
                     updateCard(card.id, { needs_slab_crack: e.target.checked });
@@ -312,7 +316,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
                   }}
                   className="mt-0.5 shrink-0"
                 />
-                <label htmlFor={`slab-${card.id}`} className="flex-1 cursor-pointer text-sm">
+                <label htmlFor={`slab-${uid}-${i}`} className="flex-1 cursor-pointer text-sm">
                   <span className="text-[15px] font-bold text-ink">Need your slab cracked? +$7</span>
                   <span className="mt-1 block text-[13px] leading-relaxed text-ink-soft">
                     Check this if your card is currently in a PSA, BGS, or other graded slab and needs to be removed before restoration.
@@ -324,12 +328,12 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               <div className={cn("flex items-start gap-3.5 px-4 py-4", CHOICE, CHOICE_FOCUS, "has-[:checked]:bg-cobalt-wash has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]")}>
                 <input
                   type="checkbox"
-                  id={`pregrade-${card.id}`}
+                  id={`pregrade-${uid}-${i}`}
                   checked={card.needs_pregrade ?? false}
                   onChange={(e) => updateCard(card.id, { needs_pregrade: e.target.checked })}
                   className="mt-0.5 shrink-0"
                 />
-                <label htmlFor={`pregrade-${card.id}`} className="flex-1 cursor-pointer text-sm">
+                <label htmlFor={`pregrade-${uid}-${i}`} className="flex-1 cursor-pointer text-sm">
                   <span className="text-[15px] font-bold text-ink">Add Pregrade? +$25</span>
                   <span className="mt-1 block text-[13px] leading-relaxed text-ink-soft">
                     We&apos;ll pregrade your card before submitting so you know what grade to expect — helping you decide whether to send it off.
