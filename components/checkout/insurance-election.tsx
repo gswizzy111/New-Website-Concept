@@ -1,9 +1,11 @@
 "use client";
 
+import { useId } from "react";
 import { Info, ShieldCheck, ShieldOff } from "lucide-react";
 import { INSURANCE_DECLINED_TEXT, INSURANCE_DETAILS, NOT_INSURED_TEXT } from "@/lib/legal/current-terms";
 import { Need, Req } from "./required";
 import { CHOICE, CHOICE_FOCUS, CHOICE_OFF, CHOICE_ON, INSET, NOTE_SUN } from "./form-styles";
+import { ItemError, MISSING_TILE } from "./signing-section";
 import { cn } from "@/lib/utils";
 
 export type InsuranceElection = "purchased" | "declined" | null;
@@ -28,16 +30,21 @@ export function InsuranceElectionBox({
   unavailableNote?: string;
   /** The customer tried to go on: outline what's missing in red */
   showMissing?: boolean;
-  /** "Buy" is chosen but the amount or coverage isn't filled in yet */
+  /**
+   * "Buy" is chosen but the amount or coverage isn't filled in yet: one red
+   * box around `children`. Leave it out when `children` marks its own fields.
+   */
   purchaseMissing?: boolean;
   children?: React.ReactNode;
 }) {
+  const id = useId();
+  const electionMissing = showMissing && election === null;
   const option = (value: Exclude<InsuranceElection, null>, label: string, Icon: typeof ShieldCheck, disabled = false) => (
     <label
       className={cn(
         "flex min-h-14 items-center gap-3 px-4 py-3",
         CHOICE_FOCUS,
-        disabled ? CHOICE_OFF : cn("cursor-pointer", CHOICE, election === value && CHOICE_ON)
+        disabled ? CHOICE_OFF : cn("cursor-pointer", CHOICE, election === value && CHOICE_ON, electionMissing && MISSING_TILE)
       )}
     >
       <input
@@ -47,6 +54,7 @@ export function InsuranceElectionBox({
         checked={election === value}
         disabled={disabled}
         onChange={() => onElection(value)}
+        aria-describedby={electionMissing ? `${id}-error` : undefined}
       />
       <Icon className="size-5 shrink-0 text-cobalt" strokeWidth={1.75} />
       <span className="text-[15px] font-bold text-ink">{label}</span>
@@ -56,15 +64,23 @@ export function InsuranceElectionBox({
   return (
     <div className="flex flex-col gap-4" id="insurance-election">
       <div>
-        <h3 className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Shipping insurance<Req /> <span className="font-sans text-sm font-semibold normal-case tracking-normal text-ink-soft">(choose one)</span></h3>
+        <h3 id={`${id}-title`} className="font-heading text-[1.5rem] leading-none font-extrabold text-ink">Shipping insurance<Req /> <span className="font-sans text-sm font-semibold normal-case tracking-normal text-ink-soft">(choose one)</span></h3>
         <p className="mt-1 text-sm text-ink-soft">{NOT_INSURED_TEXT}</p>
       </div>
-      <Need missing={showMissing && election === null} note="Choose to buy or decline shipping insurance.">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div data-missing={electionMissing || undefined}>
+        <div
+          role="radiogroup"
+          aria-labelledby={`${id}-title`}
+          aria-required="true"
+          aria-invalid={electionMissing || undefined}
+          aria-describedby={electionMissing ? `${id}-error` : undefined}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        >
           {option("purchased", "Buy shipping insurance", ShieldCheck, !purchaseAvailable)}
           {option("declined", "Decline shipping insurance", ShieldOff)}
         </div>
-      </Need>
+        {electionMissing && <ItemError id={`${id}-error`} className="px-1">Choose to buy or decline shipping insurance.</ItemError>}
+      </div>
       {!purchaseAvailable && unavailableNote && <p className="text-xs text-muted-foreground">{unavailableNote}</p>}
       {election === "purchased" && purchaseAvailable && (
         <div className={`${INSET} flex flex-col gap-3`}>
