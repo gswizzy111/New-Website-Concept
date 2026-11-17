@@ -262,6 +262,7 @@ export function PhotoUploader({ photoUrls, onChange, max = MAX_CARD_PHOTOS }: Ph
         type="file"
         accept="image/*"
         multiple
+        aria-label="Upload card photos"
         className="hidden"
         onChange={handleInputChange}
       />

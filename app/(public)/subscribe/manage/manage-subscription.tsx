@@ -165,7 +165,7 @@ export function ManageSubscription({ token }: { token: string }) {
               <div>
                 <p className="caps font-display text-[28px] font-black leading-none text-ink">Monthly Kit Club</p>
                 {typeof result.price_cents === "number" && (
-                  <p className="mt-1.5 text-[15px] text-ink-soft tabular-nums">{formatCurrency(result.price_cents)} / month</p>
+                  <p className="mt-1.5 text-[15px] text-ink-soft">{formatCurrency(result.price_cents)} / month</p>
                 )}
               </div>
               <span className={`inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-[13px] font-bold text-ink ${

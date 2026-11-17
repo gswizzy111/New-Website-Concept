@@ -477,17 +477,17 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
         <div className={`${panel} flex flex-col gap-4`}>
           <h2 className={h2Cls}>Your Info</h2>
           <Need missing={miss(name)}>
-            <label className={labelCls}>Full Name<Req /></label>
-            <input className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
+            <label htmlFor="prep-name" className={labelCls}>Full Name<Req /></label>
+            <input id="prep-name" className={input} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="John Smith" />
           </Need>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-3">
             <Need missing={miss(email)}>
-              <label className={labelCls}>Email<Req /></label>
-              <input className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
+              <label htmlFor="prep-email" className={labelCls}>Email<Req /></label>
+              <input id="prep-email" className={input} type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="john@example.com" />
             </Need>
             <Need missing={miss(phone)}>
-              <label className={labelCls}>Phone<Req /></label>
-              <input className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
+              <label htmlFor="prep-phone" className={labelCls}>Phone<Req /></label>
+              <input id="prep-phone" className={input} type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 555-5555" />
             </Need>
           </div>
         </div>
@@ -507,45 +507,47 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
           {cards.map((card, i) => (
             <div key={card.id} className="flex flex-col gap-3 rounded-xl bg-chalk p-3.5 shadow-[inset_0_0_0_1px_var(--line)] sm:p-4">
               <Need missing={showMissing && !card.name.trim() && (i === 0 || !!card.declaredValueDollars)} note="Enter the card name." className="">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-ink font-display text-[15px] font-black text-sun tabular-nums">{i + 1}</span>
                 <input
-                  className={`${input} flex-1`}
+                  aria-label={`Card ${i + 1} name`}
+                  className={`${input} order-last basis-full sm:order-none sm:basis-auto sm:flex-1`}
                   value={card.name}
                   onChange={(e) => updateCardName(card.id, e.target.value)}
                   placeholder="Card name (e.g. Charizard Base Set Holo)"
                 />
                 {cards.length > 1 && (
-                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
+                  <button type="button" onClick={() => removeCard(card.id)} aria-label="Remove card" className="ml-auto grid size-11 shrink-0 place-items-center rounded-full text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-3 focus-visible:outline-offset-0 focus-visible:outline-cobalt"><X aria-hidden className="size-5" strokeWidth={2} /></button>
                 )}
               </div>
               </Need>
-              <Need missing={showMissing && !!card.name.trim() && cardValueCents(card) <= 0} note="Enter a declared value." className="pl-9">
+              <Need missing={showMissing && !!card.name.trim() && cardValueCents(card) <= 0} note="Enter a declared value." className="sm:pl-9">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
                   <input
                     className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
                     type="number" min="0" step="1"
+                    aria-label={`Card ${i + 1} declared value`}
                     value={card.declaredValueDollars}
                     onChange={(e) => updateCardValue(card.id, e.target.value)}
                     placeholder="Declared value (required)"
                   />
                 </div>
                 {card.name.trim() && (
-                  <span className={`w-24 shrink-0 text-right text-sm font-extrabold tabular-nums ${cardValueCents(card) >= HIGH_VALUE_THRESHOLD_CENTS ? "text-ink" : "text-cobalt"}`}>
+                  <span className={`w-24 shrink-0 text-right text-sm font-extrabold ${cardValueCents(card) >= HIGH_VALUE_THRESHOLD_CENTS ? "text-ink" : "text-cobalt"}`}>
                     {cardPriceLabel(card)}/card
                   </span>
                 )}
               </div>
               </Need>
-              <div className="pl-9 flex flex-col gap-2">
+              <div className="flex flex-col gap-2 sm:pl-9">
                 <p className="text-xs text-ink-soft">{VALUE_HELP}</p>
               </div>
-              <div className="pl-9">
+              <div className="sm:pl-9">
                 <CardIdentityFields idPrefix={`prep-${card.id}`} value={card} onChange={(patch) => updateCard(card.id, patch)} />
               </div>
-              <label className="ml-9 flex cursor-pointer items-start gap-3 rounded-xl bg-white px-3.5 py-3.5 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)] has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]">
+              <label className="flex cursor-pointer sm:ml-9 items-start gap-3 rounded-xl bg-white px-3.5 py-3.5 shadow-[inset_0_0_0_1.5px_var(--line)] transition-shadow hover:shadow-[inset_0_0_0_1.5px_var(--ink-soft)] has-[:checked]:shadow-[inset_0_0_0_2px_var(--cobalt)]">
                 <input
                   type="checkbox"
                   className="mt-0.5 size-5 shrink-0 accent-[var(--cobalt)]"
@@ -561,7 +563,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                   <span className="block text-xs text-ink-soft mt-0.5">For a card in a PSA, BGS or other graded slab. You&apos;ll sign a separate authorization for it.</span>
                 </span>
               </label>
-              <div className="pl-9">
+              <div className="sm:pl-9">
                 <p className="mb-1.5 text-sm font-semibold text-ink">Photos <span className="font-normal text-ink-soft">(optional)</span></p>
                 <PhotoUploader photoUrls={card.photoUrls} onChange={(urls) => updateCardPhotos(card.id, urls)} />
               </div>
@@ -661,10 +663,11 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
               </div>
 
               <Need missing={miss(street1)}>
-                <label className={labelCls}>Street Address<Req /></label>
+                <label htmlFor="prep-street1" className={labelCls}>Street Address<Req /></label>
                 {/* Address suggestions are for US addresses */}
                 {!isInternational ? (
                   <AddressAutocomplete
+                    id="prep-street1"
                     value={street1}
                     onChange={(v) => { setStreet1(v); setSelectedRate(null); }}
                     onPlaceSelect={(f) => { setStreet1(f.street1); setCity(f.city); setStateCode(f.state); setZip(f.zip); setSelectedRate(null); }}
@@ -672,47 +675,47 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
                     placeholder="123 Main St"
                   />
                 ) : (
-                  <input className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
+                  <input id="prep-street1" className={input} autoComplete="address-line1" value={street1} onChange={(e) => { setStreet1(e.target.value); setSelectedRate(null); }} placeholder="123 Main St" />
                 )}
               </Need>
               <div>
-                <label className={labelCls}>Apt / Suite / Unit <span className="normal-case">(optional)</span></label>
-                <input className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
+                <label htmlFor="prep-street2" className={labelCls}>Apt / Suite / Unit <span className="normal-case">(optional)</span></label>
+                <input id="prep-street2" className={input} autoComplete="address-line2" value={street2} onChange={(e) => setStreet2(e.target.value)} placeholder="Apt 4B" />
               </div>
 
               {!isInternational ? (
                 /* US: city / state dropdown / ZIP */
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                   <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
+                    <label htmlFor="prep-city" className={labelCls}>City<Req /></label>
+                    <input id="prep-city" className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="New York" />
                   </Need>
                   <Need missing={miss(stateCode)}>
-                    <label className={labelCls}>State<Req /></label>
-                    <select className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
+                    <label htmlFor="prep-state" className={labelCls}>State<Req /></label>
+                    <select id="prep-state" className={selectCls} value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }}>
                       <option value="">—</option>
                       {US_STATES.map((s) => <option key={s.value} value={s.value}>{s.value}</option>)}
                     </select>
                   </Need>
                   <Need missing={miss(zip)} className="sm:col-span-2">
-                    <label className={labelCls}>ZIP Code<Req /></label>
-                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
+                    <label htmlFor="prep-zip" className={labelCls}>ZIP Code<Req /></label>
+                    <input id="prep-zip" className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="10001" maxLength={10} />
                   </Need>
                 </div>
               ) : (
                 /* International: city / state text (optional) / postal code */
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                   <Need missing={miss(city)} className="col-span-2">
-                    <label className={labelCls}>City<Req /></label>
-                    <input className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
+                    <label htmlFor="prep-city" className={labelCls}>City<Req /></label>
+                    <input id="prep-city" className={input} autoComplete="address-level2" value={city} onChange={(e) => { setCity(e.target.value); setSelectedRate(null); }} placeholder="Singapore" />
                   </Need>
                   <div>
-                    <label className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
-                    <input className={input} autoComplete="address-level1" value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
+                    <label htmlFor="prep-state" className={labelCls}>State / Province <span className="font-normal">(optional)</span></label>
+                    <input id="prep-state" className={input} autoComplete="address-level1" value={stateCode} onChange={(e) => { setStateCode(e.target.value); setSelectedRate(null); }} placeholder="—" />
                   </div>
                   <Need missing={miss(zip)} className="sm:col-span-2">
-                    <label className={labelCls}>Postal Code<Req /></label>
-                    <input className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
+                    <label htmlFor="prep-zip" className={labelCls}>Postal Code<Req /></label>
+                    <input id="prep-zip" className={input} autoComplete="postal-code" value={zip} onChange={(e) => { setZip(e.target.value); setSelectedRate(null); }} placeholder="123456" maxLength={12} />
                   </Need>
                 </div>
               )}
@@ -795,10 +798,10 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             unavailableNote="Insurance through us covers our prepaid label's trip to us. Shipping it yourself, you can insure the package with your carrier."
           >
             <div>
-              <label className={labelCls}>Amount to insure (USD)<Req /></label>
+              <label htmlFor="prep-insure" className={labelCls}>Amount to insure (USD)<Req /></label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">$</span>
-                <input className={`${input} pl-7`} type="number" min="0" max="10000" step="1"
+                <input id="prep-insure" className={`${input} pl-7`} type="number" min="0" max="10000" step="1"
                   value={insuranceValueDollars} onChange={(e) => setInsuranceValueDollars(e.target.value)}
                   placeholder="Total value of cards in this shipment (USD)" />
               </div>
@@ -824,6 +827,7 @@ export function PrepOrderForm({ standardPriceCents, preGradePriceCents, slabCrac
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-ink-soft">@</span>
             <input
               className="h-11 w-full rounded-[12px] border-[1.5px] border-input bg-white px-3.5 text-base text-ink outline-none transition-[border-color] placeholder:text-muted-foreground hover:border-ink-soft focus-visible:border-cobalt focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-cobalt md:text-[15px] pl-8"
+              aria-label="Instagram or Facebook handle (optional)"
               value={socialHandle}
               onChange={(e) => setSocialHandle(e.target.value.replace(/^@/, ""))}
               placeholder="yourhandle (optional)"

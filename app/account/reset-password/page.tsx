@@ -61,5 +61,5 @@ function ResetPassword() {
 }
 
 export default function ResetPasswordPage() {
-  return <Suspense><ResetPassword /></Suspense>;
+  return <Suspense fallback={<div className="surface-chalk min-h-screen" />}><ResetPassword /></Suspense>;
 }

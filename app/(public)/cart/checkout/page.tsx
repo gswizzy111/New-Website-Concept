@@ -391,7 +391,7 @@ function CheckoutInner() {
               </div>
               <Need missing={miss(form.city)} className="flex flex-col gap-1.5">
                 <Label>City<Req /></Label>
-                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder="London" autoComplete="address-level2" />
+                <Input value={form.city} onChange={(e) => set("city", e.target.value)} placeholder={isInternational ? "London" : "Chicago"} autoComplete="address-level2" />
               </Need>
               {isInternational ? (
                 <div className="flex flex-col gap-1.5">
@@ -414,7 +414,7 @@ function CheckoutInner() {
               )}
               <Need missing={miss(form.zip)} className="flex flex-col gap-1.5">
                 <Label>Postal Code<Req /></Label>
-                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder="SW1A 1AA" autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
+                <Input value={form.zip} onChange={(e) => set("zip", e.target.value)} placeholder={isInternational ? "SW1A 1AA" : "60601"} autoComplete="postal-code" inputMode={isInternational ? undefined : "numeric"} />
               </Need>
             </div>
 
@@ -531,7 +531,7 @@ function CheckoutInner() {
               {items.map((item) => (
                 <div key={item.id} className={SUM_ROW}>
                   <span>{item.name} × {item.quantity}</span>
-                  <span className="shrink-0 font-semibold text-ink tabular-nums">{formatCurrency(item.price_cents * item.quantity)}</span>
+                  <span className="shrink-0 font-semibold text-ink">{formatCurrency(item.price_cents * item.quantity)}</span>
                 </div>
               ))}
               {discountCents > 0 && (
@@ -542,14 +542,14 @@ function CheckoutInner() {
               )}
               <div className={SUM_ROW}>
                 <span>Sales Tax (6.625%)</span>
-                <span className="font-semibold text-ink tabular-nums">{formatCurrency(taxCents)}</span>
+                <span className="font-semibold text-ink">{formatCurrency(taxCents)}</span>
               </div>
               <div className={SUM_ROW}>
                 <span>
                   Shipping{chosenRate ? <span className="block text-xs">{rateName(chosenRate)}</span> : null}
                 </span>
                 {chosenRate
-                  ? <span className="font-semibold text-ink tabular-nums">{formatCurrency(shippingCents)}</span>
+                  ? <span className="font-semibold text-ink">{formatCurrency(shippingCents)}</span>
                   : <span className="text-sm">Choose a speed</span>}
               </div>
               {gcApplied > 0 && (
@@ -601,7 +601,7 @@ function StepNum({ n }: { n: number }) {
 
 export default function ProductCheckoutPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<div className="surface-chalk min-h-[80vh]" />}>
       <CheckoutInner />
     </Suspense>
   );

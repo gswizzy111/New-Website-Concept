@@ -43,7 +43,7 @@ export default async function OrderPage({ searchParams }: PageProps) {
     .order("display_order");
 
   return (
-    <Suspense>
+    <Suspense fallback={<div className="surface-chalk min-h-[80vh]" />}>
       <OrderBuilder services={services ?? []} selectedTier={tierParam as RestorationTierId | undefined} />
     </Suspense>
   );

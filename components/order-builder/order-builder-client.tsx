@@ -288,6 +288,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
 
   return (
     <div className="wrap py-8 md:py-12">
+      {/* The steps start at h2; this gives the page its heading. */}
+      <h1 className="sr-only">Restoration order</h1>
       <InAppBrowserBanner />
       <SlabAuthorizationDialog card={slabDialogCard} state={signing} onChange={changeSigning} onClose={closeSlabDialog} />
       <div className="mb-10 rounded-[22px] bg-white px-2 pt-5 pb-4 shadow-[0_0_0_1px_var(--line)] sm:px-8 md:mb-14">
@@ -444,7 +446,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
                 <ArrowRight aria-hidden className="size-5" strokeWidth={2.25} />
               </Button>
             ) : (
-              <Button size="lg" onClick={trySign} disabled={submitting} className="h-auto min-h-14 px-6 py-3 leading-tight whitespace-normal sm:px-8">
+              <Button size="lg" onClick={trySign} disabled={submitting} className="h-auto min-h-14 min-w-0 shrink px-6 py-3 text-center leading-tight whitespace-normal sm:px-8">
                 {submitting ? "Redirecting..." : SIGN_BUTTON_LABEL}
               </Button>
             )}
