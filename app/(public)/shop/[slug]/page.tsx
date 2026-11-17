@@ -156,8 +156,8 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
                       <Star key={i} className="size-4 fill-current" strokeWidth={0} />
                     ))}
                   </span>
-                  <span className="font-bold text-ink tabular-nums">{rating.value}</span>
-                  <span className="tabular-nums">({rating.count} reviews)</span>
+                  <span className="font-bold text-ink">{rating.value}</span>
+                  <span>({rating.count} reviews)</span>
                   <span className="sr-only">Rated {rating.value} out of 5</span>
                 </p>
               )}

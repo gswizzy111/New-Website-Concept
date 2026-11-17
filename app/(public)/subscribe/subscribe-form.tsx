@@ -6,6 +6,7 @@ import { US_STATES } from "@/lib/constants";
 import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 import { subscriptionDisclosures, subscriptionEnrollLabel } from "@/lib/subscription-terms";
 import { MissingNote, Need, Req, revealMissing } from "@/components/checkout/required";
+import { BLOCK_TITLE } from "@/components/checkout/form-styles";
 import { ArrowRight, CalendarClock, Package, Truck } from "lucide-react";
 
 // The field look: 48px tall, 12px corners, a 1.5px edge, cobalt focus.
@@ -107,7 +108,16 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
 
         {/* Form card */}
         <div className="panel min-w-0 p-6 md:p-10">
-          <h2 className="caps mb-7 font-display text-[32px] font-black leading-none text-ink md:text-[40px]">Your shipping details</h2>
+          {/* The disclosure sits above the address fields: it says the kit
+              ships "to the address below". */}
+          <div className="mb-8 rounded-[18px] bg-sun-tint p-5 shadow-[inset_0_0_0_1px_rgba(242,182,0,0.45)]">
+            <p className="label-caps mb-3 text-[17px] text-ink">Before you subscribe</p>
+            <ul className="flex list-disc flex-col gap-2 pl-5 text-[14px] leading-relaxed text-ink marker:text-cobalt">
+              {subscriptionDisclosures(priceCents).map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          </div>
+
+          <h2 className={`${BLOCK_TITLE} mb-6`}>Your shipping details</h2>
 
           {error && (
             <div role="alert" className="mb-6 rounded-[12px] bg-[#fdecea] px-4 py-3 text-sm font-bold text-destructive">{error}</div>
@@ -168,12 +178,6 @@ export function SubscribeForm({ priceCents }: { priceCents: number }) {
               </Need>
             </div>
 
-            <div className="mt-3 rounded-[18px] bg-sun-tint p-5 shadow-[inset_0_0_0_1px_rgba(242,182,0,0.45)]">
-              <p className="label-caps mb-3 text-[17px] text-ink">Before you subscribe</p>
-              <ul className="flex list-disc flex-col gap-2 pl-5 text-[14px] leading-relaxed text-ink marker:text-cobalt">
-                {subscriptionDisclosures(priceCents).map((d) => <li key={d}>{d}</li>)}
-              </ul>
-            </div>
             <Need missing={showMissing && !enroll} note="Check this box to subscribe.">
             <label className="flex min-h-11 items-start gap-3 py-1 text-sm cursor-pointer">
               <input type="checkbox" checked={enroll} onChange={(e) => setEnroll(e.target.checked)} className="mt-0.5 size-5 shrink-0 accent-cobalt" />

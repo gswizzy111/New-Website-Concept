@@ -157,5 +157,5 @@ function Confirm() {
 }
 
 export default function ConfirmPage() {
-  return <Suspense><Confirm /></Suspense>;
+  return <Suspense fallback={<div className="surface-chalk min-h-screen" />}><Confirm /></Suspense>;
 }

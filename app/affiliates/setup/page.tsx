@@ -64,7 +64,7 @@ function Setup() {
 export default function CreatorSetupPage() {
   return (
     <PortalCard title="Set your password">
-      <Suspense><Setup /></Suspense>
+      <Suspense fallback={<div className="min-h-[300px]" />}><Setup /></Suspense>
     </PortalCard>
   );
 }

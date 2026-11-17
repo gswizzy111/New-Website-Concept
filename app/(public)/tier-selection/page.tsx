@@ -356,7 +356,7 @@ export default async function TierSelectionPage() {
                 aria-label="Jump to a tier"
                 className="sticky top-[var(--header-h)] z-20 -mx-5 mb-4 bg-chalk/95 py-2.5 shadow-[0_1px_0_var(--line)] backdrop-blur-sm md:hidden"
               >
-                <ul className="flex gap-2 overflow-x-auto px-5 py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <ul className="flex gap-2 overflow-x-auto py-0.5 pr-10 pl-5 [mask-image:linear-gradient(to_right,black_calc(100%-40px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {chipTiers.map((t) => (
                     <li key={t.id} className="shrink-0">
                       <a

@@ -8,6 +8,7 @@ import { ArrowLeft, ArrowRight, Check, Package, Plus } from "lucide-react";
 import { cta } from "@/components/brand";
 import { BLOCK_TITLE, FORM_PANEL, SUM_ROW, SUM_TOTAL } from "@/components/checkout/form-styles";
 import { cn } from "@/lib/utils";
+import { EmptyCart } from "../empty-cart";
 
 const SIZES = ["Small", "Medium", "Large", "XL"] as const;
 
@@ -20,6 +21,14 @@ type UpsellProduct = {
   images: string[];
   inventory_count: number;
 };
+
+function UpsellLoading() {
+  return (
+    <div className="surface-chalk flex min-h-[70vh] items-center justify-center">
+      <p role="status" className="label-caps animate-pulse text-lg text-ink-soft motion-reduce:animate-none">Loading</p>
+    </div>
+  );
+}
 
 function UpsellInner() {
   const { items, totalCents, addItem } = useCart();
@@ -63,15 +72,13 @@ function UpsellInner() {
     setAdded((prev) => ({ ...prev, [product.id]: true }));
   }
 
-  if (loading) {
-    return (
-      <div className="surface-chalk flex min-h-[70vh] items-center justify-center">
-        <p role="status" className="label-caps animate-pulse text-lg text-ink-soft motion-reduce:animate-none">Loading</p>
-      </div>
-    );
-  }
+  if (loading) return <UpsellLoading />;
 
-  const cartIds = new Set(items.map((i) => i.id));
+  // Nothing to check out (back button, bookmark or shared link).
+  if (items.length === 0) return <EmptyCart />;
+
+  // Sized items are stored as `${id}-${size}`; match on the product id.
+  const cartIds = new Set(items.map((i) => i.id.replace(/-(?:Small|Medium|Large|XL)$/i, "")));
 
   return (
     <div className="surface-chalk min-h-[70vh]">
@@ -185,12 +192,12 @@ function UpsellInner() {
                 {items.map((item) => (
                   <div key={item.id} className={SUM_ROW}>
                     <span className="mr-2 truncate">{item.name} × {item.quantity}</span>
-                    <span className="shrink-0 font-semibold text-ink tabular-nums">{formatCurrency(item.price_cents * item.quantity)}</span>
+                    <span className="shrink-0 font-semibold text-ink">{formatCurrency(item.price_cents * item.quantity)}</span>
                   </div>
                 ))}
                 <div className={SUM_ROW}>
                   <span>Sales Tax (6.625%)</span>
-                  <span className="font-semibold text-ink tabular-nums">{formatCurrency(Math.round(totalCents * 0.06625))}</span>
+                  <span className="font-semibold text-ink">{formatCurrency(Math.round(totalCents * 0.06625))}</span>
                 </div>
                 <div className={SUM_ROW}>
                   <span>Shipping</span>
@@ -226,7 +233,7 @@ function UpsellInner() {
 
 export default function UpsellPage() {
   return (
-    <Suspense>
+    <Suspense fallback={<UpsellLoading />}>
       <UpsellInner />
     </Suspense>
   );
