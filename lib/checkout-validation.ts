@@ -54,16 +54,25 @@ export const FIELD_MESSAGES = {
   zip: "Enter your ZIP code",
 } as const;
 
+/**
+ * Something besides spaces. Null-safe: these checks run on every render of the
+ * builder, and a customer restored from storage or an account prefill must
+ * never crash it over a missing field.
+ */
+function filled(value: string | null | undefined): boolean {
+  return !!value?.trim();
+}
+
 /** Empty or not an email address: the message to show, else null. */
-export function emailProblem(value: string): string | null {
-  if (!value.trim()) return FIELD_MESSAGES.email;
-  return isValidEmail(value) ? null : FIELD_MESSAGES.emailInvalid;
+export function emailProblem(value: string | null | undefined): string | null {
+  if (!filled(value)) return FIELD_MESSAGES.email;
+  return isValidEmail(value ?? "") ? null : FIELD_MESSAGES.emailInvalid;
 }
 
 /** Empty or too short to be a phone number: the message to show, else null. */
-export function phoneProblem(value: string): string | null {
-  if (!value.trim()) return FIELD_MESSAGES.phone;
-  return isValidPhone(value) ? null : FIELD_MESSAGES.phoneInvalid;
+export function phoneProblem(value: string | null | undefined): string | null {
+  if (!filled(value)) return FIELD_MESSAGES.phone;
+  return isValidPhone(value ?? "") ? null : FIELD_MESSAGES.phoneInvalid;
 }
 
 export type ContactField = "name" | "email" | "phone" | "street1" | "city" | "state" | "zip";
@@ -76,16 +85,16 @@ export type ContactProblems = Partial<Record<ContactField, string>>;
 export function contactProblems(c: CustomerInfo): ContactProblems {
   const isUS = !c.country || c.country === "US";
   const problems: ContactProblems = {};
-  if (!c.name.trim()) problems.name = FIELD_MESSAGES.name;
+  if (!filled(c.name)) problems.name = FIELD_MESSAGES.name;
   const email = emailProblem(c.email);
   if (email) problems.email = email;
   const phone = phoneProblem(c.phone);
   if (phone) problems.phone = phone;
-  if (!c.street1.trim()) problems.street1 = FIELD_MESSAGES.street1;
-  if (!c.city.trim()) problems.city = FIELD_MESSAGES.city;
+  if (!filled(c.street1)) problems.street1 = FIELD_MESSAGES.street1;
+  if (!filled(c.city)) problems.city = FIELD_MESSAGES.city;
   if (isUS) {
-    if (!c.state.trim()) problems.state = FIELD_MESSAGES.state;
-    if (!c.zip.trim()) problems.zip = FIELD_MESSAGES.zip;
+    if (!filled(c.state)) problems.state = FIELD_MESSAGES.state;
+    if (!filled(c.zip)) problems.zip = FIELD_MESSAGES.zip;
   }
   return problems;
 }
