@@ -208,8 +208,17 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
     return true;
   }
 
+  // A new step starts at the top of the page, not where the last step's
+  // buttons were (Continue sits at the bottom of a long step)
+  const scrollTopOnStep = useRef(false);
+  useEffect(() => {
+    if (!scrollTopOnStep.current) return;
+    scrollTopOnStep.current = false;
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [step]);
   function goToStep(n: number) {
     setShowMissing(false);
+    scrollTopOnStep.current = true;
     setStep(n);
   }
   // The cards and contact steps must still pass when a later step is reached
