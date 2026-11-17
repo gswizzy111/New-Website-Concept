@@ -17,6 +17,7 @@ import { US_STATES } from "@/lib/constants";
 import { siteUrl } from "@/lib/site-url";
 import { findCode } from "@/lib/creator-portal";
 import { withRefusalTracking } from "@/lib/checkout-funnel-server";
+import { CHECKOUT_SESSION_MINUTES } from "@/lib/tier-slots";
 
 const CardSchema = z.object({
   card_name: z.string().trim().min(1).max(200),
@@ -476,6 +477,9 @@ async function createPrepCheckout(request: Request) {
       customer_email: d.customer_email,
       line_items: lineItems,
       discounts: stripeDiscounts,
+      // Closes after an hour like restoration's (lib/tier-slots.ts), so the
+      // shipping rate and the unpaid-order reminder link stay current
+      expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
       // The confirmation page (order number, prepaid label) that also reports
       // the purchase to Meta, as restoration checkouts do
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,

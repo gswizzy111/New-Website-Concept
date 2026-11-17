@@ -10,7 +10,7 @@ import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
  * signs (components/order-builder/tier-availability.tsx). Counted exactly as
  * the tier page shows it and /api/checkout enforces it: the admin's is_open
  * and max_slots (restoration_settings, else TIER_MAX_SLOTS), and one slot per
- * paid order or checkout under 30 minutes old since the slots opened
+ * paid order or checkout under an hour old (SLOT_HOLD_MINUTES) since the slots opened
  * (lib/tier-slots.ts). Counts only, never anything about an order or a
  * customer. Never cached: a slot can go at any moment.
  *

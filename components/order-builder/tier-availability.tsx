@@ -38,7 +38,7 @@ const NOTICE_ID = "tier-availability-notice";
  * The tiers' availability: read on load, and again whenever the customer
  * reaches (or leaves) the review step. `availability` is null while unknown.
  * `recheck()` is for a Sign press the notice stopped: it reads the tiers again
- * (a slot held by a checkout someone left frees up within 30 minutes) and
+ * (a slot held by a checkout someone left frees up within an hour) and
  * takes the focus to the notice, so a screen reader says why nothing happened.
  */
 export function useTierAvailability(atReview: boolean): { availability: TierAvailability | null; recheck: () => void } {

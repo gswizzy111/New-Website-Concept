@@ -19,7 +19,7 @@ import { logCheckoutError } from "@/lib/checkout-error-log";
 import { shippingRate } from "@/lib/inbound-rate";
 import { likeExact } from "@/lib/like-exact";
 import { siteUrl } from "@/lib/site-url";
-import { tierMaxSlots, tierSlotUsage } from "@/lib/tier-slots";
+import { tierMaxSlots, tierSlotUsage, CHECKOUT_SESSION_MINUTES } from "@/lib/tier-slots";
 import { MAX_TIP_CENTS } from "@/lib/order-totals";
 import {
   GIFT_CARD_IN_USE_MESSAGE, attachGiftCardHold, giftCardExpiry, holdGiftCard, releaseGiftCardHold,
@@ -205,8 +205,8 @@ async function createRestorationCheckout(request: Request) {
   }
 
   // One slot is one order: this order takes one in each tier it includes, on
-  // top of paid orders and checkouts started in the last 30 minutes
-  // (lib/tier-slots.ts)
+  // top of paid orders and checkouts started in the last hour
+  // (SLOT_HOLD_MINUTES, lib/tier-slots.ts)
   const limitedTiers = uniqueTiers.filter((t) => tierMaxSlots(t, settingsMap[t]?.max_slots) !== null);
   if (limitedTiers.length > 0) {
     let usage: Record<string, number>;
@@ -752,9 +752,11 @@ async function createRestorationCheckout(request: Request) {
       customer_email: data.customer.email,
       line_items: lineItems,
       discounts: stripeDiscounts,
-      // A held gift card balance comes back after its hold ends, so these
-      // sessions close after an hour (others keep Stripe's 24 hours)
-      ...(giftCardDiscountCents > 0 ? { expires_at: expiry.stripeExpiresAt } : {}),
+      // The page closes when the order's tier slot stops being held
+      // (CHECKOUT_SESSION_MINUTES, lib/tier-slots.ts), so nobody can pay after
+      // their slot was let go. With a gift card it closes when the hold says
+      // (lib/gift-card-holds.ts), which is the same hour.
+      expires_at: giftCardDiscountCents > 0 ? expiry.stripeExpiresAt : Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
       success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/checkout/cancel`,
       metadata: {
