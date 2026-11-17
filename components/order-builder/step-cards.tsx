@@ -218,7 +218,7 @@ export function StepCards({ cards, services, selectedServiceIds, onChange, defau
               {/* Per-card tier selector */}
               <Need missing={missing.has("tier")} note={activeTier ? "Pick a tier that allows this card's value." : "Pick a service level."} className="flex flex-col gap-2">
                 <Label>Service Level<Req /></Label>
-                <div data-tier-picker={card.id} className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                <div data-tier-picker={i} className="grid grid-cols-2 gap-2.5 sm:gap-3">
                   {tiers.map((t) => {
                     const selected = (card.tier ?? defaultTier) === t.id;
                     const available = tierAvailable(t, estimatedValueCents);

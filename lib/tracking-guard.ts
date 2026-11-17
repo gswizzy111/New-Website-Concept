@@ -77,7 +77,7 @@ export function trackingGuardScript(): string {
   w.__gpc = navigator.globalPrivacyControl === true;
 
   var KEY_PATH = new RegExp('^/(admin|accountant|account/(confirm|reset-password)|affiliates/setup|support/setup|cases|email/unsubscribe|subscribe/manage|orders)(/|$)');
-  var KEY_PARAM = /^(email|token|token_hash|access_token|refresh_token|session_id|uid|code)$/i;
+  var KEY_PARAM = /^(email|token|token_hash|access_token|refresh_token|session_id|uid|code|resume)$/i;
   function keyParams(params) {
     var key = false;
     params.forEach(function (v, k) { if (KEY_PARAM.test(k) || v.indexOf('@') !== -1) key = true; });
