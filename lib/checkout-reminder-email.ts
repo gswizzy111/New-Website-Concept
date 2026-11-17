@@ -78,7 +78,7 @@ export function checkoutReminderEmail(input: CheckoutReminderEmailInput): { subj
     "",
     `Finish payment: ${input.paymentUrl}`,
     "",
-    `${expiryLine} ${site}.`,
+    `${expiryLine} ${site}`,
     "",
     "Questions? Just reply to this email.",
     "",
