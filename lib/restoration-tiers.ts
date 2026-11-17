@@ -174,3 +174,14 @@ export function upgradeTargets(current: RestorationTier, tiers: RestorationTier[
   if (from === -1) return [];
   return tiers.filter((t) => UPGRADE_LADDER.indexOf(t.id) > from && t.price_cents > current.price_cents);
 }
+
+/**
+ * The minimum declared value one card needs on `tierId`, or null when the
+ * tier has none. Only Diamond has one: each Diamond card must itself be
+ * declared at or above it (the admin's setting via `live`, else $5,000),
+ * whatever else is in the order.
+ */
+export function diamondMinCents(tierId: RestorationTierId, live?: RestorationTier | null): number | null {
+  if (tierId !== "elite") return null;
+  return live?.min_card_value_cents ?? RESTORATION_TIERS.elite.min_card_value_cents ?? 500000;
+}

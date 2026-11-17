@@ -5,7 +5,7 @@ import { recordConsents, recordSignatures, signingContext } from "@/lib/signatur
 import { ensureTermsVersion } from "@/lib/terms-versions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { stripe } from "@/lib/stripe";
-import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents } from "@/lib/restoration-tiers";
+import { RESTORATION_TIERS, applyDbOverride, getCardPriceCents, diamondMinCents } from "@/lib/restoration-tiers";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
 import { addedCardsBulkPercent } from "@/lib/bulk-pricing";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
@@ -143,6 +143,15 @@ export async function POST(
     return Response.json({
       error: `${overCap.name} is declared above the ${tier.name} tier's $${(tier.max_card_value_cents! / 100).toLocaleString()} cap, so it can't be added to this order. Please place a new order for it with a higher tier.`,
       code: "TIER_CAP",
+    }, { status: 400 });
+  }
+  // Each Diamond card must itself meet the Diamond minimum (lib/restoration-tiers.ts)
+  const minCents = diamondMinCents(tier.id, tier);
+  const underMin = minCents === null ? undefined : cards.find((c) => c.declaredValueCents < minCents);
+  if (underMin) {
+    return Response.json({
+      error: `${underMin.name} is declared below the ${tier.name} tier's $${(minCents! / 100).toLocaleString()} minimum per card, so it can't be added to this order. Please place a new order for it with a different tier.`,
+      code: "TIER_MIN",
     }, { status: 400 });
   }
 

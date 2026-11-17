@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Print, cta } from "@/components/brand";
+import { ReturnToBuilderLink } from "./return-link";
 import charmanderAfter from "@/public/home/charmander-after.jpg";
 
 export default function CheckoutCancelPage() {
@@ -14,10 +14,11 @@ export default function CheckoutCancelPage() {
             selections are still saved if you&apos;d like to return.
           </p>
           <div className="hero-in mt-10" style={{ ["--d" as string]: 200 }}>
-            <Link href="/order" className={cta({ tone: "ink", size: "lg" })}>
+            {/* Back to the builder on the saved tier, where the answers are restored */}
+            <ReturnToBuilderLink className={cta({ tone: "ink", size: "lg" })}>
               <ArrowLeft aria-hidden className="size-5" strokeWidth={2} />
               Return to Order Builder
-            </Link>
+            </ReturnToBuilderLink>
           </div>
         </div>
         {/* The card still waiting for its turn (decorative) */}
