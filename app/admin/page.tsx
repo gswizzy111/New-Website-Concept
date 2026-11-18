@@ -8,7 +8,7 @@ import { pendingRefundRequestCount } from "@/lib/refund-requests";
 import { CardSearch } from "./card-search";
 import { Suspense } from "react";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
-import type { Track } from "shippo/models/components";
+import { cachedTrackingStatus, type TrackingSnapshot } from "@/lib/tracking-cache";
 import { SyncTrackingButton } from "./sync-tracking-button";
 import { SyncDeliveredButton } from "./sync-delivered-button";
 import { ResendConfirmationsButton } from "./resend-confirmations-button";
@@ -664,20 +664,20 @@ export default async function AdminPage({
     });
   }
 
-  // Query Shippo live tracking for shipped orders that have a tracking number.
-  // Shippo's SDK is loaded only here, so the other tabs don't pay for it.
-  type ShippedWithTracking = ShippedRow & { track: Track | null };
+  // Shippo tracking for shipped orders that have a tracking number, through the
+  // shared 10-minute cache (lib/tracking-cache.ts), so a view doesn't make one
+  // live Shippo call per order. Only this tab loads it.
+  type ShippedWithTracking = ShippedRow & { track: TrackingSnapshot | null };
   let shippedOrders: ShippedWithTracking[] = [];
   if (activeTab === "shipped" && shippedRaw.length > 0) {
-    const { shippo } = await import("@/lib/shippo");
     const results = await Promise.allSettled(
       shippedRaw.map(async (o) => {
-        let track: Track | null = null;
+        let track: TrackingSnapshot | null = null;
         if (o.tracking_number) {
           try {
             // The label's saved carrier while it goes with this number, else told from the number
             const carrier = trackingCarrier(o.tracking_number, o.outbound_tracking_number === o.tracking_number ? o.outbound_carrier : null);
-            track = await shippo.trackingStatus.get(o.tracking_number, carrier.token);
+            track = await cachedTrackingStatus(o.tracking_number, carrier.token);
           } catch { /* fail silently per order */ }
         }
         return { ...o, track };

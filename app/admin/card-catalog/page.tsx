@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { readCatalogStatus, type CatalogLangStatus } from "@/lib/card-catalog-sync";
 import { CatalogSync } from "./catalog-sync";
@@ -23,7 +23,7 @@ export default async function CardCatalogPage() {
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-5xl mx-auto px-6 py-10 flex flex-col gap-6">
         <div>
-          <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</Link>
+          <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</AdminLink>
           <h1 className="font-heading font-black text-3xl text-foreground">Card Catalog</h1>
           <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
             English and Japanese Pokémon cards and their pictures, from TCGdex (an open card database). When you add

@@ -69,6 +69,8 @@ export function CardPicker({
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
   const [active, setActive] = useState(-1);
+  // Results whose thumbnail link is dead: they show "No picture" instead of an empty box
+  const [deadThumbs, setDeadThumbs] = useState<Set<string>>(() => new Set());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const request = useRef<AbortController | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -120,7 +122,8 @@ export function CardPicker({
         }
         const found = (data.cards ?? []) as CatalogCard[];
         if (results.size > 200) results.clear();
-        results.set(q, found);
+        // Empty answers aren't kept: right after a deploy the catalog is still filling
+        if (found.length > 0) results.set(q, found);
         setCards(found);
         setStatus("done");
         setActive(-1);
@@ -248,9 +251,16 @@ export function CardPicker({
                     className={`flex flex-col gap-1 rounded-lg p-1.5 cursor-pointer border transition-colors ${i === active ? "border-primary bg-primary/5" : "border-transparent hover:bg-secondary"}`}
                   >
                     <div className="relative w-full aspect-[63/88] rounded-md bg-secondary overflow-hidden">
-                      {card.image_small ? (
+                      {card.image_small && !deadThumbs.has(card.id) ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={card.image_small} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-contain" />
+                        <img
+                          src={card.image_small}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          onError={() => setDeadThumbs((prev) => new Set(prev).add(card.id))}
+                          className="absolute inset-0 w-full h-full object-contain"
+                        />
                       ) : (
                         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground text-center px-1">
                           <ImageOff className="h-4 w-4" strokeWidth={1.75} aria-hidden />
@@ -294,7 +304,7 @@ export function CardPicker({
 function ReferencePhoto({ picked, onClear, thumbClass }: { picked: ReferencePick; onClear: () => void; thumbClass: string }) {
   const [broken, setBroken] = useState(false);
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-dashed border-border bg-secondary/30 p-2">
+    <div className="flex flex-wrap items-start gap-3 rounded-lg border border-dashed border-border bg-secondary/30 p-2">
       {picked.imageUrl && !broken ? (
         <a href={picked.imageUrl} target="_blank" rel="noopener noreferrer" className={`${thumbClass} shrink-0`} title="Open the full-size picture">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -313,7 +323,8 @@ function ReferencePhoto({ picked, onClear, thumbClass }: { picked: ReferencePick
           No picture
         </span>
       )}
-      <div className="flex flex-col gap-1 min-w-0 flex-1">
+      {/* Drops under the picture when the column is too narrow (Edit Card on a phone) */}
+      <div className="flex flex-col gap-1 min-w-[7.5rem] flex-1">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reference photo</p>
         <p className="text-[11px] text-muted-foreground leading-snug">From the card catalog, not the customer&apos;s card.</p>
         {picked.caption && <p className="text-xs text-foreground leading-snug">{picked.caption}</p>}

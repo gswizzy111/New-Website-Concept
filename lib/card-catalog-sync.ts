@@ -247,7 +247,7 @@ class RunCache {
   constructor(private fetchFn: FetchFn, private deadline: number) {}
 
   speciesNames() {
-    this.species ??= this.fetchFn(SPECIES_NAMES_CSV, { signal: AbortSignal.timeout(8000), cache: "no-store" })
+    this.species ??= this.fetchFn(SPECIES_NAMES_CSV, { signal: AbortSignal.timeout(Math.max(1500, Math.min(8000, this.deadline - Date.now()))), cache: "no-store" })
       .then((r) => (r.ok ? r.text() : ""))
       .then(parseSpeciesNames)
       .catch(() => new Map<number, string>());
@@ -430,7 +430,13 @@ export async function syncCardCatalog(opts: {
 
   // 1. The cheap check
   const rows = new Map((await store.listSyncRows()).map((r) => [keyOf(r), r]));
-  const listsDue = CATALOG_LANGS.filter((lang) => opts.refreshLists || olderThan(rows.get(keyOf({ lang, set_id: LIST_ROW }))?.synced_at ?? null, LIST_EVERY_MS, started));
+  // A set list that failed waits RETRY_FAILED_MS before the next try, like a failed set
+  const listsDue = CATALOG_LANGS.filter((lang) => {
+    if (opts.refreshLists) return true;
+    const row = rows.get(keyOf({ lang, set_id: LIST_ROW }));
+    if (row?.error && !olderThan(row.attempted_at ?? null, RETRY_FAILED_MS, started)) return false;
+    return olderThan(row?.synced_at ?? null, LIST_EVERY_MS, started);
+  });
   if (listsDue.length === 0 && dueSets([...rows.values()], started, opts.retryFailed).length === 0) {
     return { ...result, done: true, upToDate: true, ms: Date.now() - started };
   }
