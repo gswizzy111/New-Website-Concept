@@ -1,8 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { shippo } from "@/lib/shippo";
+import { cachedTrackingStatus } from "@/lib/tracking-cache";
 import { formatCurrency } from "@/lib/utils";
 import { fetchAll } from "@/lib/fetch-all";
 import Link from "next/link";
+import { after } from "next/server";
 import { ReturnLabelButton } from "./return-label-button";
 import { InternationalLabelButton } from "./international-label-button";
 import { KitStatusUpdater } from "./status-updater";
@@ -18,6 +19,10 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 
 export const dynamic = "force-dynamic";
+
+// The columns this page shows or passes on (everything but subtotal_cents,
+// affiliate_code and shipped_at). Add one here before reading it below.
+const KIT_ORDER_COLUMNS = "id, order_number, created_at, status, customer_name, customer_email, customer_phone, shipping_address, items, shipping_cents, total_cents, refunded_cents, stripe_session_id, tracking_number, carrier, labels, return_label_url";
 
 const STATUS_COLORS: Record<string, string> = {
   paid:       "bg-blue-100 text-blue-700",
@@ -175,27 +180,33 @@ export default async function ShopOrdersPage({
   // No sync from Stripe here: the Stripe webhook creates kit orders (and buys the
   // label, takes stock and gift-card balance, sends the emails); a row made here
   // first would make it skip all of that. "Sync All Orders" fills in older gaps.
-  const revenueSeries = activeTab === "all"
-    ? await syncRefundsQuietly(admin).then(() => getRevenueSeries(admin)).catch((e) => {
-        console.error("[kit orders] revenue_series:", e);
-        return null;
-      })
-    : null;
+  // Refunds made in the Stripe Dashboard are synced after the page is sent (and
+  // every 10 minutes by netlify/functions/cron-refund-sync.mjs).
+  if (activeTab === "all") after(() => syncRefundsQuietly(admin));
 
-  // Every kit order, in pages (the API returns at most 1,000 rows per request)
-  const { orders, loadError } = await fetchAll((from, to) =>
-    admin
-      .from("shop_orders")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(from, to))
-    .then((rows) => ({ orders: rows, loadError: null }))
-    .catch((e: unknown) => {
-      const message = e instanceof Error ? e.message : String(e);
-      console.error("[kit orders] list:", message);
-      return { orders: null, loadError: message };
-    });
+  // The revenue chart and every kit order, at once (the orders in pages: the API
+  // returns at most 1,000 rows per request)
+  const [revenueSeries, { orders, loadError }] = await Promise.all([
+    activeTab === "all"
+      ? getRevenueSeries(admin).catch((e) => {
+          console.error("[kit orders] revenue_series:", e);
+          return null;
+        })
+      : null,
+    fetchAll((from, to) =>
+      admin
+        .from("shop_orders")
+        .select(KIT_ORDER_COLUMNS)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to))
+      .then((rows) => ({ orders: rows, loadError: null }))
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        console.error("[kit orders] list:", message);
+        return { orders: null, loadError: message };
+      }),
+  ]);
 
   // For "not-scanned" tab: check Shippo tracking on recently-shipped orders
   type NotScannedRow = { order: Record<string, any>; daysSince: number; labelCreatedAt: string | null };
@@ -224,14 +235,11 @@ export default async function ShopOrdersPage({
           ? order.labels.find((l: { trackingNumber?: string | null }) => l?.trackingNumber && l.trackingNumber === tracking)
           : null;
         const carrier = trackingCarrier(tracking ?? "", label?.carrier ?? order.carrier ?? null).token;
-        try {
-          const track = await shippo.trackingStatus.get(tracking, carrier);
-          const status = track.trackingStatus?.status ?? "UNKNOWN";
-          return { order, status };
-        } catch {
-          // If tracking call fails, assume not yet scanned
-          return { order, status: "UNKNOWN" };
-        }
+        // Cached up to 10 minutes (lib/tracking-cache.ts). If the tracking call
+        // fails (null), assume not yet scanned
+        const track = await cachedTrackingStatus(tracking, carrier);
+        const status = track?.trackingStatus?.status ?? "UNKNOWN";
+        return { order, status };
       })
     );
 
@@ -266,7 +274,7 @@ export default async function ShopOrdersPage({
           <div className="flex items-center gap-3">
             <SyncShopDeliveredButton />
             <SyncKitOrdersButton />
-            <Link href="/admin/shop-orders/new" className="text-sm font-bold px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap">
+            <Link href="/admin/shop-orders/new" prefetch={false} className="text-sm font-bold px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap">
               + New Order
             </Link>
           </div>
@@ -278,6 +286,7 @@ export default async function ShopOrdersPage({
             <Link
               key={t.id}
               href={t.href}
+              prefetch={false}
               className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${
                 activeTab === t.id
                   ? "bg-white text-foreground shadow-sm"
@@ -352,6 +361,7 @@ export default async function ShopOrdersPage({
                         </div>
                         <Link
                           href={`/admin/shop-orders`}
+                          prefetch={false}
                           className="text-xs text-primary hover:underline shrink-0"
                         >
                           View order →
