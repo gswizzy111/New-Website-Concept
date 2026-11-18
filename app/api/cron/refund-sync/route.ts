@@ -1,4 +1,6 @@
+import { revalidateTag } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DASHBOARD_METRICS_TAG } from "@/app/admin/dashboard-metrics-cache";
 import { syncRefunds } from "@/lib/refund-ledger";
 import { PREVIEW_MODE } from "@/lib/preview";
 
@@ -24,6 +26,9 @@ export async function GET(request: Request) {
     // (over budget) carries on at the next one
     const result = await syncRefunds(createAdminClient(), { budgetMs: 10_000, requestTimeoutMs: 3_000 });
     console.log("[cron/refund-sync]", JSON.stringify(result));
+    // New refunds from the Stripe Dashboard: the admin dashboard's cached month
+    // numbers are dropped, so its next load shows them
+    if (!result.skipped && result.synced > 0) revalidateTag(DASHBOARD_METRICS_TAG, { expire: 0 });
     return Response.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
