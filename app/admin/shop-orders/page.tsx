@@ -22,6 +22,10 @@ export const dynamic = "force-dynamic";
 
 // The columns this page shows or passes on (everything but subtotal_cents,
 // affiliate_code and shipped_at). Add one here before reading it below.
+// OrderCard also reads international_labels, which the international label
+// route writes but shop_orders doesn't have yet (Nov 18, 2026): naming it here
+// would fail the whole list. Add it here in the same change that adds the
+// column, or its labels won't show on this page.
 const KIT_ORDER_COLUMNS = "id, order_number, created_at, status, customer_name, customer_email, customer_phone, shipping_address, items, shipping_cents, total_cents, refunded_cents, stripe_session_id, tracking_number, carrier, labels, return_label_url";
 
 const STATUS_COLORS: Record<string, string> = {
