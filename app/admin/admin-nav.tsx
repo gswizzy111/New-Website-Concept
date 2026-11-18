@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/admin/unclaimed",   label: "Unclaimed",  icon: "⏳" },
   { href: "/admin/partners",    label: "Partners",   icon: "🤝" },
   { href: "/admin/products",    label: "Products",   icon: "🛍️" },
+  { href: "/admin/card-catalog", label: "Card Catalog", icon: "🗃️" },
   { href: "/admin/store-settings", label: "Store Settings",       icon: "⚙️" },
   { href: "/admin/prep-settings", label: "Prep Settings",         icon: "🔬" },
   { href: "/admin/affiliates",     label: "Affiliates & Coupons", icon: "🎯" },
