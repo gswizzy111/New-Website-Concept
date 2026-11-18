@@ -396,15 +396,18 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                   const cardTier = card.tier ?? order.restoration_tier;
                   const tierBadge = cardTier ? (CARD_TIER_BADGE[cardTier] ?? { label: cardTier, cls: "bg-gray-100 text-gray-600" }) : null;
                   const orig = (card as Record<string, unknown>).original_data as {
-                    card_name?: string; card_set?: string | null; card_year?: string | null;
+                    card_name?: string; card_set?: string | null; card_year?: string | null; card_number?: string | null;
                     estimated_value_cents?: number | null; notes?: string | null; photo_urls?: string[];
                   } | null ?? null;
+                  // Copies saved before the card number could be edited don't hold it: the number is still the customer's
+                  const origNumber = orig ? ("card_number" in orig ? orig.card_number ?? null : card.card_number ?? null) : null;
 
                   // Detect which fields changed vs. original
                   const changed = orig ? {
                     name: card.card_name !== orig.card_name,
                     set: (card.card_set ?? null) !== (orig.card_set ?? null),
                     year: ((card as Record<string,unknown>).card_year ?? null) !== (orig.card_year ?? null),
+                    number: (card.card_number ?? null) !== origNumber,
                     value: (card.estimated_value_cents ?? null) !== (orig.estimated_value_cents ?? null),
                     notes: (card.notes ?? null) !== (orig.notes ?? null),
                     photos: JSON.stringify(card.photo_urls ?? []) !== JSON.stringify(orig.photo_urls ?? []),
@@ -441,6 +444,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                           <p className="font-medium text-foreground">{orig.card_name ?? "—"}</p>
                           {orig.card_set && <p className="text-muted-foreground">Set: {orig.card_set}</p>}
                           {orig.card_year && <p className="text-muted-foreground">Year: {orig.card_year}</p>}
+                          {origNumber && <p className="text-muted-foreground">Card #: {origNumber}</p>}
                           {orig.estimated_value_cents && (
                             <p className="text-muted-foreground">Value: {formatCurrency(orig.estimated_value_cents)}</p>
                           )}
@@ -471,6 +475,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                           {((card as Record<string,unknown>).card_year || orig.card_year) && (
                             <p className={changed.year ? "text-red-700 font-semibold" : "text-muted-foreground"}>
                               Year: {(card as Record<string,unknown>).card_year as string ?? <span className="italic text-muted-foreground">removed</span>}
+                            </p>
+                          )}
+                          {(card.card_number || origNumber) && (
+                            <p className={changed.number ? "text-red-700 font-semibold" : "text-muted-foreground"}>
+                              Card #: {card.card_number ?? <span className="italic text-muted-foreground">removed</span>}
                             </p>
                           )}
                           {(card.estimated_value_cents || orig.estimated_value_cents) && (

@@ -49,6 +49,13 @@ export async function PATCH(
       notes: current.notes ?? null,
       photo_urls: (current.photo_urls as string[] | null) ?? [],
     };
+  } else {
+    // Copies frozen before the card number could be edited don't hold it:
+    // add the customer's number the first time it changes
+    const snapshot = (current as Record<string, unknown>).original_data as Record<string, unknown>;
+    if ("card_number" in update && typeof snapshot === "object" && !("card_number" in snapshot)) {
+      update.original_data = { ...snapshot, card_number: (current as Record<string, unknown>).card_number ?? null };
+    }
   }
 
   let { error } = await admin.from("cards").update(update).eq("id", id);
