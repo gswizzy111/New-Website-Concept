@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orderLabel } from "@/lib/card-inquiries";
 import { refundedSoFar } from "@/lib/refund-ledger";
@@ -6,6 +5,7 @@ import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { REQUEST_STATUS_LABELS, SCOPE_LABELS, type RefundRequest } from "@/lib/refund-requests";
 import { formatCurrency } from "@/lib/utils";
 import { RefundRequestReview, type ReviewCard } from "./refund-request-review";
+import { DashboardLink } from "./dashboard-link";
 
 const et = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -17,18 +17,27 @@ const et = (iso: string) =>
  */
 export async function RefundRequestsTab() {
   const admin = createAdminClient();
+  // Each request comes with its order (one request each, not a second round trip)
+  const withOrder = "*, orders(id, order_number, customer_name, customer_email, status, total_cents, refunded_cents, payment_status)";
+  type RequestOrder = {
+    id: string;
+    order_number: number;
+    customer_name: string | null;
+    customer_email: string | null;
+    status: string;
+    total_cents: number | null;
+    refunded_cents: number | null;
+    payment_status: string | null;
+  };
+  type RequestRow = RefundRequest & { orders: RequestOrder | null };
   const [{ data: openRows }, { data: doneRows }] = await Promise.all([
-    admin.from("refund_requests").select("*").in("status", ["pending", "processing"]).order("created_at", { ascending: true }),
-    admin.from("refund_requests").select("*").in("status", ["approved", "denied"]).order("decided_at", { ascending: false }).limit(15),
+    admin.from("refund_requests").select(withOrder).in("status", ["pending", "processing"]).order("created_at", { ascending: true }),
+    admin.from("refund_requests").select(withOrder).in("status", ["approved", "denied"]).order("decided_at", { ascending: false }).limit(15),
   ]);
-  const open = (openRows ?? []) as RefundRequest[];
-  const done = (doneRows ?? []) as RefundRequest[];
+  const open = (openRows ?? []) as RequestRow[];
+  const done = (doneRows ?? []) as RequestRow[];
 
-  const orderIds = [...new Set([...open, ...done].map((r) => r.order_id))];
-  const { data: orders } = orderIds.length
-    ? await admin.from("orders").select("id, order_number, customer_name, customer_email, status, total_cents, refunded_cents, payment_status").in("id", orderIds)
-    : { data: [] };
-  const orderById = new Map((orders ?? []).map((o) => [o.id, o]));
+  const orderById = new Map([...open, ...done].flatMap((r) => (r.orders ? [[r.order_id, r.orders] as const] : [])));
 
   // For each open request: what's left to refund, and each card's refundable fee
   const details = await Promise.all(
@@ -71,7 +80,7 @@ export async function RefundRequestsTab() {
                       <p className="text-sm text-muted-foreground">{order?.customer_name ?? "—"} · {order?.customer_email}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">Asked by <span className="font-semibold text-foreground">{r.requested_by}</span> · {et(r.created_at)}</p>
                     </div>
-                    <Link href={`/admin/orders/${r.order_id}`} className="text-sm font-semibold text-primary hover:underline">Open order →</Link>
+                    <DashboardLink href={`/admin/orders/${r.order_id}`} className="text-sm font-semibold text-primary hover:underline">Open order →</DashboardLink>
                   </div>
                   <p className="text-sm text-foreground whitespace-pre-wrap bg-secondary/40 rounded-lg p-3 mb-3">{r.reason}</p>
                   <p className="text-xs text-muted-foreground mb-3">
@@ -103,7 +112,7 @@ export async function RefundRequestsTab() {
               const s = REQUEST_STATUS_LABELS[r.status];
               return (
                 <li key={r.id} className="px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <Link href={`/admin/orders/${r.order_id}`} className="font-semibold text-foreground hover:text-primary w-20">{orderLabel(order?.order_number)}</Link>
+                  <DashboardLink href={`/admin/orders/${r.order_id}`} className="font-semibold text-foreground hover:text-primary w-20">{orderLabel(order?.order_number)}</DashboardLink>
                   <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${s.cls}`}>{r.status === "approved" ? "Approved" : "Denied"}</span>
                   {r.refunded_cents ? <span className="font-semibold">{formatCurrency(r.refunded_cents)}</span> : null}
                   <span className="text-muted-foreground flex-1 min-w-[12rem] truncate">{r.reason}</span>
