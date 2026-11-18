@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { Track } from "shippo/models/components";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminOrSupport } from "@/lib/admin-auth";
-import { shippo } from "@/lib/shippo";
+import { cachedTrackingStatus, type TrackingSnapshot } from "@/lib/tracking-cache";
 import { thumbnail } from "@/lib/thumbnail";
 import { STATUS_TIMELINE } from "@/lib/constants";
 import { orderLabel } from "@/lib/card-inquiries";
@@ -65,7 +64,7 @@ type Card = {
 };
 type Event = { id: string; event_type: string; description: string | null; is_customer_visible: boolean | null; metadata: unknown; created_at: string };
 
-function TrackingBox({ track, tone }: { track: Track | null; tone: "blue" | "cyan" }) {
+function TrackingBox({ track, tone }: { track: TrackingSnapshot | null; tone: "blue" | "cyan" }) {
   if (!track) return <p className="text-xs text-muted-foreground">Live tracking status unavailable.</p>;
   const status = track.trackingStatus?.status ?? "UNKNOWN";
   const badge = TRACKING_BADGE[status] ?? TRACKING_BADGE.UNKNOWN;
@@ -103,12 +102,13 @@ export default async function SupportOrderPage({ params }: { params: Promise<{ i
   const cardName = new Map(cards.map((c) => [c.id, c.card_name]));
 
   const returnTracking = order.tracking_number;
-  const [inboundTrack, returnTrack, emailProblems]: [Track | null, Track | null, Awaited<ReturnType<typeof openProblemsFor>>] = await Promise.all([
+  // Tracking is cached up to 10 minutes (lib/tracking-cache.ts)
+  const [inboundTrack, returnTrack, emailProblems]: [TrackingSnapshot | null, TrackingSnapshot | null, Awaited<ReturnType<typeof openProblemsFor>>] = await Promise.all([
     order.inbound_tracking_number && order.inbound_carrier
-      ? shippo.trackingStatus.get(order.inbound_tracking_number, carrierToken(order.inbound_carrier)).catch(() => null)
+      ? cachedTrackingStatus(order.inbound_tracking_number, carrierToken(order.inbound_carrier))
       : null,
     returnTracking
-      ? shippo.trackingStatus.get(returnTracking, carrierToken(order.return_carrier ?? "USPS")).catch(() => null)
+      ? cachedTrackingStatus(returnTracking, carrierToken(order.return_carrier ?? "USPS"))
       : null,
     openProblemsFor(order.customer_email),
   ]);
@@ -162,11 +162,11 @@ export default async function SupportOrderPage({ params }: { params: Promise<{ i
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <Link href="/admin/support" className="text-sm text-muted-foreground hover:text-primary transition-colors">← Order lookup</Link>
+          <Link href="/admin/support" prefetch={false} className="text-sm text-muted-foreground hover:text-primary transition-colors">← Order lookup</Link>
           <div className="flex flex-wrap items-center gap-2">
             <ResendConfirmationButton orderId={order.id} />
             {role === "admin" && (
-              <Link href={`/admin/orders/${order.id}`} className="h-9 px-3 flex items-center rounded-lg bg-primary text-primary-foreground text-xs font-bold">Full admin view →</Link>
+              <Link href={`/admin/orders/${order.id}`} prefetch={false} className="h-9 px-3 flex items-center rounded-lg bg-primary text-primary-foreground text-xs font-bold">Full admin view →</Link>
             )}
           </div>
         </div>
@@ -294,7 +294,7 @@ export default async function SupportOrderPage({ params }: { params: Promise<{ i
                 <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
                   <p className="font-bold">Our emails to this address aren&apos;t arriving</p>
                   <p className="mt-1">{PROBLEM_LABELS[emailProblems[0].type]} {etDate(emailProblems[0].received_at)}. {problemAdvice(emailProblems[0].type)}</p>
-                  <Link href="/admin/email-problems" className="mt-1 inline-block font-semibold underline">See Email Problems</Link>
+                  <Link href="/admin/email-problems" prefetch={false} className="mt-1 inline-block font-semibold underline">See Email Problems</Link>
                 </div>
               )}
               <div className="flex flex-col gap-1 text-sm">
