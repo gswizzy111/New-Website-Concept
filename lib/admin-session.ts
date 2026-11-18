@@ -103,33 +103,82 @@ export async function createAdminSession(
 /** The session a cookie token belongs to, if it is live and its account still has access. */
 export async function lookupAdminSession(token: string | null | undefined): Promise<AdminSession | null> {
   if (!token || !TOKEN_PATTERN.test(token)) return null;
+  return (await lookupSessionByHash(await sha256(token)))?.session ?? null;
+}
+
+/** The live session stored under a token's SHA-256, and when it expires (epoch ms). */
+async function lookupSessionByHash(tokenHash: string): Promise<{ session: AdminSession; expiresAt: number } | null> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("admin_sessions")
-    .select("role, admin_user_id, support_id, admin_users(username, active), accountant_access(email, password_hash), support_access(name, email, password_hash)")
-    .eq("token_hash", await sha256(token))
+    .select("role, admin_user_id, support_id, expires_at, admin_users(username, active), accountant_access(email, password_hash), support_access(name, email, password_hash)")
+    .eq("token_hash", tokenHash)
     .gt("expires_at", new Date().toISOString())
     .maybeSingle();
   if (!data) return null;
+  const expiresAt = Date.parse(data.expires_at as string);
   type Joined<T> = T | T[] | null;
   const one = <T,>(v: Joined<T>) => (Array.isArray(v) ? v[0] ?? null : v);
   if (data.role === "admin") {
     const user = one(data.admin_users as Joined<{ username: string; active: boolean }>);
-    return user?.active ? { role: "admin", username: user.username, adminUserId: data.admin_user_id as string } : null;
+    return user?.active ? { session: { role: "admin", username: user.username, adminUserId: data.admin_user_id as string }, expiresAt } : null;
   }
   if (data.role === "accountant") {
     const acct = one(data.accountant_access as Joined<{ email: string; password_hash: string | null }>);
     // Revoking an accountant (clearing their password) ends their sessions too
-    return acct?.password_hash ? { role: "accountant", username: acct.email } : null;
+    return acct?.password_hash ? { session: { role: "accountant", username: acct.email }, expiresAt } : null;
   }
   if (data.role === "support") {
     const member = one(data.support_access as Joined<{ name: string; email: string; password_hash: string | null }>);
     // Removing someone from Support Access deletes the row, and its sessions with it
     return member?.password_hash
-      ? { role: "support", username: member.email, name: member.name, supportId: data.support_id as string }
+      ? { session: { role: "support", username: member.email, name: member.name, supportId: data.support_id as string }, expiresAt }
       : null;
   }
   return null;
+}
+
+/**
+ * For middleware.ts only: lookupAdminSession, remembered for up to
+ * MIDDLEWARE_SESSION_TTL_MS in this edge instance's memory.
+ *
+ * The middleware runs on Netlify's edge, near the person, so its database
+ * lookup crossed to the database's region on every admin request before the
+ * page even started (about 0.1 s in the US, 0.4 s from Pakistan). The cache is
+ * keyed by the token's SHA-256 (never the token), holds live sessions only
+ * (never "no session"), and an entry never outlives the session's own
+ * expires_at.
+ *
+ * Only the middleware's backstop is cached. Every page and route still checks
+ * the session in the database itself (getAdminSession in lib/admin-auth.ts),
+ * so signing out, a password change or a removed account take effect there at
+ * once; the middleware's gate and its accountant/support redirects can lag by
+ * MIDDLEWARE_SESSION_TTL_MS at most. Never trust anything the middleware
+ * passes on in place of that check.
+ */
+const MIDDLEWARE_SESSION_TTL_MS = 30_000;
+const MIDDLEWARE_SESSION_MAX = 500;
+const middlewareSessions = new Map<string, { session: AdminSession; until: number }>();
+
+export async function lookupAdminSessionForMiddleware(token: string | null | undefined): Promise<AdminSession | null> {
+  if (!token || !TOKEN_PATTERN.test(token)) return null;
+  const tokenHash = await sha256(token);
+  const now = Date.now();
+  const hit = middlewareSessions.get(tokenHash);
+  if (hit && hit.until > now) return hit.session;
+  middlewareSessions.delete(tokenHash);
+
+  const found = await lookupSessionByHash(tokenHash);
+  if (!found) return null;
+  // Bounded: drop expired entries, then the oldest, before adding one
+  if (middlewareSessions.size >= MIDDLEWARE_SESSION_MAX) {
+    for (const [key, entry] of middlewareSessions) if (entry.until <= now) middlewareSessions.delete(key);
+    const oldest = middlewareSessions.keys().next();
+    if (middlewareSessions.size >= MIDDLEWARE_SESSION_MAX && !oldest.done) middlewareSessions.delete(oldest.value);
+  }
+  // A bad expires_at gives NaN, which never counts as fresh
+  middlewareSessions.set(tokenHash, { session: found.session, until: Math.min(now + MIDDLEWARE_SESSION_TTL_MS, found.expiresAt) });
+  return found.session;
 }
 
 /** Ends the session behind a cookie token (sign-out). */

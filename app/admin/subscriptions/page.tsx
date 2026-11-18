@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { CreateKitOrderButton } from "./create-kit-order-button";
 import { CancelSubscriptionButton } from "./cancel-button";
 import { isAdmin } from "@/lib/admin-auth";
@@ -94,7 +94,7 @@ export default async function AdminSubscriptionsPage() {
           </p>
         </div>
         {pendingKitCount > 0 && (
-          <Link
+          <AdminLink
             href="/admin/ship-queue"
             className="flex items-center gap-2 bg-orange-500 text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-orange-600 transition-colors"
           >
@@ -102,7 +102,7 @@ export default async function AdminSubscriptionsPage() {
               {pendingKitCount}
             </span>
             Kit{pendingKitCount !== 1 ? "s" : ""} pending shipment →
-          </Link>
+          </AdminLink>
         )}
       </div>
 
@@ -131,7 +131,7 @@ export default async function AdminSubscriptionsPage() {
           <p className="font-bold text-purple-900 text-sm">Monthly Kit Club</p>
           <p className="text-xs text-purple-700 mt-0.5">
             Every active subscriber receives one full kit per month — billed at {subscriptionPrice}/mo recurring via Stripe.
-            Monthly kits appear in the <Link href="/admin/ship-queue" className="underline font-semibold">Ship Queue</Link> and <Link href="/admin/shop-orders" className="underline font-semibold">Kit Orders</Link> automatically when Stripe bills them.
+            Monthly kits appear in the <AdminLink href="/admin/ship-queue" className="underline font-semibold">Ship Queue</AdminLink> and <AdminLink href="/admin/shop-orders" className="underline font-semibold">Kit Orders</AdminLink> automatically when Stripe bills them.
           </p>
         </div>
       </div>
@@ -228,12 +228,12 @@ export default async function AdminSubscriptionsPage() {
                   {sub.status === "active" && (
                     <div className="mt-2 flex flex-col items-end gap-2">
                       {pendingOrders.length > 0 ? (
-                        <Link
+                        <AdminLink
                           href="/admin/ship-queue"
                           className="text-xs font-bold text-orange-600 hover:text-orange-700 underline"
                         >
                           Ship kit →
-                        </Link>
+                        </AdminLink>
                       ) : (
                         <CreateKitOrderButton subscriptionId={sub.id} />
                       )}

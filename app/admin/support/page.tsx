@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminOrSupport } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
@@ -77,11 +77,11 @@ export default async function SupportHomePage({ searchParams }: { searchParams: 
   }
 
   const tile = (href: string, label: string, count: number, hint: string) => (
-    <Link href={href} className="bg-white rounded-xl border border-border p-4 hover:border-primary/40 transition-colors flex flex-col gap-1">
+    <AdminLink href={href} className="bg-white rounded-xl border border-border p-4 hover:border-primary/40 transition-colors flex flex-col gap-1">
       <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</span>
       <span className={`font-heading font-black text-2xl ${count > 0 ? "text-red-600" : "text-foreground"}`}>{count}</span>
       <span className="text-xs text-muted-foreground">{hint}</span>
-    </Link>
+    </AdminLink>
   );
 
   return (
@@ -130,7 +130,7 @@ export default async function SupportHomePage({ searchParams }: { searchParams: 
             ) : (
               <div className="bg-white rounded-xl border border-border divide-y divide-border mb-8">
                 {orders.map((o) => (
-                  <Link key={o.id} href={`/admin/support/orders/${o.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 hover:bg-secondary/40 transition-colors">
+                  <AdminLink key={o.id} href={`/admin/support/orders/${o.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3.5 hover:bg-secondary/40 transition-colors">
                     <span className="font-heading font-black text-foreground w-20">{orderLabel(o.order_number)}</span>
                     <span className="flex-1 min-w-[10rem]">
                       <span className="block text-sm font-semibold text-foreground truncate">{o.customer_name ?? "—"}</span>
@@ -139,7 +139,7 @@ export default async function SupportHomePage({ searchParams }: { searchParams: 
                     <span className="text-xs font-semibold text-muted-foreground">{tierLabel(o.restoration_tier)}</span>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[o.status] ?? "bg-gray-100 text-gray-600"}`}>{statusLabel(o.status)}</span>
                     <span className="text-xs text-muted-foreground w-24 text-right">{etDate(o.created_at)}</span>
-                  </Link>
+                  </AdminLink>
                 ))}
               </div>
             )}

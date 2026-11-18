@@ -4,7 +4,7 @@ import { ReturnLabelButton as KitReturnLabelButton } from "../shop-orders/return
 import { ReturnLabelButton as RestorationReturnLabelButton } from "../orders/[id]/return-label-button";
 import { AddressEditor } from "./address-editor";
 import { CancelKitOrderButton } from "./cancel-kit-order-button";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -110,7 +110,7 @@ export default async function ShipQueuePage({
 
         {/* Tabs */}
         <div className="flex gap-1 mb-7 border-b border-border">
-          <Link
+          <AdminLink
             href="/admin/ship-queue"
             className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 -mb-px transition-colors flex items-center gap-2 ${
               activeTab === "kits"
@@ -126,8 +126,8 @@ export default async function ShipQueuePage({
                 {kitsCount}
               </span>
             )}
-          </Link>
-          <Link
+          </AdminLink>
+          <AdminLink
             href="/admin/ship-queue?tab=restoration"
             className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 -mb-px transition-colors flex items-center gap-2 ${
               activeTab === "restoration"
@@ -143,7 +143,7 @@ export default async function ShipQueuePage({
                 {restorationCount}
               </span>
             )}
-          </Link>
+          </AdminLink>
         </div>
 
         {/* ── KITS TAB ── */}
@@ -287,9 +287,9 @@ export default async function ShipQueuePage({
                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                           <div>
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
-                              <Link href={`/admin/orders/${order.id}`} className="font-heading font-black text-lg text-foreground hover:text-primary transition-colors">
+                              <AdminLink href={`/admin/orders/${order.id}`} className="font-heading font-black text-lg text-foreground hover:text-primary transition-colors">
                                 {order.customer_name}
-                              </Link>
+                              </AdminLink>
                               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Ready to Ship</span>
                               {tier && TIER_LABELS[tier] && (
                                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${TIER_COLORS[tier] ?? "bg-gray-100 text-gray-700"}`}>
@@ -298,9 +298,9 @@ export default async function ShipQueuePage({
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground">{order.customer_email}</p>
-                            <Link href={`/admin/orders/${order.id}`} className="text-xs font-mono text-primary hover:underline">
+                            <AdminLink href={`/admin/orders/${order.id}`} className="text-xs font-mono text-primary hover:underline">
                               #{order.order_number}
-                            </Link>
+                            </AdminLink>
                           </div>
                           <div className="text-left sm:text-right shrink-0">
                             <p className="text-xs text-muted-foreground">

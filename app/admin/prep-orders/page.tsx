@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { thumbnail } from "@/lib/thumbnail";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { labelHref } from "@/lib/label-link";
 
@@ -98,9 +98,9 @@ export default async function PrepOrdersPage({
             </div>
             <p className="text-muted-foreground text-sm">{all.length} total orders · {formatCurrency(totalRevenue)} collected</p>
           </div>
-          <Link href="/admin/prep-settings" className="h-9 px-4 bg-secondary text-foreground text-sm font-semibold rounded-lg border border-border hover:bg-secondary/80 transition-colors flex items-center whitespace-nowrap">
+          <AdminLink href="/admin/prep-settings" className="h-9 px-4 bg-secondary text-foreground text-sm font-semibold rounded-lg border border-border hover:bg-secondary/80 transition-colors flex items-center whitespace-nowrap">
             ⚙ Prep Settings
-          </Link>
+          </AdminLink>
         </div>
 
         {/* Stats */}
@@ -138,7 +138,7 @@ export default async function PrepOrdersPage({
               ? [...activeOrders, ...ACTIVE_NON_PAID].length
               : all.filter((o) => o.status === val).length;
             return (
-              <Link
+              <AdminLink
                 key={val}
                 href={`/admin/prep-orders${val !== "all" ? `?status=${val}` : ""}`}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border flex items-center gap-1.5 ${
@@ -153,7 +153,7 @@ export default async function PrepOrdersPage({
                     (statusFilter ?? "all") === val ? "bg-white/20 text-white" : "bg-border text-foreground"
                   }`}>{count}</span>
                 )}
-              </Link>
+              </AdminLink>
             );
           })}
         </div>
@@ -188,9 +188,9 @@ export default async function PrepOrdersPage({
                     {/* Left: core info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <Link href={`/admin/orders/${order.id}`} className="font-heading font-black text-foreground hover:text-primary transition-colors">
+                        <AdminLink href={`/admin/orders/${order.id}`} className="font-heading font-black text-foreground hover:text-primary transition-colors">
                           {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                        </Link>
+                        </AdminLink>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_COLORS[order.status] ?? "bg-gray-100 text-gray-600"}`}>
                           {ORDER_STATUSES[order.status as OrderStatus]?.label ?? order.status}
                         </span>
@@ -297,9 +297,9 @@ export default async function PrepOrdersPage({
                       </a>
                     )}
                     <div className="ml-auto">
-                      <Link href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
+                      <AdminLink href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
                         View Order →
-                      </Link>
+                      </AdminLink>
                     </div>
                   </div>
                 </div>
@@ -318,7 +318,7 @@ export default async function PrepOrdersPage({
               {pastOrders.map((order) => {
                 const cards = cardsByOrder[order.id] ?? [];
                 return (
-                  <Link
+                  <AdminLink
                     key={order.id}
                     href={`/admin/orders/${order.id}`}
                     className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors opacity-70 hover:opacity-100"
@@ -344,7 +344,7 @@ export default async function PrepOrdersPage({
                         {new Date(order.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" })}
                       </span>
                     </div>
-                  </Link>
+                  </AdminLink>
                 );
               })}
             </div>

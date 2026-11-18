@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminSession, staffName } from "@/lib/admin-auth";
-import { emailAdminsAboutRequest } from "@/lib/refund-requests";
+import { emailAdminsAboutRequest } from "@/lib/refund-request-email";
 
 const Body = z.object({
   orderId: z.string().uuid(),

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -113,7 +113,7 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
             <h2 className="font-heading font-black text-lg text-foreground">Day by Day</h2>
             <div className="flex gap-1 bg-secondary/50 rounded-lg p-1">
               {RANGES.map((r) => (
-                <Link
+                <AdminLink
                   key={r.key}
                   href={`/admin/backlog?range=${r.key}`}
                   className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
@@ -121,7 +121,7 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
                   }`}
                 >
                   {r.label}
-                </Link>
+                </AdminLink>
               ))}
             </div>
           </div>

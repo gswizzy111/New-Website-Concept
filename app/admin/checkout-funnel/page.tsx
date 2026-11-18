@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
@@ -235,9 +235,9 @@ function UnpaidTable({ unpaid, nowMs }: { unpaid: UnpaidCheckouts; nowMs: number
             {unpaid.orders.map((o) => (
               <tr key={o.id}>
                 <td className="px-4 py-2.5 whitespace-nowrap">
-                  <Link href={`/admin/orders/${o.id}`} className="font-semibold text-primary hover:underline">
+                  <AdminLink href={`/admin/orders/${o.id}`} className="font-semibold text-primary hover:underline">
                     {o.order_number ?? o.id.slice(0, 8)}
-                  </Link>
+                  </AdminLink>
                 </td>
                 <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground">{etTime(o.created_at)}</td>
                 <td className="px-4 py-2.5 whitespace-nowrap text-foreground">{tierName(o.tier, o.service)}</td>
@@ -315,7 +315,7 @@ export default async function CheckoutFunnelPage({ searchParams }: { searchParam
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex gap-1 bg-white border border-border rounded-lg p-1">
               {RANGES.map((r) => (
-                <Link
+                <AdminLink
                   key={r.key}
                   href={`/admin/checkout-funnel?range=${r.key}`}
                   aria-current={range === r.key ? "page" : undefined}
@@ -324,7 +324,7 @@ export default async function CheckoutFunnelPage({ searchParams }: { searchParam
                   }`}
                 >
                   {r.label}
-                </Link>
+                </AdminLink>
               ))}
             </div>
             <form method="GET" action="/admin/checkout-funnel" className="flex items-center gap-2">

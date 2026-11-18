@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { StatusUpdater, AddNoteForm, CopyLinkButton } from "./case-actions";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { INQUIRY_TYPE, orderLabel } from "@/lib/card-inquiries";
@@ -76,7 +76,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       <div className="max-w-3xl mx-auto px-6 py-10">
 
         <div className="mb-6">
-          <Link href="/admin/cases" className="text-sm text-muted-foreground hover:text-primary transition-colors">← Cases</Link>
+          <AdminLink href="/admin/cases" className="text-sm text-muted-foreground hover:text-primary transition-colors">← Cases</AdminLink>
         </div>
 
         {/* Header card */}
@@ -140,7 +140,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                     <span className="text-muted-foreground">
                       {`Placed ${new Date(order.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                     </span>
-                    <Link href={isSupportStaff ? `/admin/support/orders/${order.id}` : `/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">Open order →</Link>
+                    <AdminLink href={isSupportStaff ? `/admin/support/orders/${order.id}` : `/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">Open order →</AdminLink>
                   </div>
                 ) : kitOrder ? (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -149,7 +149,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                     <span className="text-muted-foreground">
                       {`Placed ${new Date(kitOrder.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
                     </span>
-                    <Link href={isSupportStaff ? `/admin/support?q=K${kitOrder.order_number}` : "/admin/shop-orders"} className="font-semibold text-primary hover:underline">{isSupportStaff ? "Look it up →" : "Open Kit Orders →"}</Link>
+                    <AdminLink href={isSupportStaff ? `/admin/support?q=K${kitOrder.order_number}` : "/admin/shop-orders"} className="font-semibold text-primary hover:underline">{isSupportStaff ? "Look it up →" : "Open Kit Orders →"}</AdminLink>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Order #{c.order_ref} wasn&apos;t found.</p>
