@@ -19,6 +19,7 @@ import { DeleteOrderButton } from "./delete-order-button";
 import { CardCompletionToggle } from "./card-completion-toggle";
 import { AdminCardEditor } from "./admin-card-editor";
 import { AddCardButton } from "./add-card-button";
+import { ReferencePhoto } from "./reference-photo";
 import { RefundButton } from "./refund-button";
 import { RestorationStageUpdater } from "./restoration-stage-updater";
 import { PregradePanel } from "./pregrade-panel";
@@ -482,14 +483,15 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                               Notes: {card.notes ?? <span className="italic text-muted-foreground">removed</span>}
                             </p>
                           )}
-                          {(card.photo_urls?.length > 0 || (orig.photo_urls ?? []).length > 0) && (
-                            <div className="flex gap-1.5 flex-wrap mt-1">
+                          {(card.photo_urls?.length > 0 || (orig.photo_urls ?? []).length > 0 || card.catalog_image_url) && (
+                            <div className="flex gap-1.5 flex-wrap mt-1 items-start">
                               {(card.photo_urls as string[] ?? []).map((url: string, j: number) => (
                                 <a key={j} href={url} target="_blank" rel="noopener noreferrer">
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={thumbnail(url, 48)} alt="" loading="lazy" className={`w-12 h-12 object-cover rounded border ${changed.photos ? "border-red-400 ring-1 ring-red-300" : "border-border"}`} />
                                 </a>
                               ))}
+                              <ReferencePhoto url={card.catalog_image_url as string | null} small />
                             </div>
                           )}
                         </div>
@@ -504,14 +506,15 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                           <p className="text-muted-foreground">Est. value: {formatCurrency(card.estimated_value_cents)}</p>
                         )}
                         {card.notes && <p className="text-muted-foreground mt-0.5">Notes: {card.notes}</p>}
-                        {card.photo_urls?.length > 0 && (
-                          <div className="flex gap-2 mt-2 flex-wrap">
-                            {(card.photo_urls as string[]).map((url: string, j: number) => (
+                        {(card.photo_urls?.length > 0 || card.catalog_image_url) && (
+                          <div className="flex gap-2 mt-2 flex-wrap items-start">
+                            {((card.photo_urls as string[] | null) ?? []).map((url: string, j: number) => (
                               <a key={j} href={url} target="_blank" rel="noopener noreferrer">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={thumbnail(url, 64)} alt="Card photo" loading="lazy" className="w-16 h-16 object-cover rounded border border-border" />
                               </a>
                             ))}
+                            <ReferencePhoto url={card.catalog_image_url as string | null} />
                           </div>
                         )}
                       </div>
@@ -541,9 +544,12 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                           card_name: card.card_name,
                           card_set: card.card_set ?? null,
                           card_year: (card as Record<string, unknown>).card_year as string | null ?? null,
+                          card_number: card.card_number ?? null,
                           estimated_value_cents: card.estimated_value_cents ?? null,
                           notes: card.notes ?? null,
                           photo_urls: (card.photo_urls as string[] | null) ?? null,
+                          catalog_card_id: card.catalog_card_id ?? null,
+                          catalog_image_url: card.catalog_image_url ?? null,
                         }}
                       />
                     </div>

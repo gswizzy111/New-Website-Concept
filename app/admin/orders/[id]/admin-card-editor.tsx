@@ -3,16 +3,23 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { uploadPhotos } from "./upload-photos";
+import { CardPicker, pickCaption } from "@/components/admin/card-picker";
+import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 
 interface Card {
   id: string;
   card_name: string;
   card_set: string | null;
   card_year: string | null;
+  card_number?: string | null;
   estimated_value_cents: number | null;
   notes: string | null;
   photo_urls?: string[] | null;
+  catalog_card_id?: string | null;
+  catalog_image_url?: string | null;
 }
+
+type CatalogLink = { id: string; imageUrl: string | null; caption: string | null };
 
 function fmtValue(cents: number | null) {
   if (!cents) return "";
@@ -43,6 +50,34 @@ export function AdminCardEditor({ card }: { card: Card }) {
   const [notes, setNotes] = useState(card.notes ?? "");
   const [photos, setPhotos] = useState<string[]>(card.photo_urls ?? []);
 
+  // The card picked from the card catalog (its number and reference photo)
+  const origNumber = card.card_number ?? "";
+  const origCatalog: CatalogLink | null = card.catalog_card_id
+    ? {
+        id: card.catalog_card_id,
+        imageUrl: card.catalog_image_url ?? null,
+        caption: [card.card_set, card.card_year, origNumber && `#${origNumber}`].filter(Boolean).join(" · ") || null,
+      }
+    : null;
+  const [number, setNumber] = useState(origNumber);
+  const [catalog, setCatalog] = useState<CatalogLink | null>(origCatalog);
+  const numberChanged = number !== origNumber;
+  const catalogChanged = (catalog?.id ?? null) !== (origCatalog?.id ?? null) || (catalog?.imageUrl ?? null) !== (origCatalog?.imageUrl ?? null);
+
+  function pickCard(c: CatalogCard) {
+    const f = catalogFormFields(c);
+    setName(f.card_name);
+    setSet(f.card_set);
+    setYear(f.card_year);
+    setNumber(f.card_number);
+    setCatalog({ id: f.catalog_card_id, imageUrl: f.catalog_image_url, caption: pickCaption(c) });
+  }
+
+  function clearCatalog() {
+    setCatalog(null);
+    setNumber(origNumber);
+  }
+
   const origName = card.card_name;
   const origSet = card.card_set ?? "";
   const origYear = card.card_year ?? "";
@@ -56,7 +91,9 @@ export function AdminCardEditor({ card }: { card: Card }) {
       year !== origYear ||
       valueStr !== origValue ||
       notes !== origNotes ||
-      JSON.stringify(photos) !== JSON.stringify(card.photo_urls ?? [])
+      JSON.stringify(photos) !== JSON.stringify(card.photo_urls ?? []) ||
+      numberChanged ||
+      catalogChanged
     );
   }
 
@@ -67,6 +104,8 @@ export function AdminCardEditor({ card }: { card: Card }) {
     setValueStr(origValue);
     setNotes(origNotes);
     setPhotos(card.photo_urls ?? []);
+    setNumber(origNumber);
+    setCatalog(origCatalog);
     setError("");
     setOpen(false);
   }
@@ -105,6 +144,8 @@ export function AdminCardEditor({ card }: { card: Card }) {
           estimated_value_cents: valueStr ? Math.round(parseFloat(valueStr) * 100) : null,
           notes: notes.trim() || null,
           photo_urls: photos,
+          ...(numberChanged ? { card_number: number.trim() || null } : {}),
+          ...(catalogChanged ? { catalog_card_id: catalog?.id ?? null, catalog_image_url: catalog?.imageUrl ?? null } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -198,11 +239,15 @@ export function AdminCardEditor({ card }: { card: Card }) {
           <p className="text-[10px] font-bold uppercase tracking-widest text-red-600 mb-1">Edited</p>
 
           <div>
-            <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Name *</label>
-            <input
-              className={inp(name !== origName)}
+            <label htmlFor={`card-name-${card.id}`} className="text-[10px] font-semibold text-muted-foreground block mb-1">Name *</label>
+            <CardPicker
+              inputId={`card-name-${card.id}`}
+              inputClassName={inp(name !== origName)}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={setName}
+              onPick={pickCard}
+              picked={catalog ? { imageUrl: catalog.imageUrl, caption: catalog.caption } : null}
+              onClear={clearCatalog}
               placeholder="e.g. Charizard"
             />
           </div>
@@ -311,6 +356,8 @@ export function AdminCardEditor({ card }: { card: Card }) {
           {JSON.stringify(photos) !== JSON.stringify(card.photo_urls ?? []) && (
             <span className="text-[10px] text-red-700 font-semibold">Photos changed</span>
           )}
+          {numberChanged && <span className="text-[10px] text-red-700 font-semibold">Card # changed</span>}
+          {catalogChanged && <span className="text-[10px] text-red-700 font-semibold">Reference photo changed</span>}
         </div>
       )}
 
