@@ -84,7 +84,8 @@ alter table public.cards add constraint cards_catalog_image_url_check
 --   2. how close the name (or English name) is to the words that aren't numbers,
 --   3. English before Japanese,
 --   4. how many of the words are in the set name, then how close it is,
---   5. newest release first, then by card number.
+--   5. cards with a picture first,
+--   6. newest release first, then by card number.
 -- q is cleaned the same way as the search text (the route also cleans it with
 -- normalizeCatalogText; the translate() here covers accents when it doesn't).
 create or replace function public.search_card_catalog(q text, lim integer default 24)
@@ -135,6 +136,7 @@ as $$
      (select count(*) from unnest((select i.pats from input i)::text[]) p where lower(c.set_name) like p) desc,
      case when lower(c.set_name) like any ((select i.pats from input i)::text[])
           then similarity(lower(c.set_name), (select i.all_q from input i)) else 0 end desc,
+     (c.image_small is not null) desc,
      c.release_date desc nulls last,
      lpad(coalesce(substring(c.number from '[0-9]+'), ''), 6, '0'),
      c.id

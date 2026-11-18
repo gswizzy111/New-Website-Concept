@@ -317,7 +317,7 @@ function ReferencePhoto({ picked, onClear, thumbClass }: { picked: ReferencePick
         <button
           type="button"
           onClick={onClear}
-          className="self-start inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-700 mt-0.5"
+          className="self-start inline-flex items-center gap-1 py-1 text-xs font-semibold text-red-600 hover:text-red-700"
         >
           <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           Clear
