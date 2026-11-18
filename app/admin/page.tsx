@@ -24,6 +24,7 @@ import { fetchAll } from "@/lib/fetch-all";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 import { thumbnail } from "@/lib/thumbnail";
 import { pregradeCounts, pregradeLabel } from "@/lib/pregrade";
+import { DashboardFreshness } from "./dashboard-freshness";
 
 // Whole days since a customer asked for an update (the page renders per request)
 function daysWaiting(askedAt: string) {
@@ -788,6 +789,8 @@ export default async function AdminPage({
 
   return (
     <div className="min-h-screen bg-secondary/30">
+      {/* Opened from a copy loaded ahead of time: reload its data when it's more than a few seconds old */}
+      <DashboardFreshness renderedAt={Date.now()} />
       <div className="max-w-6xl mx-auto px-6 py-10">
 
         {/* Header */}

@@ -37,6 +37,7 @@ import { PROBLEM_LABELS, problemAdvice } from "@/lib/email-problem-labels";
 import { AgreementsPanel, type PanelCard } from "./agreements-panel";
 import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { labelHref } from "@/lib/label-link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 
 export const dynamic = "force-dynamic";
 
@@ -183,9 +184,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between gap-3 mb-8">
-          <Link prefetch={false} href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+          <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
             ← All Orders
-          </Link>
+          </AdminLink>
           <div className="flex items-center gap-2">
             <ResendConfirmationButton orderId={order.id} />
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />
