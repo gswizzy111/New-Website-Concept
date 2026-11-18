@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
+import { after } from "next/server";
 import { PrintButton } from "./print-button";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { loadStatement, parsePreset, statementRange, type Preset } from "./statement";
@@ -35,7 +36,9 @@ export default async function SalesStatementPage({
   const { label } = range;
 
   const admin = createAdminClient();
-  await syncRefundsQuietly(admin); // refunds made in the Stripe Dashboard (gives up after a few seconds)
+  // Refunds made in the Stripe Dashboard: synced after the page is sent (and every
+  // 10 minutes by netlify/functions/cron-refund-sync.mjs), so Stripe never holds it up
+  after(() => syncRefundsQuietly(admin));
   const statement = await loadStatement(admin, range);
   const list = statement.rows;
 
@@ -86,7 +89,7 @@ export default async function SalesStatementPage({
           {/* Header */}
           <div className="flex items-start justify-between mb-6 no-print flex-wrap gap-4">
             <div>
-              <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">← Admin</Link>
+              <Link href="/admin" prefetch={false} className="text-sm text-muted-foreground hover:text-primary transition-colors">← Admin</Link>
               <h1 className="font-heading font-black text-3xl text-foreground mt-1">Sales Statement</h1>
               <p className="text-muted-foreground text-sm mt-0.5">{statement.orders} paid order{statement.orders !== 1 ? "s" : ""} · {label}</p>
             </div>
@@ -107,6 +110,7 @@ export default async function SalesStatementPage({
               <Link
                 key={p.value}
                 href={`/admin/sales-statement?preset=${p.value}`}
+                prefetch={false}
                 className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                   preset === p.value && !range.custom
                     ? "bg-primary text-primary-foreground border-primary"
@@ -184,7 +188,7 @@ export default async function SalesStatementPage({
                             <td className="px-4 py-3">
                               {o.order_id ? (
                                 <>
-                                  <Link href={`/admin/orders/${o.order_id}`} className="font-mono text-xs font-bold text-primary hover:underline no-print">
+                                  <Link href={`/admin/orders/${o.order_id}`} prefetch={false} className="font-mono text-xs font-bold text-primary hover:underline no-print">
                                     #{o.order_number}
                                   </Link>
                                   <span className="font-mono text-xs font-bold hidden print:inline">#{o.order_number}</span>

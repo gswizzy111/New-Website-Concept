@@ -9,6 +9,17 @@ const nextConfig: NextConfig = {
     // Animates route changes through React's <ViewTransition> (app/(public)/template.tsx).
     viewTransition: true,
   },
+  // Leaves sharp's image library (about 34 MB) out of the server function, so
+  // it starts faster from cold. Next.js only loads sharp to resize images at
+  // /_next/image, and on Netlify those requests never reach the function:
+  // @netlify/plugin-nextjs sends all of them to Netlify Image CDN (its
+  // setImageConfig redirects, default loader), and lib/thumbnail.ts links
+  // there directly. Next.js leaves out the same files on Vercel for the same
+  // reason. The "*" key also matches the server trace ("next-server"), where
+  // sharp comes from; "/*" would not.
+  outputFileTracingExcludes: {
+    "*": ["**/node_modules/sharp/**/*", "**/@img/sharp-libvips*/**/*"],
+  },
   async redirects() {
     return [
       // The separate High-Value Card Agreement ended with Terms v1.1. The

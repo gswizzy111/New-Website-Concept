@@ -86,8 +86,10 @@ Rules for this repo:
   New York days, never from client-side bucketing or unpaged selects (the API
   returns at most 1,000 rows; page with `lib/fetch-all.ts`). Refunds are the
   `refunds` ledger, dated when the money went back (`lib/refund-ledger.ts`): the
-  admin refund routes record each refund, and `syncRefunds()` (dashboard load,
-  daily job) adds refunds made in the Stripe Dashboard and updates pending ones.
+  admin refund routes record each refund, and `syncRefunds()` (after the
+  dashboard and report pages load, never holding them up; every 10 minutes,
+  `/api/cron/refund-sync`; daily job) adds refunds made in the Stripe Dashboard
+  and updates pending ones, so those show within about 10 minutes.
   A partial refund keeps `payment_status` 'paid' (the column only allows
   pending/paid/refunded/failed). The backlog counts unfinished cards, not orders;
   triggers log every order status change and card tick in `backlog_events`
