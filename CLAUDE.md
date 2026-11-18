@@ -35,7 +35,10 @@ Rules for this repo:
   `admin_sessions`; it ends with the browser, on sign-out, or after 12 hours
   (`lib/admin-session.ts`). Pages and routes check with `isAdmin()` /
   `requireAdmin()` from `lib/admin-auth.ts`; never compare cookies to an env
-  var. `ADMIN_PASSWORD` is no longer used. Admins change their password and
+  var. The edge middleware remembers a live session for 30 s per instance (a
+  first gate only); pages and routes always check it uncached. Admin links use
+  `AdminLink` (`components/admin-ui/admin-link.tsx`): no prefetch on sight,
+  only on hover or focus, so one click doesn't wake dozens of cold functions. `ADMIN_PASSWORD` is no longer used. Admins change their password and
   recovery email on `/admin/profile`; "Forgot password?" emails a one-time,
   1-hour link (SHA-256 in `admin_password_resets`) to that recovery email or
   the accountant's email, and using it signs that person out everywhere
