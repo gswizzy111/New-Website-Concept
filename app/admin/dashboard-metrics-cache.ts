@@ -24,7 +24,7 @@ import { getBacklogDays, getBacklogNow, getRevenueSeries } from "@/lib/dashboard
  * Stripe refund sync saves refunds (app/admin/page.tsx) and when an admin
  * decides a refund request (app/admin/dashboard-actions.ts). Other changes
  * (an order paid, a card ticked done, a refund from an order page) show
- * within the minute.
+ * within 2 minutes.
  */
 export const DASHBOARD_METRICS_TAG = "admin-dashboard-metrics";
 const FRESH_SECONDS = 60;

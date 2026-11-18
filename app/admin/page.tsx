@@ -1214,7 +1214,7 @@ export default async function AdminPage({
             return { days, cls };
           }
 
-          return awaitingCount === 0 ? (
+          return (awaitingOrders ?? []).length === 0 ? (
             <div className="bg-white rounded-xl border border-border p-16 text-center">
               <p className="text-2xl mb-2">📬</p>
               <p className="font-heading font-black text-lg text-foreground">All cards received!</p>
@@ -1496,7 +1496,7 @@ export default async function AdminPage({
                 </span>
               </div>
 
-              {shippedCount === 0 ? (
+              {shippedRaw.length === 0 ? (
                 <div className="bg-white rounded-xl border border-border p-16 text-center">
                   <p className="text-2xl mb-2">📦</p>
                   <p className="font-heading font-black text-lg text-foreground">No packages out</p>
@@ -1590,7 +1590,7 @@ export default async function AdminPage({
         {/* ── INSURED TAB ── */}
         {activeTab === "insured" && (
           <>
-            {insuredCount === 0 ? (
+            {(insuredOrders ?? []).length === 0 ? (
               <div className="bg-white rounded-xl border border-border p-16 text-center">
                 <p className="text-2xl mb-2">🛡️</p>
                 <p className="font-heading font-black text-lg text-foreground">No insured orders</p>
@@ -1884,7 +1884,7 @@ export default async function AdminPage({
                 These customers paid $100 to have their card featured in an Instagram video. Film and post before shipping their cards back.
               </p>
             </div>
-            {videosCount === 0 ? (
+            {(videoOrders ?? []).length === 0 ? (
               <div className="bg-white rounded-xl border border-border p-16 text-center">
                 <p className="text-2xl mb-2">🎬</p>
                 <p className="font-heading font-black text-lg text-foreground">No video orders</p>
