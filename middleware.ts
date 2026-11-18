@@ -12,7 +12,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Admin, accountant and support sign-in sessions (lib/admin-session.ts), looked up
-  // only on admin paths and remembered for 30 s per edge instance. Each page and
+  // only on admin paths and remembered for 5 minutes per edge instance. Each page and
   // route checks the role again itself, uncached.
   const onAdminPath = pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/");
   // Signing in and recovering a forgotten password work without a session

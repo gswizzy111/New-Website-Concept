@@ -156,7 +156,7 @@ async function lookupSessionByHash(tokenHash: string): Promise<{ session: AdminS
  * MIDDLEWARE_SESSION_TTL_MS at most. Never trust anything the middleware
  * passes on in place of that check.
  */
-const MIDDLEWARE_SESSION_TTL_MS = 30_000;
+const MIDDLEWARE_SESSION_TTL_MS = 5 * 60_000;
 const MIDDLEWARE_SESSION_MAX = 500;
 const middlewareSessions = new Map<string, { session: AdminSession; until: number }>();
 

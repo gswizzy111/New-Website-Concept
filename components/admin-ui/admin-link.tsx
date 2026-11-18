@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ComponentProps } from "react";
 
 // How long the pointer (or keyboard focus) rests on a link before it counts as
@@ -24,10 +24,19 @@ type AdminLinkProps = Omit<ComponentProps<typeof Link>, "href" | "prefetch"> & {
  * the click. A touch is usually the start of a scroll, so it doesn't count;
  * the tap itself navigates as normal.
  *
+ * One exception: links to the Orders dashboard (/admin) load it in full in
+ * the background as soon as they are on screen (prefetch={true}), from any
+ * other admin page, so going back to Orders shows at once instead of waiting
+ * ~2 s for the server. One request per page view; the dashboard refreshes its
+ * data quietly when that copy is more than a few seconds old
+ * (app/admin/dashboard-freshness.tsx).
+ *
  * Admin only: customer pages keep Next's default prefetching.
  */
+const DASHBOARD = "/admin";
 export function AdminLink({ href, onPointerEnter, onPointerLeave, onPointerCancel, onFocus, onBlur, onClick, ...rest }: AdminLinkProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancel = () => {
@@ -42,6 +51,11 @@ export function AdminLink({ href, onPointerEnter, onPointerLeave, onPointerCance
     }, INTENT_MS);
   };
   useEffect(() => cancel, []);
+
+  // The Orders dashboard, from another admin page: ready before the click
+  if (href === DASHBOARD && pathname !== DASHBOARD) {
+    return <Link {...rest} href={href} prefetch={true} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} onPointerCancel={onPointerCancel} onFocus={onFocus} onBlur={onBlur} onClick={onClick} />;
+  }
 
   return (
     <Link
