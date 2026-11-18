@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { PREVIEW_MODE, PREVIEW_MESSAGE } from "@/lib/preview";
-import { ADMIN_SESSION_COOKIE, SUPPORT_APIS, SUPPORT_PAGES, VIEW_AS_COOKIE, lookupAdminSession, withViewAs } from "@/lib/admin-session";
+import { ADMIN_SESSION_COOKIE, SUPPORT_APIS, SUPPORT_PAGES, VIEW_AS_COOKIE, lookupAdminSessionForMiddleware, withViewAs } from "@/lib/admin-session";
 
 // ─── COMING SOON MODE ───────────────────────────────────────────────────────
 // Set to false and push to bring the full site back.
@@ -12,14 +12,15 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Admin, accountant and support sign-in sessions (lib/admin-session.ts), looked up
-  // only on admin paths. Each page and route checks the role again itself.
+  // only on admin paths and remembered for 30 s per edge instance. Each page and
+  // route checks the role again itself, uncached.
   const onAdminPath = pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/");
   // Signing in and recovering a forgotten password work without a session
   const isAuthRoute = ["/api/admin/login", "/api/admin/logout", "/api/admin/forgot-password", "/api/admin/reset-password"].includes(pathname);
   const isAuthPage = ["/admin/login", "/admin/forgot-password", "/admin/reset-password"].some((p) => pathname === p || pathname.startsWith(p + "/"));
   // An admin in "View as Support" is treated as support everywhere
   const adminSession = onAdminPath && !PREVIEW_MODE
-    ? withViewAs(await lookupAdminSession(request.cookies.get(ADMIN_SESSION_COOKIE)?.value), request.cookies.get(VIEW_AS_COOKIE)?.value)
+    ? withViewAs(await lookupAdminSessionForMiddleware(request.cookies.get(ADMIN_SESSION_COOKIE)?.value), request.cookies.get(VIEW_AS_COOKIE)?.value)
     : null;
   const isFullAdmin = adminSession?.role === "admin";
   const isAccountantSession = adminSession?.role === "accountant";
