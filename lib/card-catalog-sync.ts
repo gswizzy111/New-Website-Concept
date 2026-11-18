@@ -297,8 +297,11 @@ export function buildRows({ lang, set, rarity, englishNames, legacyImages, now }
   const official = set.cardCount?.official ?? 0;
   const releaseDate = set.releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(set.releaseDate) ? set.releaseDate : null;
   const rows: CatalogRow[] = [];
+  // One row per card: an upsert that names a card twice fails the whole set
+  const seen = new Set<string>();
   for (const c of set.cards ?? []) {
-    if (!c?.id || !c.name || c.localId == null) continue;
+    if (!c?.id || !c.name || c.localId == null || seen.has(c.id)) continue;
+    seen.add(c.id);
     const number = String(c.localId).trim();
     const legacy = legacyImages.get(c.id);
     const row: Omit<CatalogRow, "search"> = {
