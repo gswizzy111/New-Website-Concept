@@ -35,6 +35,8 @@ export type CatalogLang = (typeof CATALOG_LANGS)[number];
 export const LIST_ROW = "_list";
 const LIST_EVERY_MS = 6 * 60 * 60 * 1000;
 const SET_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
+/** A set that failed waits this long before a run tries it again, so a set the source can't serve doesn't keep every run busy. */
+const RETRY_FAILED_MS = 30 * 60 * 1000;
 const SKIPPED_SERIES = new Set(["tcgp"]);
 const CONCURRENCY = 4;
 /** Start no new set within this long of the deadline. */
@@ -393,10 +395,14 @@ function emptyRow(lang: CatalogLang, set_id: string): SyncRow {
 
 const olderThan = (iso: string | null, ms: number, now: number) => !iso || now - Date.parse(iso) > ms;
 
-/** Sets to sync now: never synced first, then the oldest sync; newest sets first, English first. */
-export function dueSets(rows: SyncRow[], now: number): SyncRow[] {
+/**
+ * Sets to sync now: never synced first, then the oldest sync; newest sets first, English first.
+ * A set that failed in the last 30 minutes waits, unless retryFailed.
+ */
+export function dueSets(rows: SyncRow[], now: number, retryFailed = false): SyncRow[] {
   return rows
-    .filter((r) => r.set_id !== LIST_ROW && olderThan(r.synced_at, SET_EVERY_MS, now))
+    .filter((r) => r.set_id !== LIST_ROW && olderThan(r.synced_at, SET_EVERY_MS, now)
+      && (retryFailed || !r.error || olderThan(r.attempted_at, RETRY_FAILED_MS, now)))
     .sort((a, b) =>
       Number(!!a.synced_at) - Number(!!b.synced_at)
       || (b.release_date ?? "").localeCompare(a.release_date ?? "")
@@ -410,6 +416,8 @@ export async function syncCardCatalog(opts: {
   fetchFn?: FetchFn;
   /** Read the set lists even if they were read in the last 6 hours. */
   refreshLists?: boolean;
+  /** Try sets that failed in the last 30 minutes too. */
+  retryFailed?: boolean;
 } = {}): Promise<CatalogSyncResult> {
   const started = Date.now();
   const deadline = started + (opts.budgetMs ?? 8000);
@@ -420,7 +428,7 @@ export async function syncCardCatalog(opts: {
   // 1. The cheap check
   const rows = new Map((await store.listSyncRows()).map((r) => [keyOf(r), r]));
   const listsDue = CATALOG_LANGS.filter((lang) => opts.refreshLists || olderThan(rows.get(keyOf({ lang, set_id: LIST_ROW }))?.synced_at ?? null, LIST_EVERY_MS, started));
-  if (listsDue.length === 0 && dueSets([...rows.values()], started).length === 0) {
+  if (listsDue.length === 0 && dueSets([...rows.values()], started, opts.retryFailed).length === 0) {
     return { ...result, done: true, upToDate: true, ms: Date.now() - started };
   }
 
@@ -460,7 +468,7 @@ export async function syncCardCatalog(opts: {
   }));
 
   // 3. Due sets, a few at a time, until the time is up
-  const queue = dueSets([...rows.values()], started);
+  const queue = dueSets([...rows.values()], started, opts.retryFailed);
   const cache = new RunCache(fetchFn, deadline);
   const worker = async () => {
     while (queue.length > 0 && Date.now() < deadline - SET_RESERVE_MS) {

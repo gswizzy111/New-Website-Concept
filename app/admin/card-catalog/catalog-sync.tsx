@@ -55,7 +55,13 @@ export function CatalogSync({ initial }: { initial: CatalogLangStatus[] }) {
         cards += data.result.cardsSaved;
         setProgress({ sets, cards, left: data.result.setsLeft });
         if (data.result.done) {
-          setMessage(sets > 0 ? `Done: ${n(sets)} sets, ${n(cards)} cards updated.` : "Everything is already up to date.");
+          // Sets that failed wait half an hour before the automatic runs try them again
+          const failing = (data.status ?? []).some((s) => s.errors.length > 0);
+          setMessage(
+            failing
+              ? `${sets > 0 ? `Done: ${n(sets)} sets, ${n(cards)} cards updated. ` : ""}Some sets couldn't be synced right now (see below). The automatic runs try them again.`
+              : sets > 0 ? `Done: ${n(sets)} sets, ${n(cards)} cards updated.` : "Everything is already up to date.",
+          );
           break;
         }
         if (data.result.setsSynced === 0 && data.result.listsChecked === 0) {
@@ -94,9 +100,9 @@ export function CatalogSync({ initial }: { initial: CatalogLangStatus[] }) {
                 <dt className="text-muted-foreground">Sets synced</dt>
                 <dd className="text-foreground tabular-nums">{n(s.setsSynced)} of {n(s.sets)}</dd>
                 <dt className="text-muted-foreground">Last sync</dt>
-                <dd className="text-foreground">{when(s.lastSync)}</dd>
+                <dd className="text-foreground" suppressHydrationWarning>{when(s.lastSync)}</dd>
                 <dt className="text-muted-foreground">Set list checked</dt>
-                <dd className="text-foreground">{when(s.listCheckedAt)}</dd>
+                <dd className="text-foreground" suppressHydrationWarning>{when(s.listCheckedAt)}</dd>
               </dl>
             </div>
           );
