@@ -4,6 +4,8 @@ import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
+import { CardPicker, pickCaption } from "@/components/admin/card-picker";
+import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 
 /** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
 function newYorkToday(): string {
@@ -11,7 +13,16 @@ function newYorkToday(): string {
 }
 
 type TierOrCustom = RestorationTierId | "custom" | "";
-type CardRow = { id: string; name: string; tier: TierOrCustom };
+type CardRow = {
+  id: string;
+  name: string;
+  tier: TierOrCustom;
+  // Filled in when the card is picked from the card catalog
+  card_set?: string;
+  card_year?: string;
+  card_number?: string;
+  catalog?: { id: string; imageUrl: string | null; caption: string };
+};
 
 function emptyCard(defaultTier: TierOrCustom): CardRow {
   return { id: crypto.randomUUID(), name: "", tier: defaultTier };
@@ -156,6 +167,20 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
   function updateCardName(id: string, value: string) {
     setCards((p) => p.map((c) => c.id === id ? { ...c, name: value } : c));
   }
+  function pickCatalogCard(id: string, card: CatalogCard) {
+    const f = catalogFormFields(card);
+    setCards((p) => p.map((c) => c.id === id ? {
+      ...c,
+      name: f.card_name,
+      card_set: f.card_set,
+      card_year: f.card_year,
+      card_number: f.card_number,
+      catalog: { id: f.catalog_card_id, imageUrl: f.catalog_image_url, caption: pickCaption(card) },
+    } : c));
+  }
+  function clearCatalogCard(id: string) {
+    setCards((p) => p.map((c) => c.id === id ? { id: c.id, name: c.name, tier: c.tier } : c));
+  }
   function updateCardTier(id: string, tier: TierOrCustom) {
     setCards((p) => p.map((c) => c.id === id ? { ...c, tier } : c));
   }
@@ -244,6 +269,13 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
             card_name: c.name.trim(),
             tier: (c.tier && c.tier !== "custom") ? c.tier : undefined,
             price_per_card_cents: (tierPrice(tiers, c.tier) === null && customPriceCents > 0) ? customPriceCents : undefined,
+            ...(c.catalog ? {
+              card_set: c.card_set || undefined,
+              card_year: c.card_year || undefined,
+              card_number: c.card_number || undefined,
+              catalog_card_id: c.catalog.id,
+              catalog_image_url: c.catalog.imageUrl ?? undefined,
+            } : {}),
           })),
         }),
       });
@@ -507,16 +539,23 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
           const price = cardPriceCents(card);
           return (
             <div key={card.id} className="border border-border rounded-lg p-3 flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground w-6 shrink-0 text-right">{i + 1}.</span>
-                <input
-                  className={`${input} flex-1`}
-                  value={card.name}
-                  onChange={(e) => updateCardName(card.id, e.target.value)}
-                  placeholder="Card name (e.g. Charizard Base Set)"
-                />
+              <div className="flex items-start gap-2">
+                <span className="text-xs text-muted-foreground w-6 shrink-0 text-right leading-10">{i + 1}.</span>
+                <div className="flex-1 min-w-0">
+                  <CardPicker
+                    inputClassName={input}
+                    ariaLabel={`Card ${i + 1} name`}
+                    value={card.name}
+                    onChange={(text) => updateCardName(card.id, text)}
+                    onPick={(picked) => pickCatalogCard(card.id, picked)}
+                    picked={card.catalog ? { imageUrl: card.catalog.imageUrl, caption: card.catalog.caption } : null}
+                    onClear={() => clearCatalogCard(card.id)}
+                    placeholder="Card name (e.g. Charizard Base Set)"
+                    size="sm"
+                  />
+                </div>
                 {cards.length > 1 && (
-                  <button type="button" onClick={() => removeCard(card.id)} className="text-red-400 hover:text-red-600 text-lg leading-none shrink-0">×</button>
+                  <button type="button" onClick={() => removeCard(card.id)} className="text-red-400 hover:text-red-600 text-lg leading-10 shrink-0">×</button>
                 )}
               </div>
               <div className="flex items-center gap-2 pl-8">

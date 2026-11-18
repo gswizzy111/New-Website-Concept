@@ -145,7 +145,7 @@ work for every method above. Nothing in the site's refund code changes.
   back what they already paid. Customers see it in their Klarna, Affirm or
   Afterpay app.
 - **Refunds take a while to finish.** The admin refund log shows them as
-  pending and updates them on its own (each dashboard load and the daily job).
+  pending and updates them on its own (after admin dashboard and report loads, every 10 minutes, and in the daily job).
 - **A refund can fail.** If Stripe reports one as failed, the money goes back
   to your Stripe balance and you need to pay the customer back another way.
   The order page still shows the amount as refunded, so add an admin note.

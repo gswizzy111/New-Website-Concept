@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { ManualOrderForm } from "./manual-order-form";
 import { isAdmin } from "@/lib/admin-auth";
 import { getLiveTiers } from "@/lib/live-tiers";
@@ -17,9 +17,9 @@ export default async function NewManualOrderPage() {
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-3xl mx-auto px-6 py-10">
         <div className="mb-8 flex items-center gap-3">
-          <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+          <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
             ← All Orders
-          </Link>
+          </AdminLink>
         </div>
         <div className="mb-8">
           <h1 className="font-heading font-black text-3xl text-foreground">Create Manual Order</h1>

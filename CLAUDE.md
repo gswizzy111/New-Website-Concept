@@ -35,7 +35,10 @@ Rules for this repo:
   `admin_sessions`; it ends with the browser, on sign-out, or after 12 hours
   (`lib/admin-session.ts`). Pages and routes check with `isAdmin()` /
   `requireAdmin()` from `lib/admin-auth.ts`; never compare cookies to an env
-  var. `ADMIN_PASSWORD` is no longer used. Admins change their password and
+  var. The edge middleware remembers a live session for 30 s per instance (a
+  first gate only); pages and routes always check it uncached. Admin links use
+  `AdminLink` (`components/admin-ui/admin-link.tsx`): no prefetch on sight,
+  only on hover or focus, so one click doesn't wake dozens of cold functions. `ADMIN_PASSWORD` is no longer used. Admins change their password and
   recovery email on `/admin/profile`; "Forgot password?" emails a one-time,
   1-hour link (SHA-256 in `admin_password_resets`) to that recovery email or
   the accountant's email, and using it signs that person out everywhere
@@ -86,8 +89,10 @@ Rules for this repo:
   New York days, never from client-side bucketing or unpaged selects (the API
   returns at most 1,000 rows; page with `lib/fetch-all.ts`). Refunds are the
   `refunds` ledger, dated when the money went back (`lib/refund-ledger.ts`): the
-  admin refund routes record each refund, and `syncRefunds()` (dashboard load,
-  daily job) adds refunds made in the Stripe Dashboard and updates pending ones.
+  admin refund routes record each refund, and `syncRefunds()` (after the
+  dashboard and report pages load, never holding them up; every 10 minutes,
+  `/api/cron/refund-sync`; daily job) adds refunds made in the Stripe Dashboard
+  and updates pending ones, so those show within about 10 minutes.
   A partial refund keeps `payment_status` 'paid' (the column only allows
   pending/paid/refunded/failed). The backlog counts unfinished cards, not orders;
   triggers log every order status change and card tick in `backlog_events`

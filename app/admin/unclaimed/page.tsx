@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { orderLabel } from "@/lib/card-inquiries";
@@ -66,7 +66,7 @@ export default async function UnclaimedPage() {
                 {g.rows.map(({ o, log, days, isUndeliverable }) => (
                   <div key={o.id} className="py-4 flex flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <Link href={`/admin/orders/${o.id}`} className="font-bold text-foreground hover:text-primary">{orderLabel(o.order_number)}</Link>
+                      <AdminLink href={`/admin/orders/${o.id}`} className="font-bold text-foreground hover:text-primary">{orderLabel(o.order_number)}</AdminLink>
                       <span className="text-muted-foreground">{o.customer_name ?? o.customer_email}</span>
                       <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${isUndeliverable ? "bg-red-100 text-red-800" : "bg-secondary text-foreground"}`}>
                         {isUndeliverable ? "Undeliverable" : "Completed, not shipped"}

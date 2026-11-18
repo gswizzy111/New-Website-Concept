@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
+import { refreshDashboardMetrics } from "./dashboard-actions";
 
 export type ReviewCard = {
   id: string;
@@ -61,7 +62,9 @@ export function RefundRequestReview({
     setBusy(false);
     if (!res?.ok) { setError(data?.error ?? "Something went wrong. Please try again."); router.refresh(); return; }
     if (data?.failed?.length) alert(`Refunded ${formatCurrency(data.amountCents)}. Some cards weren't refunded: ${data.failed.join(" · ")}`);
-    router.refresh();
+    // A refund changes this month's dashboard numbers: drop their cache. The
+    // action's response re-renders the page (what router.refresh() did).
+    await refreshDashboardMetrics().catch(() => router.refresh());
   }
 
   function approve() {

@@ -4,6 +4,7 @@ import { resend, fromEmail, businessName } from "@/lib/resend";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
 import { siteUrl } from "@/lib/site-url";
+import { checkCatalogPicks, missingCatalogColumns } from "@/lib/card-catalog-pick";
 
 const TIER_IDS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
 
@@ -27,8 +28,12 @@ const BodySchema = z.object({
     card_name: z.string().min(1),
     card_set: z.string().optional(),
     card_year: z.string().optional(),
+    card_number: z.string().max(40).optional(),
     tier: z.enum(TIER_IDS).optional(),
     price_per_card_cents: z.number().int().positive().optional(),
+    // Picked from the card catalog (lib/card-catalog-pick.ts checks them)
+    catalog_card_id: z.string().max(120).optional(),
+    catalog_image_url: z.string().max(300).optional(),
   })).min(1),
 });
 
@@ -45,6 +50,11 @@ export async function POST(request: Request) {
 
   const d = parsed.data;
   const admin = createAdminClient();
+
+  const picks = await checkCatalogPicks(admin, d.cards);
+  if (!picks.ok) {
+    return Response.json({ error: picks.error }, { status: 400 });
+  }
 
   // Tier prices as the admin set them (restoration_settings over the
   // defaults), like checkout. Never priced without them.
@@ -253,16 +263,28 @@ export async function POST(request: Request) {
     card_name: c.card_name,
     card_set: c.card_set ?? null,
     card_year: c.card_year ?? null,
+    ...(c.card_number ? { card_number: c.card_number } : {}),
     photo_urls: [],
     service_ids: [],
+  }));
+  // The cards picked from the card catalog, on the rows that have one
+  const hasCatalog = picks.fields.some(Boolean);
+  const withCatalog = cardRows.map((row, i) => ({
+    ...row,
+    catalog_card_id: picks.fields[i]?.catalog_card_id ?? null,
+    catalog_image_url: picks.fields[i]?.catalog_image_url ?? null,
   }));
   // cards.tier is optional: the live database has no such column, and inserting
   // it made the whole insert fail, so manual orders were saved with no cards
   const { error: cardsErr } = await admin.from("cards").insert(
-    cardRows.map((row, i) => ({ ...row, tier: d.cards[i].tier ?? d.restoration_tier ?? null }))
+    (hasCatalog ? withCatalog : cardRows).map((row, i) => ({ ...row, tier: d.cards[i].tier ?? d.restoration_tier ?? null }))
   );
   if (cardsErr) {
-    const { error: retryErr } = await admin.from("cards").insert(cardRows);
+    let { error: retryErr } = await admin.from("cards").insert(hasCatalog ? withCatalog : cardRows);
+    if (retryErr && hasCatalog && missingCatalogColumns(retryErr)) {
+      // A database without the catalog columns still gets the cards
+      ({ error: retryErr } = await admin.from("cards").insert(cardRows));
+    }
     if (retryErr) console.error("Failed to save manual order cards:", retryErr);
   }
 

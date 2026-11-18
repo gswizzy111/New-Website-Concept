@@ -9,6 +9,7 @@ import { addDays, etToday, getRevenueSeries } from "@/lib/dashboard-metrics";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
 import { etDayStart, isPrepKey, loadReport, refundShare, tierNames, type Range } from "@/lib/sales-report";
 import Link from "next/link";
+import { after } from "next/server";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +34,16 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   const period = (["today", "week", "month", "all"].includes(sp.period ?? "") ? sp.period : "month") as Period;
 
   const admin = createAdminClient();
-  // Bring the refund ledger up to date with Stripe first (gives up after a few seconds)
-  await syncRefundsQuietly(admin);
+  // Refunds made in the Stripe Dashboard: synced after the page is sent (and every
+  // 10 minutes by netlify/functions/cron-refund-sync.mjs), so Stripe never holds it up
+  after(() => syncRefundsQuietly(admin));
 
   // Sales on the New York day paid and refunds on the day the money went back, as the
   // dashboard counts them (lib/sales-report.ts); product list and cost config alongside.
   // Revenue doesn't need costs: if they can't be read, the page shows it without them.
-  const [report, productResult, savedCosts, tierName] = await Promise.all([
+  // The revenue chart (kit + restoration: sales by the day paid, refunds by the day
+  // refunded) loads in the same wave.
+  const [report, productResult, savedCosts, tierName, revenueSeries] = await Promise.all([
     loadReport(admin, periodRange(period)),
     admin.from("products").select("id, name, price_cents"),
     getProductCosts().catch((e) => {
@@ -47,6 +51,10 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
       return null;
     }),
     tierNames(),
+    getRevenueSeries(admin).catch((e) => {
+      console.error("[p&l] revenue_series:", e);
+      return null;
+    }),
   ]);
   const costsMissing = !savedCosts;
   const costConfig: ProductCostsConfig = savedCosts ?? {
@@ -150,12 +158,6 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
   const hasCosts = Object.values(costConfig.products).some((p) => p.cost_cents > 0) ||
     Object.values(costConfig.restoration).some((v) => v > 0);
 
-  // Revenue chart (kit + restoration): sales by the day paid, refunds by the day refunded
-  const revenueSeries = await getRevenueSeries(admin).catch((e) => {
-    console.error("[p&l] revenue_series:", e);
-    return null;
-  });
-
   return (
     <div className="p-6 max-w-5xl mx-auto flex flex-col gap-6">
       <div className="flex items-start justify-between flex-wrap gap-4">
@@ -175,7 +177,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
       {!costsMissing && !hasCosts && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
           <strong>Set your costs to see real profit numbers.</strong> Go to each{" "}
-          <Link href="/admin/products" className="underline font-semibold">product page</Link>{" "}
+          <Link href="/admin/products" prefetch={false} className="underline font-semibold">product page</Link>{" "}
           to add component costs, and fill in restoration supply costs below.
         </div>
       )}
@@ -246,7 +248,7 @@ export default async function ProfitLossPage({ searchParams }: { searchParams: P
         <div className="bg-white rounded-xl border border-border overflow-hidden">
           <div className="px-6 py-4 border-b border-border flex items-center justify-between">
             <h2 className="font-heading font-black text-lg">Kit Sales by Product</h2>
-            <Link href="/admin/products" className="text-xs text-primary hover:underline">Edit product costs →</Link>
+            <Link href="/admin/products" prefetch={false} className="text-xs text-primary hover:underline">Edit product costs →</Link>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

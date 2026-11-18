@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { PROBLEM_LABELS, problemAdvice, type EmailProblem } from "@/lib/email-problem-labels";
@@ -97,9 +97,9 @@ export function EmailProblemsClient({ initialProblems, searchPage = "/admin" }: 
                 </div>
               </div>
               <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
-                <Link href={`${searchPage}?q=${encodeURIComponent(email)}`} className="text-xs font-semibold text-primary hover:underline">
+                <AdminLink href={`${searchPage}?q=${encodeURIComponent(email)}`} className="text-xs font-semibold text-primary hover:underline">
                   Find their orders
-                </Link>
+                </AdminLink>
                 <button
                   type="button"
                   onClick={() => setResolved(list[0].id, true, list.map((p) => p.id))}

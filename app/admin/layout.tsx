@@ -53,7 +53,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       .from("cases")
       .select("id", { count: "exact", head: true })
       .in("status", OPEN_CASE_STATUSES);
-    const [{ count }, { count: inquiryCount }, problemCount] = await Promise.all([
+    // One round trip for all the badges: every page and prefetch renders this
+    // layout, so each extra wave of queries is felt everywhere
+    const [{ count }, { count: inquiryCount }, problemCount, refundCount] = await Promise.all([
       isSupport ? openCases.neq("type", "internal") : openCases,
       admin
         .from("cases")
@@ -61,12 +63,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         .eq("type", INQUIRY_TYPE)
         .in("status", OPEN_CASE_STATUSES),
       openProblemCount(),
+      // Refunds support asked for wait on an admin
+      isAdmin ? pendingRefundRequestCount(admin) : 0,
     ]);
     openCaseCount = count ?? 0;
     openInquiryCount = inquiryCount ?? 0;
     emailProblemCount = problemCount;
-    // Refunds support asked for wait on an admin
-    if (isAdmin) refundRequestCount = await pendingRefundRequestCount(admin);
+    refundRequestCount = refundCount;
   }
 
   // Signed out (sign-in, forgot and reset password pages): no admin menu

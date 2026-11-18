@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/admin/unclaimed",   label: "Unclaimed",  icon: "⏳" },
   { href: "/admin/partners",    label: "Partners",   icon: "🤝" },
   { href: "/admin/products",    label: "Products",   icon: "🛍️" },
+  { href: "/admin/card-catalog", label: "Card Catalog", icon: "🗃️" },
   { href: "/admin/store-settings", label: "Store Settings",       icon: "⚙️" },
   { href: "/admin/prep-settings", label: "Prep Settings",         icon: "🔬" },
   { href: "/admin/affiliates",     label: "Affiliates & Coupons", icon: "🎯" },
@@ -82,7 +83,7 @@ function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProb
   return (
     <>
       {items.map((item) => (
-        <Link
+        <AdminLink
           key={item.href}
           href={item.href}
           onClick={onNavigate}
@@ -99,7 +100,7 @@ function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProb
               {badgeFor(item.href) > 99 ? "99+" : badgeFor(item.href)}
             </span>
           ) : null}
-        </Link>
+        </AdminLink>
       ))}
       {role !== "support" && <a
         href="https://analytics.google.com"
@@ -119,7 +120,7 @@ function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProb
 function ProfileLink({ onNavigate }: { onNavigate?: () => void }) {
   const active = usePathname().startsWith("/admin/profile");
   return (
-    <Link
+    <AdminLink
       href="/admin/profile"
       onClick={onNavigate}
       className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -128,7 +129,7 @@ function ProfileLink({ onNavigate }: { onNavigate?: () => void }) {
     >
       <span>👤</span>
       Profile
-    </Link>
+    </AdminLink>
   );
 }
 

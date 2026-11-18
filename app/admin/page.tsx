@@ -1,23 +1,25 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { shippo } from "@/lib/shippo";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
+import { after } from "next/server";
+import { revalidateTag } from "next/cache";
 import { RefundRequestsTab } from "./refund-requests-tab";
 import { pendingRefundRequestCount } from "@/lib/refund-requests";
-import { RevenueChart } from "./revenue-chart";
-import { BacklogChart } from "./backlog-chart";
 import { CardSearch } from "./card-search";
 import { Suspense } from "react";
 import type { RestorationTierId } from "@/lib/restoration-tiers";
-import type { Track } from "shippo/models/components";
+import { cachedTrackingStatus, type TrackingSnapshot } from "@/lib/tracking-cache";
 import { SyncTrackingButton } from "./sync-tracking-button";
 import { SyncDeliveredButton } from "./sync-delivered-button";
 import { ResendConfirmationsButton } from "./resend-confirmations-button";
 import { requireAdmin } from "@/lib/admin-auth";
 import { INQUIRY_TYPE, OPEN_CASE_STATUSES, orderLabel } from "@/lib/card-inquiries";
-import { addDays, etToday, getBacklogDays, getBacklogNow, getRevenueSeries } from "@/lib/dashboard-metrics";
+import { addDays, etToday } from "@/lib/dashboard-metrics";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
+import { DashboardLink } from "./dashboard-link";
+import { DASHBOARD_METRICS_TAG } from "./dashboard-metrics-cache";
+import { BacklogBadge, DashboardMetrics, DashboardMetricsFallback } from "./dashboard-metrics-section";
+import { Skeleton } from "@/components/admin-ui/skeleton";
 import { fetchAll } from "@/lib/fetch-all";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 import { thumbnail } from "@/lib/thumbnail";
@@ -138,6 +140,119 @@ type SearchRow = {
   restoration_tier: string | null;
 };
 
+// Columns the All Orders list shows; each order's cards come embedded
+const ORDER_LIST_COLUMNS = "id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, restoration_tier, payment_method, instagram_feature, insurance_declared_value_cents";
+// Past orders (Shipped Out or Delivered) the All Orders list shows before "Show all"
+const PAST_LIMIT = 50;
+const PAST_STATUSES = ["shipped_back", "delivered"];
+// Orders we consider "done" for grader-notes purposes
+const DONE_STATUSES = ["completed", "shipped_back", "delivered"];
+// Text that is empty once trimmed, as JavaScript's trim() sees it: a Postgres
+// regex for the Missing Notes filter (no commas or parentheses, so it can sit
+// in a PostgREST or=() filter unquoted)
+const BLANK_TEXT = String.raw`^[\t\n\v\f\r\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*$`;
+const PREGRADE_ORDER_COLUMNS = "id, order_number, customer_name, customer_email, status, created_at, restoration_tier";
+
+// The rows each tab reads
+type EmbeddedCard = { card_name: string; photo_urls: string[] | null };
+type ListedOrder = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string | null;
+  total_cents: number;
+  status: string;
+  created_at: string;
+  restoration_tier: string | null;
+  payment_method: string | null;
+  instagram_feature: boolean | null;
+  insurance_declared_value_cents: number | null;
+  cards: EmbeddedCard[] | null;
+};
+type AwaitingOrderRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  created_at: string;
+  total_cents: number;
+  restoration_tier: string | null;
+  inbound_method: string | null;
+};
+type CardPhotosRow = { order_id: string; card_name: string; photo_urls: unknown };
+type FulfillmentOrderRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  created_at: string;
+  status: string;
+  restoration_tier: string | null;
+  total_cents: number;
+  instagram_feature: boolean | null;
+  inbound_method: string | null;
+};
+type ShippedRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  created_at: string;
+  updated_at: string;
+  tracking_number: string | null;
+  return_label_url: string | null;
+  admin_notes: string | null;
+  outbound_tracking_number: string | null;
+  outbound_carrier: string | null;
+};
+type InsuredOrderRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  status: string;
+  created_at: string;
+  total_cents: number;
+  restoration_tier: string | null;
+  insurance_declared_value_cents: number;
+  insurance_type: string | null;
+};
+type VideoOrderRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  status: string;
+  created_at: string;
+  total_cents: number;
+  restoration_tier: string | null;
+  cards: EmbeddedCard[] | null;
+};
+type GiftCardRow = {
+  id: string;
+  code: string;
+  status: string;
+  value_cents: number | null;
+  remaining_cents: number | null;
+  purchaser_name: string | null;
+  purchaser_email: string | null;
+  recipient_name: string | null;
+  recipient_email: string | null;
+  created_at: string;
+};
+type UpdateRequestRow = { id: string; created_at: string; customer_name: string | null; customer_email: string; order_ref: string | null };
+// Open orders: only `id` is read except on the Pre-Grades tab, which lists them
+type PregradeOrderRow = {
+  id: string;
+  order_number: string | number;
+  customer_name: string;
+  customer_email: string;
+  status: string;
+  created_at: string;
+  restoration_tier: string | null;
+};
+
 // Max business days per tier (used to compute due date from cards-received timestamp).
 // regular/expedited promise "months" of calendar time; converted here to approx business days
 // (22 business days ≈ 1 calendar month): regular = 3 months → 65 bd, expedited = 1.5 months → 33 bd.
@@ -150,16 +265,28 @@ const TIER_TURNAROUND_DAYS: Record<string, number> = {
   fast_pass:      7,   // Fast Pass — skip the queue (≤ 7 business days)
 };
 
+/** Holds the Refund Requests tab's place while its requests load. */
+function RefundRequestsFallback() {
+  return (
+    <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading refund requests">
+      {Array.from({ length: 3 }, (_, i) => (
+        <Skeleton key={i} className="h-24 w-full rounded-xl" />
+      ))}
+    </div>
+  );
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; tab?: string; tier?: string; period?: string; notes?: string; sort?: string; method?: string }>;
+  searchParams: Promise<{ q?: string; tab?: string; tier?: string; period?: string; notes?: string; sort?: string; method?: string; past?: string }>;
 }) {
   await requireAdmin();
-  const { q, tab, tier: tierFilter, period: shippedPeriod, notes: notesFilter, sort: sortMode, method: methodFilter } = await searchParams;
+  const { q, tab, tier: tierFilter, period: shippedPeriod, notes: notesFilter, sort: sortMode, method: methodFilter, past: pastParam } = await searchParams;
   const query = q?.trim() ?? "";
   const activeTab = tab === "fulfillment" ? "fulfillment" : tab === "shipped" ? "shipped" : tab === "awaiting" ? "awaiting" : tab === "insured" ? "insured" : tab === "videos" ? "videos" : tab === "gift-cards" ? "gift-cards" : tab === "updates" ? "updates" : tab === "pregrades" ? "pregrades" : tab === "refunds" ? "refunds" : "orders";
   const activePeriod = shippedPeriod === "week" ? "week" : shippedPeriod === "month" ? "month" : shippedPeriod === "all" ? "all" : "today";
+  const showAllPast = pastParam === "all";
 
   const admin = createAdminClient();
   // New York's date: the Shipped Out periods, due dates and dashboard all use New York days
@@ -237,12 +364,12 @@ export default async function AdminPage({
               <Suspense>
                 <CardSearch />
               </Suspense>
-              <Link
+              <DashboardLink
                 href="/admin/orders/new"
                 className="h-9 px-4 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center whitespace-nowrap"
               >
                 + New Order
-              </Link>
+              </DashboardLink>
             </div>
           </div>
 
@@ -257,13 +384,13 @@ export default async function AdminPage({
                 const count = val === "all" ? matchedOrders.length : tierCounts[val] ?? 0;
                 if (val !== "all" && count === 0 && searchTierFilter !== val) return null;
                 return (
-                  <Link key={val} href={searchHref(val)}
+                  <DashboardLink key={val} href={searchHref(val)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
                       (searchTierFilter ?? "all") === val
                         ? "bg-foreground text-background border-foreground"
                         : "bg-white text-muted-foreground border-border hover:border-foreground"
                     }`}
-                  >{label} <span className="opacity-60">{count}</span></Link>
+                  >{label} <span className="opacity-60">{count}</span></DashboardLink>
                 );
               })}
             </div>
@@ -276,7 +403,7 @@ export default async function AdminPage({
           ) : (
             <div className="flex flex-col gap-3">
               {shownOrders.map((order) => (
-                <Link
+                <DashboardLink
                   key={order.id}
                   href={`/admin/orders/${order.id}`}
                   className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors"
@@ -305,7 +432,7 @@ export default async function AdminPage({
                     <span className="font-heading font-black text-xl text-primary">{formatCurrency(order.total_cents)}</span>
                     <span className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York" })}</span>
                   </div>
-                </Link>
+                </DashboardLink>
               ))}
             </div>
           )}
@@ -314,117 +441,243 @@ export default async function AdminPage({
     );
   }
 
-  // Update requests: customers waiting on a reply, oldest first (Update Requests tab)
-  const { data: updateRequests } = await admin
-    .from("cases")
-    .select("id, created_at, customer_name, customer_email, order_ref")
-    .eq("type", INQUIRY_TYPE)
-    .in("status", OPEN_CASE_STATUSES)
-    .order("created_at", { ascending: true });
-  // Their orders, for the status and link (kit orders are filed as K<number>)
-  const updateRefs = activeTab === "updates" ? (updateRequests ?? []).map((u) => u.order_ref as string | null).filter((r): r is string => !!r) : [];
-  const restorationRefs = updateRefs.filter((r) => !/^K\d+$/.test(r));
-  const kitNumbers = updateRefs.filter((r) => /^K\d+$/.test(r)).map((r) => Number(r.slice(1)));
-  const { data: updateOrders } = restorationRefs.length
-    ? await admin.from("orders").select("id, order_number, status").in("order_number", restorationRefs)
-    : { data: [] };
-  const { data: updateKits } = kitNumbers.length
-    ? await admin.from("shop_orders").select("id, order_number, status").in("order_number", kitNumbers)
-    : { data: [] };
-  const updateOrderMap = new Map((updateOrders ?? []).map((o) => [String(o.order_number), o]));
-  const updateKitMap = new Map((updateKits ?? []).map((o) => [`K${o.order_number}`, o]));
+  // Refunds made in the Stripe Dashboard reach the refund ledger after the page
+  // is sent (at most one sync a minute, lib/refund-ledger.ts; a scheduled job
+  // keeps it current too), so the page never waits on Stripe: the numbers show
+  // the ledger as of the last sync. When this sync saves anything (or can't
+  // tell), the cached month numbers are dropped so the next load shows it.
+  if (activeTab === "orders") {
+    after(async () => {
+      const result = await syncRefundsQuietly(admin);
+      if (result === null || (!result.skipped && result.synced > 0)) {
+        revalidateTag(DASHBOARD_METRICS_TAG, { expire: 0 });
+      }
+    });
+  }
 
-  // Pre-grades paid for and sent, per order (lib/pregrade.ts)
-  const pregradesPromise = pregradeCounts();
-  // Refunds support asked for, waiting on an admin (Refund Requests tab)
-  const refundRequestCount = await pendingRefundRequestCount(admin);
+  // ── One parallel wave for the whole page ──────────────────────────────────
+  // Every tab's badge is a count (no rows), and only the open tab's rows are
+  // read. The month tiles and charts stream in later (DashboardMetrics).
+  type DbError = { message: string } | null;
+  const countOf = async (what: string, query: PromiseLike<{ count: number | null; error: DbError }>) => {
+    const { count, error } = await query;
+    if (error) console.error(`[admin] count ${what}:`, error.message);
+    return count ?? 0;
+  };
+  const rowsOf = async <T,>(what: string, query: PromiseLike<{ data: T[] | null; error: DbError }>): Promise<T[]> => {
+    const { data, error } = await query;
+    if (error) console.error(`[admin] ${what}:`, error.message);
+    return data ?? [];
+  };
+  const allRowsOf = <T,>(what: string, page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: DbError }>): Promise<T[]> =>
+    fetchAll<T>(page).catch((e) => { console.error(`[admin] ${what}:`, e); return []; });
+  /** `load()` on the open tab; `empty` on every other tab. */
+  const onTab = <T,>(tabName: typeof activeTab, load: () => Promise<T>, empty: T): Promise<T> =>
+    activeTab === tabName ? load() : Promise.resolve(empty);
+  const headCount = { count: "exact", head: true } as const;
+  const openOrderColumns: string = activeTab === "pregrades" ? PREGRADE_ORDER_COLUMNS : "id";
 
-  // ── Fetch data for all tabs in parallel ───────────────────────────────────
+  // All Orders: every active order, and the newest PAST_LIMIT past ones (all of
+  // them with ?past=all), each with its cards. The chips filter in the query:
+  // tier, how it was paid, and Missing Notes (done orders with no restorer notes).
+  function ordersListQuery(which: "active" | "past", withCount: boolean) {
+    let q = admin
+      .from("orders")
+      .select(`${ORDER_LIST_COLUMNS}, cards(card_name, photo_urls)`, withCount ? { count: "exact" } : undefined);
+    q = which === "active"
+      ? q.neq("status", "awaiting_payment").not("status", "in", `(${PAST_STATUSES.join(",")})`)
+      : q.in("status", PAST_STATUSES);
+    if (tierFilter && tierFilter !== "all") {
+      q = tierFilter === "prep" ? q.in("restoration_tier", ["prep", "prep_standard"]) : q.eq("restoration_tier", tierFilter);
+    }
+    if (methodFilter && methodFilter !== "all") {
+      // "Not Set": no method saved (the app only ever saves a method or null)
+      q = methodFilter === "unset" ? q.is("payment_method", null) : q.eq("payment_method", methodFilter);
+    }
+    if (notesFilter === "missing") {
+      q = q.in("status", DONE_STATUSES).or(`admin_notes.is.null,admin_notes.match.${BLANK_TEXT}`);
+    }
+    // Cards in the order the list always showed them (by card id)
+    return q.order("created_at", { ascending: false }).order("id").order("id", { referencedTable: "cards" });
+  }
+
   const [
-    { data: orders },
-    { data: shopOrders },
-    { data: fulfillmentOrders },
-    { data: shippedRaw },
-    { data: awaitingOrders },
-    { data: insuredOrders },
-    { data: videoOrders },
-    { data: giftCards },
+    listedOrderCount, shopOrderCount, awaitingCount, fulfillmentCount, shippedCount,
+    insuredCount, videosCount, giftCardCount, updateRequestCount, refundRequestCount,
+    pregradesByOrder, openOrders,
+    activeOrders, past,
+    awaitingOrders, awaitingCards,
+    fulfillmentOrders, fulfillmentCards, receivedEvents,
+    shippedRaw, insuredOrders, videoOrders, giftCards, updateRequests,
   ] = await Promise.all([
-    // Every row: the API returns at most 1,000 per request
-    fetchAll((from, to) => admin
+    // ── Badges and the header total ──
+    countOf("orders", admin.from("orders").select("id", headCount).neq("status", "awaiting_payment")),
+    countOf("kit orders", admin.from("shop_orders").select("id", headCount)),
+    countOf("awaiting", admin.from("orders").select("id", headCount).eq("status", "awaiting_cards").eq("payment_status", "paid")),
+    // The Fulfillment Queue badge counts cards, in paid orders in the queue's statuses
+    countOf("fulfillment cards", admin
+      .from("cards")
+      .select("id, orders!inner(status, payment_status)", headCount)
+      .in("orders.status", FULFILLMENT_STATUSES)
+      .eq("orders.payment_status", "paid")),
+    countOf("shipped", admin.from("orders").select("id", headCount).eq("status", "shipped_back")),
+    countOf("insured", admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, customer_phone, total_cents, status, created_at, inbound_method, restoration_tier, admin_notes, payment_method, instagram_feature, insurance_declared_value_cents")
-      .neq("status", "awaiting_payment")
-      .order("created_at", { ascending: false })
+      .select("id", headCount)
+      .not("insurance_declared_value_cents", "is", null)
+      .gt("insurance_declared_value_cents", 0)
+      .neq("status", "awaiting_payment")),
+    countOf("videos", admin.from("orders").select("id", headCount).eq("instagram_feature", true).neq("status", "awaiting_payment")),
+    countOf("gift cards", admin.from("gift_cards").select("id", headCount)),
+    // Update requests: customers waiting on a reply (Update Requests tab)
+    countOf("update requests", admin.from("cases").select("id", headCount).eq("type", INQUIRY_TYPE).in("status", OPEN_CASE_STATUSES)),
+    // Refunds support asked for, waiting on an admin (Refund Requests tab)
+    pendingRefundRequestCount(admin),
+    // Pre-grades paid for and sent, per order (lib/pregrade.ts): the row
+    // badges, and with the open orders below, the Pre-Grades tab and its badge
+    pregradeCounts(),
+    // (only their IDs, except on the Pre-Grades tab, which lists them)
+    allRowsOf<PregradeOrderRow>("open orders", (from, to) => admin
+      .from("orders")
+      .select(openOrderColumns)
+      .not("status", "in", "(delivered,cancelled,awaiting_payment)")
+      .order("created_at", { ascending: true })
       .order("id")
-      .range(from, to)).then((data) => ({ data })),
-    fetchAll((from, to) => admin
-      .from("shop_orders")
-      .select("id")
-      .order("id")
-      .range(from, to)).then((data) => ({ data })),
-    admin
-      .from("orders")
-      .select("id, order_number, customer_name, customer_email, created_at, status, restoration_tier, total_cents, instagram_feature, inbound_method")
-      .in("status", FULFILLMENT_STATUSES)
-      .eq("payment_status", "paid")
-      .order("created_at", { ascending: true }),
-    admin
-      .from("orders")
-      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes, outbound_tracking_number, outbound_carrier")
-      .eq("status", "shipped_back")
-      .order("updated_at", { ascending: false }),
-    admin
+      .range(from, to)
+      .overrideTypes<PregradeOrderRow[], { merge: false }>()),
+
+    // ── All Orders tab ──
+    // Every row (the API returns at most 1,000 per request); errors fail the page as before
+    onTab("orders", () => fetchAll<ListedOrder>((from, to) => ordersListQuery("active", false).range(from, to)), [] as ListedOrder[]),
+    onTab("orders", async () => {
+      if (showAllPast) {
+        const rows = await fetchAll<ListedOrder>((from, to) => ordersListQuery("past", false).range(from, to));
+        return { rows, count: rows.length };
+      }
+      const { data, error, count } = await ordersListQuery("past", true).range(0, PAST_LIMIT - 1);
+      if (error) throw new Error(error.message);
+      return { rows: (data ?? []) as ListedOrder[], count: count ?? 0 };
+    }, { rows: [] as ListedOrder[], count: 0 }),
+
+    // ── Awaiting Cards tab ──
+    onTab("awaiting", () => rowsOf<AwaitingOrderRow>("awaiting", admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, created_at, total_cents, restoration_tier, inbound_method")
       .eq("status", "awaiting_cards")
       .eq("payment_status", "paid")
-      .order("created_at", { ascending: true }),
-    admin
+      .order("created_at", { ascending: true })), [] as AwaitingOrderRow[]),
+    // Their cards (names + photos). Found by joining their order with the
+    // queue's own filter, not a list of order IDs: a few hundred IDs make the
+    // request URL too long for the API gateway. Every row, read in pages.
+    onTab("awaiting", () => allRowsOf<CardPhotosRow>("awaiting cards", (from, to) => admin
+      .from("cards")
+      .select("id, order_id, card_name, photo_urls, orders!inner(status, payment_status)")
+      .eq("orders.status", "awaiting_cards")
+      .eq("orders.payment_status", "paid")
+      .order("created_at")
+      .order("id")
+      .range(from, to)), [] as CardPhotosRow[]),
+
+    // ── Fulfillment Queue tab ──
+    onTab("fulfillment", () => rowsOf<FulfillmentOrderRow>("fulfillment", admin
+      .from("orders")
+      .select("id, order_number, customer_name, customer_email, created_at, status, restoration_tier, total_cents, instagram_feature, inbound_method")
+      .in("status", FULFILLMENT_STATUSES)
+      .eq("payment_status", "paid")
+      .order("created_at", { ascending: true })), [] as FulfillmentOrderRow[]),
+    // Card counts + completion (every row: the queue is counted in cards), joined
+    // to the queue's orders by its own filter (see the awaiting cards above)
+    onTab("fulfillment", () => allRowsOf<{ order_id: string; completed: boolean | null }>("fulfillment cards", (from, to) => admin
+      .from("cards")
+      .select("id, order_id, completed, orders!inner(status, payment_status)")
+      .in("orders.status", FULFILLMENT_STATUSES)
+      .eq("orders.payment_status", "paid")
+      .order("id")
+      .range(from, to)), [] as { order_id: string; completed: boolean | null }[]),
+    // When each queue order was marked received (for accurate "days since received")
+    onTab("fulfillment", () => allRowsOf<{ order_id: string; created_at: string }>("received events", (from, to) => admin
+      .from("order_events")
+      .select("id, order_id, created_at, orders!inner(status, payment_status)")
+      .in("orders.status", FULFILLMENT_STATUSES)
+      .eq("orders.payment_status", "paid")
+      .like("description", "%Cards Received%")
+      .neq("event_type", "support_note") // a support note can mention it too
+      .order("created_at", { ascending: true })
+      .order("id")
+      .range(from, to)), [] as { order_id: string; created_at: string }[]),
+
+    // ── Shipped Out, Insured, Videos, Gift Cards and Update Requests tabs ──
+    onTab("shipped", () => rowsOf<ShippedRow>("shipped", admin
+      .from("orders")
+      .select("id, order_number, customer_name, customer_email, created_at, updated_at, tracking_number, return_label_url, admin_notes, outbound_tracking_number, outbound_carrier")
+      .eq("status", "shipped_back")
+      .order("updated_at", { ascending: false })), [] as ShippedRow[]),
+    onTab("insured", () => rowsOf<InsuredOrderRow>("insured", admin
       .from("orders")
       .select("id, order_number, customer_name, customer_email, status, created_at, total_cents, restoration_tier, insurance_declared_value_cents, insurance_type")
       .not("insurance_declared_value_cents", "is", null)
       .gt("insurance_declared_value_cents", 0)
       .neq("status", "awaiting_payment")
-      .order("created_at", { ascending: false }),
-    admin
+      .order("created_at", { ascending: false })), [] as InsuredOrderRow[]),
+    // Video orders with their cards (which cards to film)
+    onTab("videos", () => rowsOf<VideoOrderRow>("videos", admin
       .from("orders")
-      .select("id, order_number, customer_name, customer_email, status, created_at, total_cents, restoration_tier")
+      .select("id, order_number, customer_name, customer_email, status, created_at, total_cents, restoration_tier, cards(card_name, photo_urls)")
       .eq("instagram_feature", true)
       .neq("status", "awaiting_payment")
-      .order("created_at", { ascending: false }),
-    admin
+      .order("created_at", { ascending: false })
+      .order("created_at", { referencedTable: "cards" })
+      .order("id", { referencedTable: "cards" })), [] as VideoOrderRow[]),
+    onTab("gift-cards", () => rowsOf<GiftCardRow>("gift cards", admin
       .from("gift_cards")
-      .select("*")
-      .order("created_at", { ascending: false }),
+      .select("id, code, status, value_cents, remaining_cents, purchaser_name, purchaser_email, recipient_name, recipient_email, created_at")
+      .order("created_at", { ascending: false })), [] as GiftCardRow[]),
+    // Oldest first
+    onTab("updates", () => rowsOf<UpdateRequestRow>("update requests", admin
+      .from("cases")
+      .select("id, created_at, customer_name, customer_email, order_ref")
+      .eq("type", INQUIRY_TYPE)
+      .in("status", OPEN_CASE_STATUSES)
+      .order("created_at", { ascending: true })), [] as UpdateRequestRow[]),
   ]);
 
-  // videoOrders comes directly from the parallel fetch above (instagram_feature = true)
-  const videoOrderIds = (videoOrders ?? []).map((o) => o.id);
+  // Update Requests tab: their orders, for the status and link (kit orders are filed as K<number>)
+  const updateRefs = updateRequests.map((u) => u.order_ref).filter((r): r is string => !!r);
+  const restorationRefs = updateRefs.filter((r) => !/^K\d+$/.test(r));
+  const kitNumbers = updateRefs.filter((r) => /^K\d+$/.test(r)).map((r) => Number(r.slice(1)));
+  const [updateOrders, updateKits] = await Promise.all([
+    restorationRefs.length
+      ? rowsOf<{ id: string; order_number: string | number; status: string }>("update orders", admin.from("orders").select("id, order_number, status").in("order_number", restorationRefs))
+      : [],
+    kitNumbers.length
+      ? rowsOf<{ id: string; order_number: string | number; status: string }>("update kits", admin.from("shop_orders").select("id, order_number, status").in("order_number", kitNumbers))
+      : [],
+  ]);
+  const updateOrderMap = new Map(updateOrders.map((o) => [String(o.order_number), o]));
+  const updateKitMap = new Map(updateKits.map((o) => [`K${o.order_number}`, o]));
 
-  // Cards for video orders (need to know which cards to film)
-  const { data: videoCards } = videoOrderIds.length > 0
-    ? await admin.from("cards").select("order_id, card_name, photo_urls").in("order_id", videoOrderIds)
-    : { data: [] };
   const videoCardsByOrder: Record<string, { name: string; photo: string | null }[]> = {};
-  for (const card of videoCards ?? []) {
-    if (!videoCardsByOrder[card.order_id]) videoCardsByOrder[card.order_id] = [];
-    const urls: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
-    videoCardsByOrder[card.order_id].push({ name: card.card_name, photo: urls[0] ?? null });
+  for (const order of videoOrders) {
+    videoCardsByOrder[order.id] = (order.cards ?? []).map((card) => {
+      const urls: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
+      return { name: card.card_name, photo: urls[0] ?? null };
+    });
   }
 
-  // Query Shippo live tracking for shipped orders that have a tracking number
-  type ShippedWithTracking = typeof shippedRaw extends (infer T)[] | null ? T & { track: Track | null } : never;
+  // Shippo tracking for shipped orders that have a tracking number, through the
+  // shared 10-minute cache (lib/tracking-cache.ts), so a view doesn't make one
+  // live Shippo call per order. Only this tab loads it.
+  type ShippedWithTracking = ShippedRow & { track: TrackingSnapshot | null };
   let shippedOrders: ShippedWithTracking[] = [];
-  if (activeTab === "shipped" && shippedRaw && shippedRaw.length > 0) {
+  if (activeTab === "shipped" && shippedRaw.length > 0) {
     const results = await Promise.allSettled(
       shippedRaw.map(async (o) => {
-        let track: Track | null = null;
+        let track: TrackingSnapshot | null = null;
         if (o.tracking_number) {
           try {
             // The label's saved carrier while it goes with this number, else told from the number
             const carrier = trackingCarrier(o.tracking_number, o.outbound_tracking_number === o.tracking_number ? o.outbound_carrier : null);
-            track = await shippo.trackingStatus.get(o.tracking_number, carrier.token);
+            track = await cachedTrackingStatus(o.tracking_number, carrier.token);
           } catch { /* fail silently per order */ }
         }
         return { ...o, track };
@@ -450,53 +703,23 @@ export default async function AdminPage({
   const filteredShippedOrders = filterByPeriod(shippedOrders, activePeriod);
 
   // Open orders still owing pre-grades, oldest first (Pre-Grades tab and its badge)
-  const pregradesByOrder = await pregradesPromise;
-  const owesPregrades = [...pregradesByOrder].filter(([, c]) => c.done < c.owed).map(([id]) => id);
-  const { data: pregradeOrders } = owesPregrades.length > 0
-    ? await admin
-        .from("orders")
-        .select("id, order_number, customer_name, customer_email, status, created_at, restoration_tier")
-        .in("id", owesPregrades)
-        .not("status", "in", "(delivered,cancelled,awaiting_payment)")
-        .order("created_at", { ascending: true })
-    : { data: [] };
+  const pregradeOrders = openOrders.filter((o) => {
+    const c = pregradesByOrder.get(o.id);
+    return !!c && c.done < c.owed;
+  });
 
-  const orderIds = orders?.map((o) => o.id) ?? [];
-  // The list covers nearly every order, so read all cards in pages and keep the listed
-  // orders' (a filter naming every order ID makes a URL too long for the API gateway)
-  const listedOrderIds = new Set(orderIds);
-  const allCards = orderIds.length > 0
-    ? (await fetchAll((from, to) => admin.from("cards").select("id, order_id, card_name, photo_urls").order("id").range(from, to))
-        .catch((e) => { console.error("[admin] cards:", e); return []; }))
-        .filter((c) => listedOrderIds.has(c.order_id))
-    : [];
-
+  // All Orders: each listed order's card names and photos (from the embedded cards)
+  const pastOrders = past.rows;
+  const pastCount = past.count;
   const cardsByOrder: Record<string, string[]> = {};
   const photosByOrder: Record<string, string[]> = {};
-  for (const card of allCards ?? []) {
-    if (!cardsByOrder[card.order_id]) cardsByOrder[card.order_id] = [];
-    cardsByOrder[card.order_id].push(card.card_name);
-    const urls: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
-    if (urls.length > 0) {
-      if (!photosByOrder[card.order_id]) photosByOrder[card.order_id] = [];
-      photosByOrder[card.order_id].push(...urls);
+  for (const order of [...activeOrders, ...pastOrders]) {
+    for (const card of order.cards ?? []) {
+      (cardsByOrder[order.id] ??= []).push(card.card_name);
+      const urls: string[] = Array.isArray(card.photo_urls) ? card.photo_urls : [];
+      if (urls.length > 0) (photosByOrder[order.id] ??= []).push(...urls);
     }
   }
-
-  // Cards for awaiting queue (names + photos). Found by joining their order with
-  // the queue's own filter, not a list of order IDs: a few hundred IDs make the
-  // request URL too long for the API gateway. Every row, read in pages.
-  const awaitingCards: { order_id: string; card_name: string; photo_urls: unknown }[] = (awaitingOrders ?? []).length > 0
-    ? await fetchAll<{ order_id: string; card_name: string; photo_urls: unknown }>((from, to) => admin
-        .from("cards")
-        .select("id, order_id, card_name, photo_urls, orders!inner(status, payment_status)")
-        .eq("orders.status", "awaiting_cards")
-        .eq("orders.payment_status", "paid")
-        .order("created_at")
-        .order("id")
-        .range(from, to))
-        .catch((e) => { console.error("[admin] awaiting cards:", e); return []; })
-    : [];
 
   const awaitingCardsByOrder: Record<string, { name: string; photos: string[] }[]> = {};
   for (const card of awaitingCards) {
@@ -507,43 +730,12 @@ export default async function AdminPage({
     });
   }
 
-  // Card counts + completion for fulfillment queue (every row: the queue is counted
-  // in cards). Found by joining their order with the queue's own filter, not a list
-  // of order IDs: a few hundred IDs make the request URL too long for the API gateway.
-  const hasFulfillmentOrders = (fulfillmentOrders ?? []).length > 0;
-  const fulfillmentCards: { order_id: string; completed: boolean | null }[] = hasFulfillmentOrders
-    ? await fetchAll<{ order_id: string; completed: boolean | null }>((from, to) => admin
-        .from("cards")
-        .select("id, order_id, completed, orders!inner(status, payment_status)")
-        .in("orders.status", FULFILLMENT_STATUSES)
-        .eq("orders.payment_status", "paid")
-        .order("id")
-        .range(from, to))
-        .catch((e) => { console.error("[admin] fulfillment cards:", e); return []; })
-    : [];
-
   const cardCountByOrder: Record<string, number> = {};
   const completedCountByOrder: Record<string, number> = {};
   for (const row of fulfillmentCards) {
     cardCountByOrder[row.order_id] = (cardCountByOrder[row.order_id] ?? 0) + 1;
     if (row.completed) completedCountByOrder[row.order_id] = (completedCountByOrder[row.order_id] ?? 0) + 1;
   }
-
-  // Find when each fulfillment order was marked received (for accurate "days since
-  // received"), joined to the queue's orders the same way
-  const receivedEvents: { order_id: string; created_at: string }[] = hasFulfillmentOrders
-    ? await fetchAll<{ order_id: string; created_at: string }>((from, to) => admin
-        .from("order_events")
-        .select("id, order_id, created_at, orders!inner(status, payment_status)")
-        .in("orders.status", FULFILLMENT_STATUSES)
-        .eq("orders.payment_status", "paid")
-        .like("description", "%Cards Received%")
-        .neq("event_type", "support_note") // a support note can mention it too
-        .order("created_at", { ascending: true })
-        .order("id")
-        .range(from, to))
-        .catch((e) => { console.error("[admin] received events:", e); return []; })
-    : [];
 
   const receivedAtByOrder: Record<string, string> = {};
   for (const ev of receivedEvents) {
@@ -552,13 +744,13 @@ export default async function AdminPage({
 
   // Due date (New York day) per fulfillment order, counted from when its cards arrived
   const dueDayByOrder: Record<string, string> = {};
-  for (const o of fulfillmentOrders ?? []) {
+  for (const o of fulfillmentOrders) {
     const rec = receivedAtByOrder[o.id] ?? o.created_at;
     dueDayByOrder[o.id] = addBusinessDays(nyDay(rec), TIER_TURNAROUND_DAYS[(o.restoration_tier as string) ?? "regular"] ?? 20);
   }
 
   // Sort fulfillment orders by due date (default) or completion progress
-  const sortedFulfillmentOrders = [...(fulfillmentOrders ?? [])].sort((a, b) => {
+  const sortedFulfillmentOrders = [...fulfillmentOrders].sort((a, b) => {
     if (sortMode === "completion") {
       const totalA = cardCountByOrder[a.id] ?? 0;
       const doneA = completedCountByOrder[a.id] ?? 0;
@@ -578,56 +770,21 @@ export default async function AdminPage({
     return new Date(recA).getTime() - new Date(recB).getTime();
   }).filter((o) => !tierFilter || tierFilter === "all" || o.restoration_tier === tierFilter);
 
-  const PAST_STATUSES = ["shipped_back", "delivered"];
-  // Orders we consider "done" for grader-notes purposes
-  const DONE_STATUSES = ["completed", "shipped_back", "delivered"];
-  const tierMatchFn = (tier: string | null) => !tierFilter || tierFilter === "all" || tier === tierFilter || (tierFilter === "prep" && tier === "prep_standard");
-  const methodMatchFn = (o: Record<string, unknown>) => {
-    if (!methodFilter || methodFilter === "all") return true;
-    if (methodFilter === "unset") return !(o as any).payment_method;
-    return (o as any).payment_method === methodFilter;
-  };
-  // When the missing-notes filter is on: only surface done orders that have no notes
-  const notesMatchFn = (status: string, notes: string | null | undefined) => {
-    if (notesFilter !== "missing") return true;
-    return DONE_STATUSES.includes(status) && (!notes || notes.trim() === "");
-  };
-  const activeOrders = (orders ?? []).filter((o) => !PAST_STATUSES.includes(o.status) && tierMatchFn(o.restoration_tier) && methodMatchFn(o as any) && notesMatchFn(o.status, (o as any).admin_notes));
-  const pastOrders = (orders ?? []).filter((o) => PAST_STATUSES.includes(o.status) && tierMatchFn(o.restoration_tier) && methodMatchFn(o as any) && notesMatchFn(o.status, (o as any).admin_notes));
+  // The All Orders chips' links: each keeps the other chips, and "Show all" past orders
+  function ordersHref(overrides: Record<string, string | undefined>, allPast = showAllPast) {
+    const p = new URLSearchParams();
+    const merged = { tier: tierFilter, notes: notesFilter, method: methodFilter, ...overrides };
+    for (const [k, v] of Object.entries(merged)) {
+      if (v && v !== "all") p.set(k, v);
+    }
+    if (allPast) p.set("past", "all");
+    const qs = p.toString();
+    return `/admin${qs ? `?${qs}` : ""}`;
+  }
 
-  // Dashboard numbers (lib/dashboard-metrics.ts): sales by the day paid, refunds by
-  // the day refunded (from the refund ledger, synced with Stripe first), backlog in
-  // unfinished cards. All days are New York days.
-  const [backlogNow, metrics] = await Promise.all([
-    getBacklogNow(admin).catch((e) => { console.error("[admin] backlog_now:", e); return null; }),
-    activeTab === "orders"
-      ? (async () => {
-          await syncRefundsQuietly(admin);
-          const [series, backlogDays] = await Promise.all([
-            getRevenueSeries(admin),
-            getBacklogDays(admin, addDays(today, -29), today),
-          ]);
-          return { series, backlogDays };
-        })().catch((e) => { console.error("[admin] dashboard metrics:", e); return null; })
-      : null,
-  ]);
-  const totalOrderCount = (orders?.length ?? 0) + (shopOrders?.length ?? 0);
-  const currentBacklogCardCount = backlogNow?.total ?? 0;
-  const month = (() => {
-    if (!metrics) return null;
-    const days = metrics.series.daily.filter((d) => d.day.slice(0, 7) === today.slice(0, 7));
-    const sales = days.reduce((s, d) => s + d.sales_cents, 0);
-    const refunds = metrics.series.refunds_this_month;
-    return { orders: days.reduce((s, d) => s + d.orders, 0), sales, refunds, net: sales - refunds.cents };
-  })();
-
+  const totalOrderCount = listedOrderCount + shopOrderCount;
   // The Fulfillment Queue tab counts cards; the empty state checks orders
-  const fulfillmentCount = fulfillmentCards.length;
-  const fulfillmentOrderCount = fulfillmentOrders?.length ?? 0;
-  const shippedCount = shippedRaw?.length ?? 0;
-  const awaitingCount = awaitingOrders?.length ?? 0;
-  const insuredCount = insuredOrders?.length ?? 0;
-  const videosCount = videoOrders?.length ?? 0;
+  const fulfillmentOrderCount = fulfillmentOrders.length;
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -643,10 +800,10 @@ export default async function AdminPage({
               {activeTab === "fulfillment"
                 ? "Cards in your hands — sorted oldest first"
                 : `${totalOrderCount} total`}
-              {activeTab !== "fulfillment" && currentBacklogCardCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
-                  {currentBacklogCardCount} card{currentBacklogCardCount !== 1 ? "s" : ""} in backlog
-                </span>
+              {activeTab !== "fulfillment" && (
+                <Suspense fallback={null}>
+                  <BacklogBadge />
+                </Suspense>
               )}
             </p>
           </div>
@@ -656,18 +813,18 @@ export default async function AdminPage({
                 <CardSearch />
               </Suspense>
             )}
-            <Link
+            <DashboardLink
               href="/admin/orders/new"
               className="h-9 px-4 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center whitespace-nowrap"
             >
               + New Order
-            </Link>
+            </DashboardLink>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="relative flex gap-0.5 mb-7 overflow-x-auto after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border">
-          <Link
+          <DashboardLink
             href="/admin"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors ${
               activeTab === "orders"
@@ -676,8 +833,8 @@ export default async function AdminPage({
             }`}
           >
             All Orders
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=pregrades"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "pregrades"
@@ -693,8 +850,8 @@ export default async function AdminPage({
                 {pregradeOrders?.length}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=refunds"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "refunds"
@@ -710,8 +867,8 @@ export default async function AdminPage({
                 {refundRequestCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=updates"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "updates"
@@ -720,15 +877,15 @@ export default async function AdminPage({
             }`}
           >
             Update Requests
-            {(updateRequests?.length ?? 0) > 0 && (
+            {updateRequestCount > 0 && (
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                 activeTab === "updates" ? "bg-red-100 text-red-700" : "bg-red-600 text-white"
               }`}>
-                {updateRequests?.length}
+                {updateRequestCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=awaiting"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "awaiting"
@@ -744,8 +901,8 @@ export default async function AdminPage({
                 {awaitingCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=fulfillment"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "fulfillment"
@@ -761,8 +918,8 @@ export default async function AdminPage({
                 {fulfillmentCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=shipped"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "shipped"
@@ -778,8 +935,8 @@ export default async function AdminPage({
                 {shippedCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=insured"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "insured"
@@ -795,8 +952,8 @@ export default async function AdminPage({
                 {insuredCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=videos"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "videos"
@@ -812,8 +969,8 @@ export default async function AdminPage({
                 {videosCount}
               </span>
             )}
-          </Link>
-          <Link
+          </DashboardLink>
+          <DashboardLink
             href="/admin?tab=gift-cards"
             className={`px-3 py-2.5 text-sm font-semibold rounded-t-lg border border-b-0 relative z-10 shrink-0 whitespace-nowrap transition-colors flex items-center gap-2 ${
               activeTab === "gift-cards"
@@ -822,89 +979,40 @@ export default async function AdminPage({
             }`}
           >
             🎁 Gift Cards
-            {(giftCards?.length ?? 0) > 0 && (
+            {giftCardCount > 0 && (
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
                 activeTab === "gift-cards" ? "bg-yellow-100 text-yellow-700" : "bg-yellow-500 text-white"
               }`}>
-                {giftCards?.length}
+                {giftCardCount}
               </span>
             )}
-          </Link>
+          </DashboardLink>
         </div>
 
         {/* ── ORDERS TAB ── */}
         {activeTab === "orders" && (
           <>
-            {/* Stats */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Orders This Month</p>
-                <p className="font-heading font-black text-3xl text-foreground">{month ? month.orders : "—"}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">paid restoration, prep and kit orders</p>
-              </div>
-              <div className="bg-white rounded-xl border border-border p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Net Revenue This Month</p>
-                <p className="font-heading font-black text-3xl text-primary">{month ? formatCurrency(month.net) : "—"}</p>
-                {month && <p className="text-xs text-muted-foreground mt-0.5">{formatCurrency(month.sales)} sales − {formatCurrency(month.refunds.cents)} refunds</p>}
-              </div>
-              <div className="bg-white rounded-xl border border-red-100 p-5">
-                <p className="text-xs font-bold uppercase tracking-widest text-red-700 mb-1">Refunds This Month</p>
-                <p className="font-heading font-black text-3xl text-red-600">{month ? formatCurrency(month.refunds.cents) : "—"}</p>
-                {month && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {month.refunds.count} refund{month.refunds.count !== 1 ? "s" : ""}, partial included
-                    {month.refunds.pending_cents > 0 ? ` · ${formatCurrency(month.refunds.pending_cents)} still pending` : ""}
-                  </p>
-                )}
-              </div>
-              <Link href="/admin/backlog" className="bg-white rounded-xl border border-border p-5 hover:border-foreground/30 transition-colors">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Active Backlog</p>
-                <p className="font-heading font-black text-3xl text-purple-600">{backlogNow ? backlogNow.total : "—"}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  unfinished cards{backlogNow ? ` · ${backlogNow.prep} PSA Prep` : ""}
-                  {backlogNow?.unknown_orders ? ` · ${backlogNow.unknown_orders} order${backlogNow.unknown_orders !== 1 ? "s" : ""} with no card count` : ""}
-                </p>
-              </Link>
-            </div>
-
-            {/* Charts */}
-            {metrics ? (
-              <div className="mb-8 flex flex-col gap-6">
-                <RevenueChart series={metrics.series} label="Total Revenue" />
-                <BacklogChart days={metrics.backlogDays} />
-                <RevenueChart series={metrics.series} label="Kit Sales" kitsOnly />
-              </div>
-            ) : (
-              <div className="mb-8 bg-white rounded-xl border border-border p-6 text-sm text-muted-foreground">
-                The charts couldn&apos;t load. Refresh the page to try again.
-              </div>
-            )}
+            {/* Month tiles and charts: streamed in, so the list below doesn't wait for them */}
+            <Suspense fallback={<DashboardMetricsFallback />}>
+              <DashboardMetrics today={today} />
+            </Suspense>
 
             {/* Tier filter + Missing Notes toggle */}
             {(() => {
-              function ordersHref(overrides: Record<string, string | undefined>) {
-                const p = new URLSearchParams();
-                const merged = { tier: tierFilter, notes: notesFilter, method: methodFilter, ...overrides };
-                for (const [k, v] of Object.entries(merged)) {
-                  if (v && v !== "all") p.set(k, v);
-                }
-                const qs = p.toString();
-                return `/admin${qs ? `?${qs}` : ""}`;
-              }
               return (
                 <>
                   <div className="flex gap-2 flex-wrap mb-2">
                     {[["all", "All Tiers"], ["fast_pass", "Fast Pass"], ["elite", "Diamond"], ["ultra_premium", "Platinum"], ["premium", "Gold"], ["expedited", "Silver"], ["regular", "Bronze"], ["prep", "Prep"]].map(([val, label]) => (
-                      <Link key={val} href={ordersHref({ tier: val })}
+                      <DashboardLink key={val} href={ordersHref({ tier: val })}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
                           (tierFilter ?? "all") === val
                             ? "bg-foreground text-background border-foreground"
                             : "bg-white text-muted-foreground border-border hover:border-foreground"
                         }`}
-                      >{label}</Link>
+                      >{label}</DashboardLink>
                     ))}
                     <div className="h-px w-px" />
-                    <Link
+                    <DashboardLink
                       href={ordersHref({ notes: notesFilter === "missing" ? undefined : "missing" })}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
                         notesFilter === "missing"
@@ -913,18 +1021,18 @@ export default async function AdminPage({
                       }`}
                     >
                       {notesFilter === "missing" ? "★ Missing Notes" : "Missing Notes"}
-                    </Link>
+                    </DashboardLink>
                   </div>
                   <div className="flex gap-2 flex-wrap mb-3 items-center">
                     <span className="text-xs text-muted-foreground font-semibold">Paid via:</span>
                     {[["all", "All"], ["card", "Card"], ["gift_card", "Gift Card"], ["cash", "Cash"], ["venmo", "Venmo"], ["zelle", "Zelle"], ["check", "Check"], ["other", "Other"], ["unset", "Not Set"]].map(([val, label]) => (
-                      <Link key={val} href={ordersHref({ method: val })}
+                      <DashboardLink key={val} href={ordersHref({ method: val })}
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
                           (methodFilter ?? "all") === val
                             ? "bg-primary text-primary-foreground border-primary"
                             : "bg-white text-muted-foreground border-border hover:border-primary/40"
                         }`}
-                      >{label}</Link>
+                      >{label}</DashboardLink>
                     ))}
                   </div>
                 </>
@@ -943,7 +1051,7 @@ export default async function AdminPage({
             ) : (
               <div className="flex flex-col gap-3">
                 {activeOrders.map((order) => (
-                  <Link
+                  <DashboardLink
                     key={order.id}
                     href={`/admin/orders/${order.id}`}
                     className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors"
@@ -961,7 +1069,7 @@ export default async function AdminPage({
                         )}
                         {(order.insurance_declared_value_cents ?? 0) > 0 && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                            Insured ${(order.insurance_declared_value_cents / 100).toFixed(0)}
+                            Insured ${((order.insurance_declared_value_cents ?? 0) / 100).toFixed(0)}
                           </span>
                         )}
                         {pregradesByOrder.get(order.id) && (
@@ -969,14 +1077,14 @@ export default async function AdminPage({
                             🔍 {pregradeLabel(pregradesByOrder.get(order.id)!)}
                           </span>
                         )}
-                        {(order as any).instagram_feature && (
+                        {order.instagram_feature && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
                             🎬 Video
                           </span>
                         )}
-                        {(order as any).payment_method && (
+                        {order.payment_method && (
                           <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                            {({ card: "💳 Card", gift_card: "🎁 Gift Card", cash: "💵 Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other" } as Record<string, string>)[(order as any).payment_method] ?? (order as any).payment_method}
+                            {({ card: "💳 Card", gift_card: "🎁 Gift Card", cash: "💵 Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other" } as Record<string, string>)[order.payment_method] ?? order.payment_method}
                           </span>
                         )}
                       </div>
@@ -1004,7 +1112,7 @@ export default async function AdminPage({
                       <span className="font-heading font-black text-xl text-primary">{formatCurrency(order.total_cents)}</span>
                       <span className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York" })}</span>
                     </div>
-                  </Link>
+                  </DashboardLink>
                 ))}
               </div>
             )}
@@ -1014,11 +1122,11 @@ export default async function AdminPage({
               <div className="mt-10">
                 <h2 className="font-heading font-black text-xl text-foreground mb-4">
                   Past Orders
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">({pastOrders.length})</span>
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">({pastCount})</span>
                 </h2>
                 <div className="flex flex-col gap-3">
                   {pastOrders.map((order) => (
-                    <Link
+                    <DashboardLink
                       key={order.id}
                       href={`/admin/orders/${order.id}`}
                       className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors opacity-70 hover:opacity-100"
@@ -1036,7 +1144,7 @@ export default async function AdminPage({
                           )}
                           {(order.insurance_declared_value_cents ?? 0) > 0 && (
                             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                              Insured ${(order.insurance_declared_value_cents / 100).toFixed(0)}
+                              Insured ${((order.insurance_declared_value_cents ?? 0) / 100).toFixed(0)}
                             </span>
                           )}
                           {pregradesByOrder.get(order.id) && (
@@ -1044,14 +1152,14 @@ export default async function AdminPage({
                               🔍 {pregradeLabel(pregradesByOrder.get(order.id)!)}
                             </span>
                           )}
-                          {videoOrderIds.includes(order.id) && (
+                          {order.instagram_feature && (
                             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
                               Video
                             </span>
                           )}
-                          {(order as any).payment_method && (
+                          {order.payment_method && (
                             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                              {({ card: "💳 Card", gift_card: "🎁 Gift Card", cash: "💵 Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other" } as Record<string, string>)[(order as any).payment_method] ?? (order as any).payment_method}
+                              {({ card: "💳 Card", gift_card: "🎁 Gift Card", cash: "💵 Cash", venmo: "Venmo", zelle: "Zelle", check: "Check", other: "Other" } as Record<string, string>)[order.payment_method] ?? order.payment_method}
                             </span>
                           )}
                         </div>
@@ -1078,9 +1186,17 @@ export default async function AdminPage({
                         <span className="font-heading font-black text-xl text-primary">{formatCurrency(order.total_cents)}</span>
                         <span className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York" })}</span>
                       </div>
-                    </Link>
+                    </DashboardLink>
                   ))}
                 </div>
+                {pastCount > pastOrders.length && (
+                  <DashboardLink
+                    href={ordersHref({}, true)}
+                    className="mt-4 h-11 px-5 inline-flex items-center rounded-lg border border-border bg-white text-sm font-bold text-foreground hover:border-foreground transition-colors"
+                  >
+                    Show all {pastCount} past orders
+                  </DashboardLink>
+                )}
               </div>
             )}
           </>
@@ -1109,7 +1225,7 @@ export default async function AdminPage({
               {(awaitingOrders ?? []).map((order) => {
                 const { days, cls } = ageBadge(order.created_at);
                 return (
-                  <Link
+                  <DashboardLink
                     key={order.id}
                     href={`/admin/orders/${order.id}`}
                     className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-start gap-4 hover:border-primary/40 transition-colors"
@@ -1141,7 +1257,7 @@ export default async function AdminPage({
                       </span>
                       <span className="font-heading font-black text-xl text-primary">{formatCurrency(order.total_cents)}</span>
                     </div>
-                  </Link>
+                  </DashboardLink>
                 );
               })}
             </div>
@@ -1156,7 +1272,7 @@ export default async function AdminPage({
               {[["all", "All Tiers"], ["elite", "Diamond"], ["ultra_premium", "Platinum"], ["premium", "Gold"], ["expedited", "Silver"], ["regular", "Bronze"]].map(([val, label]) => {
                 const sortSuffix = sortMode === "completion" ? "&sort=completion" : "";
                 return (
-                  <Link
+                  <DashboardLink
                     key={val}
                     href={`/admin?tab=fulfillment&tier=${val}${sortSuffix}`}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
@@ -1166,14 +1282,14 @@ export default async function AdminPage({
                     }`}
                   >
                     {label}
-                  </Link>
+                  </DashboardLink>
                 );
               })}
               <div className="h-4 w-px bg-border mx-1" />
               {[["due", "Sort: Due Date"], ["completion", "Sort: Most Complete"]].map(([val, label]) => {
                 const tierSuffix = tierFilter && tierFilter !== "all" ? `&tier=${tierFilter}` : "";
                 return (
-                  <Link
+                  <DashboardLink
                     key={val}
                     href={`/admin?tab=fulfillment${tierSuffix}&sort=${val}`}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
@@ -1183,7 +1299,7 @@ export default async function AdminPage({
                     }`}
                   >
                     {label}
-                  </Link>
+                  </DashboardLink>
                 );
               })}
             </div>
@@ -1238,9 +1354,9 @@ export default async function AdminPage({
                           }`}
                         >
                           <td className="px-4 py-3">
-                            <Link href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
+                            <DashboardLink href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
                               {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                            </Link>
+                            </DashboardLink>
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-foreground">{order.customer_name}</p>
@@ -1255,7 +1371,7 @@ export default async function AdminPage({
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}
-                              {(order as any).instagram_feature && (
+                              {order.instagram_feature && (
                                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">🎬</span>
                               )}
                               {pregradesByOrder.get(order.id) && (
@@ -1298,9 +1414,9 @@ export default async function AdminPage({
                             )}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Link href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
+                            <DashboardLink href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
                               View →
-                            </Link>
+                            </DashboardLink>
                           </td>
                         </tr>
                       );
@@ -1360,7 +1476,7 @@ export default async function AdminPage({
               {/* Period filter pills */}
               <div className="flex gap-2 flex-wrap mb-4 items-center">
                 {PERIOD_FILTERS.map(({ value, label }) => (
-                  <Link
+                  <DashboardLink
                     key={value}
                     href={`/admin?tab=shipped&period=${value}`}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
@@ -1370,7 +1486,7 @@ export default async function AdminPage({
                     }`}
                   >
                     {label}
-                  </Link>
+                  </DashboardLink>
                 ))}
                 <span className="text-xs text-muted-foreground ml-1">
                   {filteredShippedOrders.length} order{filteredShippedOrders.length !== 1 ? "s" : ""}
@@ -1419,9 +1535,9 @@ export default async function AdminPage({
                           <tr key={order.id} className={`border-b border-border last:border-0 hover:bg-secondary/20 transition-colors ${!hasTracking ? "bg-red-50/30" : ""}`}>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-1.5">
-                                <Link href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
+                                <DashboardLink href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
                                   {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                                </Link>
+                                </DashboardLink>
                                 {missingNotes && (
                                   <span className="text-red-500 font-black text-base leading-none" title="Restorer notes missing">*</span>
                                 )}
@@ -1456,9 +1572,9 @@ export default async function AdminPage({
                               )}
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <Link href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
+                              <DashboardLink href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">
                                 View →
-                              </Link>
+                              </DashboardLink>
                             </td>
                           </tr>
                         );
@@ -1498,14 +1614,14 @@ export default async function AdminPage({
                   <tbody>
                     {(insuredOrders ?? []).map((order) => {
                       const tier = order.restoration_tier ? TIER_STYLES[order.restoration_tier] : null;
-                      const declaredValue = (order as any).insurance_declared_value_cents as number;
-                      const insuranceType = (order as any).insurance_type as string | null;
+                      const declaredValue = order.insurance_declared_value_cents as number;
+                      const insuranceType = order.insurance_type as string | null;
                       return (
                         <tr key={order.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
                           <td className="px-4 py-3">
-                            <Link href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
+                            <DashboardLink href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline">
                               {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                            </Link>
+                            </DashboardLink>
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-foreground">{order.customer_name}</p>
@@ -1533,7 +1649,7 @@ export default async function AdminPage({
                             {new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <Link href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">View →</Link>
+                            <DashboardLink href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline">View →</DashboardLink>
                           </td>
                         </tr>
                       );
@@ -1575,9 +1691,9 @@ export default async function AdminPage({
                       return (
                         <tr key={order.id} className="border-b border-border last:border-0 hover:bg-secondary/30">
                           <td className="px-4 py-3">
-                            <Link href={`/admin/orders/${order.id}`} className="font-heading font-black text-primary hover:underline">
+                            <DashboardLink href={`/admin/orders/${order.id}`} className="font-heading font-black text-primary hover:underline">
                               {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                            </Link>
+                            </DashboardLink>
                           </td>
                           <td className="px-4 py-3">
                             <p className="font-medium text-foreground">{order.customer_name}</p>
@@ -1609,7 +1725,11 @@ export default async function AdminPage({
         )}
 
         {/* ── REFUND REQUESTS TAB ── */}
-        {activeTab === "refunds" && <RefundRequestsTab />}
+        {activeTab === "refunds" && (
+          <Suspense fallback={<RefundRequestsFallback />}>
+            <RefundRequestsTab />
+          </Suspense>
+        )}
 
         {/* ── UPDATE REQUESTS TAB ── */}
         {activeTab === "updates" && (
@@ -1619,7 +1739,7 @@ export default async function AdminPage({
                 <h2 className="font-heading font-black text-lg text-foreground">Customers waiting on an update</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">Asked from their account, oldest first. Your reply is emailed to them and closes the request.</p>
               </div>
-              <Link href="/admin/cases?filter=all&type=inquiry" className="text-sm font-semibold text-primary hover:underline">All update requests →</Link>
+              <DashboardLink href="/admin/cases?filter=all&type=inquiry" className="text-sm font-semibold text-primary hover:underline">All update requests →</DashboardLink>
             </div>
             {(updateRequests ?? []).length === 0 ? (
               <p className="px-5 py-12 text-center text-sm text-muted-foreground">No one is waiting on an update right now.</p>
@@ -1646,13 +1766,13 @@ export default async function AdminPage({
                         {days === 0 ? "Asked today" : `Waiting ${days} day${days === 1 ? "" : "s"}`}
                       </span>
                       {order && (
-                        <Link href={isKit ? "/admin/shop-orders" : `/admin/orders/${order.id}`} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
+                        <DashboardLink href={isKit ? "/admin/shop-orders" : `/admin/orders/${order.id}`} className="text-sm font-semibold text-muted-foreground hover:text-foreground">
                           Open order
-                        </Link>
+                        </DashboardLink>
                       )}
-                      <Link href={`/admin/cases/${u.id}`} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-bold flex items-center hover:bg-primary/90 transition-colors">
+                      <DashboardLink href={`/admin/cases/${u.id}`} className="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-bold flex items-center hover:bg-primary/90 transition-colors">
                         Reply
-                      </Link>
+                      </DashboardLink>
                     </li>
                   );
                 })}
@@ -1776,7 +1896,7 @@ export default async function AdminPage({
                   const tier = order.restoration_tier ? TIER_STYLES[order.restoration_tier] : null;
                   const cards = videoCardsByOrder[order.id] ?? [];
                   return (
-                    <Link
+                    <DashboardLink
                       key={order.id}
                       href={`/admin/orders/${order.id}`}
                       className="bg-white rounded-xl border-2 border-pink-200 p-5 flex flex-col sm:flex-row sm:items-start gap-4 hover:border-pink-400 transition-colors"
@@ -1814,7 +1934,7 @@ export default async function AdminPage({
                           {new Date(order.created_at).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}
                         </span>
                       </div>
-                    </Link>
+                    </DashboardLink>
                   );
                 })}
               </div>

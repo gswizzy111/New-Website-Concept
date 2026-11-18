@@ -2,6 +2,7 @@ import { requireAdminOrAccountant } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
 import Link from "next/link";
+import { after } from "next/server";
 import { PrintButton } from "./print-button";
 import { ExportButton } from "./export-button";
 import { syncRefundsQuietly } from "@/lib/refund-ledger";
@@ -38,7 +39,9 @@ export default async function TaxPage({
   // Calendar periods are New York's; sales and refunds are rows of their own (./tax-rows.ts)
   const nowYear = taxYear(null);
   const selectedYear = taxYear(year);
-  await syncRefundsQuietly(admin); // refunds made in the Stripe Dashboard (gives up after a few seconds)
+  // Refunds made in the Stripe Dashboard: synced after the page is sent (and every
+  // 10 minutes by netlify/functions/cron-refund-sync.mjs), so Stripe never holds it up
+  after(() => syncRefundsQuietly(admin));
   const rows = await taxRowsForYear(admin, selectedYear);
   const filteredRows = filterTaxRows(rows, { month: selectedMonth, quarter, state: stateFilter, type: typeFilter });
 
@@ -107,6 +110,7 @@ export default async function TaxPage({
   const filterLink = (param: string, value: string, label: string, active: boolean) => (
     <Link
       href={buildUrl({ [param]: value })}
+      prefetch={false}
       className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
         active ? "bg-foreground text-background border-foreground" : "bg-white text-muted-foreground border-border hover:border-foreground"
       }`}
@@ -131,6 +135,7 @@ export default async function TaxPage({
               <Link
                 key={y}
                 href={buildUrl({ year: String(y), quarter: "all", state: "all", type: "all" })}
+                prefetch={false}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                   y === selectedYear ? "bg-foreground text-background border-foreground" : "bg-white text-muted-foreground border-border hover:border-foreground"
                 }`}
@@ -214,6 +219,7 @@ export default async function TaxPage({
                 <Link
                   key={i}
                   href={buildUrl({ month: String(i), quarter: "all" })}
+                  prefetch={false}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${
                     selectedMonth === String(i)
                       ? "bg-foreground text-background border-foreground"
@@ -281,7 +287,7 @@ export default async function TaxPage({
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(row.date)}</td>
                     <td className="px-4 py-3">
                       {row.order_number && role === "admin" && row.order_id ? (
-                        <Link href={`/admin/orders/${row.order_id}`} className="text-xs font-mono font-semibold text-primary hover:underline">
+                        <Link href={`/admin/orders/${row.order_id}`} prefetch={false} className="text-xs font-mono font-semibold text-primary hover:underline">
                           #{row.order_number}
                         </Link>
                       ) : row.order_number ? (

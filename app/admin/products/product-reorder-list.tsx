@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { ChevronUp, ChevronDown } from "lucide-react";
 
 interface Product {
@@ -109,7 +109,7 @@ export function ProductReorderList({ initialProducts }: { initialProducts: Produ
 
                   <span className="text-xs font-bold text-muted-foreground w-5 text-center shrink-0">{i + 1}</span>
 
-                  <Link
+                  <AdminLink
                     href={`/admin/products/${product.id}`}
                     className="flex-1 min-w-0 flex items-center gap-4 hover:opacity-80 transition-opacity"
                   >
@@ -132,7 +132,7 @@ export function ProductReorderList({ initialProducts }: { initialProducts: Produ
                         <p className="font-heading font-black text-primary text-lg">{formatCurrency(product.price_cents)}</p>
                       </div>
                     </div>
-                  </Link>
+                  </AdminLink>
                 </div>
               ))}
             </div>

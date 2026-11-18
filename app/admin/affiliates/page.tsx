@@ -4,7 +4,7 @@ import { NewAffiliateForm } from "./new-affiliate-form";
 import { NewCouponForm } from "./new-coupon-form";
 import { EditAffiliateForm } from "./edit-affiliate-form";
 import { PortalAccess } from "./portal-access";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { formatCurrency } from "@/lib/utils";
 import { isAdmin } from "@/lib/admin-auth";
 import { commissionCents, commissionRatesFor, currentRate, formatPercent, kitSummary, ledgerRefundCents, rateAt, saleCents, saleDate } from "@/lib/creator-portal";
@@ -147,13 +147,13 @@ export default async function AdminAffiliatesPage({
                       Created {saleDate(affiliate.created_at, { month: "numeric", day: "numeric", year: "numeric" })}
                     </p>
                     {editingId !== affiliate.id && (
-                      <Link
+                      <AdminLink
                         href={`/admin/affiliates?edit=${affiliate.id}`}
                         scroll={false}
                         className="inline-block mt-2 text-xs font-semibold text-primary hover:underline underline-offset-2"
                       >
                         Edit name, code, discount or commission
-                      </Link>
+                      </AdminLink>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">

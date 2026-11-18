@@ -3,6 +3,8 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { uploadPhotos } from "./upload-photos";
+import { CardPicker, pickCaption, type ReferencePick } from "@/components/admin/card-picker";
+import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 
 export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTier?: string | null }) {
   const router = useRouter();
@@ -18,11 +20,23 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
   const [valueStr, setValueStr] = useState("");
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  // The card picked from the card catalog: its number and reference photo
+  const [catalog, setCatalog] = useState<{ id: string; imageUrl: string | null; number: string; caption: string } | null>(null);
 
   function reset() {
-    setName(""); setSet(""); setYear(""); setValueStr(""); setNotes(""); setPhotos([]);
+    setName(""); setSet(""); setYear(""); setValueStr(""); setNotes(""); setPhotos([]); setCatalog(null);
     setError("");
   }
+
+  function pickCard(card: CatalogCard) {
+    const f = catalogFormFields(card);
+    setName(f.card_name);
+    setSet(f.card_set);
+    setYear(f.card_year);
+    setCatalog({ id: f.catalog_card_id, imageUrl: f.catalog_image_url, number: f.card_number, caption: pickCaption(card) });
+  }
+
+  const reference: ReferencePick | null = catalog ? { imageUrl: catalog.imageUrl, caption: catalog.caption } : null;
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
@@ -55,6 +69,7 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
           notes: notes.trim() || null,
           photo_urls: photos,
           tier: orderTier ?? null,
+          ...(catalog ? { card_number: catalog.number, catalog_card_id: catalog.id, catalog_image_url: catalog.imageUrl } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -93,8 +108,18 @@ export function AddCardButton({ orderId, orderTier }: { orderId: string; orderTi
 
       <div className="p-4 bg-white flex flex-col gap-3">
         <div>
-          <label className="text-[10px] font-semibold text-muted-foreground block mb-1">Card Name *</label>
-          <input className={inp} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Charizard Holo" autoFocus />
+          <label htmlFor="add-card-name" className="text-[10px] font-semibold text-muted-foreground block mb-1">Card Name *</label>
+          <CardPicker
+            inputId="add-card-name"
+            inputClassName={inp}
+            value={name}
+            onChange={setName}
+            onPick={pickCard}
+            picked={reference}
+            onClear={() => setCatalog(null)}
+            placeholder="e.g. Charizard Holo"
+            autoFocus
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">

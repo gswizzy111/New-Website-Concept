@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { thumbnail } from "@/lib/thumbnail";
 import { formatCurrency } from "@/lib/utils";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { addDays, etToday } from "@/lib/dashboard-metrics";
 import { etDateOf } from "@/lib/sales-report";
@@ -171,9 +171,9 @@ export default async function FastPassPage({
             </div>
             <p className="text-muted-foreground text-sm">{all.length} total · {activeCount} active paid</p>
           </div>
-          <Link href="/admin/orders/new" className="h-9 px-4 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center whitespace-nowrap">
+          <AdminLink href="/admin/orders/new" className="h-9 px-4 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors flex items-center whitespace-nowrap">
             + New Order
-          </Link>
+          </AdminLink>
         </div>
 
         {/* Stats */}
@@ -208,7 +208,7 @@ export default async function FastPassPage({
             ["in_progress", "In Progress"],
             ["completed", "Completed"],
           ].map(([val, label]) => (
-            <Link
+            <AdminLink
               key={val}
               href={`/admin/fast-pass${val !== "all" ? `?status=${val}` : ""}`}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border ${
@@ -218,7 +218,7 @@ export default async function FastPassPage({
               }`}
             >
               {label}
-            </Link>
+            </AdminLink>
           ))}
         </div>
 
@@ -266,9 +266,9 @@ export default async function FastPassPage({
                     >
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-0.5">
-                          <Link href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline text-sm">
+                          <AdminLink href={`/admin/orders/${order.id}`} className="font-mono font-bold text-primary hover:underline text-sm">
                             {/^\d+$/.test(String(order.order_number)) ? `R${order.order_number}` : order.order_number}
-                          </Link>
+                          </AdminLink>
                           <span className="text-xs text-muted-foreground">
                             {new Date(order.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}
                           </span>
@@ -334,9 +334,9 @@ export default async function FastPassPage({
                         <span className="font-heading font-black text-primary">{formatCurrency(order.total_cents)}</span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Link href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline whitespace-nowrap">
+                        <AdminLink href={`/admin/orders/${order.id}`} className="text-xs font-bold text-primary hover:underline whitespace-nowrap">
                           View →
-                        </Link>
+                        </AdminLink>
                       </td>
                     </tr>
                   );
@@ -356,7 +356,7 @@ export default async function FastPassPage({
               {pastOrders.map((order) => {
                 const cards = cardsByOrder[order.id] ?? [];
                 return (
-                  <Link
+                  <AdminLink
                     key={order.id}
                     href={`/admin/orders/${order.id}`}
                     className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors opacity-70 hover:opacity-100"
@@ -382,7 +382,7 @@ export default async function FastPassPage({
                         {new Date(order.created_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" })}
                       </span>
                     </div>
-                  </Link>
+                  </AdminLink>
                 );
               })}
             </div>

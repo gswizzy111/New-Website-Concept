@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { isAdmin } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +57,7 @@ export default async function IncomingPackagesPage() {
           ) : (
             <div className="flex flex-col gap-3">
               {incoming.map((order) => (
-                <Link
+                <AdminLink
                   key={order.id}
                   href={`/admin/orders/${order.id}`}
                   className="bg-white rounded-xl border border-border p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-primary/40 transition-colors"
@@ -91,7 +91,7 @@ export default async function IncomingPackagesPage() {
                       Ordered {new Date(order.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                     </span>
                   </div>
-                </Link>
+                </AdminLink>
               ))}
             </div>
           )}
@@ -103,7 +103,7 @@ export default async function IncomingPackagesPage() {
             <h2 className="font-heading font-black text-xl text-foreground mb-4">Recently Arrived</h2>
             <div className="flex flex-col gap-2">
               {arrived.map((order) => (
-                <Link
+                <AdminLink
                   key={order.id}
                   href={`/admin/orders/${order.id}`}
                   className="bg-white rounded-xl border border-border px-5 py-3 flex items-center gap-4 hover:border-primary/40 transition-colors opacity-70 hover:opacity-100"
@@ -123,7 +123,7 @@ export default async function IncomingPackagesPage() {
                   {order.inbound_tracking_number && (
                     <span className="font-mono text-xs text-muted-foreground shrink-0">{order.inbound_tracking_number}</span>
                   )}
-                </Link>
+                </AdminLink>
               ))}
             </div>
           </div>
