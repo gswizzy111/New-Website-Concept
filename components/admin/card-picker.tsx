@@ -271,7 +271,7 @@ export function CardPicker({
               })}
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 bg-secondary/40">
-              <button type="button" onClick={close} className="text-xs font-semibold text-primary hover:text-primary/80">
+              <button type="button" onClick={close} className="inline-flex items-center min-h-11 sm:min-h-0 text-xs font-semibold text-primary hover:text-primary/80">
                 Not in the list? Type it in
               </button>
               {cards.length > 0 && <span className="hidden sm:inline text-[10px] text-muted-foreground">Arrow keys and Enter to pick</span>}
@@ -283,7 +283,8 @@ export function CardPicker({
         </p>
       </div>
 
-      {picked && <ReferencePhoto picked={picked} onClear={onClear} thumbClass={thumb} />}
+      {/* Keyed by the picture, so a picture that failed to load doesn't hide the next one */}
+      {picked && <ReferencePhoto key={picked.imageUrl ?? ""} picked={picked} onClear={onClear} thumbClass={thumb} />}
     </div>
   );
 }
@@ -317,7 +318,7 @@ function ReferencePhoto({ picked, onClear, thumbClass }: { picked: ReferencePick
         <button
           type="button"
           onClick={onClear}
-          className="self-start inline-flex items-center gap-1 py-1 text-xs font-semibold text-red-600 hover:text-red-700"
+          className="self-start inline-flex items-center gap-1 py-1 min-h-11 sm:min-h-0 text-xs font-semibold text-red-600 hover:text-red-700"
         >
           <X className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
           Clear
