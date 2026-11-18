@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SignedAgreements, type SignedAgreement } from "@/components/admin-ui/signed-agreements";
 import { thumbnail } from "@/lib/thumbnail";
-import { shippo } from "@/lib/shippo";
+import { cachedTrackingStatus, type TrackingSnapshot } from "@/lib/tracking-cache";
 import { ORDER_STATUSES, STATUS_TIMELINE, type OrderStatus } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { INSTAGRAM_FEATURE_CENTS } from "@/lib/order-totals";
@@ -31,7 +31,6 @@ import { PaymentMethodEditor } from "./payment-method-editor";
 import { TierSwitcher } from "./tier-switcher";
 import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import { RegenerateLabelButton } from "./regenerate-label-button";
-import type { Track } from "shippo/models/components";
 import { requireAdmin } from "@/lib/admin-auth";
 import { openProblemsFor } from "@/lib/email-problems";
 import { PROBLEM_LABELS, problemAdvice } from "@/lib/email-problem-labels";
@@ -152,12 +151,12 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   // bought return label counts only while the order still has that label's number
   const savedReturnCarrier = order.outbound_tracking_number === order.tracking_number ? (order.outbound_carrier as string | null) : null;
   const returnCarrier = order.tracking_number ? trackingCarrier(order.tracking_number, savedReturnCarrier) : null;
-  const [inboundTrack, returnTrack]: [Track | null, Track | null] = await Promise.all([
+  const [inboundTrack, returnTrack]: [TrackingSnapshot | null, TrackingSnapshot | null] = await Promise.all([
     order.inbound_tracking_number && order.inbound_carrier
-      ? shippo.trackingStatus.get(order.inbound_tracking_number, shippoCarrierToken(order.inbound_carrier)).catch(() => null)
+      ? cachedTrackingStatus(order.inbound_tracking_number, shippoCarrierToken(order.inbound_carrier))
       : null,
     order.status === "shipped_back" && order.tracking_number && returnCarrier
-      ? shippo.trackingStatus.get(order.tracking_number, returnCarrier.token).catch(() => null)
+      ? cachedTrackingStatus(order.tracking_number, returnCarrier.token)
       : null,
   ]);
 
@@ -184,7 +183,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between gap-3 mb-8">
-          <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
+          <Link prefetch={false} href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
             ← All Orders
           </Link>
           <div className="flex items-center gap-2">
@@ -194,7 +193,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         </div>
 
         {openRefundRequest && (
-          <Link href="/admin?tab=refunds" className="block rounded-xl border-2 border-amber-300 bg-amber-50 p-4 mb-3 hover:bg-amber-100 transition-colors">
+          <Link prefetch={false} href="/admin?tab=refunds" className="block rounded-xl border-2 border-amber-300 bg-amber-50 p-4 mb-3 hover:bg-amber-100 transition-colors">
             <p className="font-heading font-black text-amber-900">💸 Refund requested by {openRefundRequest.requested_by}</p>
             <p className="text-sm text-amber-800 mt-0.5 line-clamp-2">{openRefundRequest.reason}</p>
             <p className="text-xs font-semibold text-amber-900 mt-1 underline">Approve or deny in Refund Requests →</p>
@@ -736,7 +735,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     {new Date(emailProblems[0].received_at).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" })}.{" "}
                     {problemAdvice(emailProblems[0].type)}
                   </p>
-                  <Link href="/admin/email-problems" className="mt-1 inline-block font-semibold underline">See Email Problems</Link>
+                  <Link prefetch={false} href="/admin/email-problems" className="mt-1 inline-block font-semibold underline">See Email Problems</Link>
                 </div>
               )}
               <CustomerEditor
