@@ -15,36 +15,52 @@ import { getBacklogDays, getBacklogNow, getRevenueSeries } from "@/lib/dashboard
  *
  * Lifetime: an entry is fresh for 60 s. Next's cache then serves the old entry
  * once while it recomputes in the background, so after a quiet spell the
- * first load could show numbers from long ago: anything older than
- * MAX_AGE_MS (2 minutes) is never shown, it's recomputed on the spot.
+ * first load could show numbers from long ago. To stop that, each
+ * MAX_AGE_MS (2-minute) window of the clock has its own entry: an entry is
+ * never shown after its window ends, so nothing shown is older than
+ * 2 minutes, and the first load in a new window computes once, on the spot.
  *
  * Invalidated (tag DASHBOARD_METRICS_TAG) when the dashboard's after-response
  * Stripe refund sync saves refunds (app/admin/page.tsx) and when an admin
  * decides a refund request (app/admin/dashboard-actions.ts). Other changes
- * (an order paid, a card ticked done) show within the minute.
+ * (an order paid, a card ticked done, a refund from an order page) show
+ * within the minute.
  */
 export const DASHBOARD_METRICS_TAG = "admin-dashboard-metrics";
 const FRESH_SECONDS = 60;
 const MAX_AGE_MS = 2 * FRESH_SECONDS * 1000;
 
-type Stamped<T> = { at: number; value: T };
+/** The metric itself failed (not the cache around it): don't run it a second time. */
+class MetricFailed extends Error {
+  constructor(readonly original: unknown) {
+    super("metric failed");
+  }
+}
 
 function cachedMetric<A extends string[], T>(name: string, load: (...args: A) => Promise<T>) {
   const fromCache = unstable_cache(
-    async (...args: A): Promise<Stamped<T>> => ({ at: Date.now(), value: await load(...args) }),
-    [`admin-dashboard-metric:${name}:v1`],
+    // `_window` is only part of the cache key (see Lifetime above)
+    async (_window: number, ...args: A): Promise<T> => {
+      try {
+        return await load(...args);
+      } catch (e) {
+        throw new MetricFailed(e);
+      }
+    },
+    [`admin-dashboard-metric:${name}:v2`],
     { revalidate: FRESH_SECONDS, tags: [DASHBOARD_METRICS_TAG] },
   );
   return async (...args: A): Promise<T> => {
-    let hit: Stamped<T>;
     try {
-      hit = await fromCache(...args);
+      return await fromCache(Math.floor(Date.now() / MAX_AGE_MS), ...args);
     } catch (e) {
-      // The cache itself failed (or the computation did): compute directly once
+      // A database error is the caller's to report; trying again would only
+      // add load to a database that is already struggling
+      if (e instanceof MetricFailed) throw e.original;
+      // The cache itself failed: compute directly once
       console.error(`[admin] metrics cache ${name}:`, e instanceof Error ? e.message : e);
       return load(...args);
     }
-    return Date.now() - hit.at <= MAX_AGE_MS ? hit.value : load(...args);
   };
 }
 
