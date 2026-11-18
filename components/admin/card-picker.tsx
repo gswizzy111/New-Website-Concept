@@ -174,9 +174,11 @@ export function CardPicker({
     } else if (e.key === "ArrowLeft" && showing && active >= 0) {
       e.preventDefault();
       setActive((i) => Math.max(0, i - 1));
-    } else if (e.key === "Enter" && showing && active >= 0) {
+    } else if (e.key === "Enter" && open) {
+      // Picks the highlighted card. With the results open it never submits the
+      // form around the box (the manual order form would create the order)
       e.preventDefault();
-      choose(cards[active]);
+      if (showing && active >= 0) choose(cards[active]);
     } else if (e.key === "Escape" && open) {
       e.preventDefault();
       close();
