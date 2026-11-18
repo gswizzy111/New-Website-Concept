@@ -5,7 +5,7 @@ import { KitRow } from "./kit-row";
 import { TierRow } from "./tier-row";
 import { RestorationsToggle } from "./restorations-toggle";
 import { WaitlistNotifier } from "./waitlist-notifier";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { headers } from "next/headers";
 import { requireAdmin } from "@/lib/admin-auth";
 import { tierSlotUsage } from "@/lib/tier-slots";
@@ -107,7 +107,7 @@ export default async function StoreSettingsPage() {
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-3xl mx-auto px-6 py-10">
         <div className="mb-8">
-          <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</Link>
+          <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</AdminLink>
           <h1 className="font-heading font-black text-3xl text-foreground">Store Settings</h1>
           <p className="text-muted-foreground text-sm mt-1">Control what&apos;s available for sale and how each tier is configured.</p>
         </div>

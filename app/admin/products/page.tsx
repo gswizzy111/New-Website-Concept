@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSubscriptionPriceCents } from "@/lib/store-config";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { ProductReorderList } from "./product-reorder-list";
 import { SubscriptionPriceEditor } from "./subscription-price-editor";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -23,25 +23,25 @@ export default async function AdminProductsPage() {
       <div className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <Link href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</Link>
+            <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary mb-2 block">← Orders</AdminLink>
             <h1 className="font-heading font-black text-3xl text-foreground">Products</h1>
             <p className="text-muted-foreground text-sm mt-1">
               {products?.length ?? 0} total · drag to reorder
             </p>
           </div>
-          <Link
+          <AdminLink
             href="/admin/products/new"
             className="bg-primary text-white font-bold px-4 py-2 rounded-lg hover:bg-primary/90 transition-colors text-sm"
           >
             + Add Product
-          </Link>
+          </AdminLink>
         </div>
 
         {products && products.length > 0 ? (
           <ProductReorderList initialProducts={products} />
         ) : (
           <div className="bg-white rounded-xl border border-border p-12 text-center text-muted-foreground">
-            No products yet. <Link href="/admin/products/new" className="text-primary font-medium">Add your first product →</Link>
+            No products yet. <AdminLink href="/admin/products/new" className="text-primary font-medium">Add your first product →</AdminLink>
           </div>
         )}
 

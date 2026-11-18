@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
@@ -60,7 +60,7 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex gap-1 bg-white border border-border rounded-lg p-1">
               {RANGES.map((r) => (
-                <Link
+                <AdminLink
                   key={r.key}
                   href={`/admin/services?range=${r.key}`}
                   className={`px-3 py-1.5 rounded-md text-xs font-bold whitespace-nowrap transition-colors ${
@@ -68,7 +68,7 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
                   }`}
                 >
                   {r.label}
-                </Link>
+                </AdminLink>
               ))}
             </div>
             <CsvButton rows={csv} filename={`prep-vs-restoration-${range}-${today}.csv`} />

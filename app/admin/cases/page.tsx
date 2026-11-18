@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { INQUIRY_TYPE } from "@/lib/card-inquiries";
 import { PROBLEM_TYPE } from "@/lib/problem-reports";
 import { requireAdminOrSupport } from "@/lib/admin-auth";
@@ -55,13 +55,13 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
     const sp2 = new URLSearchParams({ filter, type: typeFilter, [param]: value });
     const active = current === value;
     return (
-      <Link
+      <AdminLink
         key={value}
         href={`/admin/cases?${sp2}`}
         className={`px-3 py-1.5 rounded-lg text-xs font-bold border whitespace-nowrap transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:border-primary/40"}`}
       >
         {label}
-      </Link>
+      </AdminLink>
     );
   };
 
@@ -74,9 +74,9 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
             <h1 className="font-heading font-black text-3xl text-foreground">Cases</h1>
             <p className="text-muted-foreground text-sm mt-0.5">{list.length} case{list.length !== 1 ? "s" : ""}</p>
           </div>
-          <Link href="/admin/cases/new" className="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors flex items-center">
+          <AdminLink href="/admin/cases/new" className="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-sm font-bold hover:bg-primary/90 transition-colors flex items-center">
             + New Case
-          </Link>
+          </AdminLink>
         </div>
 
         {/* Filters */}
@@ -99,13 +99,13 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
           <div className="bg-white rounded-xl border border-border p-16 text-center">
             <p className="font-heading font-black text-lg text-foreground">No cases found</p>
             <p className="text-sm text-muted-foreground mt-1">
-              <Link href="/admin/cases/new" className="text-primary hover:underline">Open a new case</Link>
+              <AdminLink href="/admin/cases/new" className="text-primary hover:underline">Open a new case</AdminLink>
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             {list.map((c) => (
-              <Link key={c.id} href={`/admin/cases/${c.id}`} className="block bg-white rounded-xl border border-border p-5 hover:border-primary/40 transition-colors">
+              <AdminLink key={c.id} href={`/admin/cases/${c.id}`} className="block bg-white rounded-xl border border-border p-5 hover:border-primary/40 transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1.5">
@@ -129,7 +129,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                     {new Date(c.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </p>
                 </div>
-              </Link>
+              </AdminLink>
             ))}
           </div>
         )}

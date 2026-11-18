@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { useRouter } from "next/navigation";
 
 interface Props {
@@ -116,13 +116,13 @@ export function EditAffiliateForm({ affiliate }: Props) {
           >
             {loading ? "Saving..." : "Save"}
           </button>
-          <Link
+          <AdminLink
             href="/admin/affiliates"
             scroll={false}
             className="h-9 px-4 inline-flex items-center bg-white border border-border text-foreground font-semibold text-sm rounded-lg hover:bg-secondary transition-colors"
           >
             Cancel
-          </Link>
+          </AdminLink>
         </div>
       </form>
       {commission.trim() !== "" && Number(commission) !== affiliate.commission_percent && (
