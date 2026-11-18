@@ -2,9 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
 import { normalizeCatalogText, SEARCH_MAX, SEARCH_MIN, type CatalogCard } from "@/lib/card-catalog";
 
-const LIMIT = 24;
+const LIMIT = 48;
 
-// The card picker's search (components/admin/card-picker.tsx): up to 24
+// The card picker's search (components/admin/card-picker.tsx): up to 48
 // catalog cards for ?q=, best match first (search_card_catalog() in
 // supabase/migrations/20261118_card_catalog.sql). Admins only, like the card
 // routes it serves. One database call; the answer is cached by the browser

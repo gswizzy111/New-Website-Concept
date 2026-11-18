@@ -204,7 +204,7 @@ export function CardPicker({
             onKeyDown={onKeyDown}
             onBlur={close}
             onFocus={() => { if (cards.length > 0 && status === "done" && normalizeCatalogText(value).length >= SEARCH_MIN && !picked) setOpen(true); }}
-            placeholder={placeholder}
+            placeholder={placeholder ?? "e.g. charizard base, gold star, full art umbreon, 100/101"}
             autoFocus={autoFocus}
             autoComplete="off"
             spellCheck={false}
@@ -229,7 +229,7 @@ export function CardPicker({
             )}
             {status === "error" && <p className="px-3 py-3 text-xs text-red-600">{error}</p>}
             {status === "done" && cards.length === 0 && (
-              <p className="px-3 py-3 text-xs text-muted-foreground">No cards match. Try fewer words, or the card number.</p>
+              <p className="px-3 py-3 text-xs text-muted-foreground">No cards match. Try fewer words, the card number (100/101), or words like gold star, full art, secret rare, SIR.</p>
             )}
             <div
               id={listId}
