@@ -12,6 +12,8 @@ type Rate = {
   amount: string;
   currency: string;
   days: number | null;
+  /** The service the customer paid for at checkout */
+  paid?: boolean;
 };
 
 export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, insuranceDeclaredValueCents }: {
@@ -94,7 +96,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
         return;
       }
       setRates(data.rates);
-      setSelectedRate(data.rates[0]);
+      setSelectedRate(data.rates.find((r: Rate) => r.paid) ?? data.rates[0]);
       setState("confirm");
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Unknown error");
@@ -102,7 +104,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
     }
   }
 
-  /** One tap: buy the cheapest rate (with the customer's insurance, if any) and print it. */
+  /** One tap: buy the service the customer paid for (else the cheapest), with the customer's insurance, if any, and print it. */
   async function quickPrint() {
     setState("fetching");
     setErrorMsg("");
@@ -116,13 +118,14 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
         setState("idle");
         return;
       }
-      const cheapest: Rate | undefined = data.rates?.[0];
-      if (!cheapest) throw new Error("No rates available");
-      if (!confirm(`Buy a ${cheapest.provider} ${cheapest.service} label for $${parseFloat(cheapest.amount).toFixed(2)}${hasRoundTripInsurance ? " (+ insurance)" : ""} and print it?`)) {
+      const rates: Rate[] = data.rates ?? [];
+      const pick: Rate | undefined = rates.find((r) => r.paid) ?? rates[0];
+      if (!pick) throw new Error("No rates available");
+      if (!confirm(`Buy a ${pick.provider} ${pick.service} label${pick.paid ? " (what the customer paid for)" : ""} for $${parseFloat(pick.amount).toFixed(2)}${hasRoundTripInsurance ? " (+ insurance)" : ""} and print it?`)) {
         setState("idle");
         return;
       }
-      await purchaseLabel(cheapest);
+      await purchaseLabel(pick);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Unknown error");
       setState("error");
@@ -248,6 +251,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
                   <span className="font-bold">{r.provider}</span> {r.service}
                   {r.days ? ` · ${r.days}d` : ""} —{" "}
                   <span className="font-bold">${parseFloat(r.amount).toFixed(2)}</span>
+                  {r.paid && <span className="ml-1.5 rounded bg-green-100 px-1.5 py-0.5 font-bold text-green-800">Customer paid</span>}
                 </span>
               </label>
             ))}
@@ -327,7 +331,7 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
             </button>
             <button
               onClick={quickPrint}
-              title="Buy the cheapest label and print it"
+              title="Buy the label the customer paid for (or the cheapest) and print it"
               className="flex items-center gap-1.5 text-sm font-bold px-4 py-2 bg-foreground text-background rounded-lg hover:opacity-90 transition-opacity"
             >
               <span>🖨</span> Print

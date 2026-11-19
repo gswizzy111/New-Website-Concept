@@ -5,6 +5,8 @@ import { escapeHtml } from "@/lib/card-inquiries";
 import { shippoRateCarrier } from "@/lib/tracking-carrier";
 import { WeightUnitEnum, DistanceUnitEnum } from "shippo/models/components";
 import { isAdmin } from "@/lib/admin-auth";
+import { stripe } from "@/lib/stripe";
+import { ratesWithPaidService } from "@/lib/paid-shipping-rate";
 
 const BOX_KEYWORDS = ["official", "essential", "clamp"];
 
@@ -67,6 +69,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const addr = order.shipping_address as ShippingAddress | null;
     if (!addr?.street1) return Response.json({ error: "No shipping address on file" }, { status: 400 });
 
+    // The shipping the customer picked at checkout ("USPS Priority Mail"),
+    // kept on the Stripe session. Read alongside the rates; if it can't be
+    // read, the cheapest rate is the default as before.
+    const paidServicePromise: Promise<{ carrier: string | null; service: string } | null> = order.stripe_session_id
+      ? stripe.checkout.sessions.retrieve(order.stripe_session_id as string)
+          .then((s) => (s.metadata?.kit_shipping_service ? { carrier: s.metadata.kit_carrier || null, service: s.metadata.kit_shipping_service } : null))
+          .catch(() => null)
+      : Promise.resolve(null);
+
     const shipment = await shippo.shipments.create({
       addressFrom: businessAddress,
       addressTo: {
@@ -84,16 +95,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       async: false,
     });
 
-    const rates = [...(shipment.rates ?? [])]
-      .sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount))
-      .slice(0, 5)
-      .map((r) => ({
+    const rates = ratesWithPaidService(shipment.rates ?? [], await paidServicePromise)
+      .map(({ rate: r, paid }) => ({
         objectId: r.objectId,
         provider: r.provider,
         service: r.servicelevel?.name ?? "",
         amount: r.amount,
         currency: r.currency,
         days: r.estimatedDays ?? null,
+        paid,
       }));
 
     if (rates.length === 0) return Response.json({ error: "No shipping rates available for this address. Check that the address is complete." }, { status: 422 });

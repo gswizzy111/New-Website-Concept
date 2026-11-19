@@ -6,6 +6,7 @@ import { siteUrl } from "@/lib/site-url";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { DONE_STATUSES, emailCompletionNotesOnce } from "@/lib/completion-notes-email";
 import { shippoRateCarrier } from "@/lib/tracking-carrier";
+import { ratesWithPaidService } from "@/lib/paid-shipping-rate";
 
 async function authed() {
   return isAdmin();
@@ -117,16 +118,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       async: false,
     } as any);
 
-    const rates = [...(shipment.rates ?? [])]
-      .sort((a, b) => parseFloat(a.amount) - parseFloat(b.amount))
-      .slice(0, 5)
-      .map((r) => ({
+    // The service the customer paid for: a prepaid label covers the trip in
+    // and back (inbound_*); self-ship orders pay for the trip back (return_*)
+    const paidService = order.inbound_service_level
+      ? { carrier: order.inbound_carrier as string | null, service: order.inbound_service_level as string }
+      : order.return_service_level
+        ? { carrier: order.return_carrier as string | null, service: order.return_service_level as string }
+        : null;
+
+    const rates = ratesWithPaidService(shipment.rates ?? [], paidService)
+      .map(({ rate: r, paid }) => ({
         objectId: r.objectId,
         provider: r.provider,
         service: r.servicelevel?.name ?? "",
         amount: r.amount,
         currency: r.currency,
         days: r.estimatedDays ?? null,
+        paid,
       }));
 
     if (rates.length === 0) return Response.json({ error: "No rates available from Shippo" }, { status: 500 });
