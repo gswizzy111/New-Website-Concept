@@ -85,3 +85,44 @@ export async function sendDropoffConfirmationEmail(
     return err instanceof Error ? err.message : String(err);
   }
 }
+
+/**
+ * Just the sign-up invite, for any order (Send Sign-up Email on the admin
+ * order page): thanks for the order, and make an account with this email to
+ * track it. Returns Resend's error message, or null when it was sent.
+ */
+export async function sendAccountInviteEmail(order: DropoffConfirmationOrder): Promise<string | null> {
+  const firstName = (order.customer_name ?? "").split(" ")[0] || "there";
+  const orderNumber = String(order.order_number);
+  try {
+    const { error } = await resend.emails.send({
+      from: fromEmail,
+      to: order.customer_email,
+      subject: `Track Your Order — ${businessName} #${orderNumber}`,
+      html: `
+        <div style="font-family:Helvetica,Arial,sans-serif;max-width:580px;margin:0 auto;color:#111">
+          <div style="background:#a23200;border-radius:12px 12px 0 0;padding:24px;text-align:center">
+            <p style="margin:0;color:#fed8c4;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em">${businessName}</p>
+            <h1 style="font-family:Georgia,'Times New Roman',serif;margin:6px 0 0;color:#fff;font-size:28px;font-weight:900">Thanks for Your Order!</h1>
+          </div>
+          <div style="background:#fff;border:1px solid #e6e4e2;border-top:0;border-radius:0 0 12px 12px;padding:28px">
+            <p style="color:#666;margin:0 0 4px;font-size:13px">Order number</p>
+            <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${escapeHtml(orderNumber)}</p>
+            <p style="margin:0;font-size:15px;color:#333;line-height:1.6">
+              Hi ${escapeHtml(firstName)}! 👋 Thanks for your order. Sign up on our website to track its status.
+            </p>
+            ${accountInviteHtml(order.customer_email)}
+            <hr style="border:none;border-top:1px solid #e6e4e2;margin:24px 0">
+            <p style="font-size:13px;color:#666;margin:0 0 6px">Questions? We're always happy to help:</p>
+            <p style="font-size:13px;color:#333;margin:0">
+              Instagram: <a href="https://instagram.com/the_card_doc" style="color:#a23200;font-weight:600">@the_card_doc</a>
+            </p>
+          </div>
+        </div>
+      `,
+    });
+    return error ? error.message : null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}

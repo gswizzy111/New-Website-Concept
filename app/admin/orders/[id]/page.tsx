@@ -27,6 +27,7 @@ import { currentStages } from "@/lib/restoration-stages";
 import { PREGRADE_SERVICE_IDS, pregradeCount } from "@/lib/pregrade";
 import { trackingCarrier } from "@/lib/tracking-carrier";
 import { ResendConfirmationButton } from "./resend-confirmation-button";
+import { AccountInviteButton } from "./account-invite-button";
 import { PaymentMethodEditor } from "./payment-method-editor";
 import { TierSwitcher } from "./tier-switcher";
 import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
@@ -187,8 +188,9 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
             ← All Orders
           </AdminLink>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <ResendConfirmationButton orderId={order.id} />
+            <AccountInviteButton orderId={order.id} customerEmail={order.customer_email} />
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />
           </div>
         </div>
