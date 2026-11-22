@@ -9,6 +9,7 @@ import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { uploadPhotos } from "../[id]/upload-photos";
 import type { DropoffPrefill } from "@/lib/show-dropoff-prefill";
+import { ShowDropoffStarter } from "./show-dropoff-starter";
 
 /** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
 function newYorkToday(): string {
@@ -200,6 +201,8 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
 
   // Order type
   const [orderType, setOrderType] = useState<"online" | "dropoff">("dropoff");
+  // "Show Drop-off": the customer fills in the /show-dropoffs form themselves
+  const [showMode, setShowMode] = useState(false);
   const [inboundMethod, setInboundMethod] = useState<"buy_label" | "self_ship">("buy_label");
 
   // Customer
@@ -422,31 +425,44 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
       {/* Order Type */}
       <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
         <h2 className="font-heading font-black text-base text-foreground">Order Type</h2>
-        <div className="grid grid-cols-2 gap-2">
+        <div className={`grid gap-2 ${prefill ? "grid-cols-2" : "grid-cols-3"}`}>
           <button
             type="button"
-            onClick={() => setOrderType("online")}
-            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${orderType === "online" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            onClick={() => { setOrderType("online"); setShowMode(false); }}
+            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${!showMode && orderType === "online" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
           >
             <span className="text-lg">🌐</span>
             Online Order
           </button>
           <button
             type="button"
-            onClick={() => setOrderType("dropoff")}
-            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${orderType === "dropoff" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            onClick={() => { setOrderType("dropoff"); setShowMode(false); }}
+            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${!showMode && orderType === "dropoff" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
           >
             <span className="text-lg">🏪</span>
             Drop-off
           </button>
+          {!prefill && (
+            <button
+              type="button"
+              onClick={() => setShowMode(true)}
+              className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${showMode ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            >
+              <span className="text-lg">🎪</span>
+              Show Drop-off
+            </button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {orderType === "online"
+          {showMode
+            ? "At a card show: the customer fills in the Show Dropoffs form and signs. You enter it as an order later from Show Dropoffs."
+            : orderType === "online"
             ? "Customer couldn't complete checkout online. A confirmation email will be sent with shipping instructions."
             : "Cards are dropped off in person — no shipping needed. Order goes straight to restoration."}
         </p>
       </div>
 
+      {showMode ? <ShowDropoffStarter /> : (<>
       {/* Shipping — online only */}
       {orderType === "online" && (
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
@@ -785,6 +801,7 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
             : `Create ${orderType === "online" ? "Online" : "Drop-off"} Order`}
         </button>
       </div>
+      </>)}
     </form>
   );
 }
