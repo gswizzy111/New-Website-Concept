@@ -24,6 +24,7 @@
     "motion": "^13.4.6",
     "next": "16.2.4",
     "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
     "qz-tray": "^2.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.5",
     "@types/qz-tray": "^2.2.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",

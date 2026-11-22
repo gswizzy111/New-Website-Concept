@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getDropoffServices } from "@/lib/show-dropoff-services";
 import { canonical, withOg } from "@/lib/seo";
 import { ShowDropoffForm } from "./show-dropoff-form";
+import { ScanOption } from "./scan-option";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,7 @@ export default async function ShowDropoffsPage({ searchParams }: { searchParams:
             </p>
           )}
         </header>
+        <ScanOption show={show} />
         <ShowDropoffForm services={services} show={show} />
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { DropoffQr } from "@/components/show-dropoffs/dropoff-qr";
 
 /**
  * New Order → Show Drop-off: the customer fills in /show-dropoffs (on our
@@ -42,7 +43,10 @@ export function ShowDropoffStarter() {
           className="w-full h-10 border border-border rounded-lg px-3 text-sm focus:outline-none focus:border-primary transition-colors bg-white"
         />
       </div>
-      <p className="text-xs text-muted-foreground break-all">Link: {fullUrl}</p>
+      <div className="flex flex-col items-center gap-1 rounded-xl bg-secondary/40 py-4">
+        <p className="text-sm font-semibold text-foreground">Customers can scan this to fill it in on their phone</p>
+        <DropoffQr path={path} size={200} />
+      </div>
       <div className="flex flex-wrap gap-2">
         <a
           href={path}
