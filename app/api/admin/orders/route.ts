@@ -5,8 +5,29 @@ import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
 import { siteUrl } from "@/lib/site-url";
 import { checkCatalogPicks, missingCatalogColumns } from "@/lib/card-catalog-pick";
+import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 
 const TIER_IDS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
+
+// Card photos must be our own uploads. /api/upload stores each one under a
+// random name at the top of the public card-photos bucket and answers with
+// getPublicUrl(): `${NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/card-photos/<name>`.
+const CARD_PHOTOS_PATH = "/storage/v1/object/public/card-photos/";
+function isOurCardPhoto(value: string): boolean {
+  let url: URL;
+  let supabase: URL;
+  try {
+    url = new URL(value);
+    supabase = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:"
+    && url.host === supabase.host
+    && !url.username && !url.password && !url.search && !url.hash
+    && url.pathname.startsWith(CARD_PHOTOS_PATH)
+    && /^[A-Za-z0-9-]{1,100}\.[a-z]{3,4}$/.test(url.pathname.slice(CARD_PHOTOS_PATH.length));
+}
 
 const BodySchema = z.object({
   order_type: z.enum(["online", "dropoff"]).default("dropoff"),
@@ -34,6 +55,8 @@ const BodySchema = z.object({
     // Picked from the card catalog (lib/card-catalog-pick.ts checks them)
     catalog_card_id: z.string().max(120).optional(),
     catalog_image_url: z.string().max(300).optional(),
+    // Photos of the customer's card, uploaded from the form (checked below)
+    photo_urls: z.array(z.string().max(500)).max(MAX_CARD_PHOTOS).optional(),
   })).min(1),
 });
 
@@ -49,6 +72,9 @@ export async function POST(request: Request) {
   }
 
   const d = parsed.data;
+  if (!d.cards.every((c) => (c.photo_urls ?? []).every(isOurCardPhoto))) {
+    return Response.json({ error: "Card photos must be uploaded with the Add Photos button." }, { status: 400 });
+  }
   const admin = createAdminClient();
 
   const picks = await checkCatalogPicks(admin, d.cards);
@@ -264,7 +290,7 @@ export async function POST(request: Request) {
     card_set: c.card_set ?? null,
     card_year: c.card_year ?? null,
     ...(c.card_number ? { card_number: c.card_number } : {}),
-    photo_urls: [],
+    photo_urls: [...new Set(c.photo_urls ?? [])],
     service_ids: [],
   }));
   // The cards picked from the card catalog, on the rows that have one

@@ -6,6 +6,8 @@ import { getCardPriceCents } from "@/lib/restoration-tiers";
 import type { RestorationTier, RestorationTierId } from "@/lib/restoration-tiers";
 import { CardPicker, pickCaption } from "@/components/admin/card-picker";
 import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
+import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { uploadPhotos } from "../[id]/upload-photos";
 
 /** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
 function newYorkToday(): string {
@@ -22,6 +24,8 @@ type CardRow = {
   card_year?: string;
   card_number?: string;
   catalog?: { id: string; imageUrl: string | null; caption: string };
+  // Photos of the customer's card, uploaded as soon as they are picked
+  photos?: string[];
 };
 
 function emptyCard(defaultTier: TierOrCustom): CardRow {
@@ -125,6 +129,67 @@ Charizard Base Set Holo #4,
 1986 Fleer Michael Jordan #57,
 Pikachu 1st Edition Base Set #58,`;
 
+// ─── Card photos ──────────────────────────────────────────────────────────────
+
+/** A card row's photos: thumbnails with a remove button, and a picker (camera or library on a phone). */
+function CardPhotos({ cardNumber, photos, uploading, error, onAdd, onRemove }: {
+  cardNumber: number;
+  photos: string[];
+  uploading: boolean;
+  error: string;
+  onAdd: (files: File[]) => void;
+  onRemove: (index: number) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const full = photos.length >= MAX_CARD_PHOTOS;
+  return (
+    <div className="pl-8 flex flex-col gap-2">
+      {photos.length > 0 && (
+        <div className="flex flex-wrap gap-3 pt-2">
+          {photos.map((url, j) => (
+            <div key={`${j}:${url}`} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt={`Card ${cardNumber} photo ${j + 1}`} className="w-14 h-14 object-cover rounded-lg border border-border bg-white" />
+              {/* 44px to tap on a phone; the red dot sits on the corner */}
+              <button
+                type="button"
+                onClick={() => onRemove(j)}
+                aria-label={`Remove photo ${j + 1} of card ${cardNumber}`}
+                className="absolute -top-2 -right-2 w-11 h-11 sm:w-6 sm:h-6 flex items-start justify-end"
+              >
+                <span aria-hidden className="w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center leading-none">×</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) onAdd(files);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading || full}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 min-h-11 sm:min-h-0 rounded-lg border-2 border-dashed border-border text-xs font-semibold text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer disabled:cursor-default disabled:opacity-60 disabled:hover:border-border disabled:hover:text-muted-foreground"
+        >
+          {uploading ? "Uploading…" : full ? `Max ${MAX_CARD_PHOTOS} photos` : "+ Add Photos"}
+        </button>
+      </div>
+      {error && <p role="alert" className="text-xs font-medium text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
@@ -155,6 +220,10 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
   const [cards, setCards] = useState<CardRow[]>([emptyCard("")]);
+  // Card photos still uploading, and the last photo problem, per card row
+  const [photoUploads, setPhotoUploads] = useState<Record<string, number>>({});
+  const [photoErrors, setPhotoErrors] = useState<Record<string, string>>({});
+  const uploadingPhotos = Object.values(photoUploads).some((n) => n > 0);
 
   // Spreadsheet import
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -179,7 +248,39 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
     } : c));
   }
   function clearCatalogCard(id: string) {
-    setCards((p) => p.map((c) => c.id === id ? { id: c.id, name: c.name, tier: c.tier } : c));
+    setCards((p) => p.map((c) => c.id === id ? { id: c.id, name: c.name, tier: c.tier, photos: c.photos } : c));
+  }
+
+  function setPhotoError(id: string, message: string) {
+    setPhotoErrors((p) => ({ ...p, [id]: message }));
+  }
+  /** Upload photos picked for a card row and add them to it (up to MAX_CARD_PHOTOS per card). */
+  async function addCardPhotos(id: string, files: File[]) {
+    const room = MAX_CARD_PHOTOS - (cards.find((c) => c.id === id)?.photos?.length ?? 0);
+    if (room <= 0) {
+      setPhotoError(id, `Up to ${MAX_CARD_PHOTOS} photos per card. Remove one to add another.`);
+      return;
+    }
+    const picked = files.slice(0, room);
+    const skipped = files.length - picked.length;
+    setPhotoError(id, "");
+    setPhotoUploads((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
+    try {
+      const { urls, error: uploadError } = await uploadPhotos(picked);
+      if (urls.length) {
+        setCards((p) => p.map((c) => c.id === id ? { ...c, photos: [...(c.photos ?? []), ...urls].slice(0, MAX_CARD_PHOTOS) } : c));
+      }
+      const tooMany = skipped
+        ? `Up to ${MAX_CARD_PHOTOS} photos per card, so ${skipped === 1 ? "1 photo wasn't" : `${skipped} photos weren't`} added.`
+        : "";
+      setPhotoError(id, [uploadError, tooMany].filter(Boolean).join(" "));
+    } finally {
+      setPhotoUploads((p) => ({ ...p, [id]: (p[id] ?? 1) - 1 }));
+    }
+  }
+  function removeCardPhoto(id: string, index: number) {
+    setPhotoError(id, "");
+    setCards((p) => p.map((c) => c.id === id ? { ...c, photos: (c.photos ?? []).filter((_, j) => j !== index) } : c));
   }
   function updateCardTier(id: string, tier: TierOrCustom) {
     setCards((p) => p.map((c) => c.id === id ? { ...c, tier } : c));
@@ -235,6 +336,11 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
     e.preventDefault();
     setError("");
 
+    // Never create the order without a photo that is still on its way up,
+    // or drop the photos of a card row left without a name
+    if (uploadingPhotos) { setError("Wait for the photos to finish uploading."); return; }
+    const unnamedWithPhotos = cards.findIndex((c) => !c.name.trim() && c.photos?.length);
+    if (unnamedWithPhotos !== -1) { setError(`Card ${unnamedWithPhotos + 1} has photos but no name. Add its name or remove the photos.`); return; }
     if (filledCards.length === 0) { setError("Add at least one card."); return; }
     if (orderType === "online" && !email) { setError("Email is required for online orders — needed to send the confirmation email."); return; }
     if (orderType === "online" && inboundMethod === "buy_label" && (!street1 || !city || !stateCode || !zip)) {
@@ -276,6 +382,7 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
               catalog_card_id: c.catalog.id,
               catalog_image_url: c.catalog.imageUrl ?? undefined,
             } : {}),
+            ...(c.photos?.length ? { photo_urls: c.photos } : {}),
           })),
         }),
       });
@@ -576,6 +683,14 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
                   <span className="text-xs font-semibold text-primary shrink-0">{fmt(price)}</span>
                 )}
               </div>
+              <CardPhotos
+                cardNumber={i + 1}
+                photos={card.photos ?? []}
+                uploading={(photoUploads[card.id] ?? 0) > 0}
+                error={photoErrors[card.id] ?? ""}
+                onAdd={(files) => addCardPhotos(card.id, files)}
+                onRemove={(index) => removeCardPhoto(card.id, index)}
+              />
             </div>
           );
         })}
@@ -626,13 +741,15 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
         </a>
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || uploadingPhotos}
           className="h-10 px-8 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           {submitting
             ? orderType === "online" && inboundMethod === "buy_label"
               ? "Generating Label..."
               : "Creating..."
+            : uploadingPhotos
+            ? "Uploading Photos..."
             : `Create ${orderType === "online" ? "Online" : "Drop-off"} Order`}
         </button>
       </div>
