@@ -22,26 +22,24 @@ type Row = {
 const usd = (cents: number) =>
   `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** One drop-off's money in the list: the order's total, or the estimate while it waits. */
+/** One drop-off's revenue in the list: the tiers picked, priced, with its order once entered. */
 function MoneyCell({ m }: { m: DropoffMoney | undefined }) {
-  if (!m || m.kind === "none") return <span className="text-muted-foreground">—</span>;
-  if (m.kind === "entered") {
-    return (
-      <div>
-        <span className="font-semibold tabular-nums">{usd(m.cents)}</span>
-        {m.orderId && (
-          <AdminLink href={`/admin/orders/${m.orderId}`} className="block text-xs text-primary hover:underline">
-            {m.orderNumber ? `#${m.orderNumber}` : "Order"}
-          </AdminLink>
-        )}
-      </div>
-    );
-  }
-  if (!m.complete && m.cents === 0) return <span className="text-xs text-muted-foreground">Needs pricing</span>;
+  if (!m || m.cancelled) return <span className="text-muted-foreground">—</span>;
   return (
-    <span className="tabular-nums text-muted-foreground" title="Estimate from the services picked at the table">
-      ~{usd(m.cents)}{m.complete ? "" : "+"}
-    </span>
+    <div>
+      {!m.complete && m.cents === 0 ? (
+        <span className="text-xs text-muted-foreground">Needs pricing</span>
+      ) : (
+        <span className="font-semibold tabular-nums" title={m.complete ? undefined : "Part of it can't be priced (Diamond, or 5+ cards with several services)"}>
+          {usd(m.cents)}{m.complete ? "" : "+"}
+        </span>
+      )}
+      {m.orderId && (
+        <AdminLink href={`/admin/orders/${m.orderId}`} className="block text-xs text-primary hover:underline">
+          {m.orderNumber ? `#${m.orderNumber}` : "Order"}
+        </AdminLink>
+      )}
+    </div>
   );
 }
 
@@ -52,18 +50,17 @@ function RevenueSummary({ title, totals }: { title: string; totals: RevenueTotal
       <h2 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-2">{title}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className={box}>
-          <p className="text-xs font-semibold text-muted-foreground">Revenue (entered orders)</p>
-          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{usd(totals.enteredCents)}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">Order totals, less refunds</p>
+          <p className="text-xs font-semibold text-muted-foreground">Revenue</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{usd(totals.revenueCents)}{totals.unpriced ? "+" : ""}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            The tiers picked on each drop-off, at today&apos;s prices
+            {totals.unpriced > 0 && `. ${totals.unpriced} can't be fully priced (Diamond, or 5+ cards with several services)`}
+          </p>
         </div>
         <div className={box}>
-          <p className="text-xs font-semibold text-muted-foreground">Still to enter (estimate)</p>
-          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">~{usd(totals.estimateCents)}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {totals.unpriced > 0
-              ? `${totals.unpriced} can't be fully priced yet (Diamond, or 5+ cards with several services)`
-              : "At today's prices for the services picked"}
-          </p>
+          <p className="text-xs font-semibold text-muted-foreground">Entered / to enter</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{usd(totals.enteredCents)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{usd(totals.toEnterCents)} still to enter as orders</p>
         </div>
         <div className={box}>
           <p className="text-xs font-semibold text-muted-foreground">Drop-offs</p>
@@ -114,7 +111,7 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
       }, new Map<string, typeof revenueRows>())]
         .map(([name, rows]) => ({ name, totals: totalsFor(rows, money) }))
         .filter((g) => g.totals.dropoffs > 0)
-        .sort((a, b) => (b.totals.enteredCents + b.totals.estimateCents) - (a.totals.enteredCents + a.totals.estimateCents));
+        .sort((a, b) => b.totals.revenueCents - a.totals.revenueCents);
   const list = (data ?? []) as Row[];
   const showNames = [...new Set((shows ?? []).map((r) => r.show_name as string))].slice(0, 12);
 
@@ -181,7 +178,7 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
                   <th className="px-4 py-3 text-right">Drop-offs</th>
                   <th className="px-4 py-3 text-right">Cards</th>
                   <th className="px-4 py-3 text-right">Revenue</th>
-                  <th className="px-4 py-3 text-right">Still to enter</th>
+                  <th className="px-4 py-3 text-right">To enter</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,12 +193,12 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{g.totals.dropoffs}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{g.totals.cards}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{usd(g.totals.enteredCents)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                      {g.totals.estimateCents > 0
-                        ? `~${usd(g.totals.estimateCents)}${g.totals.unpriced ? "+" : ""}`
-                        : g.totals.unpriced ? "Needs pricing" : "—"}
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">
+                      {g.totals.revenueCents > 0 || !g.totals.unpriced
+                        ? `${usd(g.totals.revenueCents)}${g.totals.unpriced ? "+" : ""}`
+                        : "Needs pricing"}
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">{usd(g.totals.toEnterCents)}</td>
                   </tr>
                 ))}
               </tbody>
