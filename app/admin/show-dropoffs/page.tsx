@@ -3,6 +3,7 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getDropoffServices } from "@/lib/show-dropoff-services";
 import { FIVE_PLUS_LABEL, serviceName } from "@/lib/show-dropoffs";
+import { allDropoffsForRevenue, dropoffRevenue, totalsFor, type DropoffMoney, type RevenueTotals } from "@/lib/show-dropoff-revenue";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,62 @@ type Row = {
   customer_name: string; customer_email: string; customer_phone: string;
   tiers: string[]; five_plus: boolean; card_count: number | null; status: string;
 };
+
+const usd = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** One drop-off's money in the list: the order's total, or the estimate while it waits. */
+function MoneyCell({ m }: { m: DropoffMoney | undefined }) {
+  if (!m || m.kind === "none") return <span className="text-muted-foreground">—</span>;
+  if (m.kind === "entered") {
+    return (
+      <div>
+        <span className="font-semibold tabular-nums">{usd(m.cents)}</span>
+        {m.orderId && (
+          <AdminLink href={`/admin/orders/${m.orderId}`} className="block text-xs text-primary hover:underline">
+            {m.orderNumber ? `#${m.orderNumber}` : "Order"}
+          </AdminLink>
+        )}
+      </div>
+    );
+  }
+  if (!m.complete && m.cents === 0) return <span className="text-xs text-muted-foreground">Needs pricing</span>;
+  return (
+    <span className="tabular-nums text-muted-foreground" title="Estimate from the services picked at the table">
+      ~{usd(m.cents)}{m.complete ? "" : "+"}
+    </span>
+  );
+}
+
+function RevenueSummary({ title, totals }: { title: string; totals: RevenueTotals }) {
+  const box = "rounded-xl border border-border bg-white p-4";
+  return (
+    <section className="mb-6" aria-label={title}>
+      <h2 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-2">{title}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className={box}>
+          <p className="text-xs font-semibold text-muted-foreground">Revenue (entered orders)</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{usd(totals.enteredCents)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Order totals, less refunds</p>
+        </div>
+        <div className={box}>
+          <p className="text-xs font-semibold text-muted-foreground">Still to enter (estimate)</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">~{usd(totals.estimateCents)}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {totals.unpriced > 0
+              ? `${totals.unpriced} can't be fully priced yet (Diamond, or 5+ cards with several services)`
+              : "At today's prices for the services picked"}
+          </p>
+        </div>
+        <div className={box}>
+          <p className="text-xs font-semibold text-muted-foreground">Drop-offs</p>
+          <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{totals.dropoffs}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{totals.cards} card{totals.cards === 1 ? "" : "s"}, cancelled not counted</p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -35,11 +92,29 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
     .limit(500);
   if (filter !== "all") query = query.eq("status", filter);
   if (show) query = query.eq("show_name", show);
-  const [{ data, error }, services, { data: shows }] = await Promise.all([
+  const [{ data, error }, services, { data: shows }, everyDropoff] = await Promise.all([
     query,
     getDropoffServices(),
     admin.from("show_dropoffs").select("show_name").not("show_name", "is", null).order("created_at", { ascending: false }).limit(1000),
+    allDropoffsForRevenue().catch((e: Error) => e),
   ]);
+  // Revenue covers every drop-off (paged), for the show picked or every show
+  const revenueError = everyDropoff instanceof Error ? everyDropoff.message : null;
+  const revenueRows = everyDropoff instanceof Error ? [] : everyDropoff;
+  const money = revenueError ? new Map<string, DropoffMoney>() : await dropoffRevenue(revenueRows).catch(() => new Map<string, DropoffMoney>());
+  const scoped = show ? revenueRows.filter((r) => r.show_name === show) : revenueRows;
+  const totals = totalsFor(scoped, money);
+  // Every show: one line per show, highest revenue first
+  const byShow = show
+    ? []
+    : [...revenueRows.reduce((groups, r) => {
+        const key = r.show_name ?? "";
+        groups.set(key, [...(groups.get(key) ?? []), r]);
+        return groups;
+      }, new Map<string, typeof revenueRows>())]
+        .map(([name, rows]) => ({ name, totals: totalsFor(rows, money) }))
+        .filter((g) => g.totals.dropoffs > 0)
+        .sort((a, b) => (b.totals.enteredCents + b.totals.estimateCents) - (a.totals.enteredCents + a.totals.estimateCents));
   const list = (data ?? []) as Row[];
   const showNames = [...new Set((shows ?? []).map((r) => r.show_name as string))].slice(0, 12);
 
@@ -91,6 +166,49 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
           </div>
         )}
 
+        {revenueError ? (
+          <p className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Couldn&apos;t load revenue: {revenueError}</p>
+        ) : (
+          <RevenueSummary title={show ? `Revenue: ${show}` : "Revenue: every show"} totals={totals} />
+        )}
+
+        {byShow.length > 1 && (
+          <div className="mb-6 overflow-x-auto rounded-xl border border-border bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-semibold text-muted-foreground">
+                  <th className="px-4 py-3">Show</th>
+                  <th className="px-4 py-3 text-right">Drop-offs</th>
+                  <th className="px-4 py-3 text-right">Cards</th>
+                  <th className="px-4 py-3 text-right">Revenue</th>
+                  <th className="px-4 py-3 text-right">Still to enter</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byShow.map((g) => (
+                  <tr key={g.name || "none"} className="border-b border-border last:border-0 hover:bg-secondary/40">
+                    <td className="px-4 py-3">
+                      {g.name ? (
+                        <AdminLink href={link({ show: g.name })} className="font-semibold text-primary hover:underline">{g.name}</AdminLink>
+                      ) : (
+                        <span className="text-muted-foreground">No show name</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">{g.totals.dropoffs}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{g.totals.cards}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{usd(g.totals.enteredCents)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                      {g.totals.estimateCents > 0
+                        ? `~${usd(g.totals.estimateCents)}${g.totals.unpriced ? "+" : ""}`
+                        : g.totals.unpriced ? "Needs pricing" : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {error ? (
           <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Couldn&apos;t load drop-offs: {error.message}</p>
         ) : list.length === 0 ? (
@@ -106,6 +224,7 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
                   <th className="px-4 py-3">Customer</th>
                   <th className="px-4 py-3">Services</th>
                   <th className="px-4 py-3">Cards</th>
+                  <th className="px-4 py-3">Revenue</th>
                   <th className="px-4 py-3">Show</th>
                   <th className="px-4 py-3">Received</th>
                   <th className="px-4 py-3">Status</th>
@@ -127,6 +246,7 @@ export default async function ShowDropoffsAdminPage({ searchParams }: { searchPa
                       <td className="px-4 py-3 whitespace-nowrap">
                         {r.five_plus ? <span className="font-semibold">{FIVE_PLUS_LABEL}{r.card_count ? ` (~${r.card_count})` : ""}</span> : r.card_count ?? "—"}
                       </td>
+                      <td className="px-4 py-3 whitespace-nowrap"><MoneyCell m={money.get(r.id)} /></td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">{r.show_name ?? "—"}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{when(r.created_at)}</td>
                       <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-bold ${st.cls}`}>{st.label}</span></td>
