@@ -205,6 +205,8 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // Drop-offs: email the customer their confirmation and account invite
+  const [sendConfirmation, setSendConfirmation] = useState(true);
 
   // Shipping address (online + buy_label only)
   const [street1, setStreet1] = useState("");
@@ -371,6 +373,7 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
           price_per_card_cents: customPriceCents > 0 ? customPriceCents : undefined,
           due_date: dueDate || undefined,
           notes: notes || undefined,
+          ...(orderType === "dropoff" ? { send_confirmation: sendConfirmation } : {}),
           cards: filledCards.map((c) => ({
             card_name: c.name.trim(),
             tier: (c.tier && c.tier !== "custom") ? c.tier : undefined,
@@ -388,8 +391,9 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Something went wrong."); setSubmitting(false); return; }
-      if (data.labelWarning) {
-        setError(`Order created — but: ${data.labelWarning}`);
+      const warning = [data.labelWarning, data.emailWarning].filter(Boolean).join(" ");
+      if (warning) {
+        setError(`Order created — but: ${warning}`);
         setTimeout(() => router.push(`/admin/orders/${data.orderId}`), 3000);
         return;
       }
@@ -528,6 +532,28 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
             <input className={input} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" />
           </div>
         </div>
+        {orderType === "dropoff" && (
+          email.trim() ? (
+            <label className="flex items-start gap-2.5 text-sm text-foreground cursor-pointer min-h-11 sm:min-h-0">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-primary shrink-0"
+                checked={sendConfirmation}
+                onChange={(e) => setSendConfirmation(e.target.checked)}
+              />
+              <span>
+                Email them a confirmation
+                <span className="block text-xs text-muted-foreground mt-0.5">
+                  With their cards and a link to make an account, where they can follow each card and request updates.
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Add their email to send a confirmation. With an account under that email they can follow their cards and request updates.
+            </p>
+          )
+        )}
       </div>
 
       {/* Order Date */}

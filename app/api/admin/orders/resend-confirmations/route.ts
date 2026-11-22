@@ -42,6 +42,8 @@ export async function POST(request: Request) {
   let failed = 0;
 
   for (const order of orders) {
+    // Drop-offs can be saved without an email: nothing to send
+    if (!order.customer_email?.trim()) continue;
     try {
       await sendOrderConfirmationEmail(order);
       sent++;
