@@ -8,6 +8,8 @@ import { CardPicker, pickCaption } from "@/components/admin/card-picker";
 import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { uploadPhotos } from "../[id]/upload-photos";
+import type { DropoffPrefill } from "@/lib/show-dropoff-prefill";
+import { ShowDropoffStarter } from "./show-dropoff-starter";
 
 /** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
 function newYorkToday(): string {
@@ -192,19 +194,21 @@ function CardPhotos({ cardNumber, photos, uploading, error, onAdd, onRemove }: {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
+export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationTier[]; prefill?: DropoffPrefill | null }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   // Order type
   const [orderType, setOrderType] = useState<"online" | "dropoff">("dropoff");
+  // "Show Drop-off": the customer fills in the /show-dropoffs form themselves
+  const [showMode, setShowMode] = useState(false);
   const [inboundMethod, setInboundMethod] = useState<"buy_label" | "self_ship">("buy_label");
 
   // Customer
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [email, setEmail] = useState(prefill?.email ?? "");
+  const [phone, setPhone] = useState(prefill?.phone ?? "");
   // Drop-offs: email the customer their confirmation and account invite
   const [sendConfirmation, setSendConfirmation] = useState(true);
 
@@ -217,11 +221,14 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
 
   // Order details
   const [orderDate, setOrderDate] = useState(newYorkToday);
-  const [defaultTier, setDefaultTier] = useState<TierOrCustom>("");
+  const [defaultTier, setDefaultTier] = useState<TierOrCustom>(prefill?.defaultTier ?? "");
   const [customPricePerCard, setCustomPricePerCard] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [cards, setCards] = useState<CardRow[]>([emptyCard("")]);
+  const [notes, setNotes] = useState(prefill?.notes ?? "");
+  const [cards, setCards] = useState<CardRow[]>(() =>
+    prefill?.cards.length
+      ? prefill.cards.map((c) => ({ ...emptyCard(c.tier), name: c.name }))
+      : [emptyCard(prefill?.defaultTier ?? "")]);
   // Card photos still uploading, and the last photo problem, per card row
   const [photoUploads, setPhotoUploads] = useState<Record<string, number>>({});
   const [photoErrors, setPhotoErrors] = useState<Record<string, string>>({});
@@ -374,6 +381,8 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
           due_date: dueDate || undefined,
           notes: notes || undefined,
           ...(orderType === "dropoff" ? { send_confirmation: sendConfirmation } : {}),
+          // Made from a show drop-off: links it and uses its return address
+          ...(prefill ? { show_dropoff_id: prefill.dropoffId } : {}),
           cards: filledCards.map((c) => ({
             card_name: c.name.trim(),
             tier: (c.tier && c.tier !== "custom") ? c.tier : undefined,
@@ -416,31 +425,44 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
       {/* Order Type */}
       <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
         <h2 className="font-heading font-black text-base text-foreground">Order Type</h2>
-        <div className="grid grid-cols-2 gap-2">
+        <div className={`grid gap-2 ${prefill ? "grid-cols-2" : "grid-cols-3"}`}>
           <button
             type="button"
-            onClick={() => setOrderType("online")}
-            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${orderType === "online" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            onClick={() => { setOrderType("online"); setShowMode(false); }}
+            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${!showMode && orderType === "online" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
           >
             <span className="text-lg">🌐</span>
             Online Order
           </button>
           <button
             type="button"
-            onClick={() => setOrderType("dropoff")}
-            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${orderType === "dropoff" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            onClick={() => { setOrderType("dropoff"); setShowMode(false); }}
+            className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${!showMode && orderType === "dropoff" ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
           >
             <span className="text-lg">🏪</span>
             Drop-off
           </button>
+          {!prefill && (
+            <button
+              type="button"
+              onClick={() => setShowMode(true)}
+              className={`h-14 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 text-sm font-semibold transition-colors ${showMode ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}
+            >
+              <span className="text-lg">🎪</span>
+              Show Drop-off
+            </button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground">
-          {orderType === "online"
+          {showMode
+            ? "At a card show: the customer fills in the Show Dropoffs form and signs. You enter it as an order later from Show Dropoffs."
+            : orderType === "online"
             ? "Customer couldn't complete checkout online. A confirmation email will be sent with shipping instructions."
             : "Cards are dropped off in person — no shipping needed. Order goes straight to restoration."}
         </p>
       </div>
 
+      {showMode ? <ShowDropoffStarter /> : (<>
       {/* Shipping — online only */}
       {orderType === "online" && (
         <div className="bg-white rounded-xl border border-border p-6 flex flex-col gap-4">
@@ -779,6 +801,7 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
             : `Create ${orderType === "online" ? "Online" : "Drop-off"} Order`}
         </button>
       </div>
+      </>)}
     </form>
   );
 }

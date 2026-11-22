@@ -17,6 +17,7 @@ const TABS = [
   { href: "/tier-selection", label: "Restorations", match: ["/tier-selection", "/restoration"] },
   { href: "/prep", label: "Prep", match: ["/prep"] },
   { href: "/shop", label: "Kits", match: ["/shop", "/cart"] },
+  { href: "/show-dropoffs", label: "Show Dropoffs", match: ["/show-dropoffs"] },
 ];
 
 // Secondary nav links
@@ -55,6 +56,7 @@ const TAB_HINTS: Record<string, string> = {
   "/tier-selection": "From $75 / card",
   "/prep": "From $25 / card",
   "/shop": "US shipping at cost + $2 handling",
+  "/show-dropoffs": "Dropping off at a card show",
 };
 
 const EASE = [0.16, 1, 0.3, 1] as const;

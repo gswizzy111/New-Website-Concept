@@ -48,6 +48,8 @@ const BodySchema = z.object({
   notes: z.string().optional(),
   // Drop-offs: email the customer a confirmation (default yes when there is an email)
   send_confirmation: z.boolean().optional(),
+  // Made from a show drop-off (/admin/show-dropoffs): marks it entered and uses its return address
+  show_dropoff_id: z.string().uuid().optional(),
   cards: z.array(z.object({
     card_name: z.string().min(1),
     card_set: z.string().optional(),
@@ -85,6 +87,27 @@ export async function POST(request: Request) {
     return Response.json({ error: picks.error }, { status: 400 });
   }
 
+  // A show drop-off becomes one order only: claim it first (two admins at
+  // once get one order between them), and give it back if the order fails.
+  let dropoffAddress: Record<string, unknown> | null = null;
+  if (d.show_dropoff_id) {
+    const { data: claimed, error: claimErr } = await admin
+      .from("show_dropoffs")
+      .update({ status: "entered", processed_at: new Date().toISOString() })
+      .eq("id", d.show_dropoff_id)
+      .eq("status", "new")
+      .select("return_address");
+    if (claimErr) return Response.json({ error: `Couldn't open the show drop-off: ${claimErr.message}` }, { status: 500 });
+    if (!claimed?.length) {
+      return Response.json({ error: "That show drop-off already has an order (or was cancelled). Open it from Show Dropoffs to check." }, { status: 409 });
+    }
+    dropoffAddress = (claimed[0].return_address as Record<string, unknown>) ?? null;
+  }
+  const releaseDropoff = async () => {
+    if (!d.show_dropoff_id) return;
+    await admin.from("show_dropoffs").update({ status: "new", processed_at: null }).eq("id", d.show_dropoff_id).eq("status", "entered").is("order_id", null);
+  };
+
   // Tier prices as the admin set them (restoration_settings over the
   // defaults), like checkout. Never priced without them.
   const usedTiers = [...new Set([d.restoration_tier, ...d.cards.map((c) => c.tier)].filter(Boolean))] as RestorationTierId[];
@@ -96,6 +119,7 @@ export async function POST(request: Request) {
       .in("tier", usedTiers);
     if (tierSettingsError) {
       console.error("Tier settings unavailable:", tierSettingsError.message);
+      await releaseDropoff();
       return Response.json({ error: "Couldn't load the tier prices. Please try again in a moment." }, { status: 503 });
     }
     const byTier = new Map((tierSettings ?? []).map((s) => [s.tier as string, s as TierDbOverride]));
@@ -205,8 +229,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // ship_from_address is NOT NULL in the DB — drop-off orders use an empty object
-  const shipFromAddress = d.order_type === "online" ? {
+  // ship_from_address is NOT NULL in the DB — drop-off orders use an empty object,
+  // except a show drop-off, whose customer gave their return address at the table
+  const shipFromAddress = d.order_type === "dropoff" && dropoffAddress ? dropoffAddress : d.order_type === "online" ? {
     name: d.customer_name || "",
     street1: d.street1,
     street2: d.street2 ?? null,
@@ -266,7 +291,13 @@ export async function POST(request: Request) {
 
   if (orderErr || !order) {
     console.error("Failed to create manual order:", orderErr);
+    await releaseDropoff();
     return Response.json({ error: "Failed to create order" }, { status: 500 });
+  }
+
+  if (d.show_dropoff_id) {
+    const { error: linkErr } = await admin.from("show_dropoffs").update({ order_id: order.id }).eq("id", d.show_dropoff_id);
+    if (linkErr) console.error(`Show drop-off ${d.show_dropoff_id} not linked to order ${order.id}:`, linkErr.message);
   }
 
   if (d.due_date) {

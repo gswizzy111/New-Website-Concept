@@ -19,7 +19,8 @@ export type AttemptKind =
   | "account-reset-email"
   | "account-confirm-email"
   | "kit-club-link-email"
-  | "loyalty-lookup";
+  | "loyalty-lookup"
+  | "show-dropoff";
 
 export type AttemptRule = { max: number; windowMinutes: number };
 
