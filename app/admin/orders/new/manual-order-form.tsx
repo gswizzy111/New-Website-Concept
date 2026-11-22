@@ -8,6 +8,7 @@ import { CardPicker, pickCaption } from "@/components/admin/card-picker";
 import { catalogFormFields, type CatalogCard } from "@/lib/card-catalog";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 import { uploadPhotos } from "../[id]/upload-photos";
+import type { DropoffPrefill } from "@/lib/show-dropoff-prefill";
 
 /** Today's date in New York (the business's day), as YYYY-MM-DD for the date picker. */
 function newYorkToday(): string {
@@ -192,7 +193,7 @@ function CardPhotos({ cardNumber, photos, uploading, error, onAdd, onRemove }: {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
+export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationTier[]; prefill?: DropoffPrefill | null }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -202,9 +203,9 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
   const [inboundMethod, setInboundMethod] = useState<"buy_label" | "self_ship">("buy_label");
 
   // Customer
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [email, setEmail] = useState(prefill?.email ?? "");
+  const [phone, setPhone] = useState(prefill?.phone ?? "");
   // Drop-offs: email the customer their confirmation and account invite
   const [sendConfirmation, setSendConfirmation] = useState(true);
 
@@ -217,11 +218,14 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
 
   // Order details
   const [orderDate, setOrderDate] = useState(newYorkToday);
-  const [defaultTier, setDefaultTier] = useState<TierOrCustom>("");
+  const [defaultTier, setDefaultTier] = useState<TierOrCustom>(prefill?.defaultTier ?? "");
   const [customPricePerCard, setCustomPricePerCard] = useState("");
   const [dueDate, setDueDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [cards, setCards] = useState<CardRow[]>([emptyCard("")]);
+  const [notes, setNotes] = useState(prefill?.notes ?? "");
+  const [cards, setCards] = useState<CardRow[]>(() =>
+    prefill?.cards.length
+      ? prefill.cards.map((c) => ({ ...emptyCard(c.tier), name: c.name }))
+      : [emptyCard(prefill?.defaultTier ?? "")]);
   // Card photos still uploading, and the last photo problem, per card row
   const [photoUploads, setPhotoUploads] = useState<Record<string, number>>({});
   const [photoErrors, setPhotoErrors] = useState<Record<string, string>>({});
@@ -374,6 +378,8 @@ export function ManualOrderForm({ tiers }: { tiers: RestorationTier[] }) {
           due_date: dueDate || undefined,
           notes: notes || undefined,
           ...(orderType === "dropoff" ? { send_confirmation: sendConfirmation } : {}),
+          // Made from a show drop-off: links it and uses its return address
+          ...(prefill ? { show_dropoff_id: prefill.dropoffId } : {}),
           cards: filledCards.map((c) => ({
             card_name: c.name.trim(),
             tier: (c.tier && c.tier !== "custom") ? c.tier : undefined,

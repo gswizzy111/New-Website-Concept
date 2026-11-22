@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/admin/fast-pass",    label: "Fast Pass",    icon: "⚡" },
   { href: "/admin/prep-orders",  label: "Prep Orders",  icon: "🧪" },
   { href: "/admin/shop-orders",  label: "Kit Orders",   icon: "📦" },
+  { href: "/admin/show-dropoffs", label: "Show Dropoffs", icon: "🎪" },
   { href: "/admin/incoming",    label: "Incoming",   icon: "📬" },
   { href: "/admin/ship-queue",  label: "Ship Queue", icon: "🚚" },
   { href: "/admin/unclaimed",   label: "Unclaimed",  icon: "⏳" },
