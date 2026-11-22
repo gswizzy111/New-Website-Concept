@@ -14,7 +14,7 @@ import { cta } from "@/components/brand/button-class";
 import { contactOk } from "@/lib/checkout-validation";
 import { TERMS_VERSION } from "@/lib/legal/current-terms";
 import {
-  FIVE_PLUS_LABEL, MAX_LISTED_CARDS, serviceName,
+  FIVE_PLUS_LABEL, MAX_LISTED_CARDS,
   type DropoffService, type DropoffServiceId,
 } from "@/lib/show-dropoffs";
 import type { CustomerInfo } from "@/lib/types";
@@ -44,27 +44,24 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
   const [error, setError] = useState("");
   const [done, setDone] = useState<{ number: number; name: string; cards: string } | null>(null);
 
-  const pickedServices = services.filter((s) => picked.includes(s.id));
   const filledCards = cards.filter((c) => c.name.trim());
-  const multiService = picked.length > 1;
+  // Listed cards each pick their own tier; 5+ Cards picks tiers for the batch
+  const chosenServices: DropoffServiceId[] = fivePlus
+    ? picked
+    : [...new Set(filledCards.map((c) => c.service).filter((s): s is DropoffServiceId => !!s))];
 
   // What's missing, for the red outlines
-  const servicesMissing = picked.length === 0;
+  const servicesMissing = fivePlus === true && picked.length === 0;
   const modeMissing = fivePlus === null;
   const cardsMissing = fivePlus === false && filledCards.length === 0;
-  const cardServiceMissing = (c: CardRow) => multiService && !!c.name.trim() && !c.service;
+  const cardServiceMissing = (c: CardRow) => fivePlus === false && !!c.name.trim() && !c.service;
   const countBad = fivePlus === true && cardCount.trim() !== "" && !(Number(cardCount) >= 5);
   const ready =
     contactOk(customer) && !servicesMissing && !modeMissing && !cardsMissing && !countBad
     && !filledCards.some(cardServiceMissing) && signingReady(signing, []);
 
   function toggleService(id: DropoffServiceId) {
-    setPicked((p) => {
-      const next = p.includes(id) ? p.filter((x) => x !== id) : [...p, id];
-      // A card's service must still be one of the picked ones
-      setCards((cs) => cs.map((c) => (c.service && !next.includes(c.service) ? { ...c, service: "" } : c)));
-      return next;
-    });
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   }
 
   function updateCard(id: string, patch: Partial<CardRow>) {
@@ -104,13 +101,13 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
             street1: customer.street1, street2: customer.street2, city: customer.city,
             state: customer.state, zip: customer.zip,
           },
-          services: picked,
+          services: chosenServices,
           five_plus: fivePlus === true,
           card_count: fivePlus && cardCount.trim() ? Number(cardCount) : null,
           cards: fivePlus ? [] : filledCards.map((c) => ({
             name: c.name.trim(),
             details: c.details.trim(),
-            ...(multiService ? { service: c.service } : {}),
+            service: c.service,
           })),
           notes: notes.trim(),
           signing: {
@@ -185,38 +182,11 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
       {/* 1. Customer and return address */}
       <StepCustomer customer={customer} onChange={setCustomer} showMissing={showMissing} />
 
-      {/* 2. Services */}
-      <section className="flex flex-col gap-4" aria-labelledby="dropoff-services">
-        <div>
-          <h2 id="dropoff-services" className={STEP_TITLE}>Which services?</h2>
-          <p className="lead mt-3 text-ink-soft">Pick every service your cards are going in.</p>
-        </div>
-        <Need missing={showMissing && servicesMissing} note="Pick at least one service">
-          <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2">
-            {services.map((s) => {
-              const on = picked.includes(s.id);
-              return (
-                <label
-                  key={s.id}
-                  className={cn("flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3", CHOICE, CHOICE_FOCUS, on && CHOICE_ON)}
-                >
-                  <input type="checkbox" className="shrink-0" checked={on} onChange={() => toggleService(s.id)} />
-                  <span className="flex min-w-0 flex-col">
-                    <span className="text-[16px] font-bold leading-tight text-ink">{s.name}</span>
-                    <span className="text-[13px] text-ink-soft">{s.price}</span>
-                  </span>
-                </label>
-              );
-            })}
-          </div>
-        </Need>
-      </section>
-
-      {/* 3. Cards */}
+      {/* 2. Cards, each with its tier */}
       <section className="flex flex-col gap-4" aria-labelledby="dropoff-cards">
         <div>
           <h2 id="dropoff-cards" className={STEP_TITLE}>Your cards</h2>
-          <p className="lead mt-3 text-ink-soft">Up to {MAX_LISTED_CARDS} cards? List them. Dropping off more? Choose {FIVE_PLUS_LABEL} and we&apos;ll log them for you.</p>
+          <p className="lead mt-3 text-ink-soft">Up to {MAX_LISTED_CARDS} cards? List them and pick a tier for each. Dropping off more? Choose {FIVE_PLUS_LABEL} and we&apos;ll log them for you.</p>
         </div>
 
         <Need missing={showMissing && modeMissing} note="Choose one">
@@ -260,6 +230,26 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
                 value={cardCount}
                 onChange={(e) => setCardCount(e.target.value)}
               />
+            </Need>
+            <Need missing={showMissing && servicesMissing} note="Pick at least one tier" className="flex flex-col gap-2 pt-2">
+              <p className="text-[15px] font-bold text-ink">Which tiers are these cards going in?<Req /></p>
+              <div className="grid grid-cols-1 gap-2.5 min-[480px]:grid-cols-2">
+                {services.map((s) => {
+                  const on = picked.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={cn("flex min-h-14 cursor-pointer items-center gap-3 px-4 py-3", CHOICE, CHOICE_FOCUS, on && CHOICE_ON)}
+                    >
+                      <input type="checkbox" className="shrink-0" checked={on} onChange={() => toggleService(s.id)} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="text-[16px] font-bold leading-tight text-ink">{s.name}</span>
+                        <span className="text-[13px] text-ink-soft">{s.price}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
             </Need>
           </div>
         )}
@@ -307,25 +297,20 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
                     className={cn(PIXEL_FIELD, "h-auto min-h-20 py-2.5")}
                   />
                 </div>
-                {multiService && (
-                  <Need missing={showMissing && cardServiceMissing(card)} note="Pick this card's service" className="flex flex-col gap-1.5">
-                    <Label htmlFor={`card-${card.id}-service`}>Service for this card<Req /></Label>
+                <Need missing={showMissing && cardServiceMissing(card)} note="Pick a tier for this card" className="flex flex-col gap-1.5">
+                    <Label htmlFor={`card-${card.id}-service`}>Tier<Req /></Label>
                     <select
                       id={`card-${card.id}-service`}
                       value={card.service}
                       onChange={(e) => updateCard(card.id, { service: e.target.value as DropoffServiceId | "" })}
                       className={SELECT_CN}
                     >
-                      <option value="">Choose a service</option>
-                      {pickedServices.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                      <option value="">Choose a tier</option>
+                      {services.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.price})</option>
                       ))}
                     </select>
                   </Need>
-                )}
-                {!multiService && picked.length === 1 && (
-                  <p className="text-sm text-ink-soft">Service: <strong className="text-ink">{serviceName(services, picked[0])}</strong></p>
-                )}
               </div>
             ))}
             {cards.length < MAX_LISTED_CARDS ? (
@@ -348,7 +333,7 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
         )}
       </section>
 
-      {/* 4. Notes */}
+      {/* 3. Notes */}
       <section className={cn(FORM_PANEL, "flex flex-col gap-1.5")}>
         <Label htmlFor="dropoff-notes">Anything we should know? <span className="font-normal text-ink-soft">(optional)</span></Label>
         <textarea
@@ -361,7 +346,7 @@ export function ShowDropoffForm({ services, show }: { services: DropoffService[]
         />
       </section>
 
-      {/* 5. Sign */}
+      {/* 4. Sign */}
       <SigningSection state={signing} onChange={setSigning} showMissing={showMissing} />
 
       <div className="flex flex-col gap-3">
