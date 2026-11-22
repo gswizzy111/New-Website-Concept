@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
 import { siteUrl } from "@/lib/site-url";
 import { checkCatalogPicks, missingCatalogColumns } from "@/lib/card-catalog-pick";
+import { accountInviteHtml, sendDropoffConfirmationEmail } from "@/lib/dropoff-confirmation-email";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
 
 const TIER_IDS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
@@ -32,7 +33,7 @@ function isOurCardPhoto(value: string): boolean {
 const BodySchema = z.object({
   order_type: z.enum(["online", "dropoff"]).default("dropoff"),
   customer_name: z.string().optional().default(""),
-  customer_email: z.string().optional().default(""),
+  customer_email: z.string().trim().optional().default(""),
   customer_phone: z.string().optional().default(""),
   street1: z.string().optional().default(""),
   street2: z.string().optional(),
@@ -45,6 +46,8 @@ const BodySchema = z.object({
   price_per_card_cents: z.number().int().positive().optional(),
   due_date: z.string().optional(),
   notes: z.string().optional(),
+  // Drop-offs: email the customer a confirmation (default yes when there is an email)
+  send_confirmation: z.boolean().optional(),
   cards: z.array(z.object({
     card_name: z.string().min(1),
     card_set: z.string().optional(),
@@ -327,6 +330,28 @@ export async function POST(request: Request) {
     is_customer_visible: false,
   });
 
+  // Problems the admin should see; the order itself is saved
+  let emailWarning: string | null = null;
+  async function noteEmailFailed(reason: string) {
+    console.error(`Manual order confirmation email failed (order ${order!.id}):`, reason);
+    emailWarning = `The confirmation email didn't send (${reason.slice(0, 200)}). Use Resend Confirmation on the order.`;
+    await admin.from("order_events").insert({
+      order_id: order!.id,
+      event_type: "email_failed",
+      description: `Order confirmation email could not be sent: ${reason.slice(0, 300)}`,
+      is_customer_visible: false,
+    });
+  }
+
+  // Drop-offs: the confirmation, with the cards and how to follow them online
+  if (d.order_type === "dropoff" && d.customer_email && d.send_confirmation !== false) {
+    const sendError = await sendDropoffConfirmationEmail(
+      { order_number: order.order_number, customer_name: d.customer_name || null, customer_email: d.customer_email },
+      d.cards.map((c) => c.card_name),
+    );
+    if (sendError) await noteEmailFailed(sendError);
+  }
+
   // Send emails for online orders
   if (d.order_type === "online" && d.customer_email) {
     const appUrl = siteUrl();
@@ -363,7 +388,7 @@ export async function POST(request: Request) {
         </div>`;
 
     try {
-      await resend.emails.send({
+      const { error: sendError } = await resend.emails.send({
         from: fromEmail,
         to: d.customer_email,
         subject: `Order Confirmed — ${businessName} #${order.order_number}`,
@@ -378,6 +403,7 @@ export async function POST(request: Request) {
               <p style="margin:0 0 20px;font-size:22px;font-weight:900;color:#111">#${order.order_number}</p>
               <p style="margin:0 0 20px;font-size:15px;color:#333;line-height:1.6">Hi ${firstName}! 👋 Thank you for your order. Here's what to do next to get your cards to us.</p>
               ${shippingSection}
+              ${accountInviteHtml(d.customer_email)}
               <div style="text-align:center;margin:24px 0">
                 <a href="${trackingUrl}" style="display:inline-block;background:#111;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">View Your Order Status →</a>
               </div>
@@ -388,8 +414,9 @@ export async function POST(request: Request) {
           </div>
         `,
       });
+      if (sendError) await noteEmailFailed(sendError.message);
     } catch (err) {
-      console.error("Failed to send confirmation email for manual order:", err);
+      await noteEmailFailed(err instanceof Error ? err.message : String(err));
     }
 
     const adminEmail = process.env.ADMIN_NOTIFY_EMAIL ?? process.env.BUSINESS_SHIPPING_EMAIL ?? "";
@@ -423,5 +450,10 @@ export async function POST(request: Request) {
     }
   }
 
-  return Response.json({ orderId: order.id, orderNumber: order.order_number, ...(labelWarning ? { labelWarning } : {}) });
+  return Response.json({
+    orderId: order.id,
+    orderNumber: order.order_number,
+    ...(labelWarning ? { labelWarning } : {}),
+    ...(emailWarning ? { emailWarning } : {}),
+  });
 }

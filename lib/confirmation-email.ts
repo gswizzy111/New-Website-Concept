@@ -2,6 +2,8 @@ import { resend, fromEmail, businessName } from "@/lib/resend";
 import { siteUrl } from "@/lib/site-url";
 import { labelHref } from "@/lib/label-link";
 import { escapeHtml } from "@/lib/card-inquiries";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { sendDropoffConfirmationEmail } from "@/lib/dropoff-confirmation-email";
 
 export type ConfirmationOrder = {
   /** Links the label through the permanent link, which never expires. */
@@ -10,6 +12,8 @@ export type ConfirmationOrder = {
   customer_name: string | null;
   customer_email: string;
   shipping_label_url: string | null;
+  /** "dropoff": the cards are already here, so the drop-off confirmation goes instead */
+  inbound_method?: string | null;
 };
 
 /**
@@ -19,6 +23,14 @@ export type ConfirmationOrder = {
  * refuses the email.
  */
 export async function sendOrderConfirmationEmail(order: ConfirmationOrder): Promise<void> {
+  if (order.inbound_method === "dropoff") {
+    const { data: cards } = order.id
+      ? await createAdminClient().from("cards").select("card_name").eq("order_id", order.id).order("created_at")
+      : { data: [] };
+    const sendError = await sendDropoffConfirmationEmail(order, (cards ?? []).map((c) => c.card_name as string));
+    if (sendError) throw new Error(sendError);
+    return;
+  }
   const appUrl = siteUrl();
   const firstName = (order.customer_name ?? "").split(" ")[0] || "there";
   const trackingUrl = `${appUrl}/orders/${order.order_number}`;
