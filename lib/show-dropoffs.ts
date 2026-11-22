@@ -60,6 +60,9 @@ export const ShowDropoffSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["cards"], message: "Add at least one card, or choose 5+ Cards." });
   }
   for (const [i, c] of d.cards.entries()) {
+    if (!d.five_plus && !c.service) {
+      ctx.addIssue({ code: "custom", path: ["cards", i, "service"], message: "Pick a tier for this card." });
+    }
     if (c.service && !d.services.includes(c.service)) {
       ctx.addIssue({ code: "custom", path: ["cards", i, "service"], message: "Pick one of the services you chose." });
     }
