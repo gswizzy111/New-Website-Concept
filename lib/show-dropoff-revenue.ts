@@ -1,14 +1,13 @@
 // Revenue on the Show Dropoffs tab (/admin/show-dropoffs). Server only.
 //
-// A show drop-off is only the intake; the money is on the order the admin
-// creates from it (show_dropoffs.order_id). So each drop-off counts as:
-//  - entered: its order's total, less refunds that went through (the refunds
-//    ledger, lib/refund-ledger.ts). A cancelled order counts $0.
-//  - to enter: an estimate from what the customer picked at the table, at
-//    the admin's current prices (each listed card's tier, or for 5+ cards the
-//    card count times the one service picked). Diamond is priced by declared
-//    value, which the form doesn't ask for, so it can't be estimated.
-//  - cancelled: nothing.
+// Each drop-off's revenue is the tiers the customer picked at the table, at
+// the admin's current prices (restoration_settings, PSA Prep from
+// store_config): each listed card at its tier (or the one service picked),
+// and for 5+ cards the card count times the one service. Entered or not, the
+// figure is the same; entering only links its order. Cancelled drop-offs
+// count nothing. Diamond is priced by declared value, which the form doesn't
+// ask for, and 5+ cards with several services have no per-card split, so
+// those are flagged as not fully priced.
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/fetch-all";
@@ -28,16 +27,25 @@ export type DropoffRevenueRow = {
 };
 
 export type DropoffMoney = {
-  /** Entered: what the order brought in. To enter: the estimate. */
+  /** The tiers picked, priced; 0 for a cancelled drop-off. */
   cents: number;
-  kind: "entered" | "estimate" | "none";
+  cancelled: boolean;
+  entered: boolean;
   /** False when part of it couldn't be priced (Diamond, 5+ cards with several services or no count). */
   complete: boolean;
   orderNumber?: string;
   orderId?: string;
 };
 
-export type RevenueTotals = { dropoffs: number; cards: number; enteredCents: number; estimateCents: number; unpriced: number };
+export type RevenueTotals = {
+  dropoffs: number;
+  cards: number;
+  revenueCents: number;
+  enteredCents: number;
+  toEnterCents: number;
+  /** Drop-offs that couldn't be fully priced. */
+  unpriced: number;
+};
 
 type PriceBook = { perCard: (service: string) => number | null };
 
@@ -54,7 +62,8 @@ async function priceBook(): Promise<PriceBook> {
   };
 }
 
-function estimate(row: DropoffRevenueRow, book: PriceBook): { cents: number; complete: boolean } {
+/** The tiers picked on one drop-off, priced. */
+function priceTiers(row: DropoffRevenueRow, book: PriceBook): { cents: number; complete: boolean } {
   if (row.five_plus) {
     const price = row.tiers.length === 1 ? book.perCard(row.tiers[0]) : null;
     if (price === null || !row.card_count) return { cents: 0, complete: false };
@@ -72,39 +81,28 @@ function estimate(row: DropoffRevenueRow, book: PriceBook): { cents: number; com
   return { cents, complete };
 }
 
-/** Each drop-off's money, by id, plus the orders behind the entered ones. */
+/** Each drop-off's revenue by id, with the order it was entered as. */
 export async function dropoffRevenue(rows: DropoffRevenueRow[]): Promise<Map<string, DropoffMoney>> {
   const admin = createAdminClient();
   const orderIds = [...new Set(rows.map((r) => r.order_id).filter((id): id is string => !!id))];
-  const orders = new Map<string, { order_number: string; total_cents: number | null; status: string | null }>();
-  const refunded = new Map<string, number>();
+  const orderNumbers = new Map<string, string>();
   for (let i = 0; i < orderIds.length; i += 200) {
-    const ids = orderIds.slice(i, i + 200);
-    const [{ data: o, error: oErr }, { data: r, error: rErr }] = await Promise.all([
-      admin.from("orders").select("id, order_number, total_cents, status").in("id", ids),
-      admin.from("refunds").select("order_id, amount_cents").in("order_id", ids).eq("status", "succeeded"),
-    ]);
-    if (oErr) throw new Error(oErr.message);
-    if (rErr) throw new Error(rErr.message);
-    for (const row of o ?? []) orders.set(row.id, row);
-    for (const row of r ?? []) refunded.set(row.order_id, (refunded.get(row.order_id) ?? 0) + (row.amount_cents ?? 0));
+    const { data, error } = await admin.from("orders").select("id, order_number").in("id", orderIds.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    for (const o of data ?? []) orderNumbers.set(o.id, o.order_number);
   }
 
-  const book = rows.some((r) => r.status === "new") ? await priceBook() : null;
+  const book = await priceBook();
   const money = new Map<string, DropoffMoney>();
   for (const row of rows) {
-    if (row.status === "entered" && row.order_id) {
-      const order = orders.get(row.order_id);
-      const cents = !order || order.status === "cancelled"
-        ? 0
-        : Math.max(0, (order.total_cents ?? 0) - (refunded.get(row.order_id) ?? 0));
-      money.set(row.id, { cents, kind: "entered", complete: true, orderNumber: order?.order_number, orderId: row.order_id });
-    } else if (row.status === "new" && book) {
-      const e = estimate(row, book);
-      money.set(row.id, { cents: e.cents, kind: "estimate", complete: e.complete });
-    } else {
-      money.set(row.id, { cents: 0, kind: "none", complete: true });
-    }
+    const cancelled = row.status === "cancelled";
+    const priced = cancelled ? { cents: 0, complete: true } : priceTiers(row, book);
+    money.set(row.id, {
+      ...priced,
+      cancelled,
+      entered: row.status === "entered",
+      ...(row.order_id ? { orderId: row.order_id, orderNumber: orderNumbers.get(row.order_id) } : {}),
+    });
   }
   return money;
 }
@@ -127,17 +125,16 @@ export function dropoffCardCount(row: Pick<DropoffRevenueRow, "card_count" | "ca
 }
 
 export function totalsFor(rows: DropoffRevenueRow[], money: Map<string, DropoffMoney>): RevenueTotals {
-  const t: RevenueTotals = { dropoffs: 0, cards: 0, enteredCents: 0, estimateCents: 0, unpriced: 0 };
+  const t: RevenueTotals = { dropoffs: 0, cards: 0, revenueCents: 0, enteredCents: 0, toEnterCents: 0, unpriced: 0 };
   for (const row of rows) {
-    if (row.status === "cancelled") continue;
     const m = money.get(row.id);
+    if (!m || m.cancelled) continue;
     t.dropoffs++;
     t.cards += dropoffCardCount(row);
-    if (m?.kind === "entered") t.enteredCents += m.cents;
-    if (m?.kind === "estimate") {
-      t.estimateCents += m.cents;
-      if (!m.complete) t.unpriced++;
-    }
+    t.revenueCents += m.cents;
+    if (m.entered) t.enteredCents += m.cents;
+    else t.toEnterCents += m.cents;
+    if (!m.complete) t.unpriced++;
   }
   return t;
 }
