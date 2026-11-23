@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
 import { cleanSearch, etDate, orderNumberFrom, statusLabel, tierLabel } from "@/lib/support-view";
+import { RECEIVED_EVENT } from "@/lib/intake/migration";
+import { INTAKE_START } from "@/lib/intake/start";
 import { isMissingSchema, MIGRATION_NOTICE } from "./_components/schema";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +39,7 @@ type CodeMatch = { kind: "card" | "bag"; id: string; code: string; orderId: stri
 
 const QUEUES = {
   awaiting: { title: "Waiting to receive", hint: "Orders whose cards haven't arrived yet (Awaiting Cards)." },
-  unchecked: { title: "Waiting to receive: marked received, not checked in", hint: "Received or in-progress orders with cards that have no received date and no bag yet (drop-offs entered as received, and older orders: Historical Order Setup can do those in bulk)." },
+  unchecked: { title: "Waiting to receive: marked received, not checked in", hint: "Orders marked received since Receiving started (Nov 23) whose cards aren't checked in yet: drop-offs entered as received, or orders marked received from the order page. Orders already in the shop before then stay out." },
   partial: { title: "Partially received", hint: "Some cards arrived; the rest are still on the way." },
   labels: { title: "Bags missing labels", hint: "Bags still in work whose label hasn't been printed yet." },
 } as const;
@@ -52,12 +54,20 @@ async function loadQueue(admin: SupabaseClient, key: QueueKey, from: number, to:
     return { orders: (data ?? []) as OrderRow[], bags: [] as BagRow[], count: count ?? 0, error };
   }
   if (key === "unchecked") {
-    // Unfinished, not-refunded cards that were never checked in through receiving
-    const { data, count, error } = await admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`, { count: "exact" })
+    // Unfinished, not-refunded cards that were never checked in through receiving,
+    // on orders created or marked received since Receiving started (older orders stay out)
+    const { data: events, error: eventsError } = await admin.from("order_events").select("order_id")
+      .eq("event_type", "status_updated").eq("description", RECEIVED_EVENT).gte("created_at", INTAKE_START).limit(1000);
+    if (eventsError) return { orders: [] as OrderRow[], bags: [] as BagRow[], count: 0, error: eventsError };
+    const receivedSince = [...new Set(((events ?? []) as { order_id: string | null }[]).map((e) => e.order_id).filter((id): id is string => !!id))];
+    let q = admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`, { count: "exact" })
       .in("status", ["received", "in_progress"])
       .is("cards.received_at", null).is("cards.bag_id", null).eq("cards.awaiting_arrival", false)
-      .eq("cards.completed", false).neq("cards.status", "refunded")
-      .order("created_at", { ascending: false }).range(from, to);
+      .eq("cards.completed", false).neq("cards.status", "refunded");
+    q = receivedSince.length
+      ? q.or(`created_at.gte.${INTAKE_START},id.in.(${receivedSince.join(",")})`)
+      : q.gte("created_at", INTAKE_START);
+    const { data, count, error } = await q.order("created_at", { ascending: false }).range(from, to);
     return { orders: (data ?? []) as OrderRow[], bags: [] as BagRow[], count: count ?? 0, error };
   }
   if (key === "partial") {
@@ -216,7 +226,6 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
           </div>
           <nav className="flex flex-wrap gap-2 text-sm font-bold" aria-label="Receiving sections">
             <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>
-            <AdminLink href="/admin/receiving/setup" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Historical Order Setup</AdminLink>
             <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>
           </nav>
         </div>

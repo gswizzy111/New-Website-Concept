@@ -60,13 +60,13 @@ function printedText(iso: string | null): string {
 type Loaded = { key: string; body: LabelPreviewResponse | null; error: string | null };
 
 /** Everything a bag's label shows, so an edit (a due date, a card's name) fetches the preview and PDFs again. */
-function bagVersion(b: BagSummary): string {
+export function bagVersion(b: BagSummary): string {
   const cards = b.cards.map((c) => [c.code, c.name, c.set, c.number].join("|")).join(";");
   return [b.id, b.code, b.tierName, b.customerName ?? "", b.dueDate ?? "", b.receivedOn ?? "", b.cardCount, cards].join(".");
 }
 
 /** A short fingerprint (FNV-1a) for the PDF addresses, so a changed label is never a stale pre-fetched file. */
-function shortHash(s: string): string {
+export function shortHash(s: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
   return (h >>> 0).toString(36);
