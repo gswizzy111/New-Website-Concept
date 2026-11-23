@@ -189,6 +189,13 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             ← All Orders
           </AdminLink>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* The order's Receiving workspace: tier bags, Card IDs, labels */}
+            <AdminLink
+              href={`/admin/receiving/${order.id}`}
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors bg-white text-foreground border-border hover:border-primary/40 hover:text-primary"
+            >
+              📥 Receiving &amp; labels
+            </AdminLink>
             <ResendConfirmationButton orderId={order.id} />
             <AccountInviteButton orderId={order.id} customerEmail={order.customer_email} />
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />

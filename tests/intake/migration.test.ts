@@ -7,10 +7,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cardCode, nextCardSeqs } from "@/lib/intake/codes";
+import { bagCompletionPatch } from "@/lib/intake/stage-plan";
 import {
   applyOrderSetup,
   planOrderSetup,
   totalsFor,
+  FINISHED_EVENT_PREFIXES,
   RECEIVED_EVENT,
   type NewBagRow,
   type PlanInput,
@@ -32,6 +34,8 @@ class FakeDb implements SetupStore {
   cards = new Map<string, Card>();
   bags: Bag[] = [];
   events: Event[] = [];
+  /** Show drop-off form time by order id. */
+  dropoffs = new Map<string, string>();
   private nextId = 1;
 
   id(prefix: string) {
@@ -89,7 +93,8 @@ class FakeDb implements SetupStore {
       cards: [...this.cards.values()].filter((c) => c.order_id === orderId).map((c) => ({ ...c })),
       bags: this.bags.filter((b) => b.order_id === orderId).map((b) => ({ ...b })),
       receivedEventAt: firstAt((d) => d === RECEIVED_EVENT),
-      finishedEventAt: firstAt((d) => /^(Status updated to: (Completed|Shipped Back|Delivered)|Marked (Shipped Back|Delivered))/.test(d)),
+      finishedEventAt: firstAt((d) => FINISHED_EVENT_PREFIXES.some((p) => d.startsWith(p))),
+      dropoffAt: this.dropoffs.get(orderId) ?? null,
       holidays: HOLIDAYS,
       turnaroundMaxDays: TURNAROUND,
     };
@@ -151,11 +156,15 @@ class FakeDb implements SetupStore {
 
   async fillBag(fill: Parameters<SetupStore["fillBag"]>[0], seenAt: string) {
     const b = this.bags.find((x) => x.id === fill.bagId)!;
-    if (fill.receivedOn && !b.received_on) b.received_on = fill.receivedOn;
-    if (fill.dueStatus && !b.due_date && (b.due_status === "missing_received_date" || b.due_status === "pending")) {
-      b.due_date = fill.dueDate ?? null;
-      b.due_status = fill.dueStatus;
-      b.turnaround_days = fill.turnaroundDays ?? null;
+    // As the real store: the date and its due date in one guarded update
+    const dueFree = !b.due_date && (b.due_status === "missing_received_date" || b.due_status === "pending");
+    if (fill.receivedOn && !b.received_on && (!fill.dueStatus || dueFree)) {
+      b.received_on = fill.receivedOn;
+      if (fill.dueStatus) {
+        b.due_date = fill.dueDate ?? null;
+        b.due_status = fill.dueStatus;
+        b.turnaround_days = fill.turnaroundDays ?? null;
+      }
     }
     if (fill.completedAt && !b.completed_at) {
       b.completed_at = fill.completedAt;
@@ -163,13 +172,13 @@ class FakeDb implements SetupStore {
     }
   }
 
+  /** As lib/intake/stages.ts refreshBagCompletion (the same bagCompletionPatch rule). */
   async refreshBagCompletion(bagIds: string[]) {
     for (const id of bagIds) {
       const b = this.bags.find((x) => x.id === id)!;
-      const live = [...this.cards.values()].filter((c) => c.bag_id === id && c.status !== "refunded");
-      const done = live.length > 0 && live.every((c) => c.completed);
-      if (!done) b.completed_at = null;
-      else if (!b.completed_at) b.completed_at = live.map((c) => c.completed_at ?? "").sort().at(-1) || new Date().toISOString();
+      const cards = [...this.cards.values()].filter((c) => c.bag_id === id);
+      const patch = bagCompletionPatch(b, cards, "2026-11-23T17:00:00Z", this.orders.get(b.order_id)?.status ?? null);
+      if (patch) Object.assign(b, patch);
     }
   }
 
@@ -517,8 +526,7 @@ test("finished order with no completion record: flagged, bag left open", () => {
   assert.equal(db.plan(o.id).newBags[0].completedAt, "2026-07-01T15:00:00Z");
 });
 
-test("bag completion heal never reopens a finished historical order's bag", async () => {
-  const { bagCompletionPatch } = await import("@/lib/intake/stage-plan");
+test("bag completion heal never reopens a finished historical order's bag", () => {
   const open = [{ completed: false, completed_at: null, status: "active" }];
   const now = "2026-11-23T17:00:00Z";
   const done = { completed_at: "2026-08-01T15:00:00Z" };
@@ -528,4 +536,142 @@ test("bag completion heal never reopens a finished historical order's bag", asyn
   assert.deepEqual(bagCompletionPatch({ ...done, source: "receiving" }, open, now, "delivered"), { completed_at: null, completion_seen_at: null });
   assert.deepEqual(bagCompletionPatch({ ...done, source: "migration" }, open, now, "in_progress"), { completed_at: null, completion_seen_at: null });
   assert.deepEqual(bagCompletionPatch(done, open, now), { completed_at: null, completion_seen_at: null });
+});
+
+test("a bought return label finishes an order (its first finishing event dates the bag)", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9500", status: "delivered", restoration_tier: "premium" });
+  db.addCard(o.id);
+  db.event(o.id, RECEIVED_EVENT, "2026-05-01T15:00:00Z");
+  db.event(o.id, "Return label purchased — marked Shipped Back. Tracking: 9400TEST", "2026-06-10T15:00:00Z");
+  db.event(o.id, "Marked Delivered — confirmed via Shippo transaction tracking.", "2026-06-14T15:00:00Z");
+  const plan = db.plan(o.id);
+  assert.equal(plan.finishedDateUnknown, false);
+  assert.equal(plan.newBags[0].completedAt, "2026-06-10T15:00:00Z");
+  await db.setUp(o.id);
+  assert.equal(db.bags[0].completed_at, "2026-06-10T15:00:00Z");
+  assert.equal(db.cards.get([...db.cards.keys()][0])!.completed, false);
+});
+
+test("a card added on a later day is bagged but gets no invented received time", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9600", status: "in_progress", restoration_tier: "premium" });
+  const first = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z" });
+  // Added by staff the same New York day it was received (11:30 PM): counted as received
+  const sameDay = db.addCard(o.id, { created_at: "2026-11-03T04:30:00Z" });
+  const later = db.addCard(o.id, { created_at: "2026-11-09T15:00:00Z" });
+  db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  const plan = db.plan(o.id);
+  assert.deepEqual(plan.receivedAtFills.sort(), [first.id, sameDay.id].sort());
+  assert.deepEqual(plan.newBags[0].cardIds, [first.id, sameDay.id, later.id]);
+  await db.setUp(o.id);
+  assert.equal(db.cards.get(later.id)!.received_at, null);
+  assert.ok(db.cards.get(later.id)!.bag_id);
+  assert.equal(db.cards.get(first.id)!.received_at, "2026-11-02T15:00:00Z");
+  assert.equal(db.plan(o.id).alreadySetUp, true);
+});
+
+test("show drop-off entered days later: received on the show day, its cards get that time", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9700", status: "received", inbound_method: "dropoff", restoration_tier: "elite", created_at: "2026-11-18T16:00:00Z" });
+  const c = db.addCard(o.id, { created_at: "2026-11-18T16:00:00.200000Z" });
+  db.dropoffs.set(o.id, "2026-11-14T19:00:00Z");
+  const plan = db.plan(o.id);
+  assert.equal(plan.receivedSource, "dropoff");
+  assert.equal(plan.receivedOn, "2026-11-14");
+  assert.deepEqual(plan.receivedAtFills, [c.id]);
+  await db.setUp(o.id);
+  assert.equal(db.cards.get(c.id)!.received_at, "2026-11-14T19:00:00Z");
+  assert.equal(db.bags[0].received_on, "2026-11-14");
+  // Without a show form: the order's own creation
+  const plain = db.addOrder({ order_number: "CD-9701", status: "received", inbound_method: "dropoff", restoration_tier: "elite", created_at: "2026-11-18T16:00:00Z" });
+  db.addCard(plain.id, { created_at: "2026-11-18T16:00:00.200000Z" });
+  assert.equal(db.plan(plain.id).receivedOn, "2026-11-18");
+});
+
+test("a Receiving bag of a finished order is never forced completed by the setup", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9800", status: "completed", restoration_tier: "premium" });
+  db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  db.event(o.id, "Status updated to: Completed", "2026-11-20T15:00:00Z");
+  const bag = await db.createBag({
+    order_id: o.id, tier: "premium", batch: 1, bag_code: "CD-9800-G", received_on: "2026-11-02", due_date: "2026-12-01",
+    due_status: "calculated", turnaround_days: 20, completed_at: null, completion_seen_at: null, source: "migration", created_by: "staff",
+  });
+  db.bags[0].source = "receiving";
+  db.addCard(o.id, { card_seq: 1, card_code: "CD-9800-01", bag_id: bag.id, received_at: "2026-11-02T15:00:00Z" });
+  const loose = db.addCard(o.id, { card_seq: 2, card_code: "CD-9800-02" });
+  const plan = db.plan(o.id);
+  assert.deepEqual(plan.links.map((l) => [l.cardId, l.bagId]), [[loose.id, bag.id]]);
+  assert.equal(plan.bagFills.some((f) => f.completedAt), false);
+  await db.setUp(o.id);
+  // Its cards aren't done, so the live rule keeps it open
+  assert.equal(db.bags[0].completed_at, null);
+  assert.equal(db.cards.get(loose.id)!.bag_id, bag.id);
+  assert.equal(db.plan(o.id).alreadySetUp, true);
+});
+
+test("a partly set-up order (run cut off) gets the rest, nothing doubled", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9900", status: "in_progress", restoration_tier: "premium" });
+  const a = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z", tier: "ultra_premium" });
+  const b = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000002Z" });
+  db.event(o.id, RECEIVED_EVENT, "2026-11-15T15:00:00Z");
+  // The first run stopped after the Card IDs and the Gold bag
+  const cut = db.plan(o.id);
+  await db.ensureCardCodes(o.id);
+  const gold = cut.newBags.find((x) => x.tier === "premium")!;
+  await db.createBag({
+    order_id: o.id, tier: gold.tier, batch: gold.batch, bag_code: gold.bagCode, received_on: gold.receivedOn, due_date: gold.dueDate,
+    due_status: gold.dueStatus, turnaround_days: gold.turnaroundDays, completed_at: null, completion_seen_at: null, source: "migration", created_by: "tester",
+  });
+
+  const rest = db.plan(o.id);
+  assert.deepEqual(rest.cardCodes, []);
+  assert.deepEqual(rest.newBags.map((x) => x.bagCode), ["CD-9900-P"]);
+  assert.deepEqual(rest.links.map((l) => [l.cardId, l.bagCode]).sort(), [[a.id, "CD-9900-P"], [b.id, "CD-9900-G"]].sort());
+  const r = await db.setUp(o.id);
+  assert.deepEqual(r.bagsCreated, ["CD-9900-P"]);
+  assert.equal(r.cardsLinked, 2);
+  assert.deepEqual(db.bags.map((x) => x.bag_code).sort(), ["CD-9900-G", "CD-9900-P"]);
+  assert.deepEqual([...db.cards.values()].map((c) => c.card_code).sort(), ["CD-9900-01", "CD-9900-02"]);
+  assert.equal(db.plan(o.id).alreadySetUp, true);
+});
+
+test("two runs at the same moment (interleaved): one bag, one set of codes, card fields filled once", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9910", restoration_tier: "premium" });
+  db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z" });
+  db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000002Z", tier: "expedited" });
+  db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  const [p1, p2] = [db.plan(o.id), db.plan(o.id)];
+  const [r1, r2] = await Promise.all([applyOrderSetup(p1, db, "a"), applyOrderSetup(p2, db, "b")]);
+  assert.equal(db.bags.length, 2);
+  assert.equal(new Set(db.bags.map((x) => x.bag_code)).size, 2);
+  assert.equal(r1.bagsCreated.length + r2.bagsCreated.length, 2);
+  assert.equal(r1.cardsLinked + r2.cardsLinked, 2);
+  assert.equal(r1.receivedAtSet + r2.receivedAtSet, 2);
+  assert.deepEqual([...db.cards.values()].map((c) => c.card_code).sort(), ["CD-9910-01", "CD-9910-02"]);
+  assert.equal(db.plan(o.id).alreadySetUp, true);
+});
+
+test("missing received date is fixable by hand: the employee's date is kept and the flag clears", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9920", status: "completed", restoration_tier: "premium" });
+  db.addCard(o.id, { completed: true, completed_at: "2026-10-01T12:00:00Z" });
+  await db.setUp(o.id);
+  assert.equal(db.bags[0].due_status, "missing_received_date");
+  assert.equal(db.bags[0].completed_at, "2026-10-01T12:00:00Z");
+  assert.equal(db.plan(o.id).missingReceivedDate, true);
+  // Entered on the bag (setBagReceivedOn): due date worked out for review
+  Object.assign(db.bags[0], { received_on: "2026-09-01", due_date: "2026-09-29", due_status: "needs_review" });
+  db.event(o.id, RECEIVED_EVENT, "2026-09-03T15:00:00Z"); // even a record found later doesn't overwrite it
+  const plan = db.plan(o.id);
+  assert.equal(plan.missingReceivedDate, false);
+  assert.deepEqual(plan.bagFills, []);
+  await db.setUp(o.id);
+  assert.equal(db.bags[0].received_on, "2026-09-01");
+  assert.equal(db.bags[0].due_date, "2026-09-29");
+  assert.equal(db.bags[0].completed_at, "2026-10-01T12:00:00Z");
+  assert.equal(db.orders.get(o.id)!.status, "completed");
 });

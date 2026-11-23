@@ -666,6 +666,15 @@ function ReportPanel({ results, preview, stopped, onBack, onRerun }: {
   const errors = results.filter((r) => r.outcome === "error");
   const followUp = results.filter((r) => r.outcome !== "error" && (r.missingImages > 0 || r.missingTiers > 0 || r.missingReceivedDate));
   const alreadyBefore = preview?.alreadySetUp ?? 0;
+  // What the run actually wrote, to set against the preview's totals
+  const made = results.reduce(
+    (t, r) => ({
+      cardCodes: t.cardCodes + (r.changes?.cardCodes ?? 0),
+      bags: t.bags + (r.changes?.bagsCreated.length ?? 0),
+      bagged: t.bagged + (r.changes?.cardsLinked ?? 0),
+    }),
+    { cardCodes: 0, bags: 0, bagged: 0 },
+  );
   const row = (r: RunOutcome, extra?: ReactNode) => (
     <li key={r.orderId} className="px-4 py-2.5 text-sm flex flex-wrap items-baseline gap-x-3 gap-y-1">
       <OrderLink id={r.orderId} number={r.orderNumber} />
@@ -684,6 +693,10 @@ function ReportPanel({ results, preview, stopped, onBack, onRerun }: {
         <Stat label="Skipped" value={skipped.length + alreadyBefore} hint={alreadyBefore ? `${alreadyBefore.toLocaleString("en-US")} already set up before this run` : "Already set up"} />
         <Stat label="Errors" value={errors.length} tone={errors.length ? "bad" : "default"} hint={errors.length ? "Run again to retry: what was saved is kept, nothing is doubled" : undefined} />
       </div>
+      <p className="mb-4 text-sm text-foreground tabular-nums">
+        {`Created ${plural(made.bags, "bag")} and ${plural(made.cardCodes, "Card ID")}; ${plural(made.bagged, "card")} put in bags.`}
+        {preview ? <span className="text-muted-foreground">{` The preview expected ${plural(preview.totals.bagsToCreate, "bag")} and ${plural(preview.totals.cardCodes, "Card ID")}.`}</span> : null}
+      </p>
       <div className="flex flex-col gap-2 mb-4">
         {errors.length > 0 && (
           <details open className="rounded-xl border border-red-200 bg-white">

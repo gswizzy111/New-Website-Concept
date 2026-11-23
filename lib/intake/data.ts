@@ -65,7 +65,13 @@ async function loadOrderRows(admin: SupabaseClient, orderId: string): Promise<In
   }
 }
 
-/** Set or clear completed_at on bags whose cards changed elsewhere (best effort; never fails the load). */
+/**
+ * Set or clear completed_at on bags whose cards changed elsewhere (best effort;
+ * never fails the load). Same rule as refreshBagCompletion (bagCompletionPatch):
+ * a Historical Order Setup bag of a finished order is never reopened. Writes
+ * only when the stored state is wrong, and only over the value it read, so
+ * page loads are idempotent and can't undo a completion saved meanwhile.
+ */
 async function healBags(admin: SupabaseClient, rows: Loaded): Promise<void> {
   const now = new Date().toISOString();
   for (const bag of rows.bags) {
@@ -73,7 +79,7 @@ async function healBags(admin: SupabaseClient, rows: Loaded): Promise<void> {
     if (!patch) continue;
     try {
       const q = admin.from("tier_bags").update(patch).eq("id", bag.id);
-      const { data, error } = await (patch.completed_at ? q.is("completed_at", null) : q).select(BAG_COLUMNS);
+      const { data, error } = await (patch.completed_at ? q.is("completed_at", null) : q.eq("completed_at", bag.completed_at as string)).select(BAG_COLUMNS);
       if (error) throw new Error(error.message);
       if (data?.[0]) Object.assign(bag, data[0]);
     } catch (e) {

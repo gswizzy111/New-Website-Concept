@@ -41,6 +41,8 @@ export type ReceiveResult =
       orderStatusChanged: boolean;
       /** The customer status email failed (as the status route reports it). */
       emailFailed: boolean;
+      /** The cards were saved but the order couldn't be moved to Cards Received (show it; the status button can retry). */
+      statusError?: string;
       eventText: string;
     }
   | { ok: false; status: number; error: string; needsTier?: NeedsTier[] };
@@ -57,13 +59,16 @@ const isUnique = (e: { code?: string } | null | undefined) => e?.code === "23505
  */
 async function assignCodes(admin: SupabaseClient, orderNumber: string, cards: Pick<PlanCard, "id" | "created_at" | "card_seq" | "card_code">[]) {
   const seqs = nextCardSeqs(cards).map((s) => ({ ...s, code: cardCode(orderNumber, s.seq) }));
-  const results = await Promise.all(seqs.map((s) =>
-    admin.from("cards").update({ card_seq: s.seq, card_code: s.code }).eq("id", s.id).is("card_seq", null).select("id")));
-  for (const r of results) {
-    if (isUnique(r.error)) throw new Conflict("card code taken");
-    if (r.error) throw new Error(`Couldn't save the Card IDs: ${r.error.message}`);
+  // A few at a time (a large order would otherwise fire hundreds of requests at once)
+  for (let i = 0; i < seqs.length; i += 10) {
+    const results = await Promise.all(seqs.slice(i, i + 10).map((s) =>
+      admin.from("cards").update({ card_seq: s.seq, card_code: s.code }).eq("id", s.id).is("card_seq", null).select("id")));
+    for (const r of results) {
+      if (isUnique(r.error)) throw new Conflict("card code taken");
+      if (r.error) throw new Error(`Couldn't save the Card IDs: ${r.error.message}`);
+    }
+    if (results.some((r) => !r.data?.length)) throw new Conflict("card numbered elsewhere");
   }
-  if (results.some((r) => !r.data?.length)) throw new Conflict("card numbered elsewhere");
   return seqs;
 }
 
@@ -178,6 +183,12 @@ async function receiveOnce(
       .select("id");
     if (error) {
       await deleteEmptyBags(admin, created);
+      // Nothing received: take back the awaiting flags set above, so a failed
+      // receipt never leaves cards out of the backlog
+      if (!receivedIds.length && plan.markAwaiting.length) {
+        const { error: undoErr } = await admin.from("cards").update({ awaiting_arrival: false }).in("id", plan.markAwaiting).is("received_at", null);
+        if (undoErr) console.error("[intake] awaiting flags not taken back:", undoErr.message);
+      }
       return { ok: false, status: 500, error: `Couldn't save the ${b.tierName} cards as received. (${error.message})` };
     }
     const got = new Set((data ?? []).map((r) => r.id as string));
@@ -190,6 +201,7 @@ async function receiveOnce(
   // 5. Awaiting Cards -> Cards Received through the status button's code (event text and emails unchanged)
   let orderStatusChanged = false;
   let emailFailed = false;
+  let statusError: string | undefined;
   if (order.status === "awaiting_cards" && receivedIds.length) {
     const r = await setOrderStatus({ orderId: input.orderId, status: "received", onlyIfCurrent: "awaiting_cards" }, admin);
     if (r.ok) {
@@ -197,6 +209,7 @@ async function receiveOnce(
       emailFailed = !!r.emailFailed;
     } else {
       console.error("[intake] order not marked received:", r.error);
+      statusError = `The cards were saved, but the order is still Awaiting Cards: ${r.error} Set it to Cards Received on the order page.`;
     }
   }
 
@@ -223,6 +236,7 @@ async function receiveOnce(
     markedAwaiting: plan.markAwaiting,
     orderStatusChanged,
     emailFailed,
+    ...(statusError ? { statusError } : {}),
     eventText: receivedIds.length ? eventText : "",
   };
 }

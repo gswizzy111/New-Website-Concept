@@ -1,21 +1,37 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminSession } from "@/lib/admin-auth";
+import { normalizeCode } from "@/lib/intake/codes";
 import { resolveCode } from "@/lib/intake/data";
 
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 
+function redirect(request: Request, to: string) {
+  const res = NextResponse.redirect(new URL(to, request.url), 302);
+  for (const [k, v] of Object.entries(NO_STORE)) res.headers.set(k, v);
+  return res;
+}
+
 /**
  * Where a scanned card or bag QR code goes (`/q/<CODE>`, printed on the bag
  * labels and tags). Public on purpose, so the phone camera can open it, but it
- * shows nothing itself: a known code redirects to its admin page (which needs
- * a full admin sign-in, and returns there after signing in); an unknown code
- * gets a plain "not found" page. Codes match in any letter case.
+ * shows nothing itself and tells a signed-out visitor nothing: without a full
+ * admin session it never looks the code up, it sends them to sign in and back
+ * here (`/admin/login?next=/q/<CODE>`). Signed in, a known code redirects to
+ * its admin page; an unknown code gets a plain "not found" page. Codes match
+ * in any letter case.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ code: string }> }) {
-  const { code } = await params;
+  const { code: raw } = await params;
+  const code = normalizeCode(raw);
+  if (!code) return notFound();
+
+  // Signed out (or not a full admin): sign in first, then back to this scan
+  const session = await getAdminSession();
+  if (session?.role !== "admin") return redirect(request, `/admin/login?next=${encodeURIComponent(`/q/${code}`)}`);
+
   let found: Awaited<ReturnType<typeof resolveCode>> = null;
   try {
     found = await resolveCode(createAdminClient(), code);
@@ -24,14 +40,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ code
     console.error("[qr] code lookup failed:", e instanceof Error ? e.message : e);
   }
   if (!found) return notFound();
-  const target = found.kind === "card" ? `/admin/receiving/card/${found.id}` : `/admin/receiving/bag/${found.id}`;
-
-  // Signed out: sign in first, then straight to the scanned page
-  const session = await getAdminSession();
-  const to = session?.role === "admin" ? target : `/admin/login?next=${encodeURIComponent(target)}`;
-  const res = NextResponse.redirect(new URL(to, request.url), 302);
-  for (const [k, v] of Object.entries(NO_STORE)) res.headers.set(k, v);
-  return res;
+  return redirect(request, found.kind === "card" ? `/admin/receiving/card/${found.id}` : `/admin/receiving/bag/${found.id}`);
 }
 
 function notFound() {

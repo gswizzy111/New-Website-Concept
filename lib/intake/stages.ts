@@ -160,9 +160,11 @@ export async function refreshBagCompletion(
         (Array.isArray(order) ? order[0] : order)?.status ?? null,
       );
       if (!patch) continue;
-      // Completing only claims a bag that isn't complete yet (keeps the earliest time)
+      // Completing only claims a bag that isn't complete yet (keeps the earliest
+      // time); reopening only clears the completion that was read, so a bag
+      // completed again in the meantime is never cleared by a stale read
       const q = admin.from("tier_bags").update(patch).eq("id", bag.id);
-      const { data, error } = await (patch.completed_at ? q.is("completed_at", null) : q).select("id");
+      const { data, error } = await (patch.completed_at ? q.is("completed_at", null) : q.eq("completed_at", bag.completed_at as string)).select("id");
       if (error) throw new Error(error.message);
       if (data?.length) (patch.completed_at ? out.completed : out.reopened).push(bag.id as string);
     }

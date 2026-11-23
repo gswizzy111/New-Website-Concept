@@ -274,3 +274,40 @@ test("setOrderStatus: same result shape as the route; onlyIfCurrent skips when t
   const missing = await svc.status.setOrderStatus({ orderId: "00000000-0000-4000-8000-00000000beef", status: "received" }, admin);
   assert.ok(!missing.ok && missing.httpStatus === 404);
 });
+
+test("page loads and the card hooks never reopen a finished historical order's completed bag (cards never ticked done)", async () => {
+  const O3 = "00000000-0000-4000-8000-000000000003";
+  const BAG = "00000000-0000-4000-8000-0000000000b3";
+  const done = "2026-07-01T15:00:00+00:00";
+  const seen = "2026-11-20T15:00:00+00:00";
+  mock.store.table("orders").push(order(O3, "CD-3003", "delivered"));
+  const c1 = { ...card(1, "premium", O3), id: "00000000-0000-4000-8000-000000000301", card_seq: 1, card_code: "CD-3003-01", bag_id: BAG };
+  const c2 = { ...card(2, "premium", O3), id: "00000000-0000-4000-8000-000000000302", card_seq: 2, card_code: "CD-3003-02", bag_id: BAG, completed: true, completed_at: "2026-06-20T15:00:00+00:00" };
+  mock.store.table("cards").push(c1, c2);
+  mock.store.table("tier_bags").push({
+    id: BAG, order_id: O3, tier: "premium", batch: 1, bag_code: "CD-3003-G", received_on: "2026-06-02", due_date: "2026-06-30",
+    due_status: "needs_review", turnaround_days: 20, due_note: null, completed_at: done, completion_seen_at: seen, label_printed_at: null,
+    source: "migration", created_at: "2026-11-20T15:00:00+00:00", created_by: "setup",
+  });
+  const bagRow = () => mock.store.table("tier_bags").find((b) => b.id === BAG)!;
+  const writesBefore = mock.store.table("tier_bags").length;
+
+  const intake = await svc.data.loadOrderIntake(admin, O3);
+  assert.ok(intake.ok, intake.ok ? "" : intake.error);
+  if (!intake.ok) return;
+  assert.equal(intake.intake.bags[0].complete, true, "shown completed");
+  const lb = await svc.data.loadBag(admin, BAG);
+  assert.ok(lb.ok && lb.bag.complete && lb.bag.completedAt === done);
+  const lc = await svc.data.loadCard(admin, c1.id);
+  assert.ok(lc.ok && lc.bag?.complete === true);
+  await svc.stages.refreshBagCompletionForCard(c1.id, admin);
+  assert.deepEqual([bagRow().completed_at, bagRow().completion_seen_at], [done, seen], "never reopened, alert not raised again");
+  assert.equal(mock.store.table("tier_bags").length, writesBefore);
+
+  // A Receiving bag of the same finished order, or the order reopened (back in
+  // progress): a card that isn't done reopens the bag, as before
+  mock.store.table("orders").find((o) => o.id === O3)!.status = "in_progress";
+  const reopened = await svc.data.loadBag(admin, BAG);
+  assert.ok(reopened.ok && !reopened.bag.complete);
+  assert.deepEqual([bagRow().completed_at, bagRow().completion_seen_at], [null, null]);
+});

@@ -33,6 +33,7 @@ export type SetupOrderRow = SetupOrder & { customer_name: string | null; custome
 type CardRow = SetupCard & { order_id: string };
 type BagRow = SetupBag & { order_id: string };
 type EventRow = { order_id: string; description: string | null; created_at: string };
+type DropoffRow = { order_id: string; created_at: string };
 
 export type SetupData = {
   orders: SetupOrderRow[];
@@ -91,6 +92,20 @@ function paged<T>(what: string, page: (from: number, to: number) => PromiseLike<
 
 const isFinishedEvent = (d: string | null) => !!d && FINISHED_EVENT_PREFIXES.some((p) => d.startsWith(p));
 
+/** Show drop-off forms linked to orders (the hand-over time); none if that table isn't there. */
+async function readDropoffs(admin: SupabaseClient, orderIds: string[] | null): Promise<DropoffRow[]> {
+  try {
+    return await fetchAll<DropoffRow>(async (from, to) => {
+      const q = admin.from("show_dropoffs").select("order_id, created_at");
+      const res = await (orderIds ? q.in("order_id", orderIds) : q.not("order_id", "is", null)).order("id").range(from, to);
+      if (res.error?.code === "42P01" || res.error?.code === "PGRST205") return { data: [], error: null };
+      return res as { data: DropoffRow[] | null; error: { message: string } | null };
+    });
+  } catch (e) {
+    throw new Error(`Couldn't read the show drop-offs: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 /**
  * Everything planOrderSetup needs, for every order the setup works on
  * (`all`) or for the given orders (any status: the plan says why one isn't
@@ -102,9 +117,13 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
   let cards: CardRow[];
   let bags: BagRow[];
   let events: EventRow[];
+  let dropoffs: DropoffRow[];
+  // Today's settings and holidays, read alongside the rows
+  const settings = Promise.all([loadHolidays(admin), loadTurnarounds(admin)]);
+  settings.catch(() => {}); // awaited below; don't report it unhandled if a row read fails first
 
   if ("all" in scope) {
-    [orders, cards, bags, events] = await Promise.all([
+    [orders, cards, bags, events, dropoffs] = await Promise.all([
       paged<SetupOrderRow>("orders", (from, to) =>
         admin.from("orders").select(SETUP_ORDER_COLUMNS).in("status", statuses).order("id").range(from, to)),
       paged<CardRow & { orders?: unknown }>("cards", (from, to) =>
@@ -112,12 +131,14 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
       paged<BagRow>("bags", (from, to) => admin.from("tier_bags").select(BAG_COLUMNS).order("id").range(from, to)),
       Promise.all([
         paged<EventRow>("order events", (from, to) =>
-          admin.from("order_events").select("order_id, description, created_at").eq("description", RECEIVED_EVENT).order("id").range(from, to)),
+          admin.from("order_events").select("order_id, description, created_at")
+            .eq("event_type", "status_updated").eq("description", RECEIVED_EVENT).order("id").range(from, to)),
         ...FINISHED_EVENT_PREFIXES.map((prefix) =>
           paged<EventRow>("order events", (from, to) =>
             admin.from("order_events").select("order_id, description, created_at")
               .eq("event_type", "status_updated").like("description", `${prefix}%`).order("id").range(from, to))),
       ]).then((lists) => lists.flat()),
+      readDropoffs(admin, null),
     ]);
   } else {
     const ids = [...new Set(scope.orderIds)];
@@ -128,14 +149,16 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
       paged<EventRow>("order events", (from, to) =>
         admin.from("order_events").select("order_id, description, created_at")
           .in("order_id", chunk).eq("event_type", "status_updated").order("id").range(from, to)),
+      readDropoffs(admin, chunk),
     ]));
     orders = parts.flatMap((p) => p[0]);
     cards = parts.flatMap((p) => p[1]);
     bags = parts.flatMap((p) => p[2]);
     events = parts.flatMap((p) => p[3]);
+    dropoffs = parts.flatMap((p) => p[4]);
   }
 
-  const [holidays, turnaroundMaxDays] = await Promise.all([loadHolidays(admin), loadTurnarounds(admin)]);
+  const [holidays, turnaroundMaxDays] = await settings;
 
   const group = <T extends { order_id: string }>(rows: T[]) => {
     const m = new Map<string, T[]>();
@@ -156,6 +179,11 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
     const prev = target.get(e.order_id);
     if (!prev || Date.parse(e.created_at) < Date.parse(prev)) target.set(e.order_id, e.created_at);
   }
+  const dropoffAt = new Map<string, string>();
+  for (const d of dropoffs) {
+    const prev = dropoffAt.get(d.order_id);
+    if (!prev || Date.parse(d.created_at) < Date.parse(prev)) dropoffAt.set(d.order_id, d.created_at);
+  }
 
   orders.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || (a.id < b.id ? -1 : 1));
   const inputs = new Map<string, PlanInput>();
@@ -166,6 +194,7 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
       bags: bagsBy.get(o.id) ?? [],
       receivedEventAt: firstReceived.get(o.id) ?? null,
       finishedEventAt: firstFinished.get(o.id) ?? null,
+      dropoffAt: dropoffAt.get(o.id) ?? null,
       holidays,
       turnaroundMaxDays,
     });
@@ -217,14 +246,15 @@ export function supabaseSetupStore(admin: SupabaseClient): SetupStore {
 
     async fillBag(fill, seenAt) {
       if (fill.receivedOn) {
-        const { error } = await admin.from("tier_bags").update({ received_on: fill.receivedOn }).eq("id", fill.bagId).is("received_on", null);
+        // The date and its due date together, only while neither has been set by anyone
+        let q = admin.from("tier_bags")
+          .update(fill.dueStatus
+            ? { received_on: fill.receivedOn, due_date: fill.dueDate ?? null, due_status: fill.dueStatus, turnaround_days: fill.turnaroundDays ?? null }
+            : { received_on: fill.receivedOn })
+          .eq("id", fill.bagId).is("received_on", null);
+        if (fill.dueStatus) q = q.is("due_date", null).in("due_status", ["missing_received_date", "pending"]);
+        const { error } = await q;
         if (error) throw new Error(`Couldn't save the received date of ${fill.bagCode}: ${error.message}`);
-      }
-      if (fill.dueStatus) {
-        const { error } = await admin.from("tier_bags")
-          .update({ due_date: fill.dueDate ?? null, due_status: fill.dueStatus, turnaround_days: fill.turnaroundDays ?? null })
-          .eq("id", fill.bagId).is("due_date", null).in("due_status", ["missing_received_date", "pending"]);
-        if (error) throw new Error(`Couldn't save the due date of ${fill.bagCode}: ${error.message}`);
       }
       if (fill.completedAt) {
         const { error } = await admin.from("tier_bags")

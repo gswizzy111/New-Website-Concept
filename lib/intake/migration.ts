@@ -16,8 +16,10 @@
  *   1, source 'migration'; an existing bag of that tier is reused.
  * - Links each arrived, non-refunded card with a tier to its bag.
  * - received_on: the order's first 'Status updated to: Cards Received' event
- *   (New York day); a drop-off order's creation day; otherwise none, flagged
- *   "Missing receiving date". Never invented.
+ *   (New York day); a drop-off order's drop-off day (its show drop-off form
+ *   when it came from one, else the order's creation); otherwise none,
+ *   flagged "Missing receiving date". Never invented: cards added to the
+ *   order on a later day are bagged but get no received_at.
  * - Due date from received_on with business days and the tier's current max
  *   turnaround, marked 'needs_review' (the settings of the past are unknown);
  *   no date -> 'missing_received_date'.
@@ -25,7 +27,8 @@
  *   (latest card completed_at), or when the order itself is already finished
  *   (completed / shipped back / delivered: its first such status event), so
  *   finished orders stay finished. Completed historical bags are marked seen,
- *   so they don't raise the "bag completed" alert.
+ *   so they don't raise the "bag completed" alert. Bags Receiving made follow
+ *   the live rule only (refreshBagCompletion), whatever the order's status.
  * Never: order status, cards.completed, stage events, awaiting_arrival, or
  * any field that already has a value.
  */
@@ -43,13 +46,19 @@ export const SETUP_STATUSES = ["received", "in_progress", "completed", "shipped_
 export const FINISHED_STATUSES = ["completed", "shipped_back", "delivered"] as const;
 /** The exact event text the dashboards and the backlog read (never change it). */
 export const RECEIVED_EVENT = "Status updated to: Cards Received";
-/** Status events that finish an order (prefixes; "Shipped Back — Tracking: ..."). */
+/**
+ * Status events (event_type 'status_updated') that finish an order, as
+ * prefixes: the status button ("Shipped Back — Tracking: ..."), the delivery
+ * sync and return-label detection, and buying the return label ("Return label
+ * purchased — marked Shipped Back."; the only finishing event of many orders).
+ */
 export const FINISHED_EVENT_PREFIXES = [
   "Status updated to: Completed",
   "Status updated to: Shipped Back",
   "Status updated to: Delivered",
   "Marked Shipped Back",
   "Marked Delivered",
+  "Return label purchased",
 ] as const;
 /** Most orders one run call may set up (the page sends batches of this size). */
 export const SETUP_BATCH = 25;
@@ -104,6 +113,8 @@ export type PlanInput = {
   receivedEventAt: string | null;
   /** created_at of the order's first finishing status event, if any. */
   finishedEventAt: string | null;
+  /** created_at of the show drop-off form the order was entered from, if any (the day the cards were handed over). */
+  dropoffAt?: string | null;
   holidays: ReadonlySet<string>;
   /** restoration_settings.turnaround_max_days by tier (prep has none). */
   turnaroundMaxDays: Readonly<Record<string, number | null | undefined>>;
@@ -258,14 +269,16 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
 
   // Received date: the real one or nothing
   const eventDay = toNyDate(input.receivedEventAt);
-  const dropoffDay = order.inbound_method === "dropoff" ? toNyDate(order.created_at) : null;
+  // A show drop-off can be entered as an order days after the show: the form's time is the hand-over
+  const dropoffAt = order.inbound_method === "dropoff" ? (input.dropoffAt || order.created_at) : null;
+  const dropoffDay = toNyDate(dropoffAt);
   if (input.receivedEventAt && eventDay) {
     plan.receivedOn = eventDay;
     plan.receivedAt = input.receivedEventAt;
     plan.receivedSource = "event";
-  } else if (dropoffDay) {
+  } else if (dropoffAt && dropoffDay) {
     plan.receivedOn = dropoffDay;
-    plan.receivedAt = order.created_at;
+    plan.receivedAt = dropoffAt;
     plan.receivedSource = "dropoff";
   }
 
@@ -370,7 +383,9 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
         fill.turnaroundDays = due.turnaroundDays;
       }
     }
-    if (!b.completed_at) {
+    // Only bags this setup made get the historical completion; a Receiving
+    // bag follows its cards (refreshed after linking)
+    if (b.source === "migration" && !b.completed_at) {
       const done = bagCompletion([...bagCards(b.id), ...(linkedLater.get(b.id) ?? [])], order, input.finishedEventAt);
       if (done.at) fill.completedAt = done.at;
       else if (done.unknown) plan.finishedDateUnknown = true;
@@ -378,9 +393,16 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
     if (fill.receivedOn || fill.completedAt) plan.bagFills.push(fill);
   }
 
-  // received_at for arrived cards, where a real date is known
-  if (plan.receivedAt) {
-    plan.receivedAtFills = present.filter((c) => !c.received_at).map((c) => c.id);
+  // received_at for arrived cards, where a real date is known: only cards the
+  // order already had when it was received (a drop-off's cards are entered
+  // with the order); a card added on a later day arrived on a day nobody
+  // recorded
+  if (plan.receivedAt && plan.receivedOn) {
+    const lastDay = plan.receivedSource === "dropoff" ? (toNyDate(order.created_at) ?? plan.receivedOn) : plan.receivedOn;
+    const knownBy = lastDay > plan.receivedOn ? lastDay : plan.receivedOn;
+    plan.receivedAtFills = present
+      .filter((c) => !c.received_at && (toNyDate(c.created_at) ?? "9999-12-31") <= knownBy)
+      .map((c) => c.id);
   }
 
   plan.missingReceivedDate = !plan.receivedOn && (
@@ -494,13 +516,15 @@ export async function applyOrderSetup(plan: OrderPlan, store: SetupStore, by: st
   const finished = isFinished(plan.status);
   for (const fill of plan.bagFills) {
     // An open order's touched bags follow the live rule (refreshed below);
-    // a finished order's bags are filled with the plan's completion date.
+    // a finished order's setup bags are filled with the plan's completion date.
     const f = !finished && plan.touchedBagIds.includes(fill.bagId) ? { ...fill, completedAt: undefined } : fill;
     if (!f.receivedOn && !f.completedAt) continue;
     await store.fillBag(f, seenAt);
     result.bagsFilled += 1;
   }
-  if (!finished && plan.touchedBagIds.length > 0) await store.refreshBagCompletion(plan.touchedBagIds);
+  // Bags that got cards: the live rule (a finished order's setup bag stays
+  // completed: keepsHistoricalCompletion)
+  if (plan.touchedBagIds.length > 0) await store.refreshBagCompletion(plan.touchedBagIds);
 
   const changed = result.cardCodes + result.bagsCreated.length + result.cardsLinked + result.receivedAtSet + result.bagsFilled;
   if (changed > 0) {
