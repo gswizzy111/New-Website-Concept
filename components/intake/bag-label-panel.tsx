@@ -240,7 +240,7 @@ export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; b
     <section aria-labelledby="labels-h" className="bg-white rounded-xl border border-border p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 id="labels-h" className="font-heading font-black text-base text-foreground">Bag labels</h3>
+          <h3 id="labels-h" className="font-heading font-black text-base text-foreground">{bags.length === 1 ? "Bag label" : "Bag labels"}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             One label per tier bag.{" "}
             {settings ? `${settings.stock.replace("x", " × ")} in labels, ${settings.contentWidthIn} in wide print. ` : ""}

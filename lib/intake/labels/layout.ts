@@ -14,8 +14,9 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 // 30px side padding), scaled to the printed width. The card rows start at a
 // fixed legible size; as the bag fills up they step down, then go to two
 // columns, never below what a 203 dpi direct thermal printer prints legibly
-// (6.5 pt). Past that the label lists what fits and ends with
-// "+N more: scan the QR".
+// (6.5 pt). Space left over goes to the sets and card numbers first: a set
+// and number that don't fit beside the name go on a second line under it.
+// Past that the label lists what fits and ends with "+N more: scan the QR".
 
 export const PT = 72;
 export const LABEL_LIMITS = {
@@ -166,10 +167,16 @@ function rowId(c: LabelCard): string {
   return tail ?? seqText(c.seq);
 }
 
-function setLine(c: LabelCard): string {
+/** The card's year and set ("1999 Base Set") and its number ("#4/102"). */
+function setParts(c: LabelCard): { set: string; num: string } {
   const set = [c.year, c.set].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const num = (c.number ?? "").trim().replace(/^#\s*/, "");
-  return [set, num ? `#${num}` : ""].filter(Boolean).join(" ");
+  return { set, num: num ? `#${num}` : "" };
+}
+
+function setLine(c: LabelCard): string {
+  const { set, num } = setParts(c);
+  return [set, num].filter(Boolean).join(" ");
 }
 
 /** What the bag QR holds: the stable upper-case /q/<BAG ID> address. */
@@ -179,12 +186,21 @@ export function bagQrData(bag: Pick<LabelBag, "bagCode" | "qrUrl">): string {
 
 // ── Fitting ──────────────────────────────────────────────────────────────────
 
+/** A name goes on the fewest lines that keep it at least this share of its largest size. */
+export const NAME_KEEP = 0.7;
+/** When no number of lines keeps that, an extra line has to make the name at least this much larger. */
+const EXTRA_LINE_GAIN = 1.1;
+
 /**
- * Set a name in `maxW`, never cutting it: as large as it goes (up to `max`)
- * on 1, 2 or 3 lines, breaking at spaces or after a hyphen, without the
- * lines standing taller than two lines at `max`. Fewer lines win a tie. A
- * word too long for the line even at half of `max` (a name typed without
- * spaces) may break between letters instead, so the name stays large.
+ * Set a name in `maxW`, never cutting it, breaking at spaces or after a
+ * hyphen: on the fewest lines (1, then 2, then 3) that keep it at least
+ * NAME_KEEP of `max` ("TEST CUSTOMER A" on two lines, not three); when no
+ * number of lines does, as large as it goes, an extra line only for a
+ * clearly larger name. The lines never stand taller than two lines at `max`,
+ * and a line after the first never holds just one or two letters ("A",
+ * "JR."): they join the line before. A word too long for the line even at
+ * half of `max` (a name typed without spaces) may break between letters
+ * instead, so the name stays large.
  */
 export function fitName(name: string, font: FontRole, maxW: number, max: number, maxLines = 3): { lines: string[]; size: number } {
   const words = name.split(" ").filter(Boolean);
@@ -208,27 +224,35 @@ function bestBreaks(parts: { t: string; sep: string }[], font: FontRole, maxW: n
   if (!parts.length) return { lines: [""], size: max };
   const line = (a: number, b: number) => parts.slice(a, b).map((p, i) => p.t + (a + i < b - 1 ? p.sep : "")).join("");
   const w = (a: number, b: number) => textWidth(line(a, b), font, 1);
+  // One or two letters alone on a line ("A", "JR.") join the line before
+  const lone = (a: number, b: number) => line(a, b).replace(/[^\p{L}\p{N}]/gu, "").length <= 2;
   const n = parts.length;
   const splits: number[][] = [[]];
   for (let i = 1; i < n && maxLines >= 2; i++) splits.push([i]);
   for (let i = 1; i < n && maxLines >= 3; i++) for (let j = i + 1; j < n; j++) splits.push([i, j]);
-  let best = { lines: [line(0, n)], size: 0 };
-  let bestK = 0;
-  let bestWidest = Infinity;
+  // The best split for each number of lines: the largest, then the most even lines
+  const byLines = new Map<number, { lines: string[]; size: number; widest: number }>();
   for (const cut of splits) {
     const bounds = [0, ...cut, n];
+    if (cut.some((a, i) => lone(a, bounds[i + 2]))) continue;
     const widest = Math.max(...bounds.slice(0, -1).map((a, i) => w(a, bounds[i + 1])));
     const k = bounds.length - 1;
     const size = floor2(Math.min(max, maxW / widest, (2 * max) / k));
-    // Bigger wins; on a tie, fewer lines, then the more even lines
-    const tie = Math.abs(size - best.size) <= 0.01;
-    if (size > best.size + 0.01 || (tie && k === bestK && widest < bestWidest - 1e-9)) {
-      best = { lines: bounds.slice(0, -1).map((a, i) => line(a, bounds[i + 1])), size };
-      bestK = k;
-      bestWidest = widest;
+    const best = byLines.get(k);
+    if (!best || size > best.size + 0.01 || (Math.abs(size - best.size) <= 0.01 && widest < best.widest - 1e-9)) {
+      byLines.set(k, { lines: bounds.slice(0, -1).map((a, i) => line(a, bounds[i + 1])), size, widest });
     }
   }
-  return best;
+  const fits = [...byLines.entries()].sort((a, b) => a[0] - b[0]).map(([, f]) => ({ lines: f.lines, size: f.size }));
+  // Up to two lines the larger name wins (the approved design: "JORDAN / REYES" big
+  // on two lines; one line on a tie). A third line only when two lines can't keep the
+  // name at NAME_KEEP of its largest size and the third makes it clearly larger.
+  const upToTwo = fits.filter((f) => f.lines.length <= 2);
+  let pick = upToTwo.reduce<{ lines: string[]; size: number } | null>((p, f) => (!p || f.size > p.size + 0.01 ? f : p), null);
+  for (const f of fits.filter((x) => x.lines.length >= 3)) {
+    if (!pick || (pick.size < NAME_KEEP * max - 0.01 && f.size > pick.size * EXTRA_LINE_GAIN)) pick = f;
+  }
+  return pick ?? fits[0];
 }
 
 function qrSide(data: string, minIn: number): { size: number; module: number } {
@@ -283,7 +307,22 @@ function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelB
   let d = dateAt(nameMax * 0.65);
   if (d.w > maxDueW) d = dateAt(d.dateSize * (maxDueW / d.w));
   const nameText = printable(bag.customerName.toUpperCase(), "display900") || "UNKNOWN";
-  const name = fitName(nameText, "display900", Wi - d.w - colGap, nameMax);
+  // The name takes the width a date of `dateSize` leaves, and the date is then
+  // at most 0.7 of the name: when the name comes out below its largest size,
+  // the date shrinks with it and the name gets that width back. Find the
+  // smallest room to keep for the date that still holds the date the name ends up with.
+  const nameBeside = (dateSize: number) => fitName(nameText, "display900", Wi - dateAt(dateSize).w - colGap, nameMax);
+  let name = nameBeside(d.dateSize);
+  if (name.size * 0.7 < d.dateSize) {
+    let lo: number = LABEL_LIMITS.minTextPt;
+    let hi = d.dateSize;
+    for (let i = 0; i < 10 && hi - lo > 0.05; i++) {
+      const mid = (lo + hi) / 2;
+      const at = nameBeside(mid);
+      if (Math.min(d.dateSize, at.size * 0.7) <= mid) [hi, name] = [mid, at];
+      else lo = mid;
+    }
+  }
   if (d.dateSize > name.size * 0.7) d = dateAt(name.size * 0.7);
   const lh = 0.9;
   // Accented capitals (É, Ö, Å) stand about 0.2 em above the other letters:
@@ -360,12 +399,27 @@ function tierRow(s: S, xi: number, Wi: number, bag: LabelBag, cap: number): Bloc
   };
 }
 
-/** One card row: the Card ID's number in mono, the name in bold, set and number, one line, a dashed rule under it. */
-function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number): { h: number; draw: (x: number, y: number) => LabelElement[] } {
+/** The set and number in `maxW`: whole, else the set cut with "…" and the card number kept ("1999 Pokemon Base Set 1st Ed… #4/102"). */
+function setFitted(set: string, num: string, size: number, maxW: number): string {
+  const whole = [set, num].filter(Boolean).join(" ");
+  if (textWidth(whole, "body400", size) <= maxW) return whole;
+  const room = maxW - textWidth(` ${num}`, "body400", size);
+  // Keep the number while a useful piece of the set (4 em) still shows before it
+  if (set && num && room >= 4 * size) return `${truncate(set, "body400", size, room)} ${num}`;
+  return truncate(whole, "body400", size, maxW);
+}
+
+/**
+ * One card row: the Card ID's number in mono, the name in bold, set and
+ * number, a dashed rule under it. On one line; with `wrap`, a set and number
+ * that don't fit beside the name go on a second line under it (so they are
+ * never cut while a line holds them). Without `wrap`, a set that doesn't fit
+ * is cut, or left out when little of it would show.
+ */
+function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number, wrap: boolean): { h: number; wrapped: boolean; draw: (x: number, y: number) => LabelElement[] } {
   const size = st.body;
   const lineH = size * 1.25;
   const rule = st.rules ? LABEL_LIMITS.minRulePt : 0;
-  const h = lineH + 2 * st.pad + rule;
   const avail = w - idW - gap;
   const name = printable(c.name, "body700") || "Unnamed card";
   const fullW = textWidth(name, "body700", size);
@@ -373,37 +427,68 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
   const set = printable(setLine(c), "body400");
   const setGap = size * 0.55;
   const setAvail = avail - Math.min(fullW, avail) - setGap;
-  // The set in full, or cut only when most of it still shows (a stub like "1986 Fle…" is noise)
   const setW = textWidth(set, "body400", size);
-  const setText = set && fullW <= avail && (setW <= setAvail || setAvail >= Math.max(4 * size, 0.8 * setW)) ? truncate(set, "body400", size, setAvail) : "";
+  const wrapped = wrap && !!set && (fullW > avail || setW > setAvail);
+  let setText: string;
+  if (wrapped) {
+    const parts = setParts(c);
+    setText = setFitted(printable(parts.set, "body400"), printable(parts.num, "body400"), size, avail);
+  } else {
+    // The set in full, or cut only when most of it still shows (a stub like "1986 Fle…" is noise)
+    setText = set && fullW <= avail && (setW <= setAvail || setAvail >= Math.max(4 * size, 0.8 * setW)) ? truncate(set, "body400", size, setAvail) : "";
+  }
+  const h = (wrapped ? 2 : 1) * lineH + 2 * st.pad + rule;
   return {
     h,
+    wrapped,
     draw: (x, y) => {
       const base = baselineIn(y + st.pad, "body700", size, 1.25);
       const nameEl = text(nameText, x + idW + gap, base, size, "body700", "ink");
       const out: LabelElement[] = [text(rowId(c), x, base, size, "mono600", "ink"), nameEl];
-      if (setText) out.push(text(setText, nameEl.x + nameEl.width + setGap, base, size, "body400", "ink"));
+      if (setText && wrapped) out.push(text(setText, nameEl.x, baselineIn(y + st.pad + lineH, "body400", size, 1.25), size, "body400", "ink"));
+      else if (setText) out.push(text(setText, nameEl.x + nameEl.width + setGap, base, size, "body400", "ink"));
       if (rule) out.push({ kind: "line", x1: x, y1: y + h - rule / 2, x2: x + w, y2: y + h - rule / 2, width: rule, color: "ink", dash: [2, 2] });
       return out;
     },
   };
 }
 
-/** The bag's card rows in one style: `cards` down one column, or down the left column then the right. */
-function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number): Block {
+/**
+ * The bag's card rows in one style: `cards` down one column, or down the
+ * left column then the right, split where the columns come out most even.
+ * `wrap`: see cardRow.
+ */
+function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, wrap: boolean): Block & { wrapped: number } {
   const idW = Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
   const gap = st.body * 0.6;
   const colW = st.cols === 2 ? (Wi - colGap) / 2 : Wi;
-  const rows = cards.map((c) => cardRow(c, st, colW, idW, gap));
-  const rowH = rows[0]?.h ?? 0;
-  const perCol = st.cols === 2 ? Math.ceil(cards.length / 2) : cards.length;
+  const rows = cards.map((c) => cardRow(c, st, colW, idW, gap, wrap));
+  const total = rows.reduce((sum, r) => sum + r.h, 0);
+  // The left column's rows: all of them, or for two columns the split with the lower taller column (ties: more on the left)
+  let split = rows.length;
+  if (st.cols === 2) {
+    let best = Infinity;
+    let left = 0;
+    for (let i = 0; i <= rows.length; i++) {
+      const tallest = Math.max(left, total - left);
+      if (tallest <= best + 1e-9) [best, split] = [tallest, i];
+      left += rows[i]?.h ?? 0;
+    }
+  }
+  const leftH = rows.slice(0, split).reduce((sum, r) => sum + r.h, 0);
   return {
-    h: perCol * rowH,
-    draw: (y) =>
-      rows.flatMap((r, i) => {
-        const col = i < perCol ? 0 : 1;
-        return r.draw(xi + col * (colW + colGap), y + (i - col * perCol) * rowH);
-      }),
+    h: Math.max(leftH, total - leftH),
+    wrapped: rows.filter((r) => r.wrapped).length,
+    draw: (y) => {
+      const out: LabelElement[] = [];
+      let ty = y;
+      rows.forEach((r, i) => {
+        if (i === split) ty = y;
+        out.push(...r.draw(xi + (i < split ? 0 : colW + colGap), ty));
+        ty += r.h;
+      });
+      return out;
+    },
   };
 }
 
@@ -531,6 +616,8 @@ export type LabelFit = {
   /** Cards listed on the label, and the rest ("+N more"). */
   shown: number;
   more: number;
+  /** Rows whose set and number went on a second line under the card name. */
+  wrapped: number;
   /** The customer name's type size and number of lines. */
   nameSize: number;
   nameLines: number;
@@ -568,7 +655,7 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
   els.push(...bottom.draw(bottomY));
   if (also) els.push(...also.draw(alsoY));
 
-  // The rows: the first style that holds every card, else the last usable one and "+N more"
+  // The rows, one line each: the first style that holds every card, else the last usable one and "+N more"
   const colGap = Math.max(6, s.px(14));
   const twoColsFit = LIST_STYLES.some((st) => st.cols === 2 && usable(st, cards, Wi, colGap, true));
   let style = -1;
@@ -586,17 +673,32 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
       shown = cards.slice(0, Math.min(cards.length, rows * st.cols));
     }
   }
+  let list = rowsBlock(shown, LIST_STYLES[style], xi, Wi, colGap, false);
+  // Where that style would cut or leave out a set and number, the free space
+  // goes to them first: the same style, or a smaller one (never more
+  // columns, which would cut the names), with a set and number that don't
+  // fit beside the name on a second line under it
+  if (shown.length === cards.length && list.h <= room) {
+    for (let i = style; i < LIST_STYLES.length; i++) {
+      const st = LIST_STYLES[i];
+      if (st.cols > LIST_STYLES[style].cols || !usable(st, cards, Wi, colGap, twoColsFit)) continue;
+      const full = rowsBlock(cards, st, xi, Wi, colGap, true);
+      if (full.h <= room) {
+        [style, list] = [i, full];
+        break;
+      }
+    }
+  }
   const st = LIST_STYLES[style];
   const cardCodes = shown.map((c) => c.code);
-  if (shown.length) els.push(...rowsBlock(shown, st, xi, Wi, colGap).draw(listTop));
+  if (shown.length) els.push(...list.draw(listTop));
   const more = cards.length - shown.length;
-  const rowsH = (st.cols === 2 ? Math.ceil(shown.length / 2) : shown.length) * rowHeight(st);
-  if (more) els.push(...moreLine(more, xi, Wi, st).draw(listTop + rowsH));
+  if (more) els.push(...moreLine(more, xi, Wi, st).draw(listTop + list.h));
   else if (!cards.length) els.push(...moreLine(0, xi, Wi, st).draw(listTop).map((e) => (e.kind === "text" ? { ...e, text: "No cards in this bag", width: textWidth("No cards in this bag", e.font, e.size) } : e)));
 
   return {
     page: { width: stock.pageW, height: stock.pageH, elements: els, cardCodes },
-    fit: { style, cols: st.cols, bodyPt: st.body, shown: shown.length, more, nameSize: top.nameSize, nameLines: top.nameLines },
+    fit: { style, cols: st.cols, bodyPt: st.body, shown: shown.length, more, wrapped: list.wrapped, nameSize: top.nameSize, nameLines: top.nameLines },
   };
 }
 

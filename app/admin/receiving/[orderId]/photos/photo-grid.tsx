@@ -26,8 +26,11 @@ export type GridPhoto = {
   full: Img;
   /** "Receiving photo 1 of CD-2549-03 Charizard" */
   alt: string;
-  /** "Receiving photo 1 of 2": the viewer's title */
-  position: string;
+  /**
+   * "Receiving photo 1 of 2". Not shown: the viewer's title names the kind of
+   * photo and its one counter runs across all of the card's photos.
+   */
+  position?: string;
 };
 export type PhotoGroup = { kind: PhotoKind; title: string; photos: GridPhoto[] };
 
@@ -35,6 +38,13 @@ export type PhotoGroup = { kind: PhotoKind; title: string; photos: GridPhoto[] }
 const TILE_SIZES = "(min-width: 1024px) 210px, (min-width: 640px) 31vw, 50vw";
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2";
 const SWIPE_PX = 50;
+
+/** The viewer's title: what kind of photo is open. */
+const KIND_TITLE: Record<PhotoKind, string> = {
+  receiving: "Receiving photo",
+  customer: "Customer photo",
+  reference: "Reference photo, not the customer's card",
+};
 
 /** `eager`: the first card on the page; its first two photos load at once (the rest lazily). */
 export function PhotoGrid({ groups, cardLabel, eager = false }: { groups: PhotoGroup[]; cardLabel: string; eager?: boolean }) {
@@ -185,7 +195,7 @@ export function PhotoGrid({ groups, cardLabel, eager = false }: { groups: PhotoG
           <div className="flex h-full flex-col pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
             <div className="flex items-center gap-2 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold" aria-live="polite">{current.position}</p>
+                <p className="truncate text-sm font-bold" aria-live="polite">{KIND_TITLE[current.kind]}</p>
                 <p className="truncate text-xs text-white/70">{cardLabel}</p>
               </div>
               <a
@@ -242,7 +252,9 @@ export function PhotoGrid({ groups, cardLabel, eager = false }: { groups: PhotoG
                   <ChevronLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
                   Previous
                 </button>
-                <span className="text-sm font-semibold tabular-nums">{index + 1} / {photos.length}</span>
+                <span className="text-sm font-semibold tabular-nums" aria-live="polite">
+                  {index + 1} of {photos.length}
+                </span>
                 <button
                   type="button"
                   onClick={() => go(1)}

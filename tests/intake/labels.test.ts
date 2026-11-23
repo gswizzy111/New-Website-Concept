@@ -384,6 +384,120 @@ test("Also in this order names the order's other bags with cards", () => {
   assert.ok(!words(layoutBagLabel(bag(4), DEFAULT)).some((x) => x.startsWith("Also in this order")));
 });
 
+/** The name's lines (the largest type) and the due block's words, white in the banner. */
+function bannerParts(p: LabelPage) {
+  const biggest = Math.max(...texts(p).map((t) => t.size));
+  const name = texts(p).filter((t) => t.font === "display900" && t.color === "paper" && t.size === biggest).sort((a, b) => a.y - b.y);
+  const due = texts(p).find((t) => t.text === "DUE" && t.color === "paper")!;
+  const dueWords = texts(p).filter((t) => t.color === "paper" && !name.includes(t) && t.y > due.y - 0.01);
+  return { name, dueWords };
+}
+
+test("names: up to two lines the larger name wins; a third only when needed; never a lone 1-2 letter line", () => {
+  // The fitting rule on its own
+  assert.deepEqual(fitName("TEST CUSTOMER A", "display900", 140, 40).lines, ["TEST", "CUSTOMER A"], "two lines keep 70%");
+  assert.deepEqual(fitName("TEST CUSTOMER A", "display900", 100, 40).lines, ["TEST", "CUSTOMER A"], "\"A\" never alone, even below 70%");
+  assert.deepEqual(fitName("KEN GRIFFEY JR.", "display900", 100, 40).lines, ["KEN", "GRIFFEY JR."]);
+  const tom = fitName("TOM BRADY", "display900", 150, 40);
+  assert.deepEqual(tom.lines, ["TOM", "BRADY"], "two lines when that makes the name larger (the approved JORDAN / REYES look)");
+  const tomOne = fitName("TOM BRADY", "display900", 150, 40, 1);
+  assert.ok(tom.size > tomOne.size, "two lines are larger than one");
+  // Three lines only when two would put the name under 70%, and for a clearly larger name
+  const chris = fitName("CHRISTOPHER MONTGOMERY-WELLINGTON", "display900", 140, 40);
+  assert.equal(chris.lines.length, 3);
+  assert.ok(140 / textWidth("MONTGOMERY-WELLINGTON", "display900", 1) < 0.7 * 40, "two lines would be under 70%");
+
+  // On the label: "TEST CUSTOMER A" due next year was "TEST / CUSTOMER / A"
+  const max = planBagLabel(bag(1), DEFAULT).fit.nameSize;
+  const b = bag(3, { customerName: "Test Customer A", receivedOn: "2026-12-18", dueDate: "2027-01-08" });
+  const { page, fit } = planBagLabel(b, DEFAULT);
+  checkLabel(b, DEFAULT, page, "Test Customer A, due 2027");
+  assert.deepEqual(bannerParts(page).name.map((t) => t.text), ["TEST", "CUSTOMER A"]);
+  assert.ok(fit.nameSize >= 0.7 * max, `${fit.nameSize}pt keeps 70% of ${max}pt`);
+  assert.ok(words(page).includes(" · 2027"));
+
+  for (const [stock, width] of [["4x6", 3.2], ["4x6", 2], ["4x3", 3.2], ["3x5", 2.6]] as const) {
+    const s = stockPoints(stock, width);
+    for (const customerName of ["Test Customer A", "Ken Griffey Jr", "Juan de la Cruz A", "Christopher Montgomery-Wellington", "Wolfeschlegelsteinhausenbergerdorffwelchevorx", "Mary-Jo Lee"]) {
+      for (const dueDate of ["2026-12-07", "2027-01-08"]) {
+        const nb = bag(4, { customerName, dueDate, otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] });
+        const label = `${customerName}, ${stock} at ${width}in, due ${dueDate}`;
+        const p = layoutBagLabel(nb, s);
+        checkLabel(nb, s, p, label);
+        assert.deepEqual(overlaps(p), [], `${label}: nothing printed on top of something else`);
+        const { name, dueWords } = bannerParts(p);
+        // Lines after the first hold at least 3 letters
+        for (const t of name.slice(1)) assert.ok(t.text.replace(/[^\p{L}\p{N}]/gu, "").length >= 3, `${label}: "${t.text}" alone on a line`);
+        assert.ok(name.length <= 3);
+        // The name ends left of the due date, which stays at or above the smallest type
+        const dueLeft = Math.min(...dueWords.map((t) => t.x));
+        for (const t of name) assert.ok(t.x + t.width <= dueLeft + 1e-6, `${label}: "${t.text}" runs into the due date`);
+        for (const t of dueWords) assert.ok(t.size >= LABEL_LIMITS.minTextPt - 1e-9, `${label}: "${t.text}" ${t.size}pt`);
+      }
+    }
+  }
+  // A 45-letter name typed without spaces: never cut, at least 3 lines' worth of size
+  const word = "Wolfeschlegelsteinhausenbergerdorffwelchevorx";
+  assert.equal(word.length, 45);
+  const w45 = planBagLabel(bag(4, { customerName: word }), DEFAULT);
+  assert.ok(w45.fit.nameSize >= 20, `${w45.fit.nameSize}pt`);
+});
+
+test("card rows: a set and number never cut while there is room; they go under the name or the type steps down", () => {
+  // The harness's 8-card Platinum bag: "1999 Test Set Two #10/165" was cut to "1999 Test Set Two #1…" with half the label empty
+  const eight = bag(0, { customerName: "Test Customer G", bagCode: "CD-2600-P", orderNumber: "CD-2600", otherBags: [{ bagCode: "CD-2600-G", tierName: "Gold", cardCount: 32 }] });
+  eight.cards = [4, 9, 14, 19, 24, 29, 34, 39].map((i) => ({
+    seq: i + 1,
+    code: `CD-2600-${String(i + 1).padStart(2, "0")}`,
+    name: i === 4 ? "Test Big Order Card 05 Holo First Edition Long Name" : `Test Big Order Card ${i + 1}`,
+    year: "1999",
+    set: i % 2 ? "Test Set Two" : "Base Set",
+    number: `${i + 1}/165`,
+  }));
+  const { page, fit } = planBagLabel(eight, DEFAULT);
+  checkLabel(eight, DEFAULT, page, "8 cards, long sets");
+  assert.deepEqual(overlaps(page), [], "8 cards: nothing printed on top of something else");
+  assert.equal(fit.more, 0);
+  assert.equal(fit.cols, 1);
+  assert.ok(fit.wrapped > 0, "some sets go under their names");
+  for (const c of eight.cards) assert.ok(words(page).includes(`1999 ${c.set} #${c.number}`), `${c.code}: set and number in full`);
+  assert.ok(!texts(page).some((t) => t.font === "body400" && t.text.endsWith("…")), "no set cut");
+  // A set under its name starts where the name does, inside the row
+  const under = texts(page).find((t) => t.text === "1999 Test Set Two #10/165")!;
+  const name = texts(page).find((t) => t.text === "Test Big Order Card 10")!;
+  assert.ok(near(under.x, name.x) && under.y > name.y, "the set sits under the name");
+
+  // A set too long for a whole line is cut, never the card number
+  const long = bag(3);
+  long.cards[0] = { ...long.cards[0], name: "Charizard Holo", year: "1999", set: "Pokemon Base Set 1st Edition Shadowless Thick Stamp Grey Stamp", number: "4/102" };
+  const lp = layoutBagLabel(long, DEFAULT);
+  checkLabel(long, DEFAULT, lp, "set wider than the line");
+  const cut = texts(lp).find((t) => t.text.startsWith("1999 Pokemon"))!;
+  assert.ok(cut && /… #4\/102$/.test(cut.text), `"${cut?.text}" keeps the number`);
+
+  // A smaller type in one column, then two columns: the same, while the rows fit
+  for (const [n, cols] of [[8, 1], [12, 1], [18, 2], [20, 2]] as const) {
+    const b = bag(n);
+    const p = planBagLabel(b, DEFAULT);
+    checkLabel(b, DEFAULT, p.page, `${n} cards`);
+    assert.deepEqual(overlaps(p.page), [], `${n} cards: nothing printed on top of something else`);
+    assert.equal(p.fit.cols, cols, `${n} cards: ${cols} column(s)`);
+    for (const c of b.cards) assert.ok(texts(p.page).some((t) => t.text.endsWith(`#${c.number}`)), `${n} cards: ${c.code}'s number`);
+  }
+  // Never a second column (narrower names) only to fit sets: with no room for second lines, as before
+  const sixteen = planBagLabel(bag(16), DEFAULT).fit;
+  assert.equal(sixteen.cols, 1);
+  assert.equal(sixteen.wrapped, 0);
+
+  // A bag that only fits on one line a row is laid out as before: sets cut or left out, "+N more" past that
+  for (const n of [40, 120]) {
+    const p = planBagLabel(bag(n), DEFAULT);
+    assert.equal(p.fit.wrapped, 0, `${n} cards: one line a row`);
+    assert.equal(p.fit.cols, 2);
+  }
+  assert.ok(planBagLabel(bag(120), DEFAULT).fit.more > 0);
+});
+
 test("settings capacity: cards at full size and before +N more", () => {
   const c = bagLabelCapacity(DEFAULT);
   assert.ok(c.normal >= 8 && c.max >= 40 && c.max > c.normal, JSON.stringify(c));
