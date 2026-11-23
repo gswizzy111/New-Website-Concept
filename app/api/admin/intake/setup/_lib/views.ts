@@ -51,6 +51,8 @@ export type SetupCardView = {
   bagCode: string | null;
   missingImage: boolean;
   missingTier: boolean;
+  /** Added after the order was received: left for Receiving. */
+  addedLater: boolean;
   completed: boolean;
   refunded: boolean;
   awaiting: boolean;
@@ -69,7 +71,7 @@ export type SetupOrderView = {
   cardCount: number;
   cards: SetupCardView[];
   changes: { cardsToUpdate: number; cardCodes: number; newBags: string[]; bagFills: number };
-  issues: { missingImages: number; missingTiers: number; missingReceivedDate: boolean; finishedDateUnknown: boolean; errors: string[] };
+  issues: { missingImages: number; missingTiers: number; addedLater: number; missingReceivedDate: boolean; finishedDateUnknown: boolean; errors: string[] };
 };
 
 /** One order as the setup list shows it (cards by number). */
@@ -79,6 +81,7 @@ export function orderView(order: SetupOrderRow, plan: OrderPlan, input: PlanInpu
   const bagCode = new Map(input.bags.map((b) => [b.id, b.bag_code]));
   const missingImage = new Set(plan.missingImages.map((r) => r.cardId));
   const missingTier = new Set(plan.missingTiers.map((r) => r.cardId));
+  const addedLater = new Set(plan.addedLater.map((r) => r.cardId));
   const cards = input.cards
     .map((c) => {
       const seq = c.card_seq ?? planned.get(c.id)?.seq ?? null;
@@ -94,6 +97,7 @@ export function orderView(order: SetupOrderRow, plan: OrderPlan, input: PlanInpu
           bagCode: (c.bag_id ? bagCode.get(c.bag_id) : null) ?? plannedBag.get(c.id) ?? null,
           missingImage: missingImage.has(c.id),
           missingTier: missingTier.has(c.id),
+          addedLater: addedLater.has(c.id),
           completed: !!c.completed,
           refunded: c.status === "refunded",
           awaiting: !!c.awaiting_arrival,
@@ -123,6 +127,7 @@ export function orderView(order: SetupOrderRow, plan: OrderPlan, input: PlanInpu
     issues: {
       missingImages: plan.missingImages.length,
       missingTiers: plan.missingTiers.length,
+      addedLater: plan.addedLater.length,
       missingReceivedDate: plan.missingReceivedDate,
       finishedDateUnknown: plan.finishedDateUnknown,
       errors: plan.errors,
@@ -150,6 +155,7 @@ export type SetupPreview = {
   }[];
   missingImages: IssueOrder[];
   missingTiers: IssueOrder[];
+  addedLater: IssueOrder[];
   missingReceivedDates: IssueOrder[];
   finishedDateUnknown: IssueOrder[];
   errors: (IssueOrder & { message: string })[];

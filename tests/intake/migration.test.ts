@@ -553,22 +553,41 @@ test("a bought return label finishes an order (its first finishing event dates t
   assert.equal(db.cards.get([...db.cards.keys()][0])!.completed, false);
 });
 
-test("a card added on a later day is bagged but gets no invented received time", async () => {
+test("a card added on a later day gets no invented received time; an open order's is left for Receiving", async () => {
   const db = new FakeDb();
   const o = db.addOrder({ order_number: "CD-9600", status: "in_progress", restoration_tier: "premium" });
   const first = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z" });
   // Added by staff the same New York day it was received (11:30 PM): counted as received
   const sameDay = db.addCard(o.id, { created_at: "2026-11-03T04:30:00Z" });
-  const later = db.addCard(o.id, { created_at: "2026-11-09T15:00:00Z" });
+  // Added a week later (an add-cards checkout, say): it may not be here
+  const later = db.addCard(o.id, { created_at: "2026-11-09T15:00:00Z", card_name: "Late" });
   db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
   const plan = db.plan(o.id);
   assert.deepEqual(plan.receivedAtFills.sort(), [first.id, sameDay.id].sort());
-  assert.deepEqual(plan.newBags[0].cardIds, [first.id, sameDay.id, later.id]);
+  assert.deepEqual(plan.newBags[0].cardIds, [first.id, sameDay.id]);
+  assert.deepEqual(plan.addedLater.map((r) => [r.code, r.name]), [["CD-9600-03", "Late"]]);
+  assert.equal(totalsFor([plan]).addedLater, 1);
   await db.setUp(o.id);
   assert.equal(db.cards.get(later.id)!.received_at, null);
-  assert.ok(db.cards.get(later.id)!.bag_id);
+  assert.equal(db.cards.get(later.id)!.bag_id, null);
+  assert.equal(db.cards.get(later.id)!.card_code, "CD-9600-03");
+  assert.equal(db.cards.get(later.id)!.awaiting_arrival, false);
   assert.equal(db.cards.get(first.id)!.received_at, "2026-11-02T15:00:00Z");
   assert.equal(db.plan(o.id).alreadySetUp, true);
+
+  // A finished order's later card was worked and shipped: bagged, still no received time
+  const f = db.addOrder({ order_number: "CD-9601", status: "delivered", restoration_tier: "premium" });
+  db.addCard(f.id, { created_at: "2026-11-01T15:00:00.000001Z" });
+  const fLate = db.addCard(f.id, { created_at: "2026-11-09T15:00:00Z" });
+  db.event(f.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  db.event(f.id, "Status updated to: Completed", "2026-11-20T15:00:00Z");
+  const fp = db.plan(f.id);
+  assert.deepEqual(fp.addedLater, []);
+  assert.equal(fp.newBags[0].cardIds.length, 2);
+  await db.setUp(f.id);
+  assert.ok(db.cards.get(fLate.id)!.bag_id);
+  assert.equal(db.cards.get(fLate.id)!.received_at, null);
+  assert.equal(db.plan(f.id).alreadySetUp, true);
 });
 
 test("show drop-off entered days later: received on the show day, its cards get that time", async () => {

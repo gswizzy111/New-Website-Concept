@@ -156,6 +156,7 @@ function OrderRow({ o, checked, disabled, onToggle }: { o: SetupOrderView; check
             <span>{plural(o.cardCount, "card")}</span>
             {o.issues.missingImages > 0 && <span className={`${chip} bg-red-100 text-red-700`}>{o.issues.missingImages} missing image{o.issues.missingImages === 1 ? "" : "s"}</span>}
             {o.issues.missingTiers > 0 && <span className={`${chip} bg-amber-100 text-amber-800`}>{o.issues.missingTiers} missing tier{o.issues.missingTiers === 1 ? "" : "s"}</span>}
+            {o.issues.addedLater > 0 && <span className={`${chip} bg-amber-100 text-amber-800`}>{o.issues.addedLater} added after receiving</span>}
             {o.issues.finishedDateUnknown && <span className={`${chip} bg-gray-100 text-gray-600`}>Completion date unknown</span>}
           </div>
           {changes && o.state === "needs_setup" && <p className="mt-1 text-xs font-semibold text-foreground">Will add: {changes}</p>}
@@ -176,6 +177,7 @@ function OrderRow({ o, checked, disabled, onToggle }: { o: SetupOrderView; check
                   {c.completed && <span className={`${chip} bg-green-100 text-green-800`}>Done</span>}
                   {c.missingImage && <span className={`${chip} bg-red-100 text-red-700`}>Missing image</span>}
                   {c.missingTier && <span className={`${chip} bg-amber-100 text-amber-800`}>Missing tier</span>}
+                  {c.addedLater && <span className={`${chip} bg-amber-100 text-amber-800`}>Receive in Receiving</span>}
                 </li>
               ))}
             </ul>
@@ -341,7 +343,7 @@ export function SetupClient({ batchSize }: { batchSize: number }) {
         const byId = new Map(preview.orders.map((o) => [o.orderId, o.orderNumber]));
         outcomes = batch.map((orderId) => ({
           orderId, orderNumber: byId.get(orderId) ?? null, outcome: "error" as const,
-          message: `Not sent: ${lastError}`, changes: null, missingImages: 0, missingTiers: 0, missingReceivedDate: false,
+          message: `Not sent: ${lastError}`, changes: null, missingImages: 0, missingTiers: 0, addedLater: 0, missingReceivedDate: false,
         }));
       }
       all.push(...outcomes);
@@ -582,6 +584,11 @@ function PreviewPanel({ preview, onConfirm, onBack, batchSize }: { preview: Setu
           note="Neither the card nor the order has a tier. Set the tier on the order page, then run the setup again to bag these cards."
         />
         <IssueList
+          title="Cards added after the order was received"
+          orders={preview.addedLater}
+          note="They may not have arrived with the rest, so they get a Card ID but no bag or received date. Receive them on the order's page when they're here."
+        />
+        <IssueList
           title="Missing receiving dates"
           orders={preview.missingReceivedDates}
           note="No 'Cards Received' record and not a drop-off, so no date is invented. Enter the date on the order page; the due date is then worked out (for review)."
@@ -664,7 +671,7 @@ function ReportPanel({ results, preview, stopped, onBack, onRerun }: {
   const ok = results.filter((r) => r.outcome === "ok");
   const skipped = results.filter((r) => r.outcome === "skipped");
   const errors = results.filter((r) => r.outcome === "error");
-  const followUp = results.filter((r) => r.outcome !== "error" && (r.missingImages > 0 || r.missingTiers > 0 || r.missingReceivedDate));
+  const followUp = results.filter((r) => r.outcome !== "error" && (r.missingImages > 0 || r.missingTiers > 0 || r.addedLater > 0 || r.missingReceivedDate));
   const alreadyBefore = preview?.alreadySetUp ?? 0;
   // What the run actually wrote, to set against the preview's totals
   const made = results.reduce(
@@ -714,6 +721,7 @@ function ReportPanel({ results, preview, stopped, onBack, onRerun }: {
                 <span className="flex flex-wrap gap-1.5">
                   {r.missingImages > 0 && <span className={`${chip} bg-red-100 text-red-700`}>{r.missingImages} missing image{r.missingImages === 1 ? "" : "s"}</span>}
                   {r.missingTiers > 0 && <span className={`${chip} bg-amber-100 text-amber-800`}>{r.missingTiers} missing tier{r.missingTiers === 1 ? "" : "s"}</span>}
+                  {r.addedLater > 0 && <span className={`${chip} bg-amber-100 text-amber-800`}>{r.addedLater} to receive</span>}
                   {r.missingReceivedDate && <span className={`${chip} bg-amber-100 text-amber-800`}>Missing receiving date</span>}
                 </span>
               )))}

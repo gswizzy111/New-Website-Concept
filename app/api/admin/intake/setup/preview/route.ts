@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       })),
       missingImages: plans.filter((p) => p.eligible && p.missingImages.length).map((p) => issue(p, p.missingImages)),
       missingTiers: plans.filter((p) => p.eligible && p.missingTiers.length).map((p) => issue(p, p.missingTiers)),
+      addedLater: plans.filter((p) => p.eligible && p.addedLater.length).map((p) => issue(p, p.addedLater)),
       missingReceivedDates: plans.filter((p) => p.eligible && p.missingReceivedDate).map((p) => issue(p, [])),
       finishedDateUnknown: plans.filter((p) => p.eligible && p.finishedDateUnknown).map((p) => issue(p, [])),
       errors: plans.filter((p) => p.errors.length).map((p) => ({ ...issue(p, []), message: p.errors.join(" ") })),
@@ -86,7 +87,7 @@ function notFound(orderId: string): OrderPlan {
   return {
     orderId, orderNumber: null, status: "unknown", eligible: false, ineligibleReason: "Order not found",
     receivedOn: null, receivedSource: null, receivedAt: null, cardCodes: [], newBags: [], links: [], bagFills: [],
-    touchedBagIds: [], receivedAtFills: [], missingImages: [], missingTiers: [], missingReceivedDate: false,
+    touchedBagIds: [], receivedAtFills: [], missingImages: [], missingTiers: [], addedLater: [], missingReceivedDate: false,
     finishedDateUnknown: false, errors: [], cardsToUpdate: 0, bagsToCreate: 0, alreadySetUp: false,
   };
 }

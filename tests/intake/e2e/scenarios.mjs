@@ -69,7 +69,8 @@ export const UI = {
   addCardSubmit: (page) => page.getByRole("button", { name: /^add and receive card$/i }),
   // Stage moves: "Move to Humidor", "Move 3 cards to Ready for Slab Crack", …
   advanceTo: (scope, stage) => scope.getByRole("button", { name: new RegExp(`^Move\\b.*\\bto ${esc(stage)}$`, "i") }).first(),
-  markDone: (scope) => scope.getByRole("button", { name: /^(mark (card|cards|\d+ cards?|all) done|mark done)/i }).first(),
+  // "Mark done", "Mark card done" (card page), "Mark this card done" / "Mark these 3 cards done" (bag page)
+  markDone: (scope) => scope.getByRole("button", { name: /^mark (this card |these \d+ cards |cards? |\d+ cards? |all )?done$/i }).first(),
   differentSteps: (page) => page.getByText(/cards at different steps/i).first(),
   newChip: (page, bagCode) => page.locator("li, tr, article, section div").filter({ hasText: bagCode }).getByText(/^New$/).first(),
   setupSelectAll: (page) => page.getByRole("checkbox", { name: /select all/i }).first(),
@@ -369,6 +370,13 @@ const SCENARIOS = {
       assert(cardsOf(tt, IDS.mailOrder).every((c) => c.received_at && !c.awaiting_arrival), "a card is not received");
       eq(tt.order_events.filter((e) => e.order_id === IDS.mailOrder && e.description === "Status updated to: Cards Received").length, 1, "'Cards Received' events");
       eq(tt.orders.filter((o) => o.customer_email === "test.customer.a@example.com").length, 1, "orders for customer A (no duplicate order)");
+    }, { shot: false });
+    await s.step("a bagged card can't change tier through the order page's switch (409, tier unchanged)", async () => {
+      const r = await api(ctx, "PATCH", `/api/admin/cards/${mailCard(0)}/tier`, { tier: "elite" });
+      eq(r.status, 409, "status");
+      assert(/CD-2549-G/.test(r.body?.error ?? ""), `message should name the bag: ${JSON.stringify(r.body)}`);
+      eq((await tables()).cards.find((x) => x.id === mailCard(0)).tier, "premium", "tier");
+      return r.body.error.slice(0, 90);
     }, { shot: false });
   },
 

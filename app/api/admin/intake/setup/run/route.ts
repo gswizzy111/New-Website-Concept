@@ -29,14 +29,14 @@ export async function POST(request: Request) {
     const results = await mapLimit(orderIds, 5, async (orderId): Promise<RunOutcome> => {
       const input = data.inputs.get(orderId);
       if (!input) {
-        return { orderId, orderNumber: null, outcome: "error", message: "Order not found", changes: null, missingImages: 0, missingTiers: 0, missingReceivedDate: false };
+        return { orderId, orderNumber: null, outcome: "error", message: "Order not found", changes: null, missingImages: 0, missingTiers: 0, addedLater: 0, missingReceivedDate: false };
       }
       try {
         return await runPlan(planOrderSetup(input), store, by);
       } catch (e) {
         return {
           orderId, orderNumber: input.order.order_number, outcome: "error",
-          message: e instanceof Error ? e.message : String(e), changes: null, missingImages: 0, missingTiers: 0, missingReceivedDate: false,
+          message: e instanceof Error ? e.message : String(e), changes: null, missingImages: 0, missingTiers: 0, addedLater: 0, missingReceivedDate: false,
         };
       }
     });

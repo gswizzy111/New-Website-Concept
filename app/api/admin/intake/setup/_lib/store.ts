@@ -290,6 +290,7 @@ export type RunOutcome = {
   changes: ApplyResult | null;
   missingImages: number;
   missingTiers: number;
+  addedLater: number;
   missingReceivedDate: boolean;
 };
 
@@ -311,6 +312,7 @@ export async function runPlan(plan: OrderPlan, store: SetupStore, by: string | n
     changes: null,
     missingImages: plan.missingImages.length,
     missingTiers: plan.missingTiers.length,
+    addedLater: plan.addedLater.length,
     missingReceivedDate: plan.missingReceivedDate,
   };
   if (!plan.eligible) return { ...base, outcome: "skipped", message: plan.ineligibleReason ?? "Not eligible" };

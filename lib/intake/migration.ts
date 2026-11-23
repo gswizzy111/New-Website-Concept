@@ -18,8 +18,9 @@
  * - received_on: the order's first 'Status updated to: Cards Received' event
  *   (New York day); a drop-off order's drop-off day (its show drop-off form
  *   when it came from one, else the order's creation); otherwise none,
- *   flagged "Missing receiving date". Never invented: cards added to the
- *   order on a later day are bagged but get no received_at.
+ *   flagged "Missing receiving date". Never invented: a card added to the
+ *   order on a later day gets no received_at (a finished order's is still
+ *   bagged; an open order's is left for Receiving, as it may not be here).
  * - Due date from received_on with business days and the tier's current max
  *   turnaround, marked 'needs_review' (the settings of the past are unknown);
  *   no date -> 'missing_received_date'.
@@ -169,6 +170,8 @@ export type OrderPlan = {
   /** Issues to show; never block the rest of the plan. */
   missingImages: CardRef[];
   missingTiers: CardRef[];
+  /** Open order: cards added after the day it was received (may not have arrived); left for Receiving. */
+  addedLater: CardRef[];
   missingReceivedDate: boolean;
   finishedDateUnknown: boolean;
   /** Errors that stop this order from being set up (it is skipped). */
@@ -242,6 +245,7 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
     receivedAtFills: [],
     missingImages: [],
     missingTiers: [],
+    addedLater: [],
     missingReceivedDate: false,
     finishedDateUnknown: false,
     errors: [],
@@ -281,6 +285,14 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
     plan.receivedAt = dropoffAt;
     plan.receivedSource = "dropoff";
   }
+  // The last day a card can have been entered and still be part of that
+  // arrival (a drop-off's cards are entered with the order)
+  let knownBy: string | null = null;
+  if (plan.receivedOn) {
+    const entered = plan.receivedSource === "dropoff" ? toNyDate(order.created_at) : null;
+    knownBy = entered && entered > plan.receivedOn ? entered : plan.receivedOn;
+  }
+  const addedAfter = (c: SetupCard) => knownBy != null && (toNyDate(c.created_at) ?? "9999-12-31") > knownBy;
 
   // Card IDs (missing ones only; never renumbered)
   // (the same numbering ensureCardCodes writes: cards without a number get the next ones)
@@ -301,6 +313,14 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
 
   plan.missingImages = present.filter((c) => !hasImage(c)).map(ref).sort(bySeq);
 
+  // An open order's cards added after it was received (an add-cards checkout,
+  // say) may still be on their way: Receiving takes them when they arrive.
+  // A finished order's were worked and shipped, so they are bagged.
+  const leftForReceiving = new Set(
+    isFinished(order.status) ? [] : present.filter((c) => !c.bag_id && !c.received_at && addedAfter(c)).map((c) => c.id),
+  );
+  plan.addedLater = present.filter((c) => leftForReceiving.has(c.id)).map(ref).sort(bySeq);
+
   // Bags: one per effective tier, reusing what exists
   const bagsByTier = new Map<string, SetupBag[]>();
   for (const b of bags) {
@@ -313,7 +333,7 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
   const unbagged = new Map<string, SetupCard[]>();
   const missingTier: SetupCard[] = [];
   for (const c of present) {
-    if (c.bag_id) continue;
+    if (c.bag_id || leftForReceiving.has(c.id)) continue;
     const tier = effectiveTier(c.tier, order.restoration_tier);
     if (!tier) {
       missingTier.push(c);
@@ -397,12 +417,8 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
   // order already had when it was received (a drop-off's cards are entered
   // with the order); a card added on a later day arrived on a day nobody
   // recorded
-  if (plan.receivedAt && plan.receivedOn) {
-    const lastDay = plan.receivedSource === "dropoff" ? (toNyDate(order.created_at) ?? plan.receivedOn) : plan.receivedOn;
-    const knownBy = lastDay > plan.receivedOn ? lastDay : plan.receivedOn;
-    plan.receivedAtFills = present
-      .filter((c) => !c.received_at && (toNyDate(c.created_at) ?? "9999-12-31") <= knownBy)
-      .map((c) => c.id);
+  if (plan.receivedAt) {
+    plan.receivedAtFills = present.filter((c) => !c.received_at && !addedAfter(c)).map((c) => c.id);
   }
 
   plan.missingReceivedDate = !plan.receivedOn && (
@@ -561,6 +577,7 @@ export type SetupTotals = {
   completedBags: number;
   missingImages: number;
   missingTiers: number;
+  addedLater: number;
   missingReceivedDates: number;
 };
 
@@ -568,7 +585,7 @@ export function totalsFor(plans: OrderPlan[]): SetupTotals {
   const t: SetupTotals = {
     orders: plans.length, ordersToChange: 0, alreadySetUp: 0, notEligible: 0, withErrors: 0,
     cardsToUpdate: 0, cardCodes: 0, bagsToCreate: 0, completedBags: 0,
-    missingImages: 0, missingTiers: 0, missingReceivedDates: 0,
+    missingImages: 0, missingTiers: 0, addedLater: 0, missingReceivedDates: 0,
   };
   for (const p of plans) {
     if (!p.eligible) { t.notEligible += 1; continue; }
@@ -581,6 +598,7 @@ export function totalsFor(plans: OrderPlan[]): SetupTotals {
     t.completedBags += p.newBags.filter((b) => b.completedAt).length;
     t.missingImages += p.missingImages.length;
     t.missingTiers += p.missingTiers.length;
+    t.addedLater += p.addedLater.length;
     if (p.missingReceivedDate) t.missingReceivedDates += 1;
   }
   return t;
