@@ -73,6 +73,7 @@ function toWorkspaceCard(c: IntakeCard, knownDefects: string | null): WorkspaceC
     customerPhotos: c.customerPhotos.map((url) => ({ url, thumb: thumbnail(url, 56) })),
     referencePhoto: c.catalogImageUrl && isCatalogImageUrl(c.catalogImageUrl) ? catalogThumb(c.catalogImageUrl) : null,
     receivingPhotos: c.receivingPhotos,
+    receivingThumbs: Object.fromEntries(c.receivingPhotos.map((url) => [url, thumbnail(url, 80)])),
     receivedAt: c.receivedAt,
     receivedBy: c.receivedBy,
     receivedOn: c.receivedOn,
@@ -210,7 +211,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             </div>
           )}
           {order.historicalReceivedOn && counts.received === 0 && (
-            <p className="mt-3 text-xs text-muted-foreground">Marked received before Receiving existed, on {dayText(order.historicalReceivedOn)}. Use that date when receiving these cards.</p>
+            <p className="mt-3 text-xs text-muted-foreground">Marked received before Receiving existed, on {dayText(order.historicalReceivedOn)}. Receiving starts from that date; change it if the cards really arrived another day.</p>
           )}
         </header>
 
@@ -234,7 +235,17 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
           {cards.length === 0 ? (
             <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">This order has no cards yet. Add the cards the customer brought below.</p>
           ) : (
-            <ReceivingCards orderId={order.id} today={today} cards={workspaceCards} maxPhotos={MAX_RECEIVING_PHOTOS} canReceive payment={payment} />
+            <ReceivingCards
+              orderId={order.id}
+              orderStatus={order.status}
+              today={today}
+              // Nothing checked in yet on an order marked received before Receiving: start from that real day
+              defaultReceivedOn={counts.received === 0 && order.historicalReceivedOn ? order.historicalReceivedOn : undefined}
+              cards={workspaceCards}
+              maxPhotos={MAX_RECEIVING_PHOTOS}
+              canReceive
+              payment={payment}
+            />
           )}
           {payment !== "refunded" && order.status !== "cancelled" && (
             <div className="mt-4">
@@ -244,7 +255,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
         </section>
 
         {/* Bags */}
-        <section id="bags" aria-labelledby="bags-h" className="mt-8 scroll-mt-6">
+        <section id="bags" aria-labelledby="bags-h" className="mt-8 scroll-mt-20 lg:scroll-mt-6">
           <h2 id="bags-h" className="font-heading font-black text-lg text-foreground mb-3">Bags ({bags.length})</h2>
           {bags.length === 0 ? (
             <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">No bags yet. Receiving cards puts each tier in its own bag, with its own Bag ID and due date.</p>
@@ -332,7 +343,7 @@ function BagRow({ bag: b, orderId, today }: { bag: BagSummary; orderId: string; 
         {b.stagesDiffer && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Cards at different steps</span>}
         {dueFlag && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${dueFlag.cls}`}>{dueFlag.text}</span>}
         {b.dueStatus !== "manual" && (
-          <BagReceivedDate orderId={orderId} bagId={b.id} bagCode={b.code} today={today} current={b.receivedOn} />
+          <BagReceivedDate orderId={orderId} bagId={b.id} bagCode={b.code} today={today} current={b.receivedOn} labelPrinted={!!b.labelPrintedAt} />
         )}
         {b.dueStatus === "needs_review" && b.receivedOn && (
           <AdminLink href={`/admin/receiving/bag/${b.id}#due`} className="inline-flex items-center min-h-11 px-3 text-sm font-bold text-primary hover:underline">Review due date</AdminLink>

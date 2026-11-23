@@ -36,10 +36,10 @@ type Counts = { total: number; received: number; awaiting: number };
 type CodeMatch = { kind: "card" | "bag"; id: string; code: string; orderId: string };
 
 const QUEUES = {
-  awaiting: { title: "Waiting to receive", hint: "Paid orders whose cards haven't arrived yet." },
+  awaiting: { title: "Waiting to receive", hint: "Orders whose cards haven't arrived yet (Awaiting Cards)." },
   unchecked: { title: "Waiting to receive: marked received, not checked in", hint: "Received or in-progress orders with cards that have no received date and no bag yet (drop-offs entered as received, and older orders: Historical Order Setup can do those in bulk)." },
   partial: { title: "Partially received", hint: "Some cards arrived; the rest are still on the way." },
-  labels: { title: "Bags missing labels", hint: "Bags whose label hasn't been printed yet." },
+  labels: { title: "Bags missing labels", hint: "Bags still in work whose label hasn't been printed yet." },
 } as const;
 type QueueKey = keyof typeof QUEUES;
 
@@ -66,7 +66,8 @@ async function loadQueue(admin: SupabaseClient, key: QueueKey, from: number, to:
   }
   const { data, count, error } = await admin.from("tier_bags")
     .select("id, bag_code, tier, received_on, due_date, created_at, order_id, orders(order_number, customer_name)", { count: "exact" })
-    .is("label_printed_at", null).order("created_at", { ascending: false }).range(from, to);
+    // Completed bags (historical ones included) don't need a label any more
+    .is("label_printed_at", null).is("completed_at", null).order("created_at", { ascending: false }).range(from, to);
   return { orders: [] as OrderRow[], bags: (data ?? []) as unknown as BagRow[], count: count ?? 0, error };
 }
 

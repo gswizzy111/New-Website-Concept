@@ -69,7 +69,7 @@ async function loadOrderRows(admin: SupabaseClient, orderId: string): Promise<In
 async function healBags(admin: SupabaseClient, rows: Loaded): Promise<void> {
   const now = new Date().toISOString();
   for (const bag of rows.bags) {
-    const patch = bagCompletionPatch(bag, rows.cards.filter((c) => c.bag_id === bag.id), now);
+    const patch = bagCompletionPatch(bag, rows.cards.filter((c) => c.bag_id === bag.id), now, rows.order.status);
     if (!patch) continue;
     try {
       const q = admin.from("tier_bags").update(patch).eq("id", bag.id);

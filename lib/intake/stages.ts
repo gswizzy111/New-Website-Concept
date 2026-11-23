@@ -146,16 +146,18 @@ export async function refreshBagCompletion(
   if (!ids.length) return out;
   try {
     const [{ data: bags, error: bErr }, { data: cards, error: cErr }] = await Promise.all([
-      admin.from("tier_bags").select("id, completed_at").in("id", ids),
+      admin.from("tier_bags").select("id, completed_at, source, orders(status)").in("id", ids),
       admin.from("cards").select("bag_id, completed, completed_at, status").in("bag_id", ids),
     ]);
     if (bErr || cErr) throw new Error((bErr ?? cErr)!.message);
     const now = new Date().toISOString();
     for (const bag of bags ?? []) {
+      const order = bag.orders as { status?: string } | { status?: string }[] | null;
       const patch = bagCompletionPatch(
-        { completed_at: bag.completed_at as string | null },
+        { completed_at: bag.completed_at as string | null, source: bag.source as string | null },
         (cards ?? []).filter((c) => c.bag_id === bag.id) as { completed: boolean | null; completed_at: string | null; status: string | null }[],
         now,
+        (Array.isArray(order) ? order[0] : order)?.status ?? null,
       );
       if (!patch) continue;
       // Completing only claims a bag that isn't complete yet (keeps the earliest time)

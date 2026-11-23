@@ -25,7 +25,12 @@ HARNESS_APP_URL=http://localhost:PORT HARNESS_MOCK_URL=https://localhost:PORT no
 
 Reusing a running harness skips the 1 to 3 minute first compile. Only one
 `next dev` can run per folder (Next.js 16 locks `.next`), so stop any other dev
-server in this worktree first, or reuse it this way.
+server in this worktree first, or reuse it this way. `HARNESS_APP_PORT` and
+`HARNESS_MOCK_PORT` pin the ports, so a restarted harness keeps the same URLs.
+
+One harness is one shared fake database: every scenario starts with
+`POST /__reset`, so two test scripts run against the same harness at once will
+wipe each other's state mid-step. Run them one after the other.
 
 Chromium is preinstalled (`/opt/pw-browsers`) and Playwright is a global
 install; `loadPlaywright()` finds it. Never run `playwright install`.
@@ -42,7 +47,7 @@ Screenshots (deviceScaleFactor 1) and `results.json` go to
 | `seed.mjs` | Fake data with fixed ids (`IDS`, `ORDER_NUMBERS`, `ADMIN_TOKEN`). |
 | `start.mjs` | Starts mock + `next dev`; Playwright helpers. |
 | `smoke.mjs` | Existing admin pages render with no server or browser errors. |
-| `selftest.mjs` | 14 checks of the mock through `@supabase/supabase-js`. |
+| `selftest.mjs` | 15 checks of the mock through `@supabase/supabase-js`. |
 | `../e2e/scenarios.mjs` | Intake scenarios, one place for UI wording (`UI`) and routes (`ROUTES`). |
 
 ## What the app runs with
@@ -104,7 +109,8 @@ await h.stop();
 Selects with columns, `alias:col`, `::casts`, JSON paths (`metadata->>card_id`)
 and embedded relations (many-to-one and one-to-many, `!inner`, `!hint`,
 `alias:rel(...)`), filters `eq neq gt gte lt lte like ilike match imatch in is
-isdistinct cs cd ov fts` and `not.<op>`, `or=(...)`/`and=(...)` (nested, also
+isdistinct cs cd ov fts` and `not.<op>` (`eq` on an array column takes a
+PostgreSQL array literal, `{"a","b"}`, for optimistic updates), `or=(...)`/`and=(...)` (nested, also
 `<rel>.or`), filters on embedded columns (`orders.status=in.(...)`), `order`
 (asc/desc, nullsfirst/nullslast, `<rel>.order`), `limit`/`offset`
 (`<rel>.limit`) and `Range`, `Prefer: count=exact` (content-range), `HEAD`,
@@ -197,14 +203,18 @@ still say whether the backend is right.
 - `complete-bag`: Final Dry → done → bag `completed_at`, order not completed,
   Completed section lists the bag with "New", workspace shows "Partially
   completed".
-- `labels`: finds the label PDF route among `ROUTES.labelPdfCandidates`;
-  one bag → 1 page of 288x432 pt (4x6 in); all bags at once = sum of each bag's
-  pages; a 16-card bag → 2+ labels. Parsed with pdf-lib.
+- `labels`: `GET /api/admin/intake/labels/bag/<bagId>` and
+  `/labels/order/<orderId>` (`ROUTES.labelPdfCandidates`): one bag → 1 page of
+  288x432 pt (4x6 in); all bags at once = sum of each bag's pages; a 16-card
+  bag → 2+ labels. Parsed with pdf-lib.
 - `setup`: Historical Order Setup preview → run → unique Card IDs, received
   dates from 'Cards Received' events / drop-off `created_at` (New York day),
   missing date flagged, delivered order stays delivered with its bag completed,
   stage history untouched, awaiting order left alone; run again → no new cards,
   bags or codes.
+
+Steps time out after 30 s (navigation 240 s for first compiles) instead of
+waiting forever for a missing button.
 
 The intake UI was being built while these were written: the wording they rely
 on (`UI`) and the routes (`ROUTES`) are guesses where a page didn't exist yet

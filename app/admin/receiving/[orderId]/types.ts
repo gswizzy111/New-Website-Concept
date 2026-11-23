@@ -20,6 +20,8 @@ export type WorkspaceCard = {
   /** The card catalog's picture (a reference, not the customer's card) */
   referencePhoto: string | null;
   receivingPhotos: string[];
+  /** Smaller copies of the receiving photos for the list, by photo URL */
+  receivingThumbs: Record<string, string>;
   receivedAt: string | null;
   receivedBy: string | null;
   receivedOn: string | null;

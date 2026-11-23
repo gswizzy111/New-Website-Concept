@@ -17,7 +17,8 @@ import { uploadPhotos } from "@/app/admin/orders/[id]/upload-photos";
  * next card's "Take photo" button when `nextButtonId` is given.
  */
 
-type Pending = { key: string; preview: string; status: "uploading" | "failed"; error?: string; file: File };
+/** A photo being saved; `swapOut` is the photo it replaces (kept so "Try again" still replaces, never adds). */
+type Pending = { key: string; preview: string; status: "uploading" | "failed"; error?: string; file: File; swapOut: string | null };
 
 const noSubscription = () => () => {};
 // A desktop browser with a camera API: mouse or trackpad, and getUserMedia
@@ -95,9 +96,9 @@ export function CardPhotoCapture({
     return data.receiving_photo_urls as string[];
   }
 
-  async function handleFiles(files: File[], fromCamera: boolean) {
+  async function handleFiles(files: File[], fromCamera: boolean, retrySwapOut?: string | null) {
     setError("");
-    const swapOut = replacing.current;
+    const swapOut = retrySwapOut !== undefined ? retrySwapOut : replacing.current;
     replacing.current = null;
     const wanted = swapOut ? files.slice(0, 1) : files.slice(0, room);
     if (!wanted.length) {
@@ -109,7 +110,7 @@ export function CardPhotoCapture({
     const items: Pending[] = wanted.map((file) => {
       const preview = URL.createObjectURL(file);
       previews.current.push(preview);
-      return { key: preview, preview, status: "uploading", file };
+      return { key: preview, preview, status: "uploading", file, swapOut };
     });
     setPending((p) => [...p, ...items]);
     setBusy(true);
@@ -149,7 +150,7 @@ export function CardPhotoCapture({
 
   function retry(item: Pending) {
     setPending((p) => p.filter((x) => x.key !== item.key));
-    void handleFiles([item.file], false);
+    void handleFiles([item.file], false, item.swapOut);
   }
 
   function dismiss(item: Pending) {

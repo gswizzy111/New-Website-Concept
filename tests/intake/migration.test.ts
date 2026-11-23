@@ -516,3 +516,16 @@ test("finished order with no completion record: flagged, bag left open", () => {
   db.event(o.id, "Status updated to: Shipped Back — Tracking: 1Z999", "2026-07-01T15:00:00Z");
   assert.equal(db.plan(o.id).newBags[0].completedAt, "2026-07-01T15:00:00Z");
 });
+
+test("bag completion heal never reopens a finished historical order's bag", async () => {
+  const { bagCompletionPatch } = await import("@/lib/intake/stage-plan");
+  const open = [{ completed: false, completed_at: null, status: "active" }];
+  const now = "2026-11-23T17:00:00Z";
+  const done = { completed_at: "2026-08-01T15:00:00Z" };
+  // Setup bag of a delivered order whose cards were never ticked: stays completed
+  assert.equal(bagCompletionPatch({ ...done, source: "migration" }, open, now, "delivered"), null);
+  // A Receiving bag, or a Setup bag of an open order, reopens as before
+  assert.deepEqual(bagCompletionPatch({ ...done, source: "receiving" }, open, now, "delivered"), { completed_at: null, completion_seen_at: null });
+  assert.deepEqual(bagCompletionPatch({ ...done, source: "migration" }, open, now, "in_progress"), { completed_at: null, completion_seen_at: null });
+  assert.deepEqual(bagCompletionPatch(done, open, now), { completed_at: null, completion_seen_at: null });
+});

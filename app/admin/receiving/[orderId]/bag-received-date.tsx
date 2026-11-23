@@ -7,7 +7,11 @@ import { useRouter } from "next/navigation";
  * Enter the day a bag's cards really arrived (a historical bag with no known
  * date). The due date is then worked out from it, in business days.
  */
-export function BagReceivedDate({ orderId, bagId, bagCode, today, current }: { orderId: string; bagId: string; bagCode: string; today: string; current: string | null }) {
+export function BagReceivedDate({ orderId, bagId, bagCode, today, current, labelPrinted = false }: {
+  orderId: string; bagId: string; bagCode: string; today: string; current: string | null;
+  /** The bag's label was printed: it shows the old dates, so say to reprint it */
+  labelPrinted?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [day, setDay] = useState(current ?? "");
@@ -20,7 +24,11 @@ export function BagReceivedDate({ orderId, bagId, bagCode, today, current }: { o
       setError("Enter the day the cards arrived (today or earlier).");
       return;
     }
-    if (current && !confirm(`Change the received date of ${bagCode}? Its due date is worked out again from the new date.`)) return;
+    if (day === current) {
+      setOpen(false);
+      return;
+    }
+    if ((current || labelPrinted) && !confirm(`${current ? "Change" : "Set"} the received date of ${bagCode}? Its due date is worked out again from the new date.${labelPrinted ? " Reprint its label afterwards: the printed one shows the old dates." : ""}`)) return;
     setBusy(true);
     setError("");
     const res = await fetch(`/api/admin/intake/orders/${orderId}/received-date`, {

@@ -36,12 +36,16 @@ function dayText(day: string | null) {
  * today by default, earlier for historical entries). Each card also has its
  * tier, info corrections and "Mark not received" for a mistake.
  */
-export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: schemaReady, payment }: {
+export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn, cards, maxPhotos, canReceive: schemaReady, payment }: {
   orderId: string;
+  /** orders.status: receiving only moves Awaiting Cards on, so others are explained after receiving */
+  orderStatus: string;
   /** Paid, not paid (receiving asks to confirm) or refunded (no receiving) */
   payment: PaymentState;
   /** Today in New York, YYYY-MM-DD */
   today: string;
+  /** The "Received on" date to start from: today, or the order's real earlier received day (marked received before Receiving existed) */
+  defaultReceivedOn?: string;
   cards: WorkspaceCard[];
   maxPhotos: number;
   /** False when the intake database update isn't applied yet */
@@ -52,7 +56,7 @@ export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: s
   const canReceive = schemaReady && payment !== "refunded";
   const receivable = cards.filter((c) => !c.refunded && !c.receivedAt);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [receivedOn, setReceivedOn] = useState(today);
+  const [receivedOn, setReceivedOn] = useState(defaultReceivedOn && defaultReceivedOn <= today ? defaultReceivedOn : today);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
@@ -91,16 +95,26 @@ export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: s
     const data = res ? await res.json().catch(() => ({})) : {};
     setBusy(false);
     if (!res || !res.ok) {
-      setMessage({ kind: "error", text: data.error ?? (res ? `Couldn't receive the cards (${res.status}).` : "Network error. Nothing was received.") });
+      setMessage({ kind: "error", text: data.error ?? (res ? `Couldn't receive the cards (${res.status}).` : "Network error. Reload the page to see whether the cards were received.") });
+      if (res?.status === 409 && !data.unpaid) router.refresh(); // someone else changed the order meanwhile
       return;
     }
     setSelected(new Set());
-    const summary = typeof data.summary === "string" ? data.summary : `Received ${chosen.length} card${chosen.length === 1 ? "" : "s"}.`;
+    const received = Array.isArray(data.receivedCardIds) ? data.receivedCardIds.length : chosen.length;
+    if (!received) {
+      // A second tap, or another device got there first
+      setMessage({ kind: "ok", text: "Those cards were already received. Nothing changed." });
+      router.refresh();
+      return;
+    }
+    const summary = typeof data.summary === "string" && data.summary ? data.summary : `Received ${received} card${received === 1 ? "" : "s"}`;
     const status = data.orderStatusChanged
       ? data.emailFailed
         ? " The order is now Cards Received, but the customer email didn't send."
         : " The order is now Cards Received and the customer was emailed."
-      : "";
+      : orderStatus === "awaiting_payment"
+        ? " The order's status wasn't changed (it is still Awaiting Payment)."
+        : "";
     setMessage({ kind: "ok", text: `${summary}.${status}`.replace(/\.\.(\s|$)/, ".$1") });
     // Bags, Card IDs and due dates appear at once
     router.refresh();
@@ -144,7 +158,7 @@ export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: s
 
       {/* Stays in view while scrolling the cards; the result of the last receive shows here too */}
       {((receivable.length > 0 && canReceive) || message) && (
-        <div className="sticky bottom-0 z-10 -mx-4 sm:mx-0 border-t sm:border border-border bg-white/95 backdrop-blur sm:rounded-xl px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex flex-col gap-2">
+        <div className="sticky bottom-0 z-10 -mx-4 sm:mx-0 border-t sm:border border-border bg-white/95 backdrop-blur sm:rounded-xl px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex flex-col gap-2">
           {message && (
             <div role={message.kind === "error" ? "alert" : "status"} className={`flex items-start justify-between gap-2 rounded-lg pl-3 text-sm font-semibold ${message.kind === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
               <p className="py-2">{message.text}</p>
@@ -322,7 +336,7 @@ function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, max
                   Receiving photos {c.missingImage && <span className="ml-1 normal-case tracking-normal px-2 py-0.5 rounded-full bg-red-100 text-red-700">Missing image</span>}
                 </p>
                 {canPhoto ? (
-                  <CardPhotoCapture cardId={c.id} cardLabel={label} photos={c.receivingPhotos} max={maxPhotos} nextButtonId={nextButtonId} />
+                  <CardPhotoCapture cardId={c.id} cardLabel={label} photos={c.receivingPhotos} thumbs={c.receivingThumbs} max={maxPhotos} nextButtonId={nextButtonId} />
                 ) : (
                   <p className="text-xs text-muted-foreground">Available once the intake database update is applied.</p>
                 )}

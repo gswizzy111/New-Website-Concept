@@ -169,9 +169,10 @@ export function isBagComplete(cards: readonly CompletionCard[]): boolean {
  * card reopens.
  */
 export function bagCompletionPatch(
-  bag: { completed_at: string | null },
+  bag: { completed_at: string | null; source?: string | null },
   cards: readonly CompletionCard[],
   now: string,
+  orderStatus?: string | null,
 ): { completed_at: string | null; completion_seen_at?: null } | null {
   const complete = isBagComplete(cards);
   if (complete && !bag.completed_at) {
@@ -179,8 +180,17 @@ export function bagCompletionPatch(
       .sort((a, b) => timeOf(a) - timeOf(b)).pop();
     return { completed_at: last ?? now };
   }
-  if (!complete && bag.completed_at) return { completed_at: null, completion_seen_at: null };
+  if (!complete && bag.completed_at && !keepsHistoricalCompletion(bag, orderStatus)) return { completed_at: null, completion_seen_at: null };
   return null;
+}
+
+/**
+ * A Historical Order Setup bag of a finished order (completed, shipped back,
+ * delivered) stays completed even though older orders' cards were never
+ * ticked done: finished historical orders are never reopened.
+ */
+export function keepsHistoricalCompletion(bag: { source?: string | null }, orderStatus?: string | null): boolean {
+  return bag.source === "migration" && ["completed", "shipped_back", "delivered"].includes(orderStatus ?? "");
 }
 
 /** Cards grouped by step for bulk moves: not started, the 8 steps in order, done. Refunded cards are left out. */

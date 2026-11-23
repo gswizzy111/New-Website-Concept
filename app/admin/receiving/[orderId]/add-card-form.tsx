@@ -55,7 +55,17 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
     setUploading(false);
     if (uploadError) setError(uploadError);
     // uploadPhotos keeps the order of the files that made it; match previews by position when all did
-    setPhotos((p) => [...p, ...urls.map((url, i) => ({ url, preview: urls.length === files.length ? previews[i] : url }))]);
+    const allMade = urls.length === files.length;
+    if (!allMade) previews.forEach((u) => URL.revokeObjectURL(u));
+    setPhotos((p) => [...p, ...urls.map((url, i) => ({ url, preview: allMade ? previews[i] : url }))]);
+  }
+
+  function dropPhoto(url: string) {
+    setPhotos((list) => {
+      const gone = list.find((x) => x.url === url);
+      if (gone && gone.preview !== gone.url) URL.revokeObjectURL(gone.preview);
+      return list.filter((x) => x.url !== url);
+    });
   }
 
   async function submit(e: React.FormEvent) {
@@ -85,7 +95,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
     const data = res ? await res.json().catch(() => ({})) : {};
     setBusy(false);
     if (!res || !res.ok) {
-      setError(data.error ?? (res ? `Couldn't add the card (${res.status}).` : "Network error. The card wasn't added."));
+      setError(data.error ?? (res ? `Couldn't add the card (${res.status}).` : "Network error. Reload the page to see whether the card was added before trying again."));
       if (data.card_id) router.refresh(); // added, but receiving it failed
       return;
     }
@@ -94,6 +104,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
     setSet("");
     setNumber("");
     setYear("");
+    photos.forEach((p) => { if (p.preview !== p.url) URL.revokeObjectURL(p.preview); });
     setPhotos([]);
     router.refresh();
     // Ready for the next card the customer brought
@@ -136,7 +147,9 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
             <span key={p.url} className="relative">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={p.preview} alt={`New card photo ${i + 1}`} className="w-16 h-16 rounded-lg object-cover border border-border" />
-              <button type="button" onClick={() => setPhotos((list) => list.filter((x) => x.url !== p.url))} className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-gray-900 text-white text-xs font-bold" aria-label={`Remove new card photo ${i + 1}`}>×</button>
+              <button type="button" onClick={() => dropPhoto(p.url)} className="absolute -top-3 -right-3 w-11 h-11 flex items-center justify-center" aria-label={`Remove new card photo ${i + 1}`}>
+                <span aria-hidden="true" className="w-7 h-7 rounded-full bg-gray-900 text-white text-xs font-bold flex items-center justify-center">×</span>
+              </button>
             </span>
           ))}
           {photos.length < maxPhotos && (
