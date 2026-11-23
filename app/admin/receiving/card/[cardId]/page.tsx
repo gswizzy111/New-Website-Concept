@@ -125,16 +125,10 @@ function HistoryList({ history }: { history: StageHistoryEntry[] }) {
  */
 async function BagLabelSection({ bag }: { bag: BagSummary }) {
   const admin = createAdminClient();
-  const [settings, { data: bagCards, error }] = await Promise.all([
-    getLabelSettings(admin),
-    admin.from("cards").select("status, receiving_photo_urls").eq("bag_id", bag.id),
-  ]);
-  if (error) return null;
-  const needPhoto = ((bagCards ?? []) as { status: string | null; receiving_photo_urls: (string | null)[] | null }[]).filter(
-    (c) => c.status !== "refunded" && !(c.receiving_photo_urls ?? []).some(Boolean),
-  ).length;
+  // Labels print without waiting for photos (the owner's call, Nov 23 2026)
+  const settings = await getLabelSettings(admin);
   const stock = LABEL_STOCKS[settings.stock];
-  return <BagLabelPrint bag={bag} paper={{ widthIn: stock.widthIn, heightIn: stock.heightIn }} needPhoto={needPhoto} />;
+  return <BagLabelPrint bag={bag} paper={{ widthIn: stock.widthIn, heightIn: stock.heightIn }} needPhoto={0} />;
 }
 
 export default async function ReceivingCardPage({ params }: { params: Promise<{ cardId: string }> }) {
