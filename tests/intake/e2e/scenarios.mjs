@@ -351,7 +351,7 @@ const SCENARIOS = {
     await s.step("pick Bronze for it, then receive: CD-2549-B", async () => {
       await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
       await Promise.all([
-        page.waitForResponse((r) => r.url().includes("/tier") && r.request().method() === "POST", { timeout: 30_000 }),
+        page.waitForResponse((r) => r.url().includes("/tier") && r.request().method() !== "GET", { timeout: 30_000 }),
         UI.tierSelect(page, MAIL_NAMES[9]).selectOption("regular"),
       ]);
       await page.waitForLoadState("networkidle").catch(() => {});
@@ -622,6 +622,13 @@ const SCENARIOS = {
       eq(all.doc.getPageCount(), each.reduce((a, b) => a + b, 0), "pages (sum of each bag's labels)");
       return `${mailBags.length} bags -> ${all.doc.getPageCount()} pages`;
     }, { shot: false });
+    await s.step("reusable tag for a bag: a PDF (?tag=1)", async () => {
+      const res = await ctx.request.get(ROUTES.tagPdf(mailBags[0].id), { failOnStatusCode: false });
+      assert(res.ok() && (res.headers()["content-type"] ?? "").includes("application/pdf"), `tag route answered ${res.status()} ${res.headers()["content-type"]}`);
+      const doc = await PDFDocument.load(await res.body());
+      const { width, height } = doc.getPage(0).getSize();
+      return `${doc.getPageCount()} page(s), ${Math.round(width)}x${Math.round(height)} pt`;
+    }, { shot: false });
     await s.step("a 16-card bag continues on more than one label (same Bag ID)", async () => {
       const big = await fetchPdf([bigBag.id], IDS.dropoffOrder);
       assert(big.doc.getPageCount() >= 2, `16 cards on ${big.doc.getPageCount()} page(s)`);
@@ -717,6 +724,8 @@ export async function runScenarios({ only = null } = {}) {
       ctx.setDefaultTimeout(30_000);
       ctx.setDefaultNavigationTimeout(240_000);
       const page = await ctx.newPage();
+      // confirm() prompts ("Switch … to …?", "Mark … as not received?") are answered yes, as staff would
+      page.on("dialog", (d) => d.accept().catch(() => {}));
       const s = new Scenario(name, page, results);
       const pageErrors = [];
       page.on("pageerror", (e) => pageErrors.push(e.message));
