@@ -3,6 +3,24 @@
 import { useState } from "react";
 import Link from "next/link";
 
+/**
+ * The admin page to return to after signing in, from `?next=` (a scanned
+ * card or bag QR code sends people here with it). Only this site's own
+ * /admin/... pages count; anything else lands on the usual home page.
+ */
+function returnTo(): string | null {
+  const next = new URLSearchParams(window.location.search).get("next");
+  if (!next || !next.startsWith("/admin/") || next.startsWith("//") || /[\\\s]/.test(next)) return null;
+  try {
+    const url = new URL(next, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    if (!url.pathname.startsWith("/admin/") || url.pathname.startsWith("/admin/login")) return null;
+    return url.pathname + url.search;
+  } catch {
+    return null;
+  }
+}
+
 export default function AdminLoginPage() {
   const [mode, setMode] = useState<"admin" | "accountant" | "support">("admin");
   const [username, setUsername] = useState("");
@@ -24,7 +42,7 @@ export default function AdminLoginPage() {
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      window.location.href = mode === "accountant" ? "/admin/tax" : mode === "support" ? "/admin/support" : "/admin";
+      window.location.href = mode === "accountant" ? "/admin/tax" : mode === "support" ? "/admin/support" : returnTo() ?? "/admin";
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Incorrect credentials.");
