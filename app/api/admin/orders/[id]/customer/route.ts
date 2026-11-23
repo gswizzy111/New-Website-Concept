@@ -2,15 +2,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin-auth";
 
+// Address lines come back as null for orders whose address was saved with an
+// empty field (street2 is stored as null), so every optional field takes null too.
+const optionalText = z.string().nullish().transform((v) => (v ?? "").trim());
+
 const Schema = z.object({
-  customer_name: z.string().min(1),
-  customer_email: z.string().email(),
-  customer_phone: z.string().min(1),
-  street1: z.string().optional(),
-  street2: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  zip: z.string().optional(),
+  customer_name: z.string().trim().min(1, "Name is required."),
+  customer_email: z.string().trim().email("That email address doesn't look right."),
+  // Drop-offs are often entered without a phone: it may stay empty (the column is not null, so "")
+  customer_phone: optionalText,
+  street1: optionalText,
+  street2: optionalText,
+  city: optionalText,
+  state: optionalText,
+  zip: optionalText,
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -19,27 +24,51 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const { id: orderId } = await params;
-  const parsed = Schema.safeParse(await request.json());
-  if (!parsed.success) return Response.json({ error: "Invalid data" }, { status: 400 });
+  const parsed = Schema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid data" }, { status: 400 });
+  }
 
   const { customer_name, customer_email, customer_phone, street1, street2, city, state, zip } = parsed.data;
   const admin = createAdminClient();
 
-  // Build address update if any address fields provided
+  // Address: keep what the order already has (its country, any other fields) and
+  // change only the lines edited here; an international address stays international
   const hasAddress = street1 || city || state || zip;
-  const addressUpdate = hasAddress
-    ? { ship_from_address: { name: customer_name, street1: street1 ?? "", street2: street2 ?? null, city: city ?? "", state: state ?? "", zip: zip ?? "", country: "US" } }
-    : {};
+  let addressUpdate: Record<string, unknown> = {};
+  if (hasAddress) {
+    const { data: current, error: readError } = await admin.from("orders").select("ship_from_address").eq("id", orderId).maybeSingle();
+    if (readError) {
+      console.error("Failed to read order address:", readError);
+      return Response.json({ error: "Couldn't load the order. Try again." }, { status: 500 });
+    }
+    if (!current) return Response.json({ error: "Order not found" }, { status: 404 });
+    const existing = (current.ship_from_address && typeof current.ship_from_address === "object" ? current.ship_from_address : {}) as Record<string, unknown>;
+    addressUpdate = {
+      ship_from_address: {
+        ...existing,
+        name: customer_name,
+        street1,
+        street2: street2 || null,
+        city,
+        state,
+        zip,
+        country: typeof existing.country === "string" && existing.country ? existing.country : "US",
+      },
+    };
+  }
 
-  const { error } = await admin
+  const { data: updated, error } = await admin
     .from("orders")
     .update({ customer_name, customer_email, customer_phone, ...addressUpdate })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .select("id");
 
   if (error) {
     console.error("Failed to update customer:", error);
     return Response.json({ error: "Failed to update customer" }, { status: 500 });
   }
+  if (!updated?.length) return Response.json({ error: "Order not found" }, { status: 404 });
 
   return Response.json({ ok: true });
 }
