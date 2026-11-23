@@ -54,9 +54,11 @@ export const UI = {
   arrived: (page, cardName) => page.getByRole("checkbox", { name: new RegExp(`^Arrived: .*${esc(cardName)}$`) }),
   receivedOn: (page) => page.getByLabel(/received on/i).last(),
   receiveButton: (page) => page.getByRole("button", { name: /^Receive selected cards/i }),
-  // the innermost list item holding the card's name (lists can be nested)
-  cardRow: (page, cardName) => page.locator("li").filter({ hasText: cardName }).last(),
-  tierSelect: (page, cardName) => UI.cardRow(page, cardName).getByRole("combobox").first(),
+  // The innermost block holding the card's name and (optionally) a given control: card
+  // names also appear in label previews and nested lists, which hold no such control.
+  cardRow: (page, cardName, has) => page.locator("li, div, tr, article, section").filter({ hasText: cardName }).filter(has ? { has } : {}).last(),
+  tierSelect: (page, cardName) => UI.cardRow(page, cardName, page.getByRole("combobox")).getByRole("combobox").first(),
+  moveButton: (page) => page.getByRole("button", { name: /^Move\b/i }),
   alert: (page) => page.getByRole("alert").first(),
   choosePhoto: (page, cardName) => page.getByRole("button", { name: new RegExp(`^Choose photo of .*${esc(cardName)}`) }),
   receivingPhotos: (page, cardName) => page.getByRole("list", { name: new RegExp(`^Receiving photos of .*${esc(cardName)}`) }),
@@ -355,7 +357,7 @@ const SCENARIOS = {
         UI.tierSelect(page, MAIL_NAMES[9]).selectOption("regular"),
       ]);
       // the page refreshes its data after the change; until then it still thinks the card has no tier
-      await UI.cardRow(page, MAIL_NAMES[9]).getByText(/^Missing tier$/).waitFor({ state: "detached", timeout: 30_000 });
+      await UI.cardRow(page, MAIL_NAMES[9], page.getByRole("combobox")).getByText(/^Missing tier$/).waitFor({ state: "detached", timeout: 30_000 });
       await UI.arrived(page, MAIL_NAMES[9]).check();
       const res = await clickForApi(page, UI.receiveButton(page), "/receive");
       assert(res.status() < 300, `receive answered ${res.status()}`);
@@ -530,7 +532,7 @@ const SCENARIOS = {
     }, { shot: false });
     await s.step("one card alone: move Gold Two to Humidity Press from its card row", async () => {
       await goto(page, ROUTES.bag(bag.id));
-      const row = UI.cardRow(page, MAIL_NAMES[1]);
+      const row = UI.cardRow(page, MAIL_NAMES[1], UI.moveButton(page));
       const res = await clickForApi(page, UI.advanceTo(row, "Humidity Press"), "/api/admin/intake/stages");
       assert(res.status() < 300, `stages answered ${res.status()}`);
       const t = await tables();
