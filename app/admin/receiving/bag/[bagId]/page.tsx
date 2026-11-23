@@ -61,8 +61,8 @@ function groupLabel(group: BagStageGroup): string {
   return n === 1 ? `Move this card to ${next.label}` : `Move these ${n} cards to ${next.label}`;
 }
 
-/** One card of a step group; its own button only when the group has others (one card: the group button moves it). */
-function CardRow({ card, orderId, ownButton }: { card: IntakeCard; orderId: string; ownButton: boolean }) {
+/** One card of a step group, with its own button (moves only this card). */
+function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
   const st = card.stage;
   const next = st.next;
   return (
@@ -84,7 +84,7 @@ function CardRow({ card, orderId, ownButton }: { card: IntakeCard; orderId: stri
           </div>
         </div>
       </AdminLink>
-      {ownButton && next && !card.refunded && !card.awaitingArrival && (
+      {next && !card.refunded && !card.awaitingArrival && (
         <div className="sm:shrink-0">
           <AdvanceButton
             orderId={orderId}
@@ -204,7 +204,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
               {bag.stagesDiffer && (
                 <div className="mb-4">
                   <Notice tone="blue">
-                    The cards in this bag are at different steps. Each group below moves on its own; moving one group never changes cards at another step.
+                    Cards at different steps: each group below moves on its own, and moving one group never changes cards at another step.
                   </Notice>
                 </div>
               )}
@@ -223,14 +223,15 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
                           {g.completed ? "Done" : g.stage ? `Step ${idx + 1} of ${STAGES.length} · ${g.label}` : "Not started"}
                           <span className="ml-2 font-semibold text-muted-foreground">({groupCards.length})</span>
                         </h3>
-                        {!g.completed && movable.length > 0 && (
+                        {/* One card: its row button moves it */}
+                        {!g.completed && movable.length > 1 && (
                           <div className="sm:w-auto w-full">
                             <AdvanceButton orderId={order.id} cardIds={movable} fromStage={g.stage} label={groupLabel({ ...g, cardIds: movable })} size="big" />
                           </div>
                         )}
                       </div>
                       <ul className="mt-1 divide-y divide-border">
-                        {groupCards.map((c) => <CardRow key={c.id} card={c} orderId={order.id} ownButton={groupCards.length > 1} />)}
+                        {groupCards.map((c) => <CardRow key={c.id} card={c} orderId={order.id} />)}
                       </ul>
                     </div>
                   );

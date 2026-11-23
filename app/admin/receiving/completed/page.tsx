@@ -102,7 +102,7 @@ function BagPanel({ bag }: { bag: CompletedBag }) {
                 </p>
               </div>
               <span className={`shrink-0 text-[11px] font-bold px-2 py-0.5 rounded-full ${c.refunded ? "bg-gray-100 text-gray-500" : c.completed ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
-                {c.refunded ? "Refunded" : c.completed ? (c.completed_at ? `Done ${nyDate(c.completed_at)}` : "Done") : "Reopened"}
+                {c.refunded ? "Refunded" : c.completed ? (c.completed_at ? `Done ${nyDate(c.completed_at)}` : "Done") : "Not done"}
               </span>
             </li>
           ))}

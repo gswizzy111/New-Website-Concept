@@ -50,15 +50,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     // needsTier: the cards that need a tier first ({ cardId, seq, name })
     return Response.json({ error: result.error, ...(result.needsTier ? { needsTier: result.needsTier } : {}) }, { status: result.status });
   }
-  if (order.payment_status !== "paid") {
-    // Who chose to receive on an order that isn't paid
-    await admin.from("order_events").insert({
+  if (order.payment_status !== "paid" && result.receivedCardIds.length) {
+    // Who chose to receive on an order that isn't paid (only when cards were actually received now)
+    const { error: logError } = await admin.from("order_events").insert({
       order_id: orderId,
       event_type: "received_unpaid",
       description: `Cards received on an order that isn't paid (payment status: ${order.payment_status ?? "none"}), confirmed by ${who.by}`,
-      metadata: { by: who.by, payment_status: order.payment_status ?? null, card_ids: parsed.data.cardIds },
+      metadata: { by: who.by, payment_status: order.payment_status ?? null, card_ids: result.receivedCardIds },
       is_customer_visible: false,
     });
+    if (logError) console.error("[intake receive] unpaid receipt not logged:", logError.message);
   }
   return Response.json({ ...result, summary: result.eventText });
 }

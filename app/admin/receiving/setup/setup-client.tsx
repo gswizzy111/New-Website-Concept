@@ -399,7 +399,7 @@ export function SetupClient({ batchSize }: { batchSize: number }) {
             <div className="h-full bg-primary transition-[width] duration-300 ease-out motion-reduce:transition-none" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-            {progress.ok} set up · {progress.skipped} skipped · {progress.errors} errors. {batchSize} orders at a time; keep this page open. If you leave, run it again later: finished orders are skipped.
+            {`${progress.ok} set up · ${progress.skipped} skipped · ${progress.errors} errors. ${batchSize} orders at a time; keep this page open. If you leave, run it again later: finished orders are skipped.`}
           </p>
           <button type="button" className={`${outlineBtn} mt-3`} onClick={() => { stopRef.current = true; }}>
             Stop after this batch
@@ -478,14 +478,16 @@ export function SetupClient({ batchSize }: { batchSize: number }) {
                 ? `All ${plural(list?.eligibleMatching ?? 0, "eligible order")} selected`
                 : selected.size > 0 ? `${plural(selected.size, "order")} selected` : "Select orders to set up"}
             </p>
-            <button
-              type="button"
-              className={outlineBtn}
-              disabled={!list || list.eligibleMatching === 0}
-              onClick={() => { setAllMode(true); setSelected(new Set()); }}
-            >
+            <label className={`${outlineBtn} cursor-pointer has-[:disabled]:opacity-50 has-[:disabled]:pointer-events-none`}>
+              <input
+                type="checkbox"
+                className="size-5 accent-primary cursor-pointer"
+                checked={allMode}
+                disabled={!list || list.eligibleMatching === 0}
+                onChange={(e) => { setAllMode(e.target.checked); setSelected(new Set()); }}
+              />
               Select all eligible{list ? ` (${list.eligibleMatching.toLocaleString("en-US")})` : ""}
-            </button>
+            </label>
             {(allMode || selected.size > 0) && (
               <button type="button" className={outlineBtn} onClick={clearSelection}>Clear selection</button>
             )}
@@ -638,7 +640,7 @@ function PreviewPanel({ preview, onConfirm, onBack, batchSize }: { preview: Setu
 
       <div className="rounded-xl border border-border bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-3">
         <p className="text-xs text-muted-foreground flex-1">
-          Runs {batchSize} orders at a time from this page. Existing Card IDs, bags, dates, stages and completed orders are never changed.
+          {`Runs ${batchSize} orders at a time from this page. Existing Card IDs, bags, dates, stages and completed orders are never changed. `}
           Due dates are worked out from today&apos;s tier settings and marked for review.
         </p>
         <div className="flex gap-2">
@@ -680,7 +682,7 @@ function ReportPanel({ results, preview, stopped, onBack, onRerun }: {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <Stat label="Set up" value={ok.length} tone={ok.length ? "good" : "default"} />
         <Stat label="Skipped" value={skipped.length + alreadyBefore} hint={alreadyBefore ? `${alreadyBefore.toLocaleString("en-US")} already set up before this run` : "Already set up"} />
-        <Stat label="Errors" value={errors.length} tone={errors.length ? "bad" : "default"} hint={errors.length ? "Nothing was half-done: run again to retry" : undefined} />
+        <Stat label="Errors" value={errors.length} tone={errors.length ? "bad" : "default"} hint={errors.length ? "Run again to retry: what was saved is kept, nothing is doubled" : undefined} />
       </div>
       <div className="flex flex-col gap-2 mb-4">
         {errors.length > 0 && (

@@ -38,13 +38,12 @@ export const ROUTES = {
   oldStageApi: (orderId) => `/api/admin/orders/${orderId}/stage`,
   setupPreviewApi: "/api/admin/intake/setup/preview",
   setupRunApi: "/api/admin/intake/setup/run",
-  // The label PDF route isn't fixed in the brief: the first candidate that answers with a PDF wins
+  // Label PDFs: one bag, or every bag of an order (?tag=1 = reusable tags, ?format=json = preview pages).
+  // The first candidate that answers with a PDF wins.
   labelPdfCandidates: (bagIds, orderId) => [
-    `/api/admin/intake/labels?bags=${bagIds.join(",")}`,
-    `/api/admin/intake/labels?bagIds=${bagIds.join(",")}`,
-    ...(bagIds.length === 1 ? [`/api/admin/intake/bags/${bagIds[0]}/label`, `/api/admin/intake/bags/${bagIds[0]}/labels`, `/api/admin/intake/labels/${bagIds[0]}`] : []),
-    `/api/admin/intake/orders/${orderId}/labels`,
+    ...(bagIds.length === 1 ? [`/api/admin/intake/labels/bag/${bagIds[0]}`] : [`/api/admin/intake/labels/order/${orderId}`]),
   ],
+  tagPdf: (bagId) => `/api/admin/intake/labels/bag/${bagId}?tag=1`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -55,8 +54,9 @@ export const UI = {
   arrived: (page, cardName) => page.getByRole("checkbox", { name: new RegExp(`^Arrived: .*${esc(cardName)}$`) }),
   receivedOn: (page) => page.getByLabel(/received on/i).last(),
   receiveButton: (page) => page.getByRole("button", { name: /^Receive selected cards/i }),
-  cardRow: (page, cardName) => page.locator("li").filter({ hasText: cardName }).first(),
-  tierSelect: (page, cardName) => UI.cardRow(page, cardName).getByLabel(/tier/i),
+  // the innermost list item holding the card's name (lists can be nested)
+  cardRow: (page, cardName) => page.locator("li").filter({ hasText: cardName }).last(),
+  tierSelect: (page, cardName) => UI.cardRow(page, cardName).getByRole("combobox").first(),
   alert: (page) => page.getByRole("alert").first(),
   choosePhoto: (page, cardName) => page.getByRole("button", { name: new RegExp(`^Choose photo of .*${esc(cardName)}`) }),
   receivingPhotos: (page, cardName) => page.getByRole("list", { name: new RegExp(`^Receiving photos of .*${esc(cardName)}`) }),
@@ -328,17 +328,26 @@ const SCENARIOS = {
       const b1 = bagsOf(t, IDS.mailOrder).filter((b) => b.batch === 1);
       eq(b1.find((b) => b.tier === "ultra_premium").due_date, "2026-12-07", "batch 1 Platinum due unchanged");
     }, { shot: false });
-    await s.step("receiving the card with no tier is refused and names the card", async () => {
+    await s.step("receiving the card with no tier is refused and names the card (page)", async () => {
       await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
       await UI.arrived(page, MAIL_NAMES[9]).check();
-      const res = await clickForApi(page, UI.receiveButton(page), "/receive");
-      assert(res.status() >= 400, `expected a refusal, got ${res.status()}`);
+      // the page may refuse before calling the API, or show the API's refusal
+      await UI.receiveButton(page).click();
+      await UI.alert(page).waitFor({ timeout: 30_000 });
       const msg = await UI.alert(page).innerText();
       assert(/tier/i.test(msg) && /10|No Tier/.test(msg), `refusal should name card 10 and the tier: "${msg}"`);
       const c = (await tables()).cards.find((x) => x.id === mailCard(9));
       assert(!c.received_at, "card was received without a tier");
       return msg;
     });
+    await s.step("the receive API refuses it too, naming the card", async () => {
+      const r = await api(ctx, "POST", ROUTES.receiveApi(IDS.mailOrder), { cardIds: [mailCard(9)], receivedOn: "2026-11-18" });
+      assert(r.status >= 400 && r.status < 500, `expected 4xx, got ${r.status}`);
+      const msg = JSON.stringify(r.body);
+      assert(/tier/i.test(msg) && /10|No Tier/.test(msg), `refusal should name card 10: ${msg}`);
+      assert(!(await tables()).cards.find((x) => x.id === mailCard(9)).received_at, "received without a tier");
+      return msg.slice(0, 120);
+    }, { shot: false });
     await s.step("pick Bronze for it, then receive: CD-2549-B", async () => {
       await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
       await Promise.all([
@@ -704,6 +713,9 @@ export async function runScenarios({ only = null } = {}) {
       console.log(`\n▶ ${name}`);
       await reset();
       const ctx = await newAdminContext(browser, { appUrl: h.appUrl });
+      // a missing button fails the step after 30 s instead of waiting forever
+      ctx.setDefaultTimeout(30_000);
+      ctx.setDefaultNavigationTimeout(240_000);
       const page = await ctx.newPage();
       const s = new Scenario(name, page, results);
       const pageErrors = [];

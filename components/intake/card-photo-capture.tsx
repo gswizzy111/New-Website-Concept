@@ -36,6 +36,7 @@ export function CardPhotoCapture({
   cardId,
   cardLabel,
   photos,
+  thumbs,
   max,
   nextButtonId,
 }: {
@@ -44,6 +45,8 @@ export function CardPhotoCapture({
   cardLabel: string;
   /** The card's receiving photos as saved */
   photos: string[];
+  /** Smaller copies to show in the list (thumbnail() from lib/thumbnail.ts, made on the server), by photo URL */
+  thumbs?: Record<string, string>;
   /** How many receiving photos a card may have (MAX_CARD_PHOTOS) */
   max: number;
   /** The next card's "Take photo" button, focused after a photo is saved */
@@ -61,8 +64,10 @@ export function CardPhotoCapture({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [webcamOpen, setWebcamOpen] = useState(false);
-  // The photo a "Replace" is waiting to swap out
+  // The photo a "Replace" is waiting to swap out (set when the new photo's picker opens)
   const replacing = useRef<string | null>(null);
+  // The photo whose "Replace" is being confirmed (inline, so the camera opens from a direct tap)
+  const [confirmingReplace, setConfirmingReplace] = useState<string | null>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const libraryInput = useRef<HTMLInputElement>(null);
   const hasWebcam = useSyncExternalStore(noSubscription, webcamSupported, () => false);
@@ -115,6 +120,7 @@ export function CardPhotoCapture({
       const url = urls[0];
       if (!url) {
         setPending((p) => p.map((x) => (x.key === item.key ? { ...x, status: "failed", error: uploadError ?? "Upload failed." } : x)));
+        setError(uploadError ?? "The photo didn't upload.");
         continue;
       }
       const next = await save(swapOut ? { action: "replace", old: swapOut, url } : { action: "add", urls: [url] });
@@ -132,7 +138,11 @@ export function CardPhotoCapture({
       router.refresh();
       if (fromCamera && nextButtonId) {
         const next = document.getElementById(nextButtonId);
-        if (next instanceof HTMLElement) next.focus();
+        if (next instanceof HTMLElement) {
+          // Centred, so the sticky "Receive" bar at the bottom doesn't cover it
+          next.scrollIntoView({ block: "center", behavior: "smooth" });
+          next.focus({ preventScroll: true });
+        }
       }
     }
   }
@@ -146,10 +156,11 @@ export function CardPhotoCapture({
     setPending((p) => p.filter((x) => x.key !== item.key));
   }
 
-  function startReplace(url: string) {
-    if (!confirm(`Replace this receiving photo of ${cardLabel}? The old photo is taken off the card. The customer's own photos are not changed.`)) return;
-    replacing.current = url;
-    cameraInput.current?.click();
+  // Confirmed: open the camera (or the library) straight from this tap; the new photo takes the old one's place
+  function replaceWith(input: "camera" | "library") {
+    replacing.current = confirmingReplace;
+    setConfirmingReplace(null);
+    (input === "camera" ? cameraInput : libraryInput).current?.click();
   }
 
   async function remove(url: string) {
@@ -182,9 +193,9 @@ export function CardPhotoCapture({
         <ul className="flex flex-wrap gap-2" aria-label={`Receiving photos of ${cardLabel}`}>
           {saved.map((url, i) => (
             <li key={url} className="flex flex-col items-center gap-1">
-              <EnlargeablePhoto url={url} alt={`Receiving photo ${i + 1} of ${cardLabel}`} size="md" />
+              <EnlargeablePhoto url={url} thumb={thumbs?.[url]} alt={`Receiving photo ${i + 1} of ${cardLabel}`} size="md" />
               <div className="flex gap-1">
-                <button type="button" onClick={() => startReplace(url)} disabled={busy} className="min-h-11 px-2 text-xs font-bold text-primary hover:underline disabled:opacity-50" aria-label={`Replace receiving photo ${i + 1} of ${cardLabel}`}>
+                <button type="button" onClick={() => { setError(""); setConfirmingReplace(url); }} disabled={busy} className="min-h-11 px-2 text-xs font-bold text-primary hover:underline disabled:opacity-50" aria-label={`Replace receiving photo ${i + 1} of ${cardLabel}`} aria-expanded={confirmingReplace === url}>
                   Replace
                 </button>
                 <button type="button" onClick={() => remove(url)} disabled={busy} className="min-h-11 px-2 text-xs font-bold text-red-600 hover:underline disabled:opacity-50" aria-label={`Remove receiving photo ${i + 1} of ${cardLabel}`}>
@@ -202,6 +213,9 @@ export function CardPhotoCapture({
                   {item.status === "uploading" ? "Saving…" : "Not saved"}
                 </span>
               </div>
+              {item.status === "failed" && item.error && (
+                <p className="max-w-24 text-[11px] leading-tight font-semibold text-red-600 text-center">{item.error}</p>
+              )}
               {item.status === "failed" && (
                 <div className="flex gap-1">
                   <button type="button" onClick={() => retry(item)} disabled={busy} className="min-h-11 px-2 text-xs font-bold text-primary hover:underline disabled:opacity-50">Try again</button>
@@ -213,12 +227,32 @@ export function CardPhotoCapture({
         </ul>
       )}
 
+      {confirmingReplace && (
+        <div role="group" aria-label={`Replace a receiving photo of ${cardLabel}`} className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex flex-col gap-2">
+          <p className="text-sm font-semibold text-amber-900">
+            Replace receiving photo {saved.indexOf(confirmingReplace) + 1}? The old photo comes off the card once the new one is saved. The customer&apos;s own photos are not changed.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => replaceWith("camera")} disabled={busy} className={`${btn} bg-primary text-primary-foreground hover:bg-primary/90`}>
+              <Camera className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" /> Take new photo
+            </button>
+            <button type="button" onClick={() => replaceWith("library")} disabled={busy} className={`${btn} border border-border bg-white text-foreground hover:border-primary/50`}>
+              Choose photo
+            </button>
+            <button type="button" onClick={() => setConfirmingReplace(null)} className={`${btn} text-muted-foreground hover:text-foreground`}>
+              Keep the old photo
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         <button
           id={captureButtonId(cardId)}
           type="button"
           onClick={() => {
             replacing.current = null;
+            setConfirmingReplace(null);
             cameraInput.current?.click();
           }}
           disabled={room === 0}
@@ -231,6 +265,7 @@ export function CardPhotoCapture({
           type="button"
           onClick={() => {
             replacing.current = null;
+            setConfirmingReplace(null);
             libraryInput.current?.click();
           }}
           disabled={room === 0}
@@ -242,7 +277,12 @@ export function CardPhotoCapture({
         {hasWebcam && (
           <button
             type="button"
-            onClick={() => setWebcamOpen(true)}
+            onClick={() => {
+              // A Replace whose picker was dismissed must not turn this photo into a replacement
+              replacing.current = null;
+              setConfirmingReplace(null);
+              setWebcamOpen(true);
+            }}
             disabled={room === 0 || webcamOpen}
             className={`${btn} border border-border bg-white text-foreground hover:border-primary/50`}
             aria-label={`Use webcam for ${cardLabel}`}
@@ -277,6 +317,8 @@ export function CardPhotoCapture({
 function WebcamCapture({ cardLabel, onClose, onCapture }: { cardLabel: string; onClose: () => void; onCapture: (file: File) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  // One still per open webcam (a double click must not save two photos)
+  const taken = useRef(false);
   const [state, setState] = useState<"starting" | "live" | "failed">("starting");
   const [failure, setFailure] = useState("");
 
@@ -315,7 +357,7 @@ function WebcamCapture({ cardLabel, onClose, onCapture }: { cardLabel: string; o
 
   function capture() {
     const v = video.current;
-    if (!v || !v.videoWidth) return;
+    if (!v || !v.videoWidth || taken.current) return;
     const canvas = document.createElement("canvas");
     canvas.width = v.videoWidth;
     canvas.height = v.videoHeight;
@@ -326,8 +368,10 @@ function WebcamCapture({ cardLabel, onClose, onCapture }: { cardLabel: string; o
       return;
     }
     ctx.drawImage(v, 0, 0);
+    taken.current = true;
     canvas.toBlob((blob) => {
       if (!blob) {
+        taken.current = false;
         setFailure("The photo couldn't be made. Try again, or use Choose photo instead.");
         return;
       }

@@ -21,7 +21,8 @@ export const SMOKE_PAGES = [
 ];
 
 // Browser console noise that says nothing about the page
-const IGNORE_CONSOLE = [/favicon/i, /Download the React DevTools/i, /\[HMR\]/, /\[Fast Refresh\]/, /maps\.googleapis/i, /googletagmanager|facebook/i];
+// (QZ Tray: the order page looks for the print helper on this machine's ports 8181-8485; there is none here.)
+const IGNORE_CONSOLE = [/WebSocket connection to 'wss?:\/\/localhost(\.qz\.io)?:\d+\/' failed/i, /qz/i, /favicon/i, /Download the React DevTools/i, /\[HMR\]/, /\[Fast Refresh\]/, /maps\.googleapis/i, /googletagmanager|facebook/i];
 
 export async function runSmoke(h, { pages = SMOKE_PAGES } = {}) {
   fs.mkdirSync(OUT, { recursive: true });

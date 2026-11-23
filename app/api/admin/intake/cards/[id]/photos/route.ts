@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
 import { isOurCardPhoto, MAX_RECEIVING_PHOTOS } from "@/lib/intake/photos";
+import { UUID, smallJson } from "../../../orders/guard";
 
 /**
  * A card's receiving photos (cards.receiving_photo_urls): add, replace or
@@ -21,8 +22,6 @@ const Body = z.discriminatedUnion("action", [
 ]);
 type Body = z.infer<typeof Body>;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 // Postgres text[] literal, every element quoted, for the "unchanged since we read it" check
 function pgArray(values: string[]) {
   return `{${values.map((v) => `"${v.replace(/["\\]/g, (c) => `\\${c}`)}"`).join(",")}}`;
@@ -30,7 +29,7 @@ function pgArray(values: string[]) {
 
 function apply(current: string[], body: Body): { next: string[] } | { error: string; status: number } {
   if (body.action === "add") {
-    const fresh = body.urls.filter((u) => !current.includes(u));
+    const fresh = [...new Set(body.urls)].filter((u) => !current.includes(u));
     const next = [...current, ...fresh];
     if (next.length > MAX_RECEIVING_PHOTOS) {
       return { error: `A card can have ${MAX_RECEIVING_PHOTOS} receiving photos. Remove one first.`, status: 400 };
@@ -53,7 +52,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   if (!UUID.test(id)) return Response.json({ error: "Card not found" }, { status: 404 });
 
-  const parsed = Body.safeParse(await req.json().catch(() => null));
+  const parsed = Body.safeParse(await smallJson(req));
   if (!parsed.success) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid request" }, { status: 400 });
   }

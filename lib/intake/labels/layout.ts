@@ -384,8 +384,13 @@ function footer(s: S, x0: number, W: number, bag: LabelBag, labelNo: () => [numb
 
 // ── Pages ────────────────────────────────────────────────────────────────────
 
+/** The width the label content actually prints at: the setting, less a printer margin at each side. */
+export function printedWidth(stock: LabelStock): number {
+  return Math.min(stock.contentW, stock.pageW - 2 * SIDE_MIN);
+}
+
 function frame(stock: LabelStock) {
-  const W = Math.min(stock.contentW, stock.pageW - 2 * SIDE_MIN);
+  const W = printedWidth(stock);
   const x0 = (stock.pageW - W) / 2;
   const density: Density = stock.pageH < COMPACT_BELOW ? "compact" : "regular";
   return { W, x0, s: sizes(W, density) };

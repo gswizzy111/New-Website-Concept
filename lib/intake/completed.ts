@@ -1,5 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/fetch-all";
+import { isBagComplete } from "@/lib/intake/stage-plan";
+import { refreshBagCompletion } from "@/lib/intake/stages";
 
 /**
  * The Completed section (/admin/receiving/completed) and its alert: tier bags
@@ -112,6 +115,29 @@ const CARD_COLUMNS =
   "id, order_id, bag_id, card_code, card_seq, card_name, card_set, card_number, card_year, completed, completed_at, status, photo_urls, receiving_photo_urls, catalog_image_url, created_at";
 
 /**
+ * Bags whose cards were all ticked done somewhere that doesn't update bags
+ * (the old site's order page, the ship trigger) get their completed_at here,
+ * through refreshBagCompletion, before the Completed section lists them.
+ * Best effort: never fails the page.
+ */
+async function healOpenBags(admin: SupabaseClient): Promise<void> {
+  try {
+    const open = await fetchAll<{ id: string }>((from, to) =>
+      admin.from("tier_bags").select("id").is("completed_at", null).order("id").range(from, to));
+    const done: string[] = [];
+    for (let i = 0; i < open.length; i += 100) {
+      const ids = open.slice(i, i + 100).map((b) => b.id);
+      const cards = await fetchAll<{ id: string; bag_id: string; completed: boolean | null; status: string | null }>((from, to) =>
+        admin.from("cards").select("id, bag_id, completed, status").in("bag_id", ids).order("id").range(from, to));
+      for (const id of ids) if (isBagComplete(cards.filter((c) => c.bag_id === id))) done.push(id);
+    }
+    if (done.length) await refreshBagCompletion(admin, done);
+  } catch (e) {
+    console.warn("[intake] open bags not checked for completion:", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
  * Completed bags, newest completion first (`limit` of them), with each one's
  * cards and its order's progress. `missingTables` is true when the intake
  * migration isn't applied yet (the page shows a notice instead).
@@ -125,6 +151,7 @@ export async function loadCompletedBags(limit = 50): Promise<{
 }> {
   const admin = createAdminClient();
   const empty = { bags: [], hasMore: false, unseen: 0 };
+  await healOpenBags(admin);
   const { data: bagRows, error } = await admin
     .from("tier_bags")
     .select("id, order_id, bag_code, tier, received_on, due_date, completed_at, completion_seen_at")

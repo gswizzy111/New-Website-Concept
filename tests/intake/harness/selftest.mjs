@@ -99,6 +99,15 @@ await check("card codes unique, partial (null allowed many times)", async () => 
   assert.equal(two.error?.code, "23505");
 });
 
+await check("array column eq filter with a PostgreSQL array literal (optimistic update)", async () => {
+  const empty = await db.from("cards").update({ receiving_photo_urls: ["https://x/a.png"] }).eq("id", IDS.mailCards[2]).filter("receiving_photo_urls", "eq", "{}").select("receiving_photo_urls");
+  assert.equal(empty.data.length, 1);
+  const stale = await db.from("cards").update({ receiving_photo_urls: [] }).eq("id", IDS.mailCards[2]).filter("receiving_photo_urls", "eq", "{}").select("id");
+  assert.equal(stale.data.length, 0);
+  const same = await db.from("cards").update({ receiving_photo_urls: [] }).eq("id", IDS.mailCards[2]).filter("receiving_photo_urls", "eq", '{"https://x/a.png"}').select("id");
+  assert.equal(same.data.length, 1);
+});
+
 await check("completed_at trigger and cards done on ship", async () => {
   const { data } = await db.from("cards").update({ completed: true }).eq("id", IDS.dropoffCards[0]).select("completed_at").single();
   assert.ok(data.completed_at);

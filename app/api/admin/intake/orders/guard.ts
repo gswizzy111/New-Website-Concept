@@ -13,10 +13,12 @@ export async function adminName(): Promise<{ by: string } | { response: Response
   return { by: session.username ?? "admin" };
 }
 
-/** The request body as JSON, or null when it isn't (or is over 20 KB). */
+/** The request body as JSON, or null when it isn't (or is over 40 KB: 500 card ids fit). */
 export async function smallJson(req: Request): Promise<unknown> {
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > 40_000) return null;
   const text = await req.text().catch(() => "");
-  if (!text || text.length > 20_000) return null;
+  if (!text || text.length > 40_000) return null;
   try {
     return JSON.parse(text);
   } catch {

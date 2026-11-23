@@ -166,7 +166,9 @@ function waitForReady(child, logFile, timeoutMs) {
  */
 export async function startHarness({ appPort, mockPort, http = process.env.HARNESS_HTTP === "1", quiet = false } = {}) {
   if (process.env.HARNESS_APP_URL && process.env.HARNESS_MOCK_URL) {
-    current = { appUrl: process.env.HARNESS_APP_URL, mockUrl: process.env.HARNESS_MOCK_URL, stop: async () => {} };
+    // the running harness's dev log (for serverErrorsSince), when start.mjs started it
+    const guess = path.join(RUN_DIR, `next-dev-${new URL(process.env.HARNESS_APP_URL).port}.log`);
+    current = { appUrl: process.env.HARNESS_APP_URL, mockUrl: process.env.HARNESS_MOCK_URL, logFile: fs.existsSync(guess) ? guess : undefined, stop: async () => {} };
     return { ...current, dump, reset, emails, insertRows };
   }
   fs.mkdirSync(RUN_DIR, { recursive: true });
@@ -237,9 +239,7 @@ export async function startHarness({ appPort, mockPort, http = process.env.HARNE
     await stop();
     throw e;
   }
-  // after Ready, keep logging
-  child.stdout.on("data", (d) => fs.appendFileSync(logFile, d));
-  child.stderr.on("data", (d) => fs.appendFileSync(logFile, d));
+  // (waitForReady's listeners keep appending to the log)
   log("ready");
   current = { appUrl, mockUrl: mock.url, mock, logFile, stop };
   process.env.HARNESS_APP_URL ??= appUrl;

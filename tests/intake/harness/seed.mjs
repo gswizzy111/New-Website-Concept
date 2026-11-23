@@ -299,6 +299,7 @@ export function buildSeed({ baseUrl }) {
       gift_cards: [],
       shop_orders: [],
       backlog_events: [],
+      metrics_settings: [{ key: "backlog_tracking_start", value_ts: "2026-10-23T04:00:00.000Z", updated_at: created }],
     },
     storage,
   };

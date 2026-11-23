@@ -462,3 +462,57 @@ test("missing images: no customer photo, receiving photo or catalog image", () =
   const plan = db.plan(o.id);
   assert.deepEqual(plan.missingImages.map((r) => [r.code, r.name]), [["CD-9000-01", "Bare"]]);
 });
+
+test("Bag IDs never clash: two unknown tiers get U and U2; a Receiving bag of the same tier keeps its batch", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9100", restoration_tier: null });
+  db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z", tier: "mystery" });
+  db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000002Z", tier: "other" });
+  db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  const plan = db.plan(o.id);
+  assert.deepEqual(plan.newBags.map((b) => b.bagCode).sort(), ["CD-9100-U", "CD-9100-U2"]);
+  await db.setUp(o.id);
+  assert.equal(db.plan(o.id).alreadySetUp, true);
+
+  // Receiving made CD-9200-P on another day; a historical Platinum card gets batch 2
+  const r = db.addOrder({ order_number: "CD-9200", restoration_tier: "ultra_premium", status: "in_progress" });
+  db.event(r.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  const bag = await db.createBag({
+    order_id: r.id, tier: "ultra_premium", batch: 1, bag_code: "CD-9200-P", received_on: "2026-11-20", due_date: "2026-12-11",
+    due_status: "calculated", turnaround_days: 15, completed_at: null, completion_seen_at: null, source: "migration", created_by: "staff",
+  });
+  db.bags.find((b) => b.id === bag.id)!.source = "receiving";
+  db.addCard(r.id, { card_seq: 1, card_code: "CD-9200-01", bag_id: bag.id, received_at: "2026-11-20T15:00:00Z" });
+  db.addCard(r.id, { created_at: "2026-11-01T15:00:00.000009Z" });
+  const p2 = db.plan(r.id);
+  assert.deepEqual(p2.cardCodes.map((c) => c.code), ["CD-9200-02"]);
+  assert.deepEqual(p2.newBags.map((b) => [b.bagCode, b.receivedOn]), [["CD-9200-P2", "2026-11-02"]]);
+  await db.setUp(r.id);
+  assert.equal(db.bags.find((b) => b.id === bag.id)!.received_on, "2026-11-20");
+  assert.equal(db.plan(r.id).alreadySetUp, true);
+});
+
+test("prep (no turnaround setting): due date left for review, never guessed", () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9300", restoration_tier: "prep_standard" });
+  db.addCard(o.id);
+  db.event(o.id, RECEIVED_EVENT, "2026-11-02T15:00:00Z");
+  const [bag] = db.plan(o.id).newBags;
+  assert.equal(bag.tier, "prep");
+  assert.equal(bag.bagCode, "CD-9300-R");
+  assert.equal(bag.dueDate, null);
+  assert.equal(bag.dueStatus, "needs_review");
+});
+
+test("finished order with no completion record: flagged, bag left open", () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9400", status: "shipped_back", restoration_tier: "premium" });
+  db.addCard(o.id);
+  db.event(o.id, RECEIVED_EVENT, "2026-06-02T15:00:00Z");
+  const plan = db.plan(o.id);
+  assert.equal(plan.newBags[0].completedAt, null);
+  assert.equal(plan.finishedDateUnknown, true);
+  // "Shipped Back — Tracking: ..." counts as the finishing event
+  db.event(o.id, "Status updated to: Shipped Back — Tracking: 1Z999", "2026-07-01T15:00:00Z");
+  assert.equal(db.plan(o.id).newBags[0].completedAt, "2026-07-01T15:00:00Z");
+});

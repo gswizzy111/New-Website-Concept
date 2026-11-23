@@ -1,4 +1,4 @@
-import * as fontkit from "@pdf-lib/fontkit";
+import * as fontkitModule from "@pdf-lib/fontkit";
 import { PDFDocument, PrintScaling, StandardFonts, rgb, setCharacterSpacing, type PDFFont, type PDFPage } from "pdf-lib";
 import display800 from "./fonts/display800";
 import display900 from "./fonts/display900";
@@ -16,6 +16,11 @@ import type { FontRole, LabelBag, LabelColor, LabelPage, LabelStock } from "./ty
 // Server only (the fonts are large).
 
 const FONT_DATA: Record<FontRole, string> = { display800, display900, body400, body700, body800, mono600 };
+
+// The package's ES build only has a default export, its CommonJS build only
+// named ones: take whichever this bundler gave us.
+type FontkitArg = Parameters<PDFDocument["registerFontkit"]>[0];
+const fontkit = ((fontkitModule as unknown as { default?: FontkitArg }).default ?? fontkitModule) as FontkitArg;
 
 // If the brand fonts ever fail to embed, print with the PDF standard fonts
 const FALLBACK: Record<FontRole, StandardFonts> = {

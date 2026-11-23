@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ChevronDown } from "lucide-react";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import { connectQZ, isQZActive } from "@/lib/qz-print";
 import type { BagSummary } from "@/lib/intake/types";
 import type { LabelPreviewResponse } from "@/lib/intake/labels/respond";
@@ -132,7 +133,7 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
           <p className="text-xs text-muted-foreground mt-0.5">
             {settings ? `${settings.stock.replace("x", " × ")} in labels, ${settings.contentWidthIn} in wide print. ` : ""}
             Preview shows exactly what prints.{" "}
-            <a href="/admin/receiving/settings" className="text-primary font-semibold hover:underline">Label settings</a>
+            <AdminLink href="/admin/receiving/settings" className="text-primary font-semibold hover:underline">Label settings</AdminLink>
           </p>
         </div>
         {bags.length > 1 && (

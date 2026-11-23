@@ -142,6 +142,7 @@ export const SCHEMA = {
   signatures: { pk: ["id"], fks: { order_id: { table: "orders" } } },
   consents: { pk: ["id"], fks: { order_id: { table: "orders" } } },
   email_problems: { pk: ["id"], defaults: () => ({ received_at: now() }) },
+  metrics_settings: { pk: ["key"], noCreatedAt: true },
   affiliate_sessions: { pk: ["token_hash"], fks: { affiliate_id: { table: "affiliates" } } },
   partner_sessions: { pk: ["token_hash"], fks: { partner_id: { table: "partners" } } },
 };
@@ -213,8 +214,21 @@ function compare(a, b) {
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 }
 
+/** A PostgreSQL array literal ({a,"b c",NULL}) to a JS array of strings/nulls. */
+function parsePgArray(v) {
+  const t = String(v).trim();
+  if (t.startsWith("[")) { try { const a = JSON.parse(t); if (Array.isArray(a)) return a.map((x) => (x == null ? null : String(x))); } catch { /* not JSON */ } }
+  if (!t.startsWith("{") || !t.endsWith("}")) return null;
+  return splitTop(t.slice(1, -1)).filter((x) => x !== "").map((x) => (x.trim() === "NULL" ? null : unquote(x)));
+}
+
 function eqValue(col, val) {
   if (col == null) return false;
+  // array column vs an array literal: same elements in the same order
+  if (Array.isArray(col)) {
+    const want = parsePgArray(val);
+    return !!want && want.length === col.length && want.every((w, i) => (w == null ? col[i] == null : String(col[i]) === w));
+  }
   if (typeof col === "boolean") return String(col) === String(val).toLowerCase();
   if (typeof col === "number") return isNumLike(String(val)) && col === Number(val);
   if (isDateLike(col) && isDateLike(val)) return compare(col, val) === 0;
