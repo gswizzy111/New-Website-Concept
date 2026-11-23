@@ -117,7 +117,7 @@ export function CustomerEditor(props: Props) {
       </div>
 
       <input name="name" placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} autoComplete="name" />
-      <input name="email" type="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} autoComplete="email" />
+      <input name="email" type="text" inputMode="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} autoComplete="email" />
       <input name="phone" placeholder="Phone" value={form.phone} onChange={handleChange} className={inp} autoComplete="tel" />
 
       <div className="border-t border-border pt-3 flex flex-col gap-2">

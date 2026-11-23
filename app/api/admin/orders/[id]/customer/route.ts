@@ -8,7 +8,8 @@ const optionalText = z.string().nullish().transform((v) => (v ?? "").trim());
 
 const Schema = z.object({
   customer_name: z.string().trim().min(1, "Name is required."),
-  customer_email: z.string().trim().email("That email address doesn't look right."),
+  // Any email the admin types is saved as typed (the owner's call): only an empty one is refused
+  customer_email: z.string().trim().min(1, "Email is required."),
   // Drop-offs are often entered without a phone: it may stay empty (the column is not null, so "")
   customer_phone: optionalText,
   street1: optionalText,
