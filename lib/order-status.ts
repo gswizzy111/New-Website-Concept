@@ -36,7 +36,7 @@ export type SetOrderStatusResult =
  */
 export async function setOrderStatus(
   input: { orderId: string; status: unknown; trackingNumber?: string; onlyIfCurrent?: string },
-  admin: SupabaseClient = createAdminClient(),
+  client?: SupabaseClient,
 ): Promise<SetOrderStatusResult> {
   const id = input.orderId;
   const { status } = input;
@@ -45,6 +45,8 @@ export async function setOrderStatus(
   if (typeof status !== "string" || !Object.prototype.hasOwnProperty.call(ORDER_STATUSES, status)) {
     return { ok: false, httpStatus: 400, error: "Invalid status" };
   }
+
+  const admin = client ?? createAdminClient();
 
   const { data: order, error: readErr } = await admin
     .from("orders")

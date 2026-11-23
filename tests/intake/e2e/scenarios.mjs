@@ -354,7 +354,8 @@ const SCENARIOS = {
         page.waitForResponse((r) => r.url().includes("/tier") && r.request().method() !== "GET", { timeout: 30_000 }),
         UI.tierSelect(page, MAIL_NAMES[9]).selectOption("regular"),
       ]);
-      await page.waitForLoadState("networkidle").catch(() => {});
+      // the page refreshes its data after the change; until then it still thinks the card has no tier
+      await UI.cardRow(page, MAIL_NAMES[9]).getByText(/^Missing tier$/).waitFor({ state: "detached", timeout: 30_000 });
       await UI.arrived(page, MAIL_NAMES[9]).check();
       const res = await clickForApi(page, UI.receiveButton(page), "/receive");
       assert(res.status() < 300, `receive answered ${res.status()}`);
