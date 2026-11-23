@@ -14,7 +14,9 @@ import { isMissingSchema, MIGRATION_NOTICE } from "../_components/schema";
 import { ReceivingCards } from "./receiving-cards";
 import { AddCardForm } from "./add-card-form";
 import { BagReceivedDate } from "./bag-received-date";
-import { SetupOrderButton } from "./setup-order-button";
+import { OrderLabelPrint } from "@/components/intake/order-label-print";
+import { getLabelSettings } from "@/lib/intake/labels/data";
+import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import type { WorkspaceCard } from "./types";
 import { paymentState } from "../_components/payment";
 
@@ -161,11 +163,12 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const bagsMissingDate = bags.filter((b) => !b.receivedOn);
   const bagsNeedReview = bags.filter((b) => b.dueStatus === "needs_review");
   const payment = paymentState(order.paymentStatus);
-  // An order already past Awaiting Cards that Receiving never touched (marked received
-  // before Receiving existed, or set up with a card left out for want of a tier): the
-  // Historical Order Setup does it in one step, from the order's own records
-  const unbagged = cards.filter((c) => !c.refunded && !c.bagId && !c.receivedAt && !c.awaitingArrival && !!c.tier);
-  const setupOffer = SETUP_OFFER_STATUSES.includes(order.status) && !bags.some((b) => b.source === "receiving") && unbagged.length > 0;
+  // "Print labels" opens once every received card has a receiving photo
+  const needPhoto = workspaceCards
+    .filter((c) => !c.refunded && !!c.bagId && c.receivingPhotos.length === 0)
+    .map((c) => ({ id: c.id, label: c.code ?? c.name }));
+  const stock = LABEL_STOCKS[(await getLabelSettings(admin)).stock];
+  const paper = { widthIn: stock.widthIn, heightIn: stock.heightIn };
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -232,23 +235,6 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
           </ul>
         )}
 
-        {/* One step for an order marked received before Receiving existed */}
-        {setupOffer && (
-          <section aria-labelledby="setup-h" className="mt-4 rounded-xl border-2 border-primary/30 bg-white p-4 sm:p-5">
-            <h2 id="setup-h" className="font-heading font-black text-lg text-foreground">
-              {bags.length === 0 ? `Already marked ${statusLabel(order.status)}: set it up in one step` : `${unbagged.length} card${unbagged.length === 1 ? " isn't" : "s aren't"} in a bag yet`}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {bags.length === 0
-                ? "Every card gets its Card ID and goes into a bag for its tier, dated from the order's own records (no date is made up). Ticking only some cards below instead marks the others as not arrived, and they leave the backlog."
-                : "Set this order up again to bag them with the order's received date; nothing else changes. Cards added to the order after it was received are left for you to tick below when they're here."}
-            </p>
-            <div className="mt-3">
-              <SetupOrderButton orderId={order.id} />
-            </div>
-          </section>
-        )}
-
         {/* Cards */}
         <section aria-labelledby="cards-h" className="mt-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
@@ -270,6 +256,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               payment={payment}
             />
           )}
+          <OrderLabelPrint orderId={order.id} orderNumber={order.orderNumber} bags={bags} paper={paper} needPhoto={needPhoto} />
           {payment !== "refunded" && order.status !== "cancelled" && (
             <div className="mt-4">
               <AddCardForm orderId={order.id} orderTier={order.restorationTier} today={today} maxPhotos={MAX_RECEIVING_PHOTOS} unpaid={payment === "unpaid"} />
@@ -315,7 +302,6 @@ function PaymentBanner({ paymentStatus }: { paymentStatus: string | null }) {
 }
 
 /** Order statuses the Historical Order Setup works on (SETUP_STATUSES in lib/intake/migration.ts). */
-const SETUP_OFFER_STATUSES = ["received", "in_progress", "completed", "shipped_back", "delivered"];
 
 function Flag({ href, tone, children }: { href: string; tone: "red" | "amber"; children: React.ReactNode }) {
   return (
