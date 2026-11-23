@@ -4,11 +4,15 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { getDropoffServices } from "@/lib/show-dropoff-services";
 import { FIVE_PLUS_LABEL, addressLine, serviceName } from "@/lib/show-dropoffs";
+import { dropoffRevenue } from "@/lib/show-dropoff-revenue";
 import { DropoffActions } from "./dropoff-actions";
 
 export const dynamic = "force-dynamic";
 
 type Card = { name: string; details: string | null; service: string | null };
+
+const usd = (cents: number) =>
+  `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" });
@@ -25,11 +29,14 @@ export default async function ShowDropoffPage({ params }: { params: Promise<{ id
   ]);
   if (!d) notFound();
 
-  let order: { id: string; order_number: string | null } | null = null;
-  if (d.order_id) {
-    const { data } = await admin.from("orders").select("id, order_number").eq("id", d.order_id).maybeSingle();
-    order = data;
-  }
+  // Its order, and what it counts on Show Dropoffs (the order's total once entered)
+  const [order, money] = await Promise.all([
+    d.order_id
+      ? admin.from("orders").select("id, order_number").eq("id", d.order_id).maybeSingle()
+          .then(({ data }) => data as { id: string; order_number: string | null } | null)
+      : null,
+    dropoffRevenue([d]).then((m) => m.get(d.id) ?? null, () => null),
+  ]);
 
   const cards = (d.cards ?? []) as Card[];
   const panel = "bg-white rounded-xl border border-border p-6 flex flex-col gap-3";
@@ -106,6 +113,16 @@ export default async function ShowDropoffPage({ params }: { params: Promise<{ id
           )}
           {d.customer_notes && (
             <div className="text-sm"><span className={k}>Customer notes: </span><span className="whitespace-pre-line">{d.customer_notes}</span></div>
+          )}
+          {money && !money.cancelled && (
+            <div className={`${row} border-t border-border pt-3`}>
+              <span className={k}>{money.fromOrder ? "Total (the order's total)" : "Total at today's prices"}</span>
+              {!money.complete && money.cents === 0 ? (
+                <span className="text-muted-foreground">Needs pricing (Diamond, or 5+ cards with several services)</span>
+              ) : (
+                <span className="font-black tabular-nums">{usd(money.cents)}{money.complete ? "" : "+"}</span>
+              )}
+            </div>
           )}
         </section>
 

@@ -40,6 +40,7 @@ import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { labelHref } from "@/lib/label-link";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { OrderBagsPanel } from "@/components/intake/order-bags-panel";
+import { paidOnlineLater } from "@/lib/show-dropoff-pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -87,13 +88,15 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
 
   // Terms of Service v1.0 and later: signatures, consents and each card's work gates
   // ...and emails to this customer that didn't arrive (Resend's webhook, lib/email-problems.ts)
-  const [{ data: sigRows }, { data: consentRows }, facts, emailProblems, { data: openRefundRequest }] = await Promise.all([
+  const [{ data: sigRows }, { data: consentRows }, facts, emailProblems, { data: openRefundRequest }, { data: showDropoff }] = await Promise.all([
     admin.from("signatures").select("id, type, order_item_id, typed_full_name, signed_at, email_verified, terms_version_id").eq("order_id", id).order("signed_at"),
     admin.from("consents").select("type, granted, granted_at").eq("order_id", id).order("granted_at"),
     gateFacts(admin, id),
     openProblemsFor(order.customer_email),
     // A refund support asked for, waiting on an admin (Refund Requests tab)
     admin.from("refund_requests").select("requested_by, reason, created_at").eq("order_id", id).in("status", ["pending", "processing"]).maybeSingle(),
+    // Made from a show drop-off: its total shows here but isn't counted in revenue reports
+    admin.from("show_dropoffs").select("id, dropoff_number").eq("order_id", id).limit(1).maybeSingle(),
   ]);
   const versionIds = [...new Set((sigRows ?? []).map((s) => s.terms_version_id))];
   const { data: versionRows } = versionIds.length ? await admin.from("terms_versions").select("id, version").in("id", versionIds) : { data: [] };
@@ -269,7 +272,17 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     placeholder={(cards ?? []).some((c) => c.tier) || (services ?? []).filter((s) => s.service_id && s.service_id in RESTORATION_TIERS).length > 1 ? "Restoration — mixed tiers" : "Restoration — no tier"}
                   />
                 </div>
-                <span className="font-heading font-black text-2xl text-primary">{formatCurrency(order.total_cents)}</span>
+                <div className="shrink-0 text-right">
+                  <span className="font-heading font-black text-2xl text-primary">{formatCurrency(order.total_cents)}</span>
+                  {showDropoff && (
+                    <AdminLink
+                      href={`/admin/show-dropoffs/${showDropoff.id}`}
+                      className="mt-0.5 ml-auto block max-w-40 text-xs font-semibold text-muted-foreground hover:text-primary hover:underline"
+                    >
+                      Show drop-off #{showDropoff.dropoff_number}: not counted in revenue reports
+                    </AdminLink>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -705,9 +718,16 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                       </div>
                     ))}
                     <div className="border-t border-border mt-1 pt-3 flex justify-between font-black text-foreground text-base">
-                      <span>Total Charged</span>
+                      <span>{showDropoff ? "Show Drop-off Total" : "Total Charged"}</span>
                       <span className="text-primary">{formatCurrency(totalCents)}</span>
                     </div>
+                    {showDropoff && (
+                      <p className="text-xs text-muted-foreground">
+                        {paidOnlineLater(events)
+                          ? "Taken at a card show. What the customer paid online later (added cards, an upgrade) is counted in the dashboard and revenue reports; the rest of this total isn't. Show Dropoffs counts the whole total."
+                          : "Taken at a card show: no online payment. This total isn't counted in the dashboard or any revenue report; Show Dropoffs counts it."}
+                      </p>
+                    )}
                     {order.affiliate_code && (
                       <p className="text-xs text-muted-foreground pt-1">Affiliate/coupon: <span className="font-mono font-semibold">{order.affiliate_code as string}</span></p>
                     )}

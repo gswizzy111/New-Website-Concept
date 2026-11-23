@@ -33,7 +33,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (parsed.data.admin_notes !== undefined) update.admin_notes = parsed.data.admin_notes?.trim() || null;
   if (!Object.keys(update).length) return Response.json({ ok: true });
 
-  const { error } = await admin.from("show_dropoffs").update(update).eq("id", id);
+  // A status change only applies to the status it was read in: an order entered
+  // from this drop-off at the same moment (status 'entered') must not be cancelled
+  let q = admin.from("show_dropoffs").update(update).eq("id", id);
+  if (parsed.data.status) q = q.eq("status", row.status);
+  const { data: changed, error } = await q.select("id");
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  if (parsed.data.status && !changed?.length) {
+    return Response.json({ error: "This drop-off just changed. Reload the page and try again." }, { status: 409 });
+  }
   return Response.json({ ok: true });
 }

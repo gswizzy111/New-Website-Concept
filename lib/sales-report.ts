@@ -6,13 +6,17 @@ import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 
 /**
  * What the Tax, Sales Statement and P&L reports read, counted the way the
- * dashboard counts (revenue_series in supabase/migrations/20261023_dashboard_metrics.sql):
+ * dashboard counts (revenue_series, supabase/migrations/20261023_dashboard_metrics.sql
+ * as changed by 20261123_dropoff_revenue.sql):
  * - Days, months, quarters and years are America/New_York calendar periods.
  * - A service order (restoration or PSA Prep) is a sale once it is paid: payment
  *   status paid or refunded, status not Awaiting Payment. It is dated when it was
  *   paid (its first "payment_received" event, else when it was created). Money
  *   paid later on the same order (added cards, a tier upgrade) is a sale of its
  *   own, on the day it was paid.
+ * - An order made from a show drop-off (its id in show_dropoffs.order_id) is not
+ *   a sale: its revenue is on the Show Dropoffs tab. Money paid on it later
+ *   through Stripe (added cards, a tier upgrade) is, as above.
  * - A kit order is a sale on the day it was placed (kit orders are saved once paid).
  * - Refunds come from the refund ledger (lib/refund-ledger.ts), dated when the
  *   money went back. Succeeded, pending and requires-action refunds count; failed
@@ -214,7 +218,7 @@ export async function loadReport(admin: SupabaseClient, range: Range, { kits: wi
   type AddonEvent = PaidEvent & { event_type: "cards_added" | "tier_upgraded"; description: string | null };
   type LedgerRow = { id: string; amount_cents: number; status: string; refunded_at: string; order_id: string | null; shop_order_id: string | null; kind: string };
 
-  const [orders, paidEvents, addonEvents, kits, ledger] = await Promise.all([
+  const [orders, paidEvents, addonEvents, kits, ledger, showDropoffOrders] = await Promise.all([
     fetchAll<ReportOrder>((a, b) => {
       let q = admin.from("orders").select(ORDER_COLUMNS).in("payment_status", PAID).neq("status", "awaiting_payment");
       if (from) q = q.gte("created_at", from);
@@ -247,7 +251,11 @@ export async function loadReport(admin: SupabaseClient, range: Range, { kits: wi
       if (to) q = q.lt("refunded_at", to);
       return q.order("refunded_at", { ascending: true }).order("id", { ascending: true }).range(a, b);
     }),
+    // Orders made from a show drop-off (as revenue_series leaves them out)
+    fetchAll<{ id: string; order_id: string }>((a, b) => admin.from("show_dropoffs").select("id, order_id")
+      .not("order_id", "is", null).order("id", { ascending: true }).range(a, b)),
   ]);
+  const showDropoffOrderIds = new Set(showDropoffOrders.map((r) => r.order_id));
 
   // When each order was paid: its first payment event, else when it was created
   const paidAt = new Map<string, string>();
@@ -293,6 +301,8 @@ export async function loadReport(admin: SupabaseClient, range: Range, { kits: wi
 
   const sales: ServiceSale[] = [];
   for (const o of orders) {
+    // A show drop-off order's own total isn't a sale; money added to it later is (below)
+    if (showDropoffOrderIds.has(o.id)) continue;
     const at = paidAt.get(o.id) ?? o.created_at;
     if (!inRange(at, range)) continue;
     const addons = addonsByOrder.get(o.id);
