@@ -1,19 +1,19 @@
 // Revenue on the Show Dropoffs tab (/admin/show-dropoffs). Server only.
 //
-// Each drop-off's revenue is the tiers the customer picked at the table, at
-// the admin's current prices (restoration_settings, PSA Prep from
-// store_config): each listed card at its tier (or the one service picked),
-// and for 5+ cards the card count times the one service. Entered or not, the
-// figure is the same; entering only links its order. Cancelled drop-offs
-// count nothing. Diamond is priced by declared value, which the form doesn't
-// ask for, and 5+ cards with several services have no per-card split, so
-// those are flagged as not fully priced.
+// Each drop-off counts what lib/show-dropoff-pricing.ts says: before it is
+// entered, the tiers the customer picked at the admin's current prices
+// (restoration_settings, PSA Prep from store_config); once entered, its
+// order's total, so this tab and the order show the same amount. Cancelled
+// drop-offs count nothing. Diamond, and 5+ cards with several services,
+// can't be priced until entered and are flagged as not fully priced.
+// Show drop-off orders (linked by show_dropoffs.order_id) are left out of the
+// dashboard and the money reports: this tab is where their revenue shows.
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAll } from "@/lib/fetch-all";
 import { getLiveTiers } from "@/lib/live-tiers";
 import { getPrepCardCents } from "@/lib/show-dropoff-services";
-import type { RestorationTier } from "@/lib/restoration-tiers";
+import { dropoffFigure, makePriceBook, type LinkedOrder } from "@/lib/show-dropoff-pricing";
 
 export type DropoffRevenueRow = {
   id: string;
@@ -27,12 +27,14 @@ export type DropoffRevenueRow = {
 };
 
 export type DropoffMoney = {
-  /** The tiers picked, priced; 0 for a cancelled drop-off. */
+  /** Its order's total once entered, else the tiers picked, priced; 0 for a cancelled drop-off. */
   cents: number;
   cancelled: boolean;
   entered: boolean;
   /** False when part of it couldn't be priced (Diamond, 5+ cards with several services or no count). */
   complete: boolean;
+  /** True when `cents` is the order's total. */
+  fromOrder: boolean;
   orderNumber?: string;
   orderId?: string;
 };
@@ -47,61 +49,27 @@ export type RevenueTotals = {
   unpriced: number;
 };
 
-type PriceBook = { perCard: (service: string) => number | null };
-
-async function priceBook(): Promise<PriceBook> {
-  const [tiers, prepCents] = await Promise.all([getLiveTiers(), getPrepCardCents()]);
-  const byId = new Map<string, RestorationTier>(tiers.map((t) => [t.id, t]));
-  return {
-    perCard(service) {
-      if (service === "prep") return prepCents;
-      const tier = byId.get(service);
-      if (!tier || tier.pricing_type === "percentage") return null;
-      return tier.price_cents;
-    },
-  };
-}
-
-/** The tiers picked on one drop-off, priced. */
-function priceTiers(row: DropoffRevenueRow, book: PriceBook): { cents: number; complete: boolean } {
-  if (row.five_plus) {
-    const price = row.tiers.length === 1 ? book.perCard(row.tiers[0]) : null;
-    if (price === null || !row.card_count) return { cents: 0, complete: false };
-    return { cents: price * row.card_count, complete: true };
-  }
-  let cents = 0;
-  let complete = true;
-  for (const card of row.cards ?? []) {
-    // One service picked: every card is that service (as the signed text reads it)
-    const service = card.service ?? (row.tiers.length === 1 ? row.tiers[0] : null);
-    const price = service ? book.perCard(service) : null;
-    if (price === null) complete = false;
-    else cents += price;
-  }
-  return { cents, complete };
-}
-
 /** Each drop-off's revenue by id, with the order it was entered as. */
 export async function dropoffRevenue(rows: DropoffRevenueRow[]): Promise<Map<string, DropoffMoney>> {
   const admin = createAdminClient();
   const orderIds = [...new Set(rows.map((r) => r.order_id).filter((id): id is string => !!id))];
-  const orderNumbers = new Map<string, string>();
+  const orders = new Map<string, LinkedOrder & { order_number: string }>();
   for (let i = 0; i < orderIds.length; i += 200) {
-    const { data, error } = await admin.from("orders").select("id, order_number").in("id", orderIds.slice(i, i + 200));
+    const { data, error } = await admin.from("orders").select("id, order_number, total_cents").in("id", orderIds.slice(i, i + 200));
     if (error) throw new Error(error.message);
-    for (const o of data ?? []) orderNumbers.set(o.id, o.order_number);
+    for (const o of data ?? []) orders.set(o.id, o);
   }
 
-  const book = await priceBook();
+  const [tiers, prepCents] = await Promise.all([getLiveTiers(), getPrepCardCents()]);
+  const book = makePriceBook(tiers, prepCents);
   const money = new Map<string, DropoffMoney>();
   for (const row of rows) {
-    const cancelled = row.status === "cancelled";
-    const priced = cancelled ? { cents: 0, complete: true } : priceTiers(row, book);
+    const order = row.order_id ? orders.get(row.order_id) : undefined;
     money.set(row.id, {
-      ...priced,
-      cancelled,
+      ...dropoffFigure(row, book, order),
+      cancelled: row.status === "cancelled",
       entered: row.status === "entered",
-      ...(row.order_id ? { orderId: row.order_id, orderNumber: orderNumbers.get(row.order_id) } : {}),
+      ...(row.order_id ? { orderId: row.order_id, orderNumber: order?.order_number } : {}),
     });
   }
   return money;

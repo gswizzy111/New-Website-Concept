@@ -71,18 +71,20 @@ export async function POST(request: Request) {
   // A show drop-off becomes one order only: claim it first (two admins at
   // once get one order between them), and give it back if the order fails.
   let dropoffAddress: Record<string, unknown> | null = null;
+  let dropoffNumber: number | null = null;
   if (d.show_dropoff_id) {
     const { data: claimed, error: claimErr } = await admin
       .from("show_dropoffs")
       .update({ status: "entered", processed_at: new Date().toISOString() })
       .eq("id", d.show_dropoff_id)
       .eq("status", "new")
-      .select("return_address");
+      .select("return_address, dropoff_number");
     if (claimErr) return Response.json({ error: `Couldn't open the show drop-off: ${claimErr.message}` }, { status: 500 });
     if (!claimed?.length) {
       return Response.json({ error: "That show drop-off already has an order (or was cancelled). Open it from Show Dropoffs to check." }, { status: 409 });
     }
     dropoffAddress = (claimed[0].return_address as Record<string, unknown>) ?? null;
+    dropoffNumber = (claimed[0].dropoff_number as number | null) ?? null;
   }
   const releaseDropoff = async () => {
     if (!d.show_dropoff_id) return;
@@ -276,9 +278,38 @@ export async function POST(request: Request) {
     return Response.json({ error: "Failed to create order" }, { status: 500 });
   }
 
+  // A show drop-off order keeps its total (total_cents, shown on the order and
+  // on Show Dropoffs) but is left out of the dashboard and every money report.
+  // What marks it is show_dropoffs.order_id, so the link is retried, and the admin hears if
+  // it still fails. The order's history notes the drop-off first, which lets a
+  // missing link be put back later.
+  let linkWarning: string | null = null;
   if (d.show_dropoff_id) {
-    const { error: linkErr } = await admin.from("show_dropoffs").update({ order_id: order.id }).eq("id", d.show_dropoff_id);
-    if (linkErr) console.error(`Show drop-off ${d.show_dropoff_id} not linked to order ${order.id}:`, linkErr.message);
+    const dropoffLabel = dropoffNumber ? `show drop-off #${dropoffNumber}` : "the show drop-off";
+    const { error: noteErr } = await admin.from("order_events").insert({
+      order_id: order.id,
+      event_type: "show_dropoff_entered",
+      description: `Entered from ${dropoffLabel}`,
+      is_customer_visible: false,
+      metadata: { show_dropoff_id: d.show_dropoff_id, dropoff_number: dropoffNumber },
+    });
+    if (noteErr) console.error(`Order ${order.id}: show drop-off history line not saved:`, noteErr.message);
+
+    let linkProblem = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+      const { data: linked, error: linkErr } = await admin
+        .from("show_dropoffs")
+        .update({ order_id: order.id })
+        .eq("id", d.show_dropoff_id)
+        .select("id");
+      linkProblem = linkErr ? linkErr.message : linked?.length ? "" : "no drop-off row updated";
+      if (!linkProblem) break;
+    }
+    if (linkProblem) {
+      console.error(`Show drop-off ${d.show_dropoff_id} not linked to order ${order.id}:`, linkProblem);
+      linkWarning = `It isn't linked to ${dropoffLabel}, so it counts in revenue reports until it is.`;
+    }
   }
 
   if (d.due_date) {
@@ -467,5 +498,6 @@ export async function POST(request: Request) {
     orderNumber: order.order_number,
     ...(labelWarning ? { labelWarning } : {}),
     ...(emailWarning ? { emailWarning } : {}),
+    ...(linkWarning ? { linkWarning } : {}),
   });
 }

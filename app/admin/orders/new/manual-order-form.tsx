@@ -222,7 +222,8 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
   // Order details
   const [orderDate, setOrderDate] = useState(newYorkToday);
   const [defaultTier, setDefaultTier] = useState<TierOrCustom>(prefill?.defaultTier ?? "");
-  const [customPricePerCard, setCustomPricePerCard] = useState("");
+  // From a show drop-off with PSA Prep: Prep's per-card price, for its "Custom" cards
+  const [customPricePerCard, setCustomPricePerCard] = useState(prefill?.customPriceCents ? (prefill.customPriceCents / 100).toFixed(2) : "");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState(prefill?.notes ?? "");
   const [cards, setCards] = useState<CardRow[]>(() =>
@@ -400,7 +401,7 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Something went wrong."); setSubmitting(false); return; }
-      const warning = [data.labelWarning, data.emailWarning].filter(Boolean).join(" ");
+      const warning = [data.labelWarning, data.emailWarning, data.linkWarning].filter(Boolean).join(" ");
       if (warning) {
         setError(`Order created — but: ${warning}`);
         setTimeout(() => router.push(`/admin/orders/${data.orderId}`), 3000);
@@ -602,9 +603,14 @@ export function ManualOrderForm({ tiers, prefill = null }: { tiers: RestorationT
             <option value="custom">Custom Price</option>
           </select>
         </div>
-        {(defaultTier === "custom" || defaultTier === "") && (
+        {(defaultTier === "custom" || defaultTier === "" || cards.some((c) => c.tier === "custom")) && (
           <div>
-            <label className={label}>Custom Price per Card <span className="text-muted-foreground font-normal">(optional)</span></label>
+            <label className={label}>
+              Custom Price per Card{" "}
+              <span className="text-muted-foreground font-normal">
+                {prefill?.customPriceCents ? "(PSA Prep's price per card, from Show Dropoffs)" : "(optional)"}
+              </span>
+            </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
               <input

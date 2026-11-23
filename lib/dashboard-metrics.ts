@@ -6,6 +6,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * (no 1,000-row API limit) and every day is an America/New_York calendar day.
  * - Refunds come from the refund ledger (lib/refund-ledger.ts), dated when the
  *   money went back.
+ * - An order made from a show drop-off (linked by show_dropoffs.order_id) is
+ *   left out of revenue_series and service_report: no sale, no order, no cards
+ *   (its revenue is on the Show Dropoffs tab). Money paid on it later through
+ *   Stripe (added cards, a tier upgrade) counts as usual
+ *   (supabase/migrations/20261123_dropoff_revenue.sql).
  * - The backlog counts unfinished cards, not orders: cards in paid orders that
  *   are Cards Received / In Progress, not ticked done and not refunded.
  * - Prep vs Restoration counts each paid order once, under its own service, on

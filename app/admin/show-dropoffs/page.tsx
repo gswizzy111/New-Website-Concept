@@ -22,7 +22,7 @@ type Row = {
 const usd = (cents: number) =>
   `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** One drop-off's revenue in the list: the tiers picked, priced, with its order once entered. */
+/** One drop-off's revenue in the list: its order's total once entered, else the tiers picked, priced. */
 function MoneyCell({ m }: { m: DropoffMoney | undefined }) {
   if (!m || m.cancelled) return <span className="text-muted-foreground">—</span>;
   return (
@@ -30,7 +30,10 @@ function MoneyCell({ m }: { m: DropoffMoney | undefined }) {
       {!m.complete && m.cents === 0 ? (
         <span className="text-xs text-muted-foreground">Needs pricing</span>
       ) : (
-        <span className="font-semibold tabular-nums" title={m.complete ? undefined : "Part of it can't be priced (Diamond, or 5+ cards with several services)"}>
+        <span
+          className="font-semibold tabular-nums"
+          title={m.fromOrder ? "The order's total" : m.complete ? "The tiers picked, at today's prices" : "Part of it can't be priced (Diamond, or 5+ cards with several services)"}
+        >
           {usd(m.cents)}{m.complete ? "" : "+"}
         </span>
       )}
@@ -53,7 +56,7 @@ function RevenueSummary({ title, totals }: { title: string; totals: RevenueTotal
           <p className="text-xs font-semibold text-muted-foreground">Revenue</p>
           <p className="mt-1 text-2xl font-black tabular-nums text-foreground">{usd(totals.revenueCents)}{totals.unpriced ? "+" : ""}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            The tiers picked on each drop-off, at today&apos;s prices
+            Each entered drop-off at its order&apos;s total, the rest at the tiers picked and today&apos;s prices. Not counted in revenue reports
             {totals.unpriced > 0 && `. ${totals.unpriced} can't be fully priced (Diamond, or 5+ cards with several services)`}
           </p>
         </div>
