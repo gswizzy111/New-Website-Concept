@@ -93,7 +93,7 @@ function toWorkspaceCard(c: IntakeCard, knownDefects: string | null): WorkspaceC
 async function basicOrder(orderId: string) {
   const admin = createAdminClient();
   const [{ data: order }, { data: cards }] = await Promise.all([
-    admin.from("orders").select("id, order_number, customer_name, customer_email, status, inbound_method, customer_notes, restoration_tier").eq("id", orderId).maybeSingle(),
+    admin.from("orders").select("id, order_number, customer_name, customer_email, status, payment_status, inbound_method, customer_notes, restoration_tier").eq("id", orderId).maybeSingle(),
     admin.from("cards").select("id, card_name, card_set, card_number, tier, status").eq("order_id", orderId).order("created_at").order("id").limit(500),
   ]);
   return order ? { order, cards: cards ?? [] } : null;
@@ -108,21 +108,21 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const today = nyToday();
 
   let intake: OrderIntake | null = null;
+  let missingOrder = false;
   let schemaMissing = false;
   let loadError = "";
   try {
     const result = await loadOrderIntake(admin, orderId);
     if (result.ok) intake = result.intake;
-    else if (result.status === 404) notFound();
+    else if (result.status === 404) missingOrder = true;
     else if (isMissingSchema({ message: result.error })) schemaMissing = true;
     else loadError = result.error;
   } catch (e) {
-    // notFound() throws on purpose: let it through
-    if (e && typeof e === "object" && "digest" in e) throw e;
     const message = e instanceof Error ? e.message : String(e);
     if (isMissingSchema({ message })) schemaMissing = true;
     else loadError = message;
   }
+  if (missingOrder) notFound();
 
   if (!intake) {
     const basic = await basicOrder(orderId);
@@ -133,6 +133,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
           <AdminLink href="/admin/receiving" className="text-sm font-bold text-primary hover:underline min-h-11 inline-flex items-center">← Receiving</AdminLink>
           <h1 className="font-heading font-black text-3xl text-foreground mt-2">{basic.order.customer_name ?? "Order"}</h1>
           <p className="text-sm text-muted-foreground"><AdminLink href={`/admin/orders/${orderId}`} className="font-bold text-primary hover:underline">{basic.order.order_number}</AdminLink> · {basic.order.customer_email}</p>
+          <PaymentBanner paymentStatus={basic.order.payment_status as string | null} />
           <p role="status" className="mt-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {schemaMissing ? MIGRATION_NOTICE : `The receiving details couldn't load: ${loadError}`}
           </p>
@@ -165,16 +166,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
         <AdminLink href="/admin/receiving" className="text-sm font-bold text-primary hover:underline min-h-11 inline-flex items-center">← Receiving</AdminLink>
 
         {/* Payment: staff once worked on orders that were never paid */}
-        {payment !== "paid" && (
-          <div role="alert" className={`mt-2 rounded-xl border-2 px-4 py-3 ${payment === "refunded" ? "border-gray-900 bg-gray-900 text-white" : "border-red-600 bg-red-600 text-white"}`}>
-            <p className="font-heading font-black text-xl uppercase tracking-wide">{payment === "refunded" ? "Refunded" : "Not paid"}</p>
-            <p className="text-sm font-semibold">
-              {payment === "refunded"
-                ? "This order was refunded. Its cards can't be received."
-                : `This order hasn't been paid (payment status: ${order.paymentStatus ?? "none"}). Check with an admin before working on these cards. Receiving asks you to confirm.`}
-            </p>
-          </div>
-        )}
+        <PaymentBanner paymentStatus={order.paymentStatus} />
 
         {/* Header */}
         <header className="mt-2 bg-white rounded-xl border border-border p-4 sm:p-6">
@@ -268,6 +260,22 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
           )}
         </section>
       </div>
+    </div>
+  );
+}
+
+/** Red "Not paid" / dark "Refunded" warning; nothing for a paid order. */
+function PaymentBanner({ paymentStatus }: { paymentStatus: string | null }) {
+  const payment = paymentState(paymentStatus);
+  if (payment === "paid") return null;
+  return (
+    <div role="alert" className={`mt-2 rounded-xl border-2 px-4 py-3 text-white ${payment === "refunded" ? "border-gray-900 bg-gray-900" : "border-red-600 bg-red-600"}`}>
+      <p className="font-heading font-black text-xl uppercase tracking-wide">{payment === "refunded" ? "Refunded" : "Not paid"}</p>
+      <p className="text-sm font-semibold">
+        {payment === "refunded"
+          ? "This order was refunded. Its cards can't be received."
+          : `This order hasn't been paid (payment status: ${paymentStatus ?? "none"}). Check with an admin before working on these cards. Receiving asks you to confirm.`}
+      </p>
     </div>
   );
 }

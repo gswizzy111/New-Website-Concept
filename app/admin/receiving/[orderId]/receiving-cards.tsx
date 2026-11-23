@@ -95,7 +95,13 @@ export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: s
       return;
     }
     setSelected(new Set());
-    setMessage({ kind: "ok", text: typeof data.summary === "string" ? data.summary : `Received ${chosen.length} card${chosen.length === 1 ? "" : "s"}.` });
+    const summary = typeof data.summary === "string" ? data.summary : `Received ${chosen.length} card${chosen.length === 1 ? "" : "s"}.`;
+    const status = data.orderStatusChanged
+      ? data.emailFailed
+        ? " The order is now Cards Received, but the customer email didn't send."
+        : " The order is now Cards Received and the customer was emailed."
+      : "";
+    setMessage({ kind: "ok", text: `${summary}.${status}`.replace(/\.\.(\s|$)/, ".$1") });
     // Bags, Card IDs and due dates appear at once
     router.refresh();
   }
@@ -136,39 +142,45 @@ export function ReceivingCards({ orderId, today, cards, maxPhotos, canReceive: s
         ))}
       </ol>
 
-      {receivable.length > 0 && canReceive && (
-        <div className="sticky bottom-0 z-10 -mx-4 sm:mx-0 border-t sm:border border-border bg-white/95 backdrop-blur sm:rounded-xl px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex flex-col sm:flex-row sm:items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Received on
-            <input
-              type="date"
-              value={receivedOn}
-              min={EARLIEST_DAY}
-              max={today}
-              onChange={(e) => setReceivedOn(e.target.value)}
-              className="h-11 px-3 rounded-lg border border-border bg-white text-base sm:text-sm font-semibold text-foreground normal-case tracking-normal"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={receive}
-            disabled={busy || chosen.length === 0}
-            className="flex-1 min-h-12 px-5 rounded-lg bg-primary text-primary-foreground text-base font-black hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            {busy ? "Receiving…" : chosen.length ? `Receive selected cards (${chosen.length})` : "Receive selected cards"}
-          </button>
-          {payment === "unpaid" && (
-            <p className="text-xs font-black text-red-700 sm:self-center">Not paid: you&apos;ll be asked to confirm.</p>
+      {/* Stays in view while scrolling the cards; the result of the last receive shows here too */}
+      {((receivable.length > 0 && canReceive) || message) && (
+        <div className="sticky bottom-0 z-10 -mx-4 sm:mx-0 border-t sm:border border-border bg-white/95 backdrop-blur sm:rounded-xl px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] flex flex-col gap-2">
+          {message && (
+            <div role={message.kind === "error" ? "alert" : "status"} className={`flex items-start justify-between gap-2 rounded-lg pl-3 text-sm font-semibold ${message.kind === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
+              <p className="py-2">{message.text}</p>
+              <button type="button" onClick={() => setMessage(null)} className="shrink-0 min-h-11 min-w-11 text-lg leading-none" aria-label="Dismiss message">×</button>
+            </div>
           )}
-          {receivedOn !== today && (
-            <p className="text-xs font-semibold text-amber-700 sm:self-center">Backdated: due dates count from {dayText(receivedOn)}.</p>
+          {receivable.length > 0 && canReceive && (
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <label className="flex flex-col gap-1 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Received on
+                <input
+                  type="date"
+                  value={receivedOn}
+                  min={EARLIEST_DAY}
+                  max={today}
+                  onChange={(e) => setReceivedOn(e.target.value)}
+                  className="h-11 px-3 rounded-lg border border-border bg-white text-base sm:text-sm font-semibold text-foreground normal-case tracking-normal"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={receive}
+                disabled={busy || chosen.length === 0}
+                className="flex-1 min-h-12 px-5 rounded-lg bg-primary text-primary-foreground text-base font-black hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {busy ? "Receiving…" : chosen.length ? `Receive selected cards (${chosen.length})` : "Receive selected cards"}
+              </button>
+              {payment === "unpaid" && (
+                <p className="text-xs font-black text-red-700 sm:self-center">Not paid: you&apos;ll be asked to confirm.</p>
+              )}
+              {receivedOn !== today && (
+                <p className="text-xs font-semibold text-amber-700 sm:self-center">Backdated: due dates count from {dayText(receivedOn)}.</p>
+              )}
+            </div>
           )}
         </div>
-      )}
-      {message && (
-        <p role={message.kind === "error" ? "alert" : "status"} className={`rounded-lg px-4 py-3 text-sm font-semibold ${message.kind === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
-          {message.text}
-        </p>
       )}
     </div>
   );

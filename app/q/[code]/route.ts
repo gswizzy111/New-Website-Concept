@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminSession } from "@/lib/admin-auth";
+import { resolveCode } from "@/lib/intake/data";
 
 export const dynamic = "force-dynamic";
-
-// Card IDs (CD-2549-03) and Bag IDs (CD-2549-P, CD-2549-P2) are letters,
-// digits and dashes. Anything else can't be one, so it isn't looked up.
-const CODE = /^[A-Z0-9][A-Z0-9-]{2,39}$/;
 
 const NO_STORE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" };
 
@@ -18,31 +15,16 @@ const NO_STORE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofoll
  * gets a plain "not found" page. Codes match in any letter case.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ code: string }> }) {
-  const { code: raw } = await params;
-  let code = "";
+  const { code } = await params;
+  let found: Awaited<ReturnType<typeof resolveCode>> = null;
   try {
-    code = decodeURIComponent(raw).trim().toUpperCase();
-  } catch {
-    code = "";
+    found = await resolveCode(createAdminClient(), code);
+  } catch (e) {
+    // A database problem (say the intake tables aren't there yet) reads as "not found" too
+    console.error("[qr] code lookup failed:", e instanceof Error ? e.message : e);
   }
-  if (!CODE.test(code)) return notFound();
-
-  const admin = createAdminClient();
-  const [card, bag] = await Promise.all([
-    admin.from("cards").select("id").ilike("card_code", code).limit(1).maybeSingle(),
-    admin.from("tier_bags").select("id").ilike("bag_code", code).limit(1).maybeSingle(),
-  ]);
-  const target = card.data?.id
-    ? `/admin/receiving/card/${card.data.id}`
-    : bag.data?.id
-    ? `/admin/receiving/bag/${bag.data.id}`
-    : null;
-  if (!target) {
-    // A database problem (say the new tables aren't there yet) reads as "not found" too
-    if (card.error) console.error("[qr] card lookup failed:", card.error.message);
-    if (bag.error) console.error("[qr] bag lookup failed:", bag.error.message);
-    return notFound();
-  }
+  if (!found) return notFound();
+  const target = found.kind === "card" ? `/admin/receiving/card/${found.id}` : `/admin/receiving/bag/${found.id}`;
 
   // Signed out: sign in first, then straight to the scanned page
   const session = await getAdminSession();

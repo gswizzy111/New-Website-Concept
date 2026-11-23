@@ -52,12 +52,15 @@ export function AdvanceButton({
         setError(data.error ?? "Nothing was moved. Try again.");
         return;
       }
+      const moved = count(data.moved);
       const skipped = count(data.skipped);
-      const notes = [
-        skipped > 0 ? `${skipped} card${skipped === 1 ? " was" : "s were"} already at a different step and ${skipped === 1 ? "was" : "were"} left as ${skipped === 1 ? "it was" : "they were"}.` : "",
-        data.emailed === false ? "Saved, but the customer email didn't send." : "",
-      ].filter(Boolean);
-      if (notes.length) setNotice(notes.join(" "));
+      if (skipped > 0) {
+        setNotice(
+          moved === 0
+            ? `Nothing moved: ${cardIds.length === 1 ? "the card is" : "these cards are"} no longer at this step (or not received yet). The page now shows where things are.`
+            : `${skipped} card${skipped === 1 ? " was" : "s were"} no longer at this step and ${skipped === 1 ? "was" : "were"} left as ${skipped === 1 ? "it was" : "they were"}.`,
+        );
+      }
       router.refresh();
     } catch {
       setError("Network error. Reload to check what was saved.");

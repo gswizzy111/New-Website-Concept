@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { effectiveTier, tierDisplayName } from "@/lib/intake/codes";
 import { toNyDate, isDay } from "@/lib/intake/business-days";
-import { SETUP_STATUSES, type CardRef, type OrderPlan, type PlanInput } from "@/lib/intake/migration";
+import { SETUP_STATUSES, type CardRef, type OrderPlan, type PlanInput, type SetupTotals } from "@/lib/intake/migration";
 import { cleanSearch, statusLabel } from "@/lib/support-view";
 import type { SetupOrderRow } from "./store";
 
@@ -131,3 +131,39 @@ export function orderView(order: SetupOrderRow, plan: OrderPlan, input: PlanInpu
 }
 
 export type IssueOrder = { orderId: string; orderNumber: string | null; customerName: string | null; status: string; cards: CardRef[] };
+
+/** What POST /api/admin/intake/setup/preview answers. */
+export type SetupPreview = {
+  ready: true;
+  totals: SetupTotals;
+  orderIds: string[];
+  orders: {
+    orderId: string;
+    orderNumber: string | null;
+    customerName: string | null;
+    status: string;
+    cardsToUpdate: number;
+    cardCodes: number;
+    newBags: { code: string; cards: number; dueDate: string | null; dueStatus: string; completed: boolean }[];
+    bagFills: number;
+    receivedOn: string | null;
+  }[];
+  missingImages: IssueOrder[];
+  missingTiers: IssueOrder[];
+  missingReceivedDates: IssueOrder[];
+  finishedDateUnknown: IssueOrder[];
+  errors: (IssueOrder & { message: string })[];
+  notEligible: (IssueOrder & { message: string })[];
+  alreadySetUp: number;
+};
+
+/** What GET /api/admin/intake/setup/orders answers. */
+export type SetupList = {
+  ready: true;
+  orders: SetupOrderView[];
+  total: number;
+  eligibleMatching: number;
+  page: number;
+  pageSize: number;
+  counts: { needsSetup: number; setUp: number; errors: number };
+};

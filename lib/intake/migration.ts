@@ -30,7 +30,7 @@
  * any field that already has a value.
  */
 
-import { bagCode, cardCode, effectiveTier, nextCardSeqs } from "@/lib/intake/codes";
+import { bagCode, cardCode, effectiveTier, nextCardSeqs, normalizeTier, tierLetter, tierRank } from "@/lib/intake/codes";
 import { toNyDate } from "@/lib/intake/business-days";
 import { computeDueDate } from "@/lib/intake/due-dates";
 import type { DueStatus } from "@/lib/intake/types";
@@ -270,12 +270,9 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
   }
 
   // Card IDs (missing ones only; never renumbered)
-  const seqs = new Map(nextCardSeqs(cards).map((s) => [s.id, s.seq]));
-  for (const c of cards) {
-    if (c.card_code) continue;
-    const seq = c.card_seq ?? seqs.get(c.id);
-    if (seq == null) continue;
-    plan.cardCodes.push({ cardId: c.id, seq, code: cardCode(orderNumber, seq) });
+  // (the same numbering ensureCardCodes writes: cards without a number get the next ones)
+  for (const { id, seq } of nextCardSeqs(cards)) {
+    plan.cardCodes.push({ cardId: id, seq, code: cardCode(orderNumber, seq) });
   }
   const codeOf = new Map(plan.cardCodes.map((p) => [p.cardId, p]));
   const ref = (c: SetupCard): CardRef => ({
@@ -293,7 +290,10 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
 
   // Bags: one per effective tier, reusing what exists
   const bagsByTier = new Map<string, SetupBag[]>();
-  for (const b of bags) bagsByTier.set(b.tier, [...(bagsByTier.get(b.tier) ?? []), b]);
+  for (const b of bags) {
+    const t = normalizeTier(b.tier) ?? b.tier;
+    bagsByTier.set(t, [...(bagsByTier.get(t) ?? []), b]);
+  }
   for (const list of bagsByTier.values()) list.sort((a, b) => a.batch - b.batch);
   const usedCodes = new Set(bags.map((b) => b.bag_code.toUpperCase()));
 
@@ -313,7 +313,7 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
   const cardsById = new Map(cards.map((c) => [c.id, c]));
   const bagCards = (bagId: string) => cards.filter((c) => c.bag_id === bagId);
 
-  for (const [tier, tierCards] of [...unbagged].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [tier, tierCards] of [...unbagged].sort(([a], [b]) => tierRank(a) - tierRank(b) || a.localeCompare(b))) {
     const existing = bagsByTier.get(tier) ?? [];
     // A bag this setup made before, else one with the same received day that
     // is still open; otherwise a new bag (batch 1, or the next free batch).
@@ -325,12 +325,14 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
       plan.touchedBagIds.push(reuse.id);
       continue;
     }
-    const batch = existing.reduce((max, b) => Math.max(max, b.batch), 0) + 1;
+    // Batches count per Bag ID letter (as receiving does), so two unknown
+    // tiers ("U") never share a Bag ID
+    const letter = tierLetter(tier);
+    let batch = 1 + Math.max(0,
+      ...bags.filter((b) => tierLetter(b.tier) === letter).map((b) => b.batch),
+      ...plan.newBags.filter((b) => tierLetter(b.tier) === letter).map((b) => b.batch));
+    while (usedCodes.has(bagCode(orderNumber, tier, batch).toUpperCase())) batch++;
     const code = bagCode(orderNumber, tier, batch);
-    if (usedCodes.has(code.toUpperCase())) {
-      plan.errors.push(`Bag ID ${code} is already used by another bag of this order (tier ${tier}).`);
-      continue;
-    }
     usedCodes.add(code.toUpperCase());
     const due = historicalDue(plan.receivedOn, tier, turnaroundMaxDays, holidays);
     const done = bagCompletion(ordered, order, input.finishedEventAt);

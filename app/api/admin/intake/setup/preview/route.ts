@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     let plans = planAll(data);
     const byId = new Map(data.orders.map((o) => [o.id, o]));
     if ("all" in body) {
-      const filters = SetupFilters.parse({ ...(body.filters ?? {}), show: "needs" });
+      // Every order matching the list's filters, set up or not (set-up ones count as "already set up")
+      const filters = SetupFilters.parse({ ...(body.filters ?? {}), show: "all" });
       plans = plans.filter((p) => matches(byId.get(p.orderId)!, p, data.inputs.get(p.orderId), filters));
     } else {
       const found = new Set(plans.map((p) => p.orderId));

@@ -1,84 +1,49 @@
 import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
+import type { CardStageState } from "@/lib/intake/types";
 
-export type StageState = "done" | "current" | "remaining";
-
-/**
- * Where each of the 8 restoration steps stands for one card: steps before the
- * current one are done, the current one is current, the rest remain. A
- * completed card has every step done; a card with no stage yet has none.
- */
-export function stageStates(currentStage: string | null | undefined, completed: boolean): StageState[] {
-  if (completed) return STAGES.map(() => "done");
-  const idx = currentStage ? (STAGES as readonly string[]).indexOf(currentStage) : -1;
-  return STAGES.map((_, i) => (i < idx ? "done" : i === idx ? "current" : "remaining"));
-}
-
-/** The step after `stage` (null = not started → the first step); null after the last step. */
-export function nextStage(stage: string | null | undefined): string | null {
-  if (!stage) return STAGES[0];
-  const idx = (STAGES as readonly string[]).indexOf(stage);
-  if (idx < 0) return STAGES[0];
-  return idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
-}
-
-/** The label of the one big advance button: "Move to Humidor", or from the last step "Mark card done". */
-export function advanceLabel(stage: string | null | undefined, cards = 1): string {
-  const next = nextStage(stage);
-  if (cards === 1) return next ? `Move to ${adminStageLabel(next)}` : "Mark card done";
-  return next ? `Move these ${cards} cards to ${adminStageLabel(next)}` : `Mark these ${cards} cards done`;
-}
-
-/** "Step 3 of 8 · Humidity Press", "Not started" or "Done". */
-export function stageSummary(stage: string | null | undefined, completed: boolean): string {
-  if (completed) return "Done";
-  const idx = stage ? (STAGES as readonly string[]).indexOf(stage) : -1;
-  if (idx < 0) return "Not started";
-  return `Step ${idx + 1} of ${STAGES.length} · ${adminStageLabel(stage!)}`;
-}
+type TrackState = Pick<CardStageState, "currentIndex" | "completed" | "round" | "currentLabel">;
 
 /**
- * The 8 restoration steps of one card (lib/restoration-stages.ts) with done,
- * current and remaining states. "list" is the full track on a card page;
- * "bar" is 8 small segments for a row in a list.
+ * The 8 restoration steps of one card (STAGES in lib/restoration-stages.ts)
+ * as done, current or remaining, from the card's stage state
+ * (cardStageState() in lib/intake/stage-plan.ts). "list" is the full track
+ * on a card page; "bar" is 8 small segments for a row in a list.
  */
-export function StageTrack({
-  stage,
-  completed,
-  round = 1,
-  variant = "list",
-}: {
-  stage: string | null | undefined;
-  completed: boolean;
-  round?: number;
-  variant?: "list" | "bar";
-}) {
-  const states = stageStates(stage, completed);
+export function StageTrack({ state, variant = "list" }: { state: TrackState; variant?: "list" | "bar" }) {
+  // currentIndex: -1 not started, 0-7 the current step, 8 (STAGES.length) done
+  const status = (i: number) => (i < state.currentIndex ? "done" : i === state.currentIndex ? "current" : "remaining");
 
   if (variant === "bar") {
+    const where = state.completed
+      ? "Done"
+      : state.currentIndex < 0
+      ? "Not started"
+      : `Step ${state.currentIndex + 1} of ${STAGES.length}: ${state.currentLabel}`;
     return (
-      <div className="flex items-center gap-1" role="img" aria-label={`${stageSummary(stage, completed)}${round > 1 ? `, round ${round}` : ""}`}>
-        {states.map((s, i) => (
-          <span
-            key={STAGES[i]}
-            className={`h-1.5 flex-1 min-w-2 rounded-full ${
-              s === "done" ? "bg-purple-300" : s === "current" ? "bg-purple-600" : "bg-muted"
-            }`}
-          />
-        ))}
+      <div className="flex items-center gap-1" role="img" aria-label={`${where}${state.round > 1 ? `, round ${state.round}` : ""}`}>
+        {STAGES.map((name, i) => {
+          const s = status(i);
+          return (
+            <span
+              key={name}
+              className={`h-1.5 flex-1 min-w-2 rounded-full ${s === "done" ? "bg-purple-300" : s === "current" ? "bg-purple-600" : "bg-muted"}`}
+            />
+          );
+        })}
       </div>
     );
   }
 
   return (
     <div>
-      {round > 1 && (
+      {state.round > 1 && (
         <p className="mb-2">
-          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white">Round {round}</span>
+          <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-600 text-white">Round {state.round}</span>
         </p>
       )}
       <ol className="flex flex-col gap-1.5">
         {STAGES.map((name, i) => {
-          const s = states[i];
+          const s = status(i);
           return (
             <li
               key={name}

@@ -1,0 +1,22 @@
+import { z } from "zod";
+import { isAdmin } from "@/lib/admin-auth";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getLabelSettings, loadLabelBags } from "@/lib/intake/labels/data";
+import { labelResponse } from "@/lib/intake/labels/respond";
+
+/**
+ * GET → PDF of every label of one bag (one page per label, at the label
+ * stock's size). ?tag=1 → the reusable tag instead. ?format=json → the
+ * laid-out pages for the on-screen preview.
+ */
+export async function GET(request: Request, { params }: { params: Promise<{ bagId: string }> }) {
+  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { bagId } = await params;
+  if (!z.string().uuid().safeParse(bagId).success) return Response.json({ error: "Bag not found" }, { status: 404 });
+
+  const admin = createAdminClient();
+  const [{ bags, error }, settings] = await Promise.all([loadLabelBags(admin, { bagId }), getLabelSettings(admin)]);
+  if (error) return Response.json({ error }, { status: 500 });
+  if (!bags.length) return Response.json({ error: "Bag not found" }, { status: 404 });
+  return labelResponse(request, bags, settings, bags[0].bagCode);
+}

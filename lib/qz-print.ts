@@ -102,3 +102,28 @@ export async function printZPL(zpl: string, printerName: string): Promise<void> 
 export function isQZActive(): boolean {
   return !!qz?.websocket?.isActive?.();
 }
+
+/**
+ * Print a PDF we already hold (base64) via QZ Tray, at the label stock's
+ * exact size and 1:1 (no scaling). For PDFs behind the admin sign-in: QZ
+ * Tray fetches URLs without the admin cookie, so the browser fetches the PDF
+ * and hands QZ the bytes.
+ */
+export async function printPdfBase64(
+  base64: string,
+  printerName: string,
+  size: { widthIn: number; heightIn: number }
+): Promise<void> {
+  const q = await getQZ();
+  const config = q.configs.create(printerName, {
+    size: { width: size.widthIn, height: size.heightIn },
+    units: "in",
+    scaleContent: false,
+    margins: 0,
+    // Same black-and-white settings as printLabel above (the thermal printer)
+    colorType: "blackwhite",
+    interpolation: "nearest-neighbor",
+    rasterize: false,
+  });
+  await q.print(config, [{ type: "pixel", format: "pdf", flavor: "base64", data: base64 }]);
+}

@@ -39,6 +39,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [done, setDone] = useState("");
   const camera = useRef<HTMLInputElement>(null);
   const library = useRef<HTMLInputElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
@@ -60,6 +61,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setDone("");
     if (!name.trim()) return setError("Enter the card's name.");
     if (!tier) return setError("Pick the card's tier.");
     if (receiveNow && (!/^\d{4}-\d{2}-\d{2}$/.test(receivedOn) || receivedOn > today)) return setError("Enter the day the card arrived (today or earlier).");
@@ -87,6 +89,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
       if (data.card_id) router.refresh(); // added, but receiving it failed
       return;
     }
+    setDone(typeof data.summary === "string" ? `Added ${name.trim()}. ${data.summary}` : `Added ${name.trim()}${data.card_code ? ` (${data.card_code})` : ""}.`);
     setName("");
     setSet("");
     setNumber("");
@@ -166,6 +169,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
         {busy ? "Adding…" : receiveNow ? "Add and receive card" : "Add card"}
       </button>
       {error && <p role="alert" className="text-sm font-semibold text-red-600">{error}</p>}
+      {done && <p role="status" className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm font-semibold text-green-800">{done}</p>}
     </form>
   );
 }

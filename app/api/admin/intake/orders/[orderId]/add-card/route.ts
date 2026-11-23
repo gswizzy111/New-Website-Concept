@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { receiveCards } from "@/lib/intake/receiving";
+import { ensureCardCodes, receiveCards } from "@/lib/intake/receiving";
 import { isOurCardPhoto, MAX_RECEIVING_PHOTOS } from "@/lib/intake/photos";
 import { isMissingSchema } from "@/app/admin/receiving/_components/schema";
 import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard";
@@ -17,7 +17,10 @@ import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard
  *        receivedOn?: "YYYY-MM-DD", allowUnpaid?: boolean }
  * Refunded orders are refused; receiving on an order that isn't paid needs
  * allowUnpaid: true (sent after staff confirm), checked before the card is added.
- * → 200 { ok: true, card_id, received: boolean, summary? } | 4xx/5xx { error, card_id? }
+ * → 200 { ok: true, card_id, received: false, card_code }
+ *   | 200 { ok: true, card_id, received: true, summary, ...ReceiveResult }
+ *   | 409 { error, unpaid: true } (not paid, no allowUnpaid) | 409 { error } (refunded)
+ *   | 4xx/5xx { error, card_id? } (card_id: added, but receiving it failed)
  */
 const TIERS = ["prep", "regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
 const text = (max: number) => z.string().trim().max(max).nullish().transform((v) => v || null);
@@ -80,7 +83,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     is_customer_visible: false,
   });
 
-  if (!d.receive) return Response.json({ ok: true, card_id: card.id, received: false });
+  if (!d.receive) {
+    // Its Card ID now (the next number on the order), so it can be labelled later
+    let code: string | null = null;
+    try {
+      code = (await ensureCardCodes(admin, orderId)).get(card.id)?.code ?? null;
+    } catch (e) {
+      console.error("[intake add card] Card ID not assigned yet:", e instanceof Error ? e.message : e);
+    }
+    return Response.json({ ok: true, card_id: card.id, card_code: code, received: false });
+  }
 
   const result = await receiveCards(admin, { orderId, cardIds: [card.id], receivedOn: d.receivedOn, by: who.by });
   if (!result.ok) {
@@ -95,5 +107,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
       is_customer_visible: false,
     });
   }
-  return Response.json({ ...result, ok: true, card_id: card.id, received: true });
+  return Response.json({ ...result, ok: true, card_id: card.id, received: true, summary: result.eventText });
 }

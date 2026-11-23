@@ -13,7 +13,9 @@ import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard
  * sent only after staff confirm; a refunded order is refused.
  *
  * POST { cardIds: uuid[] (1-500), receivedOn?: "YYYY-MM-DD" (default today, New York), allowUnpaid?: boolean }
- * → 200 { ok: true, summary: string, ...receiveCards result }
+ * → 200 { ok: true, summary, receivedCardIds, alreadyReceived, bags: ReceivedBag[], markedAwaiting,
+ *         orderStatusChanged, emailFailed, eventText } (ReceiveResult in lib/intake/receiving.ts)
+ *   | 400 { error, needsTier?: { cardId, seq, name }[] }
  *   | 409 { error, payment: "unpaid", unpaid: true } | 409 { error, payment: "refunded" } | 4xx/5xx { error }
  */
 const Body = z.object({
@@ -44,7 +46,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     receivedOn: parsed.data.receivedOn,
     by: who.by,
   });
-  if (!result.ok) return fail(result.status, result.error);
+  if (!result.ok) {
+    // needsTier: the cards that need a tier first ({ cardId, seq, name })
+    return Response.json({ error: result.error, ...(result.needsTier ? { needsTier: result.needsTier } : {}) }, { status: result.status });
+  }
   if (order.payment_status !== "paid") {
     // Who chose to receive on an order that isn't paid
     await admin.from("order_events").insert({
@@ -55,5 +60,5 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
       is_customer_visible: false,
     });
   }
-  return Response.json(result);
+  return Response.json({ ...result, summary: result.eventText });
 }

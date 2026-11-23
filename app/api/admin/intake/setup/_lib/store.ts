@@ -177,7 +177,12 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
 export function supabaseSetupStore(admin: SupabaseClient): SetupStore {
   return {
     async ensureCardCodes(orderId) {
-      return ensureCardCodes(admin, orderId);
+      // How many get a number now (ensureCardCodes returns every code of the order)
+      const { data: before, error } = await admin.from("cards").select("id").eq("order_id", orderId).is("card_seq", null);
+      if (error) throw new Error(`Couldn't read the cards: ${error.message}`);
+      if (!before?.length) return 0;
+      const codes = await ensureCardCodes(admin, orderId);
+      return before.filter((c) => codes.has(c.id as string)).length;
     },
 
     async createBag(row) {

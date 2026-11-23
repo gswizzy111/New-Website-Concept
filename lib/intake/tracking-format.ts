@@ -1,10 +1,12 @@
+import { isDay, nyToday } from "@/lib/intake/business-days";
+
 // Dates on the tracking pages (card, bag, completed). Stored days
 // ('YYYY-MM-DD': received_on, due_date) are calendar days and are shown as
 // they are; timestamps are shown in New York time, like the rest of the admin.
 
 /** "Mon, Dec 7, 2026" for a stored day ('2026-12-07'); "—" when missing. */
 export function dayText(day: string | null | undefined, weekday = true): string {
-  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return "—";
+  if (!isDay(day)) return "—";
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", {
     timeZone: "UTC",
     ...(weekday ? { weekday: "short" as const } : {}),
@@ -33,14 +35,9 @@ export function nyDate(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Today in New York as 'YYYY-MM-DD'. */
-export function nyToday(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-}
-
 /** Whole calendar days from today (New York) to `day`: negative when past. */
 export function daysUntil(day: string | null | undefined): number | null {
-  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  if (!isDay(day)) return null;
   const ms = Date.parse(`${day}T00:00:00Z`) - Date.parse(`${nyToday()}T00:00:00Z`);
   return Math.round(ms / 86_400_000);
 }

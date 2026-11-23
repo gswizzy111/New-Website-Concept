@@ -63,7 +63,9 @@ export function isMissingIntakeSchema(error: { code?: string; message?: string }
   if (!error) return false;
   // 42P01 undefined table, 42703 undefined column, PGRST204/205 not in PostgREST's schema cache
   if (["42P01", "42703", "PGRST204", "PGRST205"].includes(error.code ?? "")) return true;
-  return /tier_bags|bag_id|card_code|completion_seen_at|schema cache/i.test(error.message ?? "") && /exist|find|schema cache/i.test(error.message ?? "");
+  const m = error.message ?? "";
+  return /tier_bags|tier_bag_due_changes|business_holidays|card_seq|card_code|bag_id|received_at|received_by|awaiting_arrival|receiving_photo_urls|completion_seen_at/i.test(m)
+    && /does not exist|could not find|schema cache/i.test(m);
 }
 
 type BagRow = {
