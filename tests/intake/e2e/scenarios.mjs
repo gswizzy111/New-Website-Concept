@@ -381,7 +381,7 @@ const SCENARIOS = {
   },
 
   // In-person drop-off: add a card with a photo to the existing order and receive it
-  async "dropoff-add-card"({ page, s, mockUrl }) {
+  async "dropoff-add-card"({ page, ctx, s, mockUrl }) {
     const before = await tables();
     if (process.env.INTERCEPT_UPLOAD === "1") {
       await page.route("**/api/upload", (route) => route.fulfill({ json: { url: `${mockUrl}/storage/v1/object/public/card-photos/intercepted-${Date.now()}.png` } }));
@@ -419,6 +419,15 @@ const SCENARIOS = {
       }
       return `photo in ${added.receiving_photo_urls?.length ? "receiving_photo_urls" : "photo_urls"}`;
     });
+    await s.step("the same add-card request sent twice adds the card once", async () => {
+      const body = { card_name: "Test Twice Sent Card", tier: "premium", receive: true, receivedOn: "2026-11-21", requestId: crypto.randomUUID() };
+      const first = await api(ctx, "POST", `/api/admin/intake/orders/${IDS.dropoffOrder}/add-card`, body);
+      const again = await api(ctx, "POST", `/api/admin/intake/orders/${IDS.dropoffOrder}/add-card`, body);
+      assert(first.status < 300 && again.status < 300, `answered ${first.status} / ${again.status}`);
+      eq(again.body?.duplicate, true, "second answer is the duplicate");
+      eq(again.body?.card_id, first.body?.card_id, "same card");
+      eq(cardsOf(await tables(), IDS.dropoffOrder).filter((c) => c.card_name === "Test Twice Sent Card").length, 1, "cards added");
+    }, { shot: false });
   },
 
   // A receiving photo per card, kept apart from the customer's photos
@@ -470,13 +479,21 @@ const SCENARIOS = {
       const r = await api(ctx, "GET", ROUTES.qr("CD-0000-99"));
       eq(r.status, 404, "status");
     }, { shot: false });
-    await s.step("signed out: sign-in page with next=<card page>", async () => {
+    await s.step("signed out: /q and /Q go to sign-in with next=/q/<CODE> (no lookup); admin pages keep next=<page>", async () => {
       const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
       try {
-        const r = await anon.request.fetch(ROUTES.qr(card.card_code), { maxRedirects: 0, failOnStatusCode: false });
-        const loc = new URL(r.headers().location ?? "/", appUrl);
-        eq(loc.pathname, "/admin/login", "redirect");
-        eq(loc.searchParams.get("next"), ROUTES.card(card.id), "next");
+        const signIn = async (url) => {
+          const r = await anon.request.fetch(url, { maxRedirects: 0, failOnStatusCode: false });
+          assert([301, 302, 303, 307, 308].includes(r.status()), `${url}: status ${r.status()}`);
+          const loc = new URL(r.headers().location ?? "/", appUrl);
+          eq(loc.pathname, "/admin/login", `${url} redirect`);
+          return loc.searchParams.get("next");
+        };
+        eq(await signIn(ROUTES.qr(card.card_code.toLowerCase())), `/q/${card.card_code}`, "next (card, lower case scanned)");
+        eq(await signIn(ROUTES.qrUpper(bag.bag_code)), `/q/${bag.bag_code}`, "next (bag, /Q)");
+        // An unknown code isn't looked up either: nothing tells a stranger which codes exist
+        eq(await signIn(ROUTES.qr("CD-0000-99")), "/q/CD-0000-99", "next (unknown code)");
+        eq(await signIn(`${ROUTES.card(card.id)}?from=scan`), `${ROUTES.card(card.id)}?from=scan`, "next (admin page)");
       } finally { await anon.close(); }
     }, { shot: false });
     await s.step("scanning in the signed-in browser lands on the card page", async () => {

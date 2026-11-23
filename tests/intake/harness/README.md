@@ -130,8 +130,10 @@ Constraints (from the live schema and `20261123_intake_tracking.sql`):
 - not null, check (order/card/bag statuses, `batch >= 1`, `due_status`,
   `source`, non-blank due-change reason, card_seq ≥ 1) → 400 `23502`/`23514`.
 - foreign keys (insert/update) → 409 `23503`; on delete: orders cascade to
-  cards, order_events, tier_bags; tier_bags cascade to tier_bag_due_changes and
-  set `cards.bag_id` null.
+  cards, order_events, tier_bags; tier_bags cascade to tier_bag_due_changes;
+  `cards.bag_id` is NO ACTION: deleting a bag that still holds cards is refused
+  (409 `23503`, checked at the end of the delete, so deleting an order still
+  takes its cards and bags together).
 - triggers: order numbers `CD-<n>`, `orders.updated_at`, `cards.completed_at`
   stamp, cards ticked done when an order becomes shipped_back/delivered,
   `tier_bag_due_changes` immutable, `show_dropoffs` undeletable.

@@ -116,12 +116,16 @@ await check("completed_at trigger and cards done on ship", async () => {
   assert.ok(cs.every((c) => c.completed));
 });
 
-await check("delete cascades orders -> cards/bags, bag delete nulls cards.bag_id", async () => {
+await check("a bag holding cards can't be deleted (cards.bag_id NO ACTION); an empty one can", async () => {
   const { data: bag } = await db.from("tier_bags").select("id").eq("bag_code", "CD-2549-G").single();
   await db.from("cards").update({ bag_id: bag.id }).eq("id", IDS.mailCards[0]);
-  await db.from("tier_bags").delete().eq("id", bag.id);
+  const refused = await db.from("tier_bags").delete().eq("id", bag.id);
+  assert.equal(refused.error?.code, "23503");
   const { data: c } = await db.from("cards").select("bag_id").eq("id", IDS.mailCards[0]).single();
-  assert.equal(c.bag_id, null);
+  assert.equal(c.bag_id, bag.id);
+  await db.from("cards").update({ bag_id: null }).eq("id", IDS.mailCards[0]);
+  const ok = await db.from("tier_bags").delete().eq("id", bag.id);
+  assert.equal(ok.error, null);
 });
 
 await check("rpc backlog_now counts cards (awaiting_arrival excluded)", async () => {

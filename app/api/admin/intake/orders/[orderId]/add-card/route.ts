@@ -14,7 +14,9 @@ import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard
  *
  * POST { card_name, card_set?, card_year?, card_number?, tier,
  *        receiving_photo_urls?: string[], receive?: boolean (default true),
- *        receivedOn?: "YYYY-MM-DD", allowUnpaid?: boolean }
+ *        receivedOn?: "YYYY-MM-DD", allowUnpaid?: boolean, requestId?: uuid }
+ * requestId (one per card entered) makes a resent request (double tap, retry)
+ * answer with the card it already added instead of adding it again.
  * Refunded orders are refused; receiving on an order that isn't paid needs
  * allowUnpaid: true (sent after staff confirm), checked before the card is added.
  * A card added without receiving it, to an order whose other cards are already
@@ -37,6 +39,7 @@ const Body = z.object({
   receive: z.boolean().optional().default(true),
   receivedOn: z.string().regex(DAY, "Pick a valid received date.").optional(),
   allowUnpaid: z.boolean().optional(),
+  requestId: z.string().regex(UUID).optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
@@ -69,6 +72,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
   // of the backlog until it arrives, like the order's other missing cards
   const othersArrived = (arrived ?? []).length > 0;
 
+  // The same submission sent again: answer with the card it added, add nothing
+  if (d.requestId) {
+    const { data: earlier } = await admin
+      .from("order_events")
+      .select("metadata")
+      .eq("order_id", orderId)
+      .eq("event_type", "card_added_at_receiving")
+      .eq("metadata->>request_id", d.requestId)
+      .limit(1);
+    const earlierId = (earlier?.[0]?.metadata as { card_id?: string } | null)?.card_id;
+    if (earlierId) {
+      const { data: prev } = await admin.from("cards").select("id, card_code, received_at").eq("id", earlierId).maybeSingle();
+      if (prev) {
+        return Response.json({
+          ok: true, duplicate: true, card_id: prev.id, card_code: prev.card_code ?? null, received: !!prev.received_at,
+          ...(prev.received_at ? { summary: "It was already added (the request was sent twice)." } : {}),
+        });
+      }
+    }
+  }
+
   const { data: card, error } = await admin.from("cards").insert({
     order_id: orderId,
     card_name: d.card_name,
@@ -94,7 +118,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     order_id: orderId,
     event_type: "card_added_at_receiving",
     description: `Card added at receiving: ${d.card_name} by ${who.by}`,
-    metadata: { card_id: card.id, tier: d.tier, by: who.by },
+    metadata: { card_id: card.id, tier: d.tier, by: who.by, ...(d.requestId ? { request_id: d.requestId } : {}) },
     is_customer_visible: false,
   });
   if (logError) console.error("[intake add card] not logged:", logError.message);

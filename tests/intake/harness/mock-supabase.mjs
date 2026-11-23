@@ -26,7 +26,8 @@
 // many, columns=, return=representation|minimal, on_conflict +
 // resolution=ignore-duplicates|merge-duplicates, missing=default), PATCH and
 // DELETE with filters, unique / not-null / check / foreign-key constraints
-// (409 23505, 400 23502, 400 23514, 409 23503), ON DELETE cascade / set null,
+// (409 23505, 400 23502, 400 23514, 409 23503), ON DELETE cascade / set null /
+// no action (checked at the end of the statement, as in PostgreSQL),
 // and the triggers the app relies on (order numbers, updated_at, card
 // completed_at, cards done when an order ships, immutable due-change log).
 import http from "node:http";
@@ -72,7 +73,8 @@ export const SCHEMA = {
     },
     fks: {
       order_id: { table: "orders", onDelete: "cascade" },
-      bag_id: { table: "tier_bags", onDelete: "set null" },
+      // NO ACTION: a bag still holding cards can't be deleted (an order's delete takes both)
+      bag_id: { table: "tier_bags", onDelete: "no action" },
     },
     defaults: () => ({
       photo_urls: [], service_ids: [], completed: false, slab_removal_selected: false, pregrade_selected: false,
@@ -787,7 +789,15 @@ function deleteRows(store, table, q) {
   try {
     const targets = new Query(store, table, q).matchRaw();
     const deleted = targets.map((t) => clone(t));
-    cascadeDelete(store, table, new Set(targets));
+    const deferred = [];
+    cascadeDelete(store, table, new Set(targets), deferred);
+    // NO ACTION foreign keys: checked once the whole delete (cascades included) is done
+    for (const { childTable, col, table: parent, pk, keys } of deferred) {
+      const left = store.table(childTable).find((r) => keys.has(r[col]));
+      if (left) {
+        throw pgError(409, "23503", `update or delete on table "${parent}" violates foreign key constraint "${childTable}_${col}_fkey" on table "${childTable}"`, `Key (${pk})=(${left[col]}) is still referenced from table "${childTable}".`);
+      }
+    }
     return deleted;
   } catch (e) {
     store.tables = snapshot;
@@ -795,7 +805,7 @@ function deleteRows(store, table, q) {
   }
 }
 
-function cascadeDelete(store, table, targetSet) {
+function cascadeDelete(store, table, targetSet, deferred = []) {
   if (!targetSet.size) return;
   const pk = store.pkOf(table)[0];
   const keys = new Set([...targetSet].map((r) => r[pk]));
@@ -807,8 +817,9 @@ function cascadeDelete(store, table, targetSet) {
       if (!children.length) continue;
       if (fk.onDelete === "cascade") {
         if (SCHEMA[childTable]?.noDelete) throw pgError(400, "23514", SCHEMA[childTable].noDelete);
-        cascadeDelete(store, childTable, new Set(children));
+        cascadeDelete(store, childTable, new Set(children), deferred);
       } else if (fk.onDelete === "set null") children.forEach((c) => { c[col] = null; });
+      else if (fk.onDelete === "no action") deferred.push({ childTable, col, table, pk, keys });
       else throw pgError(409, "23503", `update or delete on table "${table}" violates foreign key constraint "${childTable}_${col}_fkey" on table "${childTable}"`, `Key (${pk})=(${[...keys][0]}) is still referenced from table "${childTable}".`);
     }
   }

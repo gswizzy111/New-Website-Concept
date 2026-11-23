@@ -43,6 +43,8 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
   const camera = useRef<HTMLInputElement>(null);
   const library = useRef<HTMLInputElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  // One id per card entered: a double tap or a resent request adds the card once
+  const requestId = useRef<string | null>(null);
 
   async function addPhotos(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []).slice(0, Math.max(0, maxPhotos - photos.length));
@@ -77,6 +79,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
     if (receiveNow && (!/^\d{4}-\d{2}-\d{2}$/.test(receivedOn) || receivedOn > today)) return setError("Enter the day the card arrived (today or earlier).");
     if (receiveNow && unpaid && !confirm(UNPAID_CONFIRM)) return;
     setBusy(true);
+    requestId.current ??= typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : null;
     const res = await fetch(`/api/admin/intake/orders/${orderId}/add-card`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -90,6 +93,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
         receive: receiveNow,
         receivedOn: receiveNow ? receivedOn : undefined,
         ...(receiveNow && unpaid ? { allowUnpaid: true } : {}),
+        ...(requestId.current ? { requestId: requestId.current } : {}),
       }),
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
@@ -99,6 +103,7 @@ export function AddCardForm({ orderId, orderTier, today, maxPhotos, unpaid }: {
       if (data.card_id) router.refresh(); // added, but receiving it failed
       return;
     }
+    requestId.current = null; // the next card is a new one
     setDone(typeof data.summary === "string" ? `Added ${name.trim()}. ${data.summary}` : `Added ${name.trim()}${data.card_code ? ` (${data.card_code})` : ""}.`);
     setName("");
     setSet("");
