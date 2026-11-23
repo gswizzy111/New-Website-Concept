@@ -311,3 +311,31 @@ test("page loads and the card hooks never reopen a finished historical order's c
   assert.ok(reopened.ok && !reopened.bag.complete);
   assert.deepEqual([bagRow().completed_at, bagRow().completion_seen_at], [null, null]);
 });
+
+test("entering a historical bag's received date gives its cards a receipt for that day (never before the card was added)", async () => {
+  const O4 = "00000000-0000-4000-8000-000000000004";
+  const BAG = "00000000-0000-4000-8000-0000000004b1";
+  mock.store.table("orders").push(order(O4, "CD-3004", "in_progress"));
+  const early = { ...card(1, "premium", O4), id: "00000000-0000-4000-8000-000000000401", card_seq: 1, card_code: "CD-3004-01", bag_id: BAG };
+  const late = { ...card(2, "premium", O4), id: "00000000-0000-4000-8000-000000000402", card_seq: 2, card_code: "CD-3004-02", bag_id: BAG, created_at: "2026-11-12T20:00:00.000000+00:00" };
+  const done = { ...card(3, "premium", O4), id: "00000000-0000-4000-8000-000000000403", card_seq: 3, card_code: "CD-3004-03", bag_id: BAG, received_at: "2026-11-13T15:00:00.000Z", received_by: "earlier" };
+  mock.store.table("cards").push(early, late, done);
+  mock.store.table("tier_bags").push({
+    id: BAG, order_id: O4, tier: "premium", batch: 1, bag_code: "CD-3004-G", received_on: null, due_date: null,
+    due_status: "missing_received_date", turnaround_days: null, due_note: null, completed_at: null, completion_seen_at: null, label_printed_at: null,
+    source: "migration", created_at: "2026-11-20T15:00:00+00:00", created_by: "setup",
+  });
+  const r = await svc.due.setBagReceivedOn(admin, { bagId: BAG, receivedOn: "2026-11-11", by: "gavin" });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  if (!r.ok) return;
+  assert.equal(r.bag.due_status, "needs_review", "historical bag: due date for review");
+  assert.equal(cardRow(early.id).received_at, "2026-11-11T17:00:00.000Z");
+  assert.equal(cardRow(early.id).received_by, "gavin");
+  assert.equal(cardRow(late.id).received_at, late.created_at, "added after that day: received when added");
+  assert.equal(cardRow(done.id).received_at, "2026-11-13T15:00:00.000Z", "an existing receipt is kept");
+  const intake = await svc.data.loadOrderIntake(admin, O4);
+  assert.ok(intake.ok);
+  if (!intake.ok) return;
+  assert.equal(intake.intake.counts.received, 3);
+  assert.equal(intake.intake.counts.missingReceivedDate, 0);
+});

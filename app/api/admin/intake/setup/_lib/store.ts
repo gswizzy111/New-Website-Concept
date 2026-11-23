@@ -6,6 +6,7 @@ import { refreshBagCompletion } from "@/lib/intake/stages";
 import {
   applyOrderSetup,
   FINISHED_EVENT_PREFIXES,
+  FINISHED_STATUSES,
   planOrderSetup,
   RECEIVED_EVENT,
   SETUP_STATUSES,
@@ -313,7 +314,8 @@ export async function runPlan(plan: OrderPlan, store: SetupStore, by: string | n
     missingImages: plan.missingImages.length,
     missingTiers: plan.missingTiers.length,
     addedLater: plan.addedLater.length,
-    missingReceivedDate: plan.missingReceivedDate,
+    // A finished order's bags are complete: its missing date needs no follow-up
+    missingReceivedDate: plan.missingReceivedDate && !(FINISHED_STATUSES as readonly string[]).includes(plan.status),
   };
   if (!plan.eligible) return { ...base, outcome: "skipped", message: plan.ineligibleReason ?? "Not eligible" };
   if (plan.errors.length > 0) return { ...base, outcome: "error", message: plan.errors.join(" ") };

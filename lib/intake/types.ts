@@ -224,6 +224,8 @@ export type BagSummary = {
   completedAt: string | null;      // stored; follows `complete`
   completionSeenAt: string | null;
   labelPrintedAt: string | null;
+  /** The label was printed, then the due or received date changed or cards joined the bag: reprint it. */
+  labelOutdated: boolean;
   source: BagSource;
   createdAt: string;
   createdBy: string | null;

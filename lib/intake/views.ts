@@ -119,6 +119,8 @@ export function bagView(
   order: Pick<IntakeOrder, "id" | "orderNumber" | "customerName" | "status">,
   cards: readonly IntakeCard[],
   tierNames?: Readonly<Record<string, string>>,
+  /** When the bag's due date last changed (tier_bag_due_changes), if ever. */
+  lastDueChangeAt?: string | null,
 ): BagSummary {
   const live = [...cards].filter((c) => !c.refunded).sort(byCardNumber);
   const groups = stageGroups(live);
@@ -142,6 +144,7 @@ export function bagView(
     completedAt: bag.completed_at,
     completionSeenAt: bag.completion_seen_at,
     labelPrintedAt: bag.label_printed_at,
+    labelOutdated: labelIsOutdated(bag.label_printed_at, live.map((c) => c.receivedAt), lastDueChangeAt ?? null),
     source: bag.source,
     createdAt: bag.created_at,
     createdBy: bag.created_by,
@@ -152,6 +155,19 @@ export function bagView(
     stageGroups: groups,
     cards: live.map((c) => ({ id: c.id, seq: c.seq, code: c.code, qrUrl: c.qrUrl, name: c.name, set: c.set, number: c.number })),
   };
+}
+
+/**
+ * A printed label no longer matches its bag: the due date changed after it was
+ * printed (a date entered on a "DUE NOT SET" label, a manual change, a
+ * received date correction), or a card joined the bag after it (received the
+ * same day into the same bag).
+ */
+export function labelIsOutdated(printedAt: string | null, cardsReceivedAt: readonly (string | null)[], lastDueChangeAt: string | null): boolean {
+  if (!printedAt) return false;
+  const printed = Date.parse(printedAt);
+  const after = (t: string | null) => !!t && Date.parse(t) > printed;
+  return after(lastDueChangeAt) || cardsReceivedAt.some(after);
 }
 
 /** Card number order; cards without a number yet last (by id). */
@@ -189,6 +205,8 @@ export function buildOrderIntake(input: {
   bags: readonly TierBagRow[];
   events: readonly StageEventRow[];
   tierNames?: Readonly<Record<string, string>>;
+  /** Latest tier_bag_due_changes time per bag id (for labelOutdated). */
+  dueChangedAt?: Readonly<Record<string, string>>;
 }): OrderIntake {
   const { tierNames, events } = input;
   const order = orderView(input.order, events, tierNames);
@@ -197,7 +215,7 @@ export function buildOrderIntake(input: {
     (a.card_seq ?? Infinity) - (b.card_seq ?? Infinity) || compareCardsForSeq(a, b));
   const cards = sortedRows.map((r) => cardView(r, order, r.bag_id ? bagById.get(r.bag_id) ?? null : null, events, tierNames));
   const bags = input.bags
-    .map((b) => bagView(b, order, cards.filter((c) => c.bagId === b.id), tierNames))
+    .map((b) => bagView(b, order, cards.filter((c) => c.bagId === b.id), tierNames, input.dueChangedAt?.[b.id] ?? null))
     .sort(byBagOrder);
   const live = cards.filter((c) => !c.refunded);
   return {

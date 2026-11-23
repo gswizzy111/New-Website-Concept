@@ -135,11 +135,36 @@ export async function changeBagDueDate(
   return { ok: true, bag: updated as TierBagRow };
 }
 
+/** Midday in New York on `day` (17:00 UTC: 12:00 EST, 13:00 EDT), so it reads as that day everywhere. */
+export const receiptTimeFor = (day: string) => `${day}T17:00:00.000Z`;
+
+/**
+ * The bag's cards with no received_at get one on `day` (or when the card was
+ * added, if later). Best effort: the bag's date is already saved.
+ */
+async function fillCardReceipts(admin: SupabaseClient, bagId: string, day: string, by: string | null): Promise<void> {
+  const { data: cards, error } = await admin.from("cards").select("id, created_at").eq("bag_id", bagId).is("received_at", null);
+  if (error) {
+    console.error("[intake] bag cards' receipts not filled:", error.message);
+    return;
+  }
+  const at = receiptTimeFor(day);
+  const onDay = (cards ?? []).filter((c) => !(Date.parse(c.created_at as string) > Date.parse(at))).map((c) => c.id as string);
+  const later = (cards ?? []).filter((c) => Date.parse(c.created_at as string) > Date.parse(at));
+  const writes = [
+    ...(onDay.length ? [admin.from("cards").update({ received_at: at, received_by: by }).in("id", onDay).is("received_at", null)] : []),
+    ...later.map((c) => admin.from("cards").update({ received_at: c.created_at, received_by: by }).eq("id", c.id).is("received_at", null)),
+  ];
+  for (const r of await Promise.all(writes)) if (r.error) console.error("[intake] bag card receipt not filled:", r.error.message);
+}
+
 /**
  * Set or correct the day a bag's cards arrived, then work its due date out
  * the same way receiving does (Historical Order Setup bags stay
  * 'needs_review': past turnaround settings are unknown). A manual due date
- * is kept. A due date that changes is logged in tier_bag_due_changes.
+ * is kept. A due date that changes is logged in tier_bag_due_changes. Cards of
+ * the bag with no receipt record (a historical bag) get one for that day
+ * (never before the card was added to the order), so they read as received.
  */
 export async function setBagReceivedOn(
   admin: SupabaseClient,
@@ -170,5 +195,6 @@ export async function setBagReceivedOn(
     });
     if (logErr) console.error("[intake] due change not logged:", logErr.message);
   }
+  await fillCardReceipts(admin, input.bagId, input.receivedOn, input.by);
   return { ok: true, bag: updated as TierBagRow };
 }

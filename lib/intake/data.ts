@@ -35,7 +35,26 @@ export async function loadTierNames(admin: SupabaseClient): Promise<Record<strin
   return Object.fromEntries((data ?? []).filter((r) => r.display_name).map((r) => [r.tier as string, r.display_name as string]));
 }
 
-type Loaded = { order: IntakeOrderRow; cards: IntakeCardRow[]; bags: TierBagRow[]; events: StageEventRow[]; tierNames: Record<string, string> };
+type Loaded = {
+  order: IntakeOrderRow; cards: IntakeCardRow[]; bags: TierBagRow[]; events: StageEventRow[]; tierNames: Record<string, string>;
+  /** Latest due date change per bag (labels printed before it are out of date). */
+  dueChangedAt: Record<string, string>;
+};
+
+/** Latest tier_bag_due_changes time per bag. Best effort: none if it can't be read. */
+async function loadDueChangeTimes(admin: SupabaseClient, bagIds: string[]): Promise<Record<string, string>> {
+  if (!bagIds.length) return {};
+  const { data, error } = await admin.from("tier_bag_due_changes").select("bag_id, created_at").in("bag_id", bagIds).limit(5000);
+  if (error) {
+    console.warn("[intake] due changes not read:", error.message);
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as { bag_id: string; created_at: string }[]) {
+    if (!out[r.bag_id] || Date.parse(r.created_at) > Date.parse(out[r.bag_id])) out[r.bag_id] = r.created_at;
+  }
+  return out;
+}
 
 async function loadOrderRows(admin: SupabaseClient, orderId: string): Promise<IntakeResult<{ rows: Loaded }>> {
   try {
@@ -50,6 +69,7 @@ async function loadOrderRows(admin: SupabaseClient, orderId: string): Promise<In
     const err = oErr ?? bErr;
     if (err) return { ok: false, status: 500, error: err.message };
     if (!order) return { ok: false, status: 404, error: "Order not found" };
+    const dueChangedAt = await loadDueChangeTimes(admin, (bags ?? []).map((b) => b.id as string));
     return {
       ok: true,
       rows: {
@@ -58,6 +78,7 @@ async function loadOrderRows(admin: SupabaseClient, orderId: string): Promise<In
         bags: (bags ?? []) as TierBagRow[],
         events: events as StageEventRow[],
         tierNames,
+        dueChangedAt,
       },
     };
   } catch (e) {

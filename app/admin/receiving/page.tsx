@@ -42,6 +42,8 @@ const QUEUES = {
   labels: { title: "Bags missing labels", hint: "Bags still in work whose label hasn't been printed yet." },
 } as const;
 type QueueKey = keyof typeof QUEUES;
+/** Orders that are done with (their bags need no label, their missing cards no chasing). */
+const CLOSED_STATUSES = "(completed,shipped_back,delivered,cancelled)";
 
 async function loadQueue(admin: SupabaseClient, key: QueueKey, from: number, to: number) {
   if (key === "awaiting") {
@@ -60,14 +62,16 @@ async function loadQueue(admin: SupabaseClient, key: QueueKey, from: number, to:
   }
   if (key === "partial") {
     const { data, count, error } = await admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`, { count: "exact" })
-      .eq("cards.awaiting_arrival", true).neq("cards.status", "refunded").neq("status", "cancelled")
+      .eq("cards.awaiting_arrival", true).neq("cards.status", "refunded").eq("cards.completed", false)
+      .not("status", "in", CLOSED_STATUSES)
       .order("created_at", { ascending: false }).range(from, to);
     return { orders: (data ?? []) as OrderRow[], bags: [] as BagRow[], count: count ?? 0, error };
   }
   const { data, count, error } = await admin.from("tier_bags")
-    .select("id, bag_code, tier, received_on, due_date, created_at, order_id, orders(order_number, customer_name)", { count: "exact" })
-    // Completed bags (historical ones included) don't need a label any more
-    .is("label_printed_at", null).is("completed_at", null).order("created_at", { ascending: false }).range(from, to);
+    .select("id, bag_code, tier, received_on, due_date, created_at, order_id, orders!inner(order_number, customer_name, status)", { count: "exact" })
+    // Completed bags (historical ones included) and bags of finished orders don't need a label any more
+    .is("label_printed_at", null).is("completed_at", null).not("orders.status", "in", CLOSED_STATUSES)
+    .order("created_at", { ascending: false }).range(from, to);
   return { orders: [] as OrderRow[], bags: (data ?? []) as unknown as BagRow[], count: count ?? 0, error };
 }
 

@@ -8,7 +8,7 @@ import type { IntakeCardRow, IntakeOrderRow, TierBagRow } from "@/lib/intake/typ
  */
 
 export type PlanCard = Pick<IntakeCardRow,
-  "id" | "order_id" | "card_name" | "tier" | "status" | "completed" | "created_at" | "card_seq" | "card_code" | "received_at" | "awaiting_arrival">;
+  "id" | "order_id" | "card_name" | "tier" | "status" | "completed" | "created_at" | "card_seq" | "card_code" | "received_at" | "awaiting_arrival" | "bag_id">;
 export type PlanBag = Pick<TierBagRow, "id" | "tier" | "batch" | "bag_code" | "received_on" | "completed_at">;
 export type PlanOrder = Pick<IntakeOrderRow, "id" | "order_number" | "restoration_tier" | "status">;
 
@@ -55,9 +55,12 @@ const isRefunded = (c: { status: string | null }) => c.status === "refunded";
  * Plan receiving `cardIds` of an order on `receivedOn` (NY day).
  * Refuses cards that aren't on the order or were refunded, and cards with no
  * tier (on the card or the order): `needsTier` lists them so staff can pick
- * one. Cards already received are skipped. `markOthersAwaiting` (default
- * true) flags the order's other unreceived cards; the Historical Order Setup
- * passes false.
+ * one. Cards already received are skipped. Cards already in a bag with no
+ * receipt record (the Historical Order Setup bags an order's cards even when
+ * its received date is unknown) are refused: they are never received again
+ * into a new bag; staff enter that bag's received date instead.
+ * `markOthersAwaiting` (default true) flags the order's other cards that
+ * aren't here and aren't in a bag; the Historical Order Setup passes false.
  */
 export function planReceiving(input: {
   order: PlanOrder;
@@ -86,6 +89,18 @@ export function planReceiving(input: {
 
   const refunded = wanted.filter((id) => isRefunded(byId.get(id)!));
   if (refunded.length) return { ok: false, status: 400, error: `Card ${refunded.map(label).join(", ")} was refunded, so it can't be received.` };
+
+  // Bagged without a receipt record (historical setup): enter the bag's received date instead
+  const inBag = wanted.filter((id) => !byId.get(id)!.received_at && !!byId.get(id)!.bag_id);
+  if (inBag.length) {
+    const codeOf = new Map(bags.map((b) => [b.id, b.bag_code]));
+    const codes = [...new Set(inBag.map((id) => codeOf.get(byId.get(id)!.bag_id!) ?? "a bag"))];
+    const one = inBag.length === 1;
+    return {
+      ok: false, status: 409,
+      error: `Card ${inBag.map(label).join(", ")} ${one ? "is" : "are"} already in ${codes.length === 1 ? `bag ${codes[0]}` : `bags ${codes.join(", ")}`}. Enter the bag's received date instead of receiving ${one ? "it" : "them"} again.`,
+    };
+  }
 
   const toReceive = wanted.filter((id) => !byId.get(id)!.received_at);
   const alreadyReceived = wanted.filter((id) => !!byId.get(id)!.received_at);
@@ -128,10 +143,11 @@ export function planReceiving(input: {
 
   const live = orderCards.filter((c) => !isRefunded(c));
   const receivingNow = new Set(toReceive);
+  // A card in a bag is here (a historical bag may have no received date yet): never flagged
   const markAwaiting = markOthersAwaiting
-    ? live.filter((c) => !c.received_at && !receivingNow.has(c.id) && !c.completed && !c.awaiting_arrival).map((c) => c.id)
+    ? live.filter((c) => !c.received_at && !c.bag_id && !receivingNow.has(c.id) && !c.completed && !c.awaiting_arrival).map((c) => c.id)
     : [];
-  const receivedBefore = live.filter((c) => c.received_at).length;
+  const receivedBefore = live.filter((c) => c.received_at || c.bag_id).length;
   const receivedAfter = receivedBefore + toReceive.length;
   const n = toReceive.length;
   const head = receivedBefore === 0

@@ -18,7 +18,8 @@
  * - received_on: the order's first 'Status updated to: Cards Received' event
  *   (New York day); a drop-off order's drop-off day (its show drop-off form
  *   when it came from one, else the order's creation); otherwise none,
- *   flagged "Missing receiving date". Never invented: a card added to the
+ *   flagged "Missing receiving date" until staff enter one on a setup bag
+ *   (that entered day then counts for the order's later bags). Never invented: a card added to the
  *   order on a later day gets no received_at (a finished order's is still
  *   bagged; an open order's is left for Receiving, as it may not be here).
  * - Due date from received_on with business days and the tier's current max
@@ -36,7 +37,7 @@
 
 import { bagCode, cardCode, effectiveTier, nextCardSeqs, normalizeTier, tierLetter, tierRank } from "@/lib/intake/codes";
 import { toNyDate } from "@/lib/intake/business-days";
-import { computeDueDate } from "@/lib/intake/due-dates";
+import { computeDueDate, receiptTimeFor } from "@/lib/intake/due-dates";
 import type { DueStatus } from "@/lib/intake/types";
 
 export type { DueStatus };
@@ -156,7 +157,8 @@ export type OrderPlan = {
   eligible: boolean;
   ineligibleReason: string | null;
   receivedOn: string | null;
-  receivedSource: "event" | "dropoff" | null;
+  /** Where receivedOn comes from: the status event, the drop-off, or a day staff entered on a setup bag. */
+  receivedSource: "event" | "dropoff" | "entered" | null;
   /** Timestamp written to cards.received_at where empty. */
   receivedAt: string | null;
   cardCodes: { cardId: string; seq: number; code: string }[];
@@ -185,8 +187,13 @@ export type OrderPlan = {
 
 const isFinished = (status: string) => (FINISHED_STATUSES as readonly string[]).includes(status);
 
+/**
+ * A photo of the card itself: the customer's or a receiving photo. A catalog
+ * picture is only a reference (not this card), so it doesn't count: the same
+ * rule as the receiving pages' "Missing image" (lib/intake/views.ts).
+ */
 const hasImage = (c: SetupCard) =>
-  (c.photo_urls?.length ?? 0) > 0 || (c.receiving_photo_urls?.length ?? 0) > 0 || !!c.catalog_image_url;
+  (c.photo_urls?.length ?? 0) > 0 || (c.receiving_photo_urls?.length ?? 0) > 0;
 
 const latest = (values: (string | null)[]): string | null =>
   values.reduce<string | null>((max, v) => (v && (!max || Date.parse(v) > Date.parse(max)) ? v : max), null);
@@ -284,6 +291,15 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
     plan.receivedOn = dropoffDay;
     plan.receivedAt = dropoffAt;
     plan.receivedSource = "dropoff";
+  } else {
+    // No record, but staff entered the day on a bag this setup made (setBagReceivedOn):
+    // the order's later bags (a card bagged after a tier fix, say) start from that day too
+    const entered = bags.filter((b) => b.source === "migration" && b.received_on).map((b) => b.received_on as string).sort()[0];
+    if (entered) {
+      plan.receivedOn = entered;
+      plan.receivedAt = receiptTimeFor(entered);
+      plan.receivedSource = "entered";
+    }
   }
   // The last day a card can have been entered and still be part of that
   // arrival (a drop-off's cards are entered with the order)

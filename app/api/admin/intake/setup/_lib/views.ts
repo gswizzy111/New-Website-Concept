@@ -66,7 +66,7 @@ export type SetupOrderView = {
   statusLabel: string;
   createdAt: string;
   receivedOn: string | null;
-  receivedSource: "event" | "dropoff" | null;
+  receivedSource: "event" | "dropoff" | "entered" | null;
   state: SetupState;
   cardCount: number;
   cards: SetupCardView[];
@@ -156,7 +156,10 @@ export type SetupPreview = {
   missingImages: IssueOrder[];
   missingTiers: IssueOrder[];
   addedLater: IssueOrder[];
+  /** Open orders only (a finished order's bags are complete, so its date needs no follow-up). */
   missingReceivedDates: IssueOrder[];
+  /** Finished orders with no receiving date (counted, not listed). */
+  missingReceivedDatesFinished?: number;
   finishedDateUnknown: IssueOrder[];
   errors: (IssueOrder & { message: string })[];
   notEligible: (IssueOrder & { message: string })[];

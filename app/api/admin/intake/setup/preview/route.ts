@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
-import { totalsFor, type OrderPlan } from "@/lib/intake/migration";
+import { FINISHED_STATUSES, totalsFor, type OrderPlan } from "@/lib/intake/migration";
 import { loadSetupData, MissingTablesError, MISSING_TABLES_NOTICE, planAll } from "../_lib/store";
 import { matches, SetupFilters, type IssueOrder } from "../_lib/views";
 
@@ -51,6 +51,8 @@ export async function POST(request: Request) {
       status: p.status,
       cards,
     });
+    // A finished order's bags are complete, so its missing date needs no follow-up: counted, not listed
+    const isFinished = (p: OrderPlan) => (FINISHED_STATUSES as readonly string[]).includes(p.status);
     const toChange = plans.filter((p) => p.eligible && !p.alreadySetUp && p.errors.length === 0);
     return Response.json({
       ready: true,
@@ -70,7 +72,8 @@ export async function POST(request: Request) {
       missingImages: plans.filter((p) => p.eligible && p.missingImages.length).map((p) => issue(p, p.missingImages)),
       missingTiers: plans.filter((p) => p.eligible && p.missingTiers.length).map((p) => issue(p, p.missingTiers)),
       addedLater: plans.filter((p) => p.eligible && p.addedLater.length).map((p) => issue(p, p.addedLater)),
-      missingReceivedDates: plans.filter((p) => p.eligible && p.missingReceivedDate).map((p) => issue(p, [])),
+      missingReceivedDates: plans.filter((p) => p.eligible && p.missingReceivedDate && !isFinished(p)).map((p) => issue(p, [])),
+      missingReceivedDatesFinished: plans.filter((p) => p.eligible && p.missingReceivedDate && isFinished(p)).length,
       finishedDateUnknown: plans.filter((p) => p.eligible && p.finishedDateUnknown).map((p) => issue(p, [])),
       errors: plans.filter((p) => p.errors.length).map((p) => ({ ...issue(p, []), message: p.errors.join(" ") })),
       notEligible: plans.filter((p) => !p.eligible).map((p) => ({ ...issue(p, []), message: p.ineligibleReason ?? "Not eligible" })),

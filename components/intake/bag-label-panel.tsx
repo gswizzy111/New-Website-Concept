@@ -135,7 +135,9 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
     setPrintedAt((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, at])) }));
     writeFlag(HINT_KEY, true);
   };
-  const isOpen = (b: BagSummary) => open[b.id] ?? !(printedAt[b.id] ?? b.labelPrintedAt);
+  // Printed, then its due date or cards changed (and not reprinted since this page loaded)
+  const outdated = (b: BagSummary) => b.labelOutdated && !printedAt[b.id];
+  const isOpen = (b: BagSummary) => open[b.id] ?? (!(printedAt[b.id] ?? b.labelPrintedAt) || outdated(b));
   const totalLabels = bags.reduce((n, b) => n + (previewById.get(b.id)?.labels.length ?? 0), 0);
 
   return (
@@ -218,6 +220,9 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
                     </span>
                   </p>
                   <p className={`text-xs mt-0.5 ${printed ? "text-muted-foreground" : "font-semibold text-amber-700"}`}>{printedText(printed)}</p>
+                  {outdated(b) && (
+                    <p className="text-xs mt-0.5 font-semibold text-amber-700">Label out of date: its due date or cards changed since. Reprint it.</p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <LabelPrintButton
@@ -226,7 +231,7 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
                     bagIds={[b.id]}
                     paper={paper}
                     onPrinted={markPrinted([b.id])}
-                    variant={printed ? "secondary" : "primary"}
+                    variant={printed && !outdated(b) ? "secondary" : "primary"}
                   >
                     {printed ? "Reprint" : count > 1 ? `Print ${count} labels` : "Print label"}
                   </LabelPrintButton>

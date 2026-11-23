@@ -14,6 +14,7 @@ import { isMissingSchema, MIGRATION_NOTICE } from "../_components/schema";
 import { ReceivingCards } from "./receiving-cards";
 import { AddCardForm } from "./add-card-form";
 import { BagReceivedDate } from "./bag-received-date";
+import { SetupOrderButton } from "./setup-order-button";
 import type { WorkspaceCard } from "./types";
 import { paymentState } from "../_components/payment";
 
@@ -160,6 +161,11 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const bagsMissingDate = bags.filter((b) => !b.receivedOn);
   const bagsNeedReview = bags.filter((b) => b.dueStatus === "needs_review");
   const payment = paymentState(order.paymentStatus);
+  // An order already past Awaiting Cards that Receiving never touched (marked received
+  // before Receiving existed, or set up with a card left out for want of a tier): the
+  // Historical Order Setup does it in one step, from the order's own records
+  const unbagged = cards.filter((c) => !c.refunded && !c.bagId && !c.receivedAt && !c.awaitingArrival && !!c.tier);
+  const setupOffer = SETUP_OFFER_STATUSES.includes(order.status) && !bags.some((b) => b.source === "receiving") && unbagged.length > 0;
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -224,6 +230,23 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             {bagsNeedReview.length > 0 && <Flag href="#bags" tone="amber">{bagsNeedReview.length === 1 ? "Due date needs review" : `${bagsNeedReview.length} due dates need review`}</Flag>}
             {counts.awaiting > 0 && <Flag href={`#card-${firstWith((c) => c.awaitingArrival)}`} tone="amber">{counts.awaiting} card{counts.awaiting === 1 ? "" : "s"} still on the way</Flag>}
           </ul>
+        )}
+
+        {/* One step for an order marked received before Receiving existed */}
+        {setupOffer && (
+          <section aria-labelledby="setup-h" className="mt-4 rounded-xl border-2 border-primary/30 bg-white p-4 sm:p-5">
+            <h2 id="setup-h" className="font-heading font-black text-lg text-foreground">
+              {bags.length === 0 ? `Already marked ${statusLabel(order.status)}: set it up in one step` : `${unbagged.length} card${unbagged.length === 1 ? " isn't" : "s aren't"} in a bag yet`}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {bags.length === 0
+                ? "Every card gets its Card ID and goes into a bag for its tier, dated from the order's own records (no date is made up). Ticking only some cards below instead marks the others as not arrived, and they leave the backlog."
+                : "Set this order up again to bag them with the order's received date; nothing else changes. Cards added to the order after it was received are left for you to tick below when they're here."}
+            </p>
+            <div className="mt-3">
+              <SetupOrderButton orderId={order.id} />
+            </div>
+          </section>
         )}
 
         {/* Cards */}
@@ -291,6 +314,9 @@ function PaymentBanner({ paymentStatus }: { paymentStatus: string | null }) {
   );
 }
 
+/** Order statuses the Historical Order Setup works on (SETUP_STATUSES in lib/intake/migration.ts). */
+const SETUP_OFFER_STATUSES = ["received", "in_progress", "completed", "shipped_back", "delivered"];
+
 function Flag({ href, tone, children }: { href: string; tone: "red" | "amber"; children: React.ReactNode }) {
   return (
     <li>
@@ -335,7 +361,7 @@ function BagRow({ bag: b, orderId, today }: { bag: BagSummary; orderId: string; 
         </div>
         <div>
           <dt className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">Label</dt>
-          <dd className="font-semibold text-foreground">{b.labelPrintedAt ? `Printed ${nyDateTime(b.labelPrintedAt)}` : <span className="text-red-700">Not printed</span>}</dd>
+          <dd className="font-semibold text-foreground">{b.labelPrintedAt ? `Printed ${nyDateTime(b.labelPrintedAt)}` : <span className="text-red-700">Not printed</span>}{b.labelOutdated && <span className="block text-xs font-bold text-amber-700">Out of date: reprint</span>}</dd>
         </div>
       </dl>
       <div className="mt-3 flex flex-wrap items-center gap-2">

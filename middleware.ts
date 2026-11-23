@@ -92,7 +92,7 @@ export async function middleware(request: NextRequest) {
     if (!isAdminSession) {
       const loginUrl = new URL("/admin/login", request.url);
       // Signing in returns to the page asked for (say a scanned card or bag QR
-      // code's page). The login page accepts only this site's /admin/... paths.
+      // code's page). The login page accepts only this site's /admin/... and /q/<CODE> paths.
       if (request.method === "GET" && pathname.startsWith("/admin/")) {
         const search = new URLSearchParams(request.nextUrl.searchParams);
         search.delete("_rsc");

@@ -47,7 +47,7 @@ Screenshots (deviceScaleFactor 1) and `results.json` go to
 | `seed.mjs` | Fake data with fixed ids (`IDS`, `ORDER_NUMBERS`, `ADMIN_TOKEN`). |
 | `start.mjs` | Starts mock + `next dev`; Playwright helpers. |
 | `smoke.mjs` | Existing admin pages render with no server or browser errors. |
-| `selftest.mjs` | 15 checks of the mock through `@supabase/supabase-js`. |
+| `selftest.mjs` | 16 checks of the mock through `@supabase/supabase-js`. |
 | `../e2e/scenarios.mjs` | Intake scenarios, one place for UI wording (`UI`) and routes (`ROUTES`). |
 
 ## What the app runs with

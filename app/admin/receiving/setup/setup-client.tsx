@@ -149,7 +149,7 @@ function OrderRow({ o, checked, disabled, onToggle }: { o: SetupOrderView; check
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>Ordered {nyDate(o.createdAt)}</span>
             {o.receivedOn ? (
-              <span>Received {dayText(o.receivedOn, false)}{o.receivedSource === "dropoff" ? " (drop-off)" : ""}</span>
+              <span>Received {dayText(o.receivedOn, false)}{o.receivedSource === "dropoff" ? " (drop-off)" : o.receivedSource === "entered" ? " (entered by staff)" : ""}</span>
             ) : (
               <span className={`${chip} bg-amber-100 text-amber-800`}>Missing receiving date</span>
             )}
@@ -162,7 +162,7 @@ function OrderRow({ o, checked, disabled, onToggle }: { o: SetupOrderView; check
           {changes && o.state === "needs_setup" && <p className="mt-1 text-xs font-semibold text-foreground">Will add: {changes}</p>}
           {o.issues.errors.length > 0 && <p className="mt-1 text-xs font-semibold text-red-700">{o.issues.errors.join(" ")}</p>}
           <details className="mt-1.5">
-            <summary className="min-h-9 inline-flex items-center text-xs font-semibold text-primary cursor-pointer select-none">Cards</summary>
+            <summary className="min-h-11 inline-flex items-center text-xs font-semibold text-primary cursor-pointer select-none">Cards</summary>
             <ul className="mt-1 rounded-lg border border-border divide-y divide-border">
               {o.cards.map((c) => (
                 <li key={c.id} className="px-3 py-2 text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -568,7 +568,12 @@ function PreviewPanel({ preview, onConfirm, onBack, batchSize }: { preview: Setu
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
         <Stat label="Missing images" value={missingImageCards} hint={`${plural(preview.missingImages.length, "order")}: add photos on the order page`} tone={missingImageCards ? "bad" : "default"} />
         <Stat label="Missing tiers" value={missingTierCards} hint={`${plural(preview.missingTiers.length, "order")}: these cards get a Card ID but no bag`} tone={missingTierCards ? "warn" : "default"} />
-        <Stat label="Missing receiving dates" value={preview.missingReceivedDates.length} hint="Orders: bags get no due date until a date is entered" tone={preview.missingReceivedDates.length ? "warn" : "default"} />
+        <Stat
+          label="Missing receiving dates"
+          value={preview.missingReceivedDates.length}
+          hint={`Open orders: bags get no due date until a date is entered${preview.missingReceivedDatesFinished ? ` (also ${plural(preview.missingReceivedDatesFinished, "finished order")}: no due date needed)` : ""}`}
+          tone={preview.missingReceivedDates.length ? "warn" : "default"}
+        />
       </div>
 
       <div className="flex flex-col gap-2 mb-4">
@@ -576,7 +581,7 @@ function PreviewPanel({ preview, onConfirm, onBack, batchSize }: { preview: Setu
           title="Missing images"
           orders={preview.missingImages}
           tone="red"
-          note="No customer photo, receiving photo or catalog picture. Open the order to photograph these cards."
+          note="No customer photo or receiving photo (a catalog picture is only a reference). Open the order to photograph these cards."
         />
         <IssueList
           title="Missing tiers"

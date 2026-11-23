@@ -462,14 +462,40 @@ test("two runs at once: the second finds the first one's bag and makes no duplic
   assert.equal(db.plan(o.id).alreadySetUp, true);
 });
 
-test("missing images: no customer photo, receiving photo or catalog image", () => {
+test("missing images: no customer photo or receiving photo (a catalog picture is only a reference)", () => {
   const db = new FakeDb();
   const o = db.addOrder({ order_number: "CD-9000", restoration_tier: "premium" });
   db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z", photo_urls: [], card_name: "Bare" });
   db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000002Z", photo_urls: [], catalog_image_url: "https://assets.tcgdex.net/x.png" });
   db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000003Z", photo_urls: null, receiving_photo_urls: ["https://example.test/r.jpg"] });
   const plan = db.plan(o.id);
-  assert.deepEqual(plan.missingImages.map((r) => [r.code, r.name]), [["CD-9000-01", "Bare"]]);
+  // The bare card and the catalog-only one; the card with a receiving photo is fine
+  assert.deepEqual(plan.missingImages.map((r) => r.code), ["CD-9000-01", "CD-9000-02"]);
+  assert.equal(plan.missingImages[0].name, "Bare");
+});
+
+test("a received day staff entered on a setup bag counts for the order's later bags (a card bagged after a tier fix)", async () => {
+  const db = new FakeDb();
+  const o = db.addOrder({ order_number: "CD-9930", status: "in_progress", restoration_tier: null });
+  const gold = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000001Z", tier: "premium" });
+  const noTier = db.addCard(o.id, { created_at: "2026-11-01T15:00:00.000002Z", tier: null });
+  await db.setUp(o.id);
+  assert.equal(db.bags.length, 1);
+  assert.equal(db.bags[0].due_status, "missing_received_date");
+  assert.equal(db.plan(o.id).missingTiers.length, 1);
+  // Staff enter the day on the Gold bag (setBagReceivedOn), then fix the other card's tier
+  Object.assign(db.bags[0], { received_on: "2026-11-02", due_date: "2026-12-01", due_status: "needs_review" });
+  db.cards.get(gold.id)!.received_at = "2026-11-02T17:00:00.000Z";
+  db.cards.get(noTier.id)!.tier = "ultra_premium";
+  const plan = db.plan(o.id);
+  assert.equal(plan.receivedSource, "entered");
+  assert.equal(plan.receivedOn, "2026-11-02");
+  assert.equal(plan.missingReceivedDate, false);
+  assert.deepEqual(plan.newBags.map((b) => [b.bagCode, b.receivedOn, b.dueStatus]), [["CD-9930-P", "2026-11-02", "needs_review"]]);
+  assert.deepEqual(plan.receivedAtFills, [noTier.id], "the newly bagged card gets that day too");
+  await db.setUp(o.id);
+  assert.equal(db.cards.get(noTier.id)!.received_at, "2026-11-02T17:00:00.000Z");
+  assert.equal(db.plan(o.id).alreadySetUp, true);
 });
 
 test("Bag IDs never clash: two unknown tiers get U and U2; a Receiving bag of the same tier keeps its batch", async () => {

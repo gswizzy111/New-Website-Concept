@@ -15,7 +15,7 @@ function makeCards(spec: [tier: string | null, n: number][]): PlanCard[] {
       const k = out.length + 1;
       out.push({
         id: `card-${String(k).padStart(2, "0")}`, order_id: ORDER.id, card_name: `Card ${k}`, tier, status: "active", completed: false,
-        created_at: T0, card_seq: null, card_code: null, received_at: null, awaiting_arrival: false,
+        created_at: T0, card_seq: null, card_code: null, received_at: null, awaiting_arrival: false, bag_id: null,
       });
     }
   }
@@ -43,6 +43,7 @@ function apply(cards: PlanCard[], bags: PlanBag[], p: ReceivingPlan, receivedOn:
     card_seq: c.card_seq ?? seq.get(c.id)?.seq ?? null,
     card_code: c.card_code ?? seq.get(c.id)?.code ?? null,
     received_at: bagOf.has(c.id) ? `${receivedOn}T15:00:00Z` : c.received_at,
+    bag_id: bagOf.get(c.id) ?? c.bag_id,
     awaiting_arrival: bagOf.has(c.id) ? false : p.markAwaiting.includes(c.id) ? true : c.awaiting_arrival,
   }));
   return { cards: nextCards, bags: nextBags };
@@ -126,6 +127,21 @@ test("already received cards are skipped; refused: no tier, refunded, not on the
   assert.equal(planReceiving({ order: ORDER, cards, bags: [], cardIds: [], receivedOn: "2026-11-15" }).ok, false);
 });
 
+test("cards the Historical Order Setup bagged with no received date: never flagged awaiting, never received again", () => {
+  // Setup bagged cards 1-2 (Gold) with no receipt record; card 3 was added later and is here now
+  const cards = makeCards([["premium", 3], ["premium", 1]]).map((c, i) => (i < 2 ? { ...c, bag_id: "bag-G", card_seq: i + 1, card_code: `CD-2549-0${i + 1}` } : c));
+  const bags: PlanBag[] = [{ id: "bag-G", tier: "premium", batch: 1, bag_code: "CD-2549-G", received_on: null, completed_at: null }];
+  const p = plan({ cards, bags, cardIds: ["card-03"] });
+  assert.deepEqual(p.markAwaiting, ["card-04"], "only the card that isn't here and isn't bagged");
+  assert.equal(p.receivedBefore, 2, "bagged cards count as in");
+  assert.equal(p.receivedAfter, 3);
+  assert.deepEqual(p.bags.map((b) => [b.code, b.existingId]), [["CD-2549-G2", null]], "no date on the setup bag, so a new batch");
+  const again = planReceiving({ order: ORDER, cards, bags, cardIds: ["card-01", "card-03"], receivedOn: "2026-11-15" });
+  assert.ok(!again.ok);
+  assert.equal(again.status, 409);
+  assert.match(again.error, /^Card #1 is already in bag CD-2549-G\. Enter the bag's received date/);
+});
+
 test("refunded and done cards are never flagged awaiting; unknown tiers share the U letter without clashing", () => {
   const cards = makeCards([["mystery", 1], ["other_new", 1], ["premium", 2]]);
   cards[3] = { ...cards[3], status: "refunded" };
@@ -179,4 +195,14 @@ test("buildOrderIntake: a Gold bag done while Silver works -> partially complete
   assert.equal(intake.counts.missingImage, 3);
   assert.equal(intake.cards[0].flags.missingImage, false);
   assert.equal(intake.cards[2].stage.currentLabel, "Humidor");
+});
+
+test("a printed label is out of date once the due date changes or a card joins the bag after it", async () => {
+  const { labelIsOutdated } = await import("@/lib/intake/views");
+  const printed = "2026-11-16T15:00:00.000Z";
+  assert.equal(labelIsOutdated(null, ["2026-11-17T15:00:00Z"], "2026-11-17T15:00:00Z"), false, "never printed: nothing to reprint");
+  assert.equal(labelIsOutdated(printed, ["2026-11-15T15:00:00Z"], null), false);
+  assert.equal(labelIsOutdated(printed, ["2026-11-15T15:00:00Z"], "2026-11-16T16:00:00Z"), true, "due date set or changed after printing");
+  assert.equal(labelIsOutdated(printed, ["2026-11-15T15:00:00Z", "2026-11-16T15:30:00Z"], null), true, "a card received into the bag after printing");
+  assert.equal(labelIsOutdated(printed, [null], "2026-11-16T14:00:00Z"), false, "changes before printing are on the label");
 });

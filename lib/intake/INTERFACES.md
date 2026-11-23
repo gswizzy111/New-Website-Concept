@@ -42,9 +42,11 @@ doc comment.
 - `tier_bag_due_changes` (`TierBagDueChange`): insert-only (updates refused),
   reason required (non-blank).
 - `business_holidays`: day (pk), name, created_at. Seeded 2026-2028 (observed days).
-- `cards` new columns: card_seq, card_code (unique), bag_id (set null when the
-  bag is deleted), received_at, received_by, awaiting_arrival (default false),
-  receiving_photo_urls (default `{}`). Unique (order_id, card_seq).
+- `cards` new columns: card_seq, card_code (unique), bag_id (references
+  tier_bags, NO ACTION: **a bag can't be deleted while it has cards**; deleting
+  the order still takes its cards and bags together), received_at, received_by,
+  awaiting_arrival (default false), receiving_photo_urls (default `{}`).
+  Unique (order_id, card_seq).
 - Backlog: `backlog_now()` skips `awaiting_arrival` cards; the card trigger logs
   awaiting flips as `card_removed` / `card_added`, so `backlog_compute()`
   (unchanged) replays them exactly. Verified against the live functions.
@@ -186,11 +188,20 @@ status only while it still has that value (`skipped: true` otherwise).
 | `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (one email per click; for bulk use `advanceCards`) |
 | `POST /api/admin/cards/[id]/complete` | none | `{ completed }` (toggles; now also refreshes the bag) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
-| `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`) |
+| `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
+| `PATCH /api/admin/orders/[id]/tier` | `{ tier }` | set the order's tier; 409 likewise when it would move bagged cards to another tier |
 | `POST /api/admin/orders/[id]/cards` | see route | add a card to an order (inserted with awaiting_arrival false) |
 
 The new `/api/admin/intake/*` routes, `/q/[code]` and the label routes are
 owned by the UI agents and documented in their own files.
+
+**QR links** (`app/q/[code]/route.ts`; `/Q/<CODE>` is rewritten to it in
+`middleware.ts`): without a full admin session the code is never looked up:
+any well-formed code redirects to `/admin/login?next=/q/<CODE>` (the login page
+accepts `/q/<CODE>` and same-site `/admin/...` paths), a malformed one is 404.
+Signed in, a known code redirects to its card or bag page, an unknown one is
+404. A signed-out GET of any other `/admin/...` page redirects to
+`/admin/login?next=<path+query>`.
 
 ## Tests
 

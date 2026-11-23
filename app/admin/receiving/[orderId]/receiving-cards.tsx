@@ -54,7 +54,8 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
   const router = useRouter();
   // A refunded order can't be received at all
   const canReceive = schemaReady && payment !== "refunded";
-  const receivable = cards.filter((c) => !c.refunded && !c.receivedAt);
+  // A card already in a bag (historical setup, no received date yet) is here: its bag's date is entered instead
+  const receivable = cards.filter((c) => !c.refunded && !c.receivedAt && !c.bagId);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [receivedOn, setReceivedOn] = useState(defaultReceivedOn && defaultReceivedOn <= today ? defaultReceivedOn : today);
   const [busy, setBusy] = useState(false);
@@ -152,6 +153,7 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
             canPhoto={schemaReady}
             maxPhotos={maxPhotos}
             nextButtonId={c.refunded ? undefined : nextButton(active.indexOf(c))}
+            lastReceived={!!c.receivedAt && active.filter((x) => x.receivedAt).length === 1}
           />
         ))}
       </ol>
@@ -200,19 +202,22 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
   );
 }
 
-function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, maxPhotos, nextButtonId }: {
+function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, maxPhotos, nextButtonId, lastReceived = false }: {
   card: WorkspaceCard; orderId: string; checked: boolean; onCheck: (on: boolean) => void;
   canReceive: boolean; canPhoto: boolean; maxPhotos: number; nextButtonId?: string;
+  /** The order's only received card: undoing it doesn't change the order's status */
+  lastReceived?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const label = cardLabel(c);
-  const receivable = !c.refunded && !c.receivedAt;
+  const receivable = !c.refunded && !c.receivedAt && !c.bagId;
 
   async function unreceive() {
-    if (!confirm(`Mark ${label} as not received? It comes out of its bag ${c.bagCode ?? ""} and goes back to waiting.`)) return;
+    const statusNote = lastReceived ? " It's the only card received, but the order keeps its status: set it back on the order page if no cards are here." : "";
+    if (!confirm(`Mark ${label} as not received? It comes out of its bag ${c.bagCode ?? ""} and goes back to waiting.${statusNote}`)) return;
     setBusy(true);
     setError("");
     const res = await fetch(`/api/admin/intake/orders/${orderId}/unreceive`, {
@@ -247,6 +252,10 @@ function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, max
     ? { text: "Refunded", cls: "bg-gray-100 text-gray-500" }
     : c.receivedAt
       ? { text: `Received ${dayText(c.receivedOn)}`, cls: "bg-green-100 text-green-700" }
+      : c.bagId
+        ? c.receivedOn
+          ? { text: `Received ${dayText(c.receivedOn)}`, cls: "bg-green-100 text-green-700" }
+          : { text: "In a bag, received date missing", cls: "bg-red-100 text-red-700" }
       : c.awaitingArrival
         ? { text: "On the way", cls: "bg-amber-100 text-amber-700" }
         : { text: "Not received", cls: "bg-gray-100 text-gray-600" };
@@ -261,8 +270,8 @@ function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, max
           </label>
         ) : (
           <span className="shrink-0 min-w-11 flex justify-center pt-1" aria-hidden="true">
-            <span className={`w-7 h-7 rounded-md flex items-center justify-center ${c.receivedAt ? "bg-green-600 text-white" : "bg-gray-100"}`}>
-              {c.receivedAt && (
+            <span className={`w-7 h-7 rounded-md flex items-center justify-center ${c.receivedAt || c.bagId ? "bg-green-600 text-white" : "bg-gray-100"}`}>
+              {(c.receivedAt || c.bagId) && (
                 <svg viewBox="0 0 10 8" fill="none" className="w-3.5 h-3.5"><path d="M1 4l3 3 5-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /></svg>
               )}
             </span>

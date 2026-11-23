@@ -128,6 +128,16 @@ await check("a bag holding cards can't be deleted (cards.bag_id NO ACTION); an e
   assert.equal(ok.error, null);
 });
 
+await check("deleting an order takes its bagged cards and bags together", async () => {
+  const { data: bag, error } = await db.from("tier_bags").insert({ order_id: IDS.deliveredOrder, tier: "ultra_premium", bag_code: "CD-2400-P" }).select("id").single();
+  assert.equal(error, null);
+  await db.from("cards").update({ bag_id: bag.id }).eq("order_id", IDS.deliveredOrder);
+  const del = await db.from("orders").delete().eq("id", IDS.deliveredOrder);
+  assert.equal(del.error, null);
+  assert.equal((await db.from("cards").select("id").eq("order_id", IDS.deliveredOrder)).data.length, 0);
+  assert.equal((await db.from("tier_bags").select("id").eq("id", bag.id)).data.length, 0);
+});
+
 await check("rpc backlog_now counts cards (awaiting_arrival excluded)", async () => {
   const before = (await db.rpc("backlog_now")).data.total;
   await db.from("cards").update({ awaiting_arrival: true }).eq("id", IDS.noDateCards[0]);
