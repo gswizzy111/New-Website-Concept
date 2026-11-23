@@ -14,6 +14,7 @@ node tests/intake/harness/selftest.mjs      # the mock against real supabase-js 
 node tests/intake/harness/smoke.mjs         # existing admin pages render signed in (desktop + phone)
 node tests/intake/e2e/scenarios.mjs         # intake scenarios (all)
 node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
+node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -165,6 +166,7 @@ calls and `generate_link` return fakes.
 | CD-2400 (`IDS.deliveredOrder`) | delivered, Platinum, 'Status updated to: Cards Received' on 2026-10-01, all 8 stages done | 2 completed |
 | CD-2450 (`IDS.inProgressOrder`) | in_progress, Gold, received 2026-11-02 | at Heat Press, at Humidor, not started |
 | CD-2460 (`IDS.noDateOrder`) | received, Silver, self-ship, no received event | 2 (missing receiving date) |
+| CD-2600 (`IDS.bigOrder`) | awaiting_cards, mail-in, mixed tiers (order tier null), customer `BIG_CUSTOMER_NAME`, `admin_notes` set (keeps it out of selftest's `admin_notes is null` list) | 40: 32 Gold + 8 Platinum (`BIG_CARD_TIERS`: every 5th Platinum), names `BIG_CARD_NAMES` (4 long ones), for the one-page-per-bag label tests |
 
 Also: all 6 tiers in `restoration_settings` (live values: Bronze 45-60, Silver
 30-45, Gold 15-20, Platinum 10-15, Diamond 5-10, Fast Pass 1-7), the live
@@ -195,8 +197,12 @@ still say whether the backend is right.
   storage; `INTERCEPT_UPLOAD=1` answers it in the browser) and receive it: same
   order, CD-2550-03, Gold bag, photo saved.
 - `card-photo`: a receiving photo per card; customer photos untouched.
-- `qr`: `/q/<card code>`, lower case, `/Q/<bag code>`, unknown → 404, signed
-  out → `/admin/login?next=<card page>`, and the browser lands on the card page.
+- `qr`: `/q/<card code>` and lower case → card page; `/Q/<bag code>` and lower
+  case (the label's QR) → that bag's photos (`/admin/receiving/<orderId>/photos?bag=<bagId>`);
+  `/q/<order code>`, `/Q/…`, lower case → the whole order's photos; unknown → 404;
+  signed out → `/admin/login?next=/q/<CODE>` (card, bag, order, unknown: no lookup)
+  and `next=<page>` for admin pages; the browser lands on the card page and on
+  the bag's photos.
 - `card-page`: Card ID, customer, order, tier, received and due dates, stage,
   customer photo; phone width.
 - `bag-bulk-advance`: one card already at Humidor; bulk "Move … to Ready for
@@ -205,11 +211,43 @@ still say whether the backend is right.
 - `complete-bag`: Final Dry → done → bag `completed_at`, order not completed,
   Completed section lists the bag with "New", workspace shows "Partially
   completed".
-- `labels`: `GET /api/admin/intake/labels/bag/<bagId>` and
-  `/labels/order/<orderId>` (`ROUTES.labelPdfCandidates`): one bag → 1 page of
-  288x432 pt (4x6 in); all bags at once = sum of each bag's pages; the
-  reusable tag (`?tag=1`) is a PDF; a 16-card bag → 2+ labels. Parsed with
-  pdf-lib.
+- `labels` (one label per tier bag, design "B · Name banner", no reusable tag): before anything
+  is received the order's `?format=json` lists no bags; then CD-2549 with bags
+  of 4 and 1 cards, CD-2600 with one bag of 16, then (same day, same bag) a
+  Gold bag of 32 and a Platinum bag of 8. For each state: `?format=json` has one
+  entry per bag with exactly ONE label page and no `tag` field, `cardCount`
+  right; each label has exactly one `kind: "qr"` element holding the bag's
+  `/Q/<BAG CODE>` link (at least 1 in); the customer name is the
+  largest text; `cardCodes` are the bag's cards in card order (all of them up
+  to 16; past that all, or what fits plus a "+N more … scan" line with the right
+  N); the label shows its Bag ID and order number, and "Also in this order"
+  only when the order has other bags; the order PDF has one page per bag at the
+  label size, `?bags=<one>` 1 page; each bag route: PDF 1 page, JSON = that
+  bag with the same label and no `tag`. PDFs parsed with pdf-lib.
+- `labels-40`: all 40 CD-2600 cards made Gold (in the mock), received at once:
+  one bag of 40 → the same checks (still one page).
+- `photos-page`: every CD-2549 card received (the no-tier card made Bronze in
+  the mock) with a receiving photo each. `/admin/receiving/<orderId>/photos`:
+  every Card ID and name, each card under its own Bag ID, tiers, due date,
+  stage, all 13 images (10 receiving + 3 customer) and two that load, no
+  sideways scroll at 1440 and 390 px (screenshots). `?bag=<CD-2549-P>`: only
+  that bag's cards and Card IDs, customer, Bag ID, tier, due date, a link to
+  the bag page and "Whole order (10 cards in 4 bags)"; phone width.
+- `print-step`: three bags; the "Print labels" step's button is disabled and
+  says 4 cards need a photo, then 1, then (every card has a receiving photo)
+  it is enabled and says "Ready to print: 3 labels"; the bag label panel shows
+  one label preview per bag (named by Bag ID) and "Print all 3 labels"; the
+  bag page shows ONE label preview; the card page has a print-label button; no
+  "Print tag" button and no tag preview on the order, bag or card page (the
+  owner dropped the reusable tag); phone width.
+- `bags-board`: `/admin/receiving/bags` after receiving CD-2549 (Gold, Platinum)
+  and CD-2600 (Gold): CD-2549-P and CD-2549-G are separate rows, all rows in
+  due-date order, the P row shows the customer and Dec 7; phone width.
+
+Scenario setup that has no UI path (receiving photos, a tier change before
+receiving) writes to the mock directly with supabase-js (`mockDb()`,
+`setReceivingPhotos()` in `scenarios.mjs`), through a fetch that trusts the
+harness's localhost certificate the way `start.mjs`'s mock helpers do.
 - `setup`: Historical Order Setup preview → run → unique Card IDs, received
   dates from 'Cards Received' events / drop-off `created_at` (New York day),
   missing date flagged, delivered order stays delivered with its bag completed,

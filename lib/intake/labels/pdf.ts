@@ -6,7 +6,7 @@ import body400 from "./fonts/body400";
 import body700 from "./fonts/body700";
 import body800 from "./fonts/body800";
 import mono600 from "./fonts/mono600";
-import { layoutBagLabels, layoutBagTag } from "./layout";
+import { layoutBagLabels } from "./layout";
 import { qrMatrix, qrPath } from "./qr";
 import type { FontRole, LabelBag, LabelColor, LabelPage, LabelStock } from "./types";
 
@@ -144,12 +144,7 @@ function winAnsiSafe(t: string, font: PDFFont): string {
   return [...t].map((ch) => (set.has(ch.codePointAt(0)!) ? ch : "?")).join("");
 }
 
-/** All labels of these bags, in order, as one PDF. */
+/** One label per bag (layoutBagLabels gives each bag exactly one page), in order, as one PDF. */
 export function bagLabelsPdf(bags: LabelBag[], stock: LabelStock, title: string) {
   return renderLabelPdf(bags.flatMap((b) => layoutBagLabels(b, stock)), { title });
-}
-
-/** One reusable tag per bag, as one PDF. */
-export function bagTagsPdf(bags: LabelBag[], stock: LabelStock, title: string) {
-  return renderLabelPdf(bags.map((b) => layoutBagTag(b, stock)), { title });
 }

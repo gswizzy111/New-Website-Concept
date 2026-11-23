@@ -5,9 +5,9 @@ import { getLabelSettings, loadLabelBags } from "@/lib/intake/labels/data";
 import { labelResponse } from "@/lib/intake/labels/respond";
 
 /**
- * GET → PDF of every label of one bag (one page per label, at the label
- * stock's size). ?tag=1 → the reusable tag instead. ?format=json → the
- * laid-out pages for the on-screen preview.
+ * GET → PDF of the bag's label: exactly one page at the label stock's size,
+ * whatever its card count. ?format=json → the laid-out page for the
+ * on-screen preview. (?tag=1 is ignored: there is no reusable tag any more.)
  */
 export async function GET(request: Request, { params }: { params: Promise<{ bagId: string }> }) {
   if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });

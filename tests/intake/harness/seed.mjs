@@ -29,6 +29,10 @@ export const IDS = {
   // (e) received order with no received event and no drop-off: missing receiving date
   noDateOrder: id("0e000000", 1),
   noDateCards: [id("0e00000c", 1), id("0e00000c", 2)],
+  // (f) big mail-in order awaiting cards: 40 cards in two tiers (32 Gold + 8 Platinum), for the
+  // one-label-per-bag tests (a bag's label must stay ONE page at 4, 16, 32 and 40 cards)
+  bigOrder: id("0f000000", 1),
+  bigCards: Array.from({ length: 40 }, (_, i) => id("0f00000c", i + 1)),
 };
 
 export const ORDER_NUMBERS = {
@@ -37,10 +41,20 @@ export const ORDER_NUMBERS = {
   deliveredOrder: "CD-2400",
   inProgressOrder: "CD-2450",
   noDateOrder: "CD-2460",
+  bigOrder: "CD-2600",
 };
 
 /** Which mail-in cards have which tier (index into IDS.mailCards). */
 export const MAIL_CARD_TIERS = ["premium", "premium", "premium", "premium", "expedited", "expedited", "ultra_premium", "ultra_premium", "ultra_premium", null];
+
+/** The big order's tiers (index into IDS.bigCards): 32 Gold and 8 Platinum, every 5th card Platinum. */
+export const BIG_CARD_TIERS = Array.from({ length: 40 }, (_, i) => (i % 5 === 4 ? "ultra_premium" : "premium"));
+/** The big order's card names; every 9th (05, 14, 23, 32) is long, to check the label shortens it. */
+export const BIG_CARD_NAMES = Array.from({ length: 40 }, (_, i) => {
+  const n = String(i + 1).padStart(2, "0");
+  return i % 9 === 4 ? `Test Big Order Card ${n} Holo First Edition Long Name` : `Test Big Order Card ${n}`;
+});
+export const BIG_CUSTOMER_NAME = "Test Customer G";
 
 // Live tier settings (restoration_settings, read Nov 23 2026)
 export const TIER_SETTINGS = [
@@ -250,6 +264,26 @@ export function buildSeed({ baseUrl }) {
     id: cid, order_id: IDS.noDateOrder, created_at: ndCreated, tier: null,
     card_name: `Test No-Date Card ${i + 1}`, card_number: `${50 + i}/64`, service_price_cents: 9999,
   })));
+
+  // (f) Big mail-in order, awaiting cards: 40 cards, 32 Gold + 8 Platinum (order tier null).
+  // admin_notes is set on purpose: selftest.mjs lists orders with admin_notes null and expects
+  // the five orders above only.
+  const bigCreated = "2026-11-20T15:00:00.000Z";
+  const bigTotal = BIG_CARD_TIERS.reduce((sum, t) => sum + (t === "premium" ? 11999 : 14999), 0);
+  orders.push(order({
+    id: IDS.bigOrder, order_number: ORDER_NUMBERS.bigOrder, created_at: bigCreated,
+    customer_name: BIG_CUSTOMER_NAME, customer_email: "test.customer.g@example.com",
+    status: "awaiting_cards", restoration_tier: null, inbound_method: "buy_label",
+    inbound_tracking_number: "9400100000000000000002", inbound_carrier: "usps",
+    admin_notes: "Test: a big order for the label tests.",
+    subtotal_cents: bigTotal, total_cents: bigTotal,
+  }));
+  IDS.bigCards.forEach((cid, i) => cards.push(card({
+    id: cid, order_id: IDS.bigOrder, created_at: bigCreated, tier: BIG_CARD_TIERS[i],
+    card_name: BIG_CARD_NAMES[i], card_number: `${i + 1}/165`, card_set: i % 2 ? "Test Set Two" : "Base Set",
+    service_price_cents: BIG_CARD_TIERS[i] === "premium" ? 11999 : 14999,
+  })));
+  events.push(ev(IDS.bigOrder, "2026-11-20T15:01:00.000Z", "payment_received", "Payment received", null, true));
 
   const showDropoff = (over) => ({
     created_at: dropCreated, updated_at: dropCreated, show_name: "Test Card Show",

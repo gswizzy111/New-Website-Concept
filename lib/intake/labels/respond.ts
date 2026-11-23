@@ -1,11 +1,13 @@
-import { layoutBagLabels, layoutBagTag } from "./layout";
-import { bagLabelsPdf, bagTagsPdf } from "./pdf";
+import { layoutBagLabels } from "./layout";
+import { bagLabelsPdf } from "./pdf";
 import { LABEL_STOCKS, stockPoints, type LabelStockId } from "./stock";
 import type { LabelBagWithId } from "./data";
 import type { LabelPage } from "./types";
 
 // What the label routes send back (server only): the PDF, or with
 // ?format=json the laid-out pages the preview draws (same engine, same data).
+// One label per tier bag, always exactly one page each. There is no
+// reusable tag any more: ?tag=1 is ignored and the label is returned.
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
 
@@ -14,8 +16,14 @@ export type LabelPreviewBag = {
   bagCode: string;
   cardCount: number;
   labelPrintedAt: string | null;
+  /**
+   * The bag's label: always exactly one page. Its `cardCodes` are the Card
+   * IDs it lists; fewer than `cardCount` means the label ends with
+   * "+N more: scan the QR".
+   */
   labels: LabelPage[];
-  tag: LabelPage;
+  /** Retired (the reusable tag was dropped): never sent. Kept optional so older readers still type-check. */
+  tag?: LabelPage;
 };
 
 export type LabelPreviewResponse = {
@@ -46,20 +54,18 @@ export async function labelResponse(
         cardCount: b.cards.length,
         labelPrintedAt: b.labelPrintedAt,
         labels: layoutBagLabels(b, stock),
-        tag: layoutBagTag(b, stock),
       })),
     };
     return Response.json(body, { headers: NO_STORE });
   }
 
-  const tag = url.searchParams.get("tag") === "1";
-  const title = tag ? `Bag tag ${name}` : `Bag labels ${name}`;
-  const { bytes } = tag ? await bagTagsPdf(bags, stock, title) : await bagLabelsPdf(bags, stock, title);
+  const title = bags.length === 1 ? `Bag label ${name}` : `Bag labels ${name}`;
+  const { bytes } = await bagLabelsPdf(bags, stock, title);
   return new Response(Buffer.from(bytes), {
     headers: {
       ...NO_STORE,
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${safeName(name)}-${tag ? "tag" : "labels"}.pdf"`,
+      "Content-Disposition": `inline; filename="${safeName(name)}-${bags.length === 1 ? "label" : "labels"}.pdf"`,
     },
   });
 }

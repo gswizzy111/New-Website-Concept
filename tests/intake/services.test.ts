@@ -256,7 +256,7 @@ test("due dates: manual change needs a reason and is logged; loaders, card page,
   // The status event's day (today), not the bag's back-dated received day
   assert.equal(lc.order.historicalReceivedOn, nyToday());
 
-  assert.deepEqual(await svc.data.resolveCode(admin, "https://thecarddoc1.com/q/cd-3001-p"), { kind: "bag", id: bag.id, code: "CD-3001-P" });
+  assert.deepEqual(await svc.data.resolveCode(admin, "https://thecarddoc1.com/q/cd-3001-p"), { kind: "bag", id: bag.id, code: "CD-3001-P", orderId: ORDER });
   assert.deepEqual(await svc.data.resolveCode(admin, "cd-3001-07"), { kind: "card", id: plat[0].id, code: "CD-3001-07" });
   assert.equal(await svc.data.resolveCode(admin, "CD-9999-01"), null);
   const missing = await svc.data.loadBag(admin, "00000000-0000-4000-8000-00000000dead");

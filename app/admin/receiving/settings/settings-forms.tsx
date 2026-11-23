@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { LabelPreview } from "@/components/intake/label-preview";
-import { layoutBagLabels } from "@/lib/intake/labels/layout";
+import { bagLabelCapacity, layoutBagLabel } from "@/lib/intake/labels/layout";
 import {
   DEFAULT_CONTENT_WIDTH_IN,
   LABEL_STOCKS,
@@ -29,7 +29,7 @@ async function patch(body: unknown): Promise<SettingsState> {
   return data as SettingsState;
 }
 
-/** A made-up bag, only to show how labels lay out on this stock. */
+/** A made-up bag (in an order with a second bag), only to show how the label lays out on this stock. */
 function sampleBag(cards: number): LabelBag {
   return {
     bagCode: "CD-0000-P",
@@ -38,6 +38,7 @@ function sampleBag(cards: number): LabelBag {
     customerName: "Sample Customer",
     receivedOn: "2026-11-16",
     dueDate: "2026-12-08",
+    otherBags: [{ bagCode: "CD-0000-G", tierName: "Gold", cardCount: 2 }],
     cards: Array.from({ length: cards }, (_, i) => ({
       seq: i + 1,
       code: `CD-0000-${String(i + 1).padStart(2, "0")}`,
@@ -65,12 +66,7 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
   const sample = useMemo(() => {
     if (!valid) return null;
     const pts = stockPoints(stock, n);
-    const pages = layoutBagLabels(sampleBag(20), pts);
-    return {
-      first: pages[0].cardCodes.length,
-      next: pages.length > 1 ? pages[1].cardCodes.length : 0,
-      page: layoutBagLabels(sampleBag(Math.max(1, Math.min(3, pages[0].cardCodes.length))), pts)[0],
-    };
+    return { ...bagLabelCapacity(pts), page: layoutBagLabel(sampleBag(4), pts) };
   }, [stock, n, valid]);
 
   async function save(e: React.FormEvent) {
@@ -143,9 +139,13 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
 
         {sample && (
           <p className="text-sm text-foreground">
-            Fits <strong>{sample.first}</strong> card{sample.first === 1 ? "" : "s"} on a bag&apos;s first label
-            {sample.next ? <>, then <strong>{sample.next}</strong> on each continuation label</> : null}.
-            {sample.first === 0 && " The first label holds the bag details only."}
+            One label per bag. It lists up to <strong>{sample.normal}</strong> card{sample.normal === 1 ? "" : "s"} at full size
+            {sample.max > sample.normal ? (
+              <>
+                {" "}and up to <strong>{sample.max}</strong> in smaller type or two columns
+              </>
+            ) : null}
+            ; a bigger bag lists what fits and ends with &ldquo;+N more: scan the QR&rdquo;.
           </p>
         )}
 
@@ -168,8 +168,8 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
 
       {sample && (
         <figure className="w-[220px] max-w-full">
-          <LabelPreview page={sample.page} label="Sample label at this size" />
-          <figcaption className="mt-1 text-xs text-muted-foreground">Sample label (made-up card details)</figcaption>
+          <LabelPreview page={sample.page} printed label="Sample bag label at this size" />
+          <figcaption className="mt-1 text-xs text-muted-foreground">Sample bag label (made-up customer and cards)</figcaption>
         </figure>
       )}
     </form>

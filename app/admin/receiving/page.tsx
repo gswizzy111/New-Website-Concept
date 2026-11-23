@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
 import { cleanSearch, etDate, orderNumberFrom, statusLabel, tierLabel } from "@/lib/support-view";
+import { codeKind, normalizeCode } from "@/lib/intake/codes";
 import { RECEIVED_EVENT } from "@/lib/intake/migration";
 import { INTAKE_START } from "@/lib/intake/start";
 import { isMissingSchema, MIGRATION_NOTICE } from "./_components/schema";
@@ -109,6 +110,20 @@ async function cardCounts(admin: SupabaseClient, orderIds: string[]): Promise<{ 
   return { counts, schemaMissing };
 }
 
+/**
+ * The search text. A QR scanned into the box (a handheld scanner types the
+ * whole "HTTPS://THECARDDOC1.COM/Q/CD-2549") searches for its code: an order
+ * code finds the order (orderNumberFrom), a Card or Bag ID its card or bag
+ * (codeFrom). Anything else is cleaned as usual.
+ */
+function searchText(raw: string | undefined): string {
+  if (typeof raw === "string" && /\/q\/[a-z0-9]/i.test(raw)) {
+    const code = normalizeCode(raw);
+    if (code && codeKind(code)) return code;
+  }
+  return cleanSearch(raw);
+}
+
 /** "CD-2549-03" (a Card ID) or "CD-2549-P2" (a Bag ID) typed into the search. */
 function codeFrom(q: string): string | null {
   const m = /^#?\s?(?:cd[\s-]?)?(\d{1,9})[\s-]([a-z]\d{0,3}|\d{2,4})$/i.exec(q);
@@ -118,7 +133,7 @@ function codeFrom(q: string): string | null {
 export default async function ReceivingPage({ searchParams }: { searchParams: Promise<{ q?: string; queue?: string; page?: string }> }) {
   await requireAdmin();
   const sp = await searchParams;
-  const query = cleanSearch(sp.q);
+  const query = searchText(sp.q);
   const queue = (Object.keys(QUEUES) as QueueKey[]).find((k) => k === sp.queue) ?? null;
   const page = Math.max(1, Math.min(1000, Number.parseInt(sp.page ?? "1", 10) || 1));
   const admin = createAdminClient();
@@ -225,6 +240,7 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
             <p className="text-sm text-muted-foreground mt-1">Find the order, tick the cards that arrived, photograph them and receive. Bags and due dates appear right after.</p>
           </div>
           <nav className="flex flex-wrap gap-2 text-sm font-bold" aria-label="Receiving sections">
+            <AdminLink href="/admin/receiving/bags" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Bags</AdminLink>
             <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>
             <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>
           </nav>

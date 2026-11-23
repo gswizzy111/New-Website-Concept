@@ -1,7 +1,7 @@
 import QRCode from "qrcode";
 import { qrUrl } from "@/lib/intake/codes";
 
-// QR codes on labels and tags. Each holds a stable /q/<CODE> address in upper
+// The QR code on each bag label. It holds a stable /q/<CODE> address in upper
 // case (QR alphanumeric mode keeps the code small), never an image URL.
 
 /** What a card's or bag's QR holds: qrUrl() from lib/intake/codes.ts. */

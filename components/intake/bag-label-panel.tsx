@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, Printer } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { connectQZ, isQZActive } from "@/lib/qz-print";
 import type { BagSummary } from "@/lib/intake/types";
@@ -45,69 +46,11 @@ function useFlag(key: string, serverValue: boolean): boolean {
   );
 }
 
-function printedText(iso: string | null): string {
-  if (!iso) return "Label not printed yet";
-  const when = new Date(iso).toLocaleString("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `Label printed ${when}`;
-}
+type QzStatus = "off" | "connecting" | "ready" | "failed";
 
-type Loaded = { key: string; body: LabelPreviewResponse | null; error: string | null };
-
-/** Everything a bag's label shows, so an edit (a due date, a card's name) fetches the preview and PDFs again. */
-export function bagVersion(b: BagSummary): string {
-  const cards = b.cards.map((c) => [c.code, c.name, c.set, c.number].join("|")).join(";");
-  return [b.id, b.code, b.tierName, b.customerName ?? "", b.dueDate ?? "", b.receivedOn ?? "", b.cardCount, cards].join(".");
-}
-
-/** A short fingerprint (FNV-1a) for the PDF addresses, so a changed label is never a stale pre-fetched file. */
-export function shortHash(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
-  return (h >>> 0).toString(36);
-}
-
-/**
- * Labels for an order's bags (Design A "Ledger"): a preview of each bag's
- * labels and tag drawn from the same layout the PDF prints, and print
- * buttons per bag (labels, reprint, reusable tag) and for the whole order.
- */
-export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSummary[] }) {
-  const share = useShareDevice();
-  const hintSeen = useFlag(HINT_KEY, true);
-  const useQz = useFlag(QZ_KEY, false);
-  const [asPrinted, setAsPrinted] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [printedAt, setPrintedAt] = useState<Record<string, string>>({});
-  const [qzStatus, setQzStatus] = useState<"off" | "connecting" | "ready" | "failed">("off");
-  const [retry, setRetry] = useState(0);
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-
-  // What the labels show; when it changes the preview and PDFs are fetched again
-  const version = bags.map(bagVersion).join("~");
-  const key = `${orderId}|${version}|${retry}`;
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/admin/intake/labels/order/${orderId}?format=json`, { cache: "no-store" })
-      .then(async (res) => {
-        const body = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
-        if (!cancelled) setLoaded({ key, body: body as LabelPreviewResponse, error: null });
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setLoaded({ key, body: null, error: err.message || "The label preview didn't load." });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [orderId, key]);
-
+/** Connects QZ Tray when this computer prints with it (not on phones, which use the share sheet). */
+function useQzConnection(share: boolean, useQz: boolean): QzStatus {
+  const [qzStatus, setQzStatus] = useState<QzStatus>("off");
   useEffect(() => {
     if (share || !useQz || isQZActive()) return;
     let cancelled = false;
@@ -124,21 +67,174 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
       cancelled = true;
     };
   }, [share, useQz]);
+  return qzStatus;
+}
+
+/** When a label was printed, New York time: "Nov 23, 1:40 PM". */
+export function printedWhen(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function printedText(iso: string | null): string {
+  return iso ? `Label printed ${printedWhen(iso)}` : "Label not printed yet";
+}
+
+/** Everything a bag's label shows, so an edit (a due date, a card's name) fetches the preview and PDFs again. */
+export function bagVersion(b: BagSummary): string {
+  const cards = b.cards.map((c) => [c.code, c.name, c.set, c.number].join("|")).join(";");
+  return [b.id, b.code, b.tierName, b.customerName ?? "", b.dueDate ?? "", b.receivedOn ?? "", b.cardCount, cards].join(".");
+}
+
+/** A short fingerprint (FNV-1a) for the PDF addresses, so a changed label is never a stale pre-fetched file. */
+export function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(36);
+}
+
+/** A label print sent from this browser: when, and which version of the bag's label it was. */
+type LocalPrint = { at: string; version: string };
+
+// Labels printed since the page loaded, by bag, shared by every print button
+// (the "Print labels" step, the Bag labels panel, the card page) until the
+// refreshed page brings the stamps from the database.
+const EMPTY: ReadonlyMap<string, LocalPrint> = new Map();
+let localPrints: ReadonlyMap<string, LocalPrint> = EMPTY;
+const printListeners = new Set<() => void>();
+function subscribePrints(cb: () => void) {
+  printListeners.add(cb);
+  return () => {
+    printListeners.delete(cb);
+  };
+}
+
+export type BagLabelState = { printedAt: string | null; outdated: boolean };
+
+/**
+ * A bag's label: the database stamp (tier_bags.label_printed_at) and its
+ * out-of-date flag (the due date changed or cards joined the bag since), or a
+ * print sent from this page since, until a newer stamp arrives. A print from
+ * this page goes out of date when what the label shows changes after it.
+ */
+export function bagLabelState(b: BagSummary, local: LocalPrint | undefined): BagLabelState {
+  const server = b.labelPrintedAt;
+  if (local && (!server || Date.parse(server) <= Date.parse(local.at))) {
+    return { printedAt: local.at, outdated: local.version !== bagVersion(b) };
+  }
+  return { printedAt: server, outdated: !!server && b.labelOutdated };
+}
+
+/** Each bag's label state, and the callback that records a print (shown at once, then the page's stamps reload). */
+export function useBagLabels() {
+  const router = useRouter();
+  const local = useSyncExternalStore(subscribePrints, () => localPrints, () => EMPTY);
+  return {
+    state: (b: BagSummary) => bagLabelState(b, local.get(b.id)),
+    onPrinted: (printed: BagSummary[]) => (at: string) => {
+      const next = new Map(localPrints);
+      for (const b of printed) next.set(b.id, { at, version: bagVersion(b) });
+      localPrints = next;
+      printListeners.forEach((l) => l());
+      writeFlag(HINT_KEY, true);
+      router.refresh();
+    },
+  };
+}
+
+/**
+ * The order's bags as each label's "Also in this order" line names them
+ * (Bag ID, tier, card count), so a PDF address changes when another bag of
+ * the order gains or loses a card, not only when this bag changes.
+ */
+export function orderLineup(bags: readonly BagSummary[]): string {
+  return bags.map((b) => [b.code, b.tierName, b.cardCount].join(":")).join(",");
+}
+
+/** The bag's label PDF (one 4x6 page). `lineup`: orderLineup() of the bags shown with it. */
+function bagLabelUrl(b: BagSummary, lineup: string): string {
+  return `/api/admin/intake/labels/bag/${b.id}?v=${shortHash(`${bagVersion(b)}~${lineup}`)}`;
+}
+
+/** "Take a photo of every card first: 2 cards in this bag still need one." */
+function needPhotoText(n: number): string {
+  return `Take a photo of every card first: ${n} card${n === 1 ? " in this bag still needs" : "s in this bag still need"} one.`;
+}
+
+/** A print button held back by the photo gate (a bag's label prints once each of its cards has a receiving photo). */
+function GatedPrintButton({ describedBy, children }: { describedBy: string; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-describedby={describedBy}
+      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-4 text-sm font-bold text-background opacity-40"
+    >
+      <Printer className="size-4" strokeWidth={1.75} aria-hidden />
+      {children}
+    </button>
+  );
+}
+
+type Loaded = { key: string; body: LabelPreviewResponse | null; error: string | null };
+
+/**
+ * Labels for an order's bags (one label per tier bag): a preview of each
+ * bag's label drawn from the same layout the PDF prints, print buttons per
+ * bag (label, reprint) and, for several bags, one for all of them. A bag's
+ * label prints once every card in it has a receiving photo (`needPhoto`:
+ * cards still without one, by bag id).
+ */
+export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; bags: BagSummary[]; needPhoto: Record<string, number> }) {
+  const share = useShareDevice();
+  const hintSeen = useFlag(HINT_KEY, true);
+  const useQz = useFlag(QZ_KEY, false);
+  const qzStatus = useQzConnection(share, useQz);
+  const { state, onPrinted } = useBagLabels();
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [retry, setRetry] = useState(0);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+
+  // What the labels show; when it changes the preview and PDFs are fetched again
+  const version = bags.map(bagVersion).join("~");
+  const lineup = orderLineup(bags);
+  const ids = bags.map((b) => b.id).join(",");
+  const key = `${orderId}|${version}|${retry}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    // Only the bags shown (the bag page shows one)
+    fetch(`/api/admin/intake/labels/order/${orderId}?format=json&bags=${ids}`, { cache: "no-store" })
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
+        if (!cancelled) setLoaded({ key, body: body as LabelPreviewResponse, error: null });
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setLoaded({ key, body: null, error: err.message || "The label preview didn't load." });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId, ids, key]);
 
   const current = loaded?.key === key ? loaded : null;
   const settings = current?.body?.settings;
   const paper = settings ? { widthIn: settings.widthIn, heightIn: settings.heightIn } : { widthIn: 4, heightIn: 6 };
   const stockName = settings?.stock ?? "4x6";
   const previewById = new Map((current?.body?.bags ?? []).map((b) => [b.id, b]));
-  const v = shortHash(version);
-  const markPrinted = (ids: string[]) => (at: string) => {
-    setPrintedAt((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, at])) }));
-    writeFlag(HINT_KEY, true);
+  // One label per bag
+  const totalLabels = bags.length;
+  const gated = bags.some((b) => (needPhoto[b.id] ?? 0) > 0);
+  const isOpen = (b: BagSummary) => {
+    const st = state(b);
+    return open[b.id] ?? (!st.printedAt || st.outdated);
   };
-  // Printed, then its due date or cards changed (and not reprinted since this page loaded)
-  const outdated = (b: BagSummary) => b.labelOutdated && !printedAt[b.id];
-  const isOpen = (b: BagSummary) => open[b.id] ?? (!(printedAt[b.id] ?? b.labelPrintedAt) || outdated(b));
-  const totalLabels = bags.reduce((n, b) => n + (previewById.get(b.id)?.labels.length ?? 0), 0);
 
   return (
     <section aria-labelledby="labels-h" className="bg-white rounded-xl border border-border p-4 sm:p-5">
@@ -146,22 +242,31 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
         <div>
           <h3 id="labels-h" className="font-heading font-black text-base text-foreground">Bag labels</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
+            One label per tier bag.{" "}
             {settings ? `${settings.stock.replace("x", " × ")} in labels, ${settings.contentWidthIn} in wide print. ` : ""}
             Preview shows exactly what prints.{" "}
             <AdminLink href="/admin/receiving/settings" className="text-primary font-semibold hover:underline">Label settings</AdminLink>
           </p>
+          {gated && bags.length > 1 && (
+            <p id="labels-gate" className="text-xs mt-0.5 font-semibold text-amber-700">
+              A bag&apos;s label prints once every card in it has a receiving photo.
+            </p>
+          )}
         </div>
-        {bags.length > 1 && (
-          <LabelPrintButton
-            pdfUrl={`/api/admin/intake/labels/order/${orderId}?v=${v}`}
-            fileName={`${bags[0]?.orderNumber || "order"}-labels.pdf`}
-            bagIds={bags.map((b) => b.id)}
-            paper={paper}
-            onPrinted={markPrinted(bags.map((b) => b.id))}
-          >
-            {totalLabels ? `Print all ${totalLabels} labels` : "Print all labels"}
-          </LabelPrintButton>
-        )}
+        {bags.length > 1 &&
+          (gated ? (
+            <GatedPrintButton describedBy="labels-gate">Print all {totalLabels} labels</GatedPrintButton>
+          ) : (
+            <LabelPrintButton
+              pdfUrl={`/api/admin/intake/labels/order/${orderId}?bags=${ids}&v=${shortHash(version)}`}
+              fileName={`${bags[0]?.orderNumber || "order"}-labels.pdf`}
+              bagIds={bags.map((b) => b.id)}
+              paper={paper}
+              onPrinted={onPrinted(bags)}
+            >
+              Print all {totalLabels} labels
+            </LabelPrintButton>
+          ))}
       </div>
 
       {!hintSeen && share && (
@@ -173,13 +278,9 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1">
-        <label className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-foreground">
-          <input type="checkbox" checked={asPrinted} onChange={(e) => setAsPrinted(e.target.checked)} className="size-4" />
-          Show as printed (black only)
-        </label>
-        {!share && (
-          <label className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground">
+      {!share && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1">
+          <label className="inline-flex min-h-11 flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <input type="checkbox" checked={useQz} onChange={(e) => writeFlag(QZ_KEY, e.target.checked)} className="size-4" />
             Print with QZ Tray on this computer
             {useQz && (
@@ -188,8 +289,8 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
               </span>
             )}
           </label>
-        )}
-      </div>
+        </div>
+      )}
 
       {current?.error && (
         <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -203,10 +304,10 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
       <ul className="mt-3 flex flex-col divide-y divide-border">
         {bags.map((b) => {
           const preview = previewById.get(b.id);
-          const printed = printedAt[b.id] ?? b.labelPrintedAt;
-          const count = preview?.labels.length ?? 0;
+          const { printedAt, outdated } = state(b);
           const expanded = isOpen(b);
-          const url = `/api/admin/intake/labels/bag/${b.id}?v=${shortHash(bagVersion(b))}`;
+          const missing = needPhoto[b.id] ?? 0;
+          const pages = preview?.labels ?? [];
           return (
             <li key={b.id} className="py-3 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -216,39 +317,38 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-bold text-gray-700">{b.tierName}</span>
                     <span className="text-xs text-muted-foreground">
                       {b.cardCount} card{b.cardCount === 1 ? "" : "s"}
-                      {count > 1 ? ` · ${count} labels` : ""}
                     </span>
                   </p>
-                  <p className={`text-xs mt-0.5 ${printed ? "text-muted-foreground" : "font-semibold text-amber-700"}`}>{printedText(printed)}</p>
-                  {outdated(b) && (
-                    <p className="text-xs mt-0.5 font-semibold text-amber-700">Label out of date: its due date or cards changed since. Reprint it.</p>
-                  )}
+                  <div aria-live="polite">
+                    <p className={`text-xs mt-0.5 ${printedAt ? "text-muted-foreground" : "font-semibold text-amber-700"}`}>{printedText(printedAt)}</p>
+                    {outdated && (
+                      <p className="text-xs mt-0.5 font-semibold text-amber-700">Label out of date: its due date or cards changed since. Reprint it.</p>
+                    )}
+                    {missing > 0 && (
+                      <p id={`label-gate-${b.id}`} className="text-xs mt-0.5 font-semibold text-amber-700">{needPhotoText(missing)}</p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <LabelPrintButton
-                    pdfUrl={url}
-                    fileName={`${b.code}-labels.pdf`}
-                    bagIds={[b.id]}
-                    paper={paper}
-                    onPrinted={markPrinted([b.id])}
-                    variant={printed && !outdated(b) ? "secondary" : "primary"}
-                  >
-                    {printed ? "Reprint" : count > 1 ? `Print ${count} labels` : "Print label"}
-                  </LabelPrintButton>
-                  <LabelPrintButton
-                    pdfUrl={`${url}&tag=1`}
-                    fileName={`${b.code}-tag.pdf`}
-                    bagIds={[b.id]}
-                    paper={paper}
-                    markPrinted={false}
-                    variant="secondary"
-                  >
-                    Print tag
-                  </LabelPrintButton>
+                  {missing > 0 ? (
+                    <GatedPrintButton describedBy={`label-gate-${b.id}`}>{printedAt ? "Reprint label" : "Print label"}</GatedPrintButton>
+                  ) : (
+                    <LabelPrintButton
+                      pdfUrl={bagLabelUrl(b, lineup)}
+                      fileName={`${b.code}-label.pdf`}
+                      bagIds={[b.id]}
+                      paper={paper}
+                      onPrinted={onPrinted([b])}
+                      variant={printedAt && !outdated ? "secondary" : "primary"}
+                    >
+                      {printedAt ? "Reprint label" : "Print label"}
+                    </LabelPrintButton>
+                  )}
                   <button
                     type="button"
                     onClick={() => setOpen((o) => ({ ...o, [b.id]: !expanded }))}
                     aria-expanded={expanded}
+                    aria-controls={`label-preview-${b.id}`}
                     className="inline-flex min-h-11 items-center gap-1 rounded-lg px-3 text-sm font-semibold text-primary hover:bg-muted"
                   >
                     {expanded ? "Hide preview" : "Preview"}
@@ -257,32 +357,78 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
                 </div>
               </div>
 
-              {expanded && (
-                <div className="mt-3">
-                  {!preview ? (
+              <div id={`label-preview-${b.id}`} hidden={!expanded} className="mt-3">
+                {expanded &&
+                  (!preview ? (
                     <p className="text-sm text-muted-foreground">{current ? "No preview for this bag." : "Loading preview…"}</p>
                   ) : (
-                    <div className="flex flex-wrap gap-4">
-                      {preview.labels.map((page, i) => (
+                    <div className="flex flex-wrap items-start gap-4">
+                      {pages.map((page, i) => (
                         <figure key={i} className="w-full max-w-[384px]">
-                          <LabelPreview page={page} printed={asPrinted} label={`Label ${i + 1} of ${preview.labels.length} for bag ${b.code}`} />
+                          {/* The label is black only (Design B): drawn as printed */}
+                          <LabelPreview
+                            page={page}
+                            printed
+                            label={pages.length > 1 ? `Label ${i + 1} of ${pages.length} for bag ${b.code}` : `Label for bag ${b.code}`}
+                          />
                           <figcaption className="mt-1 text-xs font-semibold text-muted-foreground">
-                            Label {i + 1} of {preview.labels.length}
+                            {pages.length > 1 ? `Label ${i + 1} of ${pages.length}` : "Label"}
+                            {page.cardCodes.length < preview.cardCount ? `: ${page.cardCodes.length} of ${preview.cardCount} cards listed, the rest are behind the QR` : ""}
                           </figcaption>
                         </figure>
                       ))}
-                      <figure className="w-full max-w-[384px]">
-                        <LabelPreview page={preview.tag} printed={asPrinted} label={`Reusable tag for bag ${b.code}`} />
-                        <figcaption className="mt-1 text-xs font-semibold text-muted-foreground">Reusable tag (cut on the marks)</figcaption>
-                      </figure>
                     </div>
-                  )}
-                </div>
-              )}
+                  ))}
+              </div>
             </li>
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * A card page's print button for its bag's label (the card is on it), with
+ * the label's printed / out-of-date state. Held back until every card in the
+ * bag has a receiving photo (`needPhoto`: cards still without one).
+ */
+export function BagLabelPrint({ bag, paper, needPhoto }: { bag: BagSummary; paper: { widthIn: number; heightIn: number }; needPhoto: number }) {
+  const share = useShareDevice();
+  const useQz = useFlag(QZ_KEY, false);
+  useQzConnection(share, useQz);
+  const { state, onPrinted } = useBagLabels();
+  const { printedAt, outdated } = state(bag);
+  const label = printedAt ? "Reprint bag label" : "Print bag label";
+  return (
+    <section aria-labelledby="bag-label-h" className="bg-white rounded-xl border border-border p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id="bag-label-h" className="font-heading font-black text-base text-foreground">Bag label</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            This card is on the label of bag <span className="font-mono font-semibold text-foreground">{bag.code}</span> ({bag.tierName}).
+          </p>
+          <div aria-live="polite">
+            <p className={`text-xs mt-0.5 ${printedAt ? "text-muted-foreground" : "font-semibold text-amber-700"}`}>{printedText(printedAt)}</p>
+            {outdated && <p className="text-xs mt-0.5 font-semibold text-amber-700">Label out of date: its due date or cards changed since. Reprint it.</p>}
+            {needPhoto > 0 && <p id="bag-label-gate" className="text-xs mt-0.5 font-semibold text-amber-700">{needPhotoText(needPhoto)}</p>}
+          </div>
+        </div>
+        {needPhoto > 0 ? (
+          <GatedPrintButton describedBy="bag-label-gate">{label}</GatedPrintButton>
+        ) : (
+          <LabelPrintButton
+            pdfUrl={bagLabelUrl(bag, orderLineup([bag]))}
+            fileName={`${bag.code}-label.pdf`}
+            bagIds={[bag.id]}
+            paper={paper}
+            onPrinted={onPrinted([bag])}
+            variant={printedAt && !outdated ? "secondary" : "primary"}
+          >
+            {label}
+          </LabelPrintButton>
+        )}
+      </div>
     </section>
   );
 }

@@ -4,8 +4,9 @@ import type { BagSummary } from "@/lib/intake/types";
 import { CONTENT_WIDTH_CONFIG_KEY, STOCK_CONFIG_KEY, normalizeLabelSettings, type LabelStockId } from "./stock";
 import type { LabelBag } from "./types";
 
-// What the label routes print, read with a few plain queries (server only:
-// pass the service-role client from lib/supabase/admin.ts).
+// What the label routes print (one label per tier bag), read with a few plain
+// queries (server only: pass the service-role client from
+// lib/supabase/admin.ts).
 
 export type LabelBagWithId = LabelBag & { id: string; orderId: string; labelPrintedAt: string | null };
 
@@ -17,6 +18,7 @@ type BagRow = {
   bag_code: string;
   received_on: string | null;
   due_date: string | null;
+  due_status: string | null;
   label_printed_at: string | null;
 };
 
@@ -34,21 +36,32 @@ type CardRow = {
 
 /**
  * One bag (`bagId`) or every bag of an order (`orderId`), with the order's
- * number and customer and the bag's non-refunded cards by card number.
- * Bags come fastest tier first, then by batch.
+ * number and customer, the bag's non-refunded cards by card number, and the
+ * order's other bags with cards ("Also in this order" on the label). Bags
+ * come fastest tier first, then by batch.
  */
 export async function loadLabelBags(
   admin: SupabaseClient,
   where: { bagId: string } | { orderId: string },
 ): Promise<{ bags: LabelBagWithId[]; error: string | null }> {
-  let q = admin.from("tier_bags").select("id, order_id, tier, batch, bag_code, received_on, due_date, label_printed_at");
-  q = "bagId" in where ? q.eq("id", where.bagId) : q.eq("order_id", where.orderId);
-  const { data: bagData, error: bagErr } = await q;
+  // Every bag of the order(s), so each label can name its order's other bags
+  let orderIds: string[];
+  if ("bagId" in where) {
+    const { data, error } = await admin.from("tier_bags").select("order_id").eq("id", where.bagId);
+    if (error) return { bags: [], error: error.message };
+    orderIds = [...new Set(((data ?? []) as { order_id: string }[]).map((b) => b.order_id))];
+    if (!orderIds.length) return { bags: [], error: null };
+  } else {
+    orderIds = [where.orderId];
+  }
+  const { data: bagData, error: bagErr } = await admin
+    .from("tier_bags")
+    .select("id, order_id, tier, batch, bag_code, received_on, due_date, due_status, label_printed_at")
+    .in("order_id", orderIds);
   if (bagErr) return { bags: [], error: bagErr.message };
   const bagRows = (bagData ?? []) as BagRow[];
   if (!bagRows.length) return { bags: [], error: null };
 
-  const orderIds = [...new Set(bagRows.map((b) => b.order_id))];
   const [orders, cards, tiers] = await Promise.all([
     admin.from("orders").select("id, order_number, customer_name").in("id", orderIds),
     admin
@@ -66,11 +79,11 @@ export async function loadLabelBags(
 
   const cardsByBag = new Map<string, CardRow[]>();
   for (const c of (cards.data ?? []) as CardRow[]) {
-    if (!c.bag_id || c.status === "refunded") continue;
+    if (!c.bag_id || c.status === "refunded" || c.card_seq == null) continue;
     (cardsByBag.get(c.bag_id) ?? cardsByBag.set(c.bag_id, []).get(c.bag_id)!).push(c);
   }
 
-  const bags = bagRows
+  const all = bagRows
     .sort((a, b) => tierRank(a.tier) - tierRank(b.tier) || a.tier.localeCompare(b.tier) || a.batch - b.batch)
     .map((b): LabelBagWithId => {
       const order = orderById.get(b.order_id);
@@ -86,28 +99,33 @@ export async function loadLabelBags(
         customerName: order?.customer_name ?? "",
         receivedOn: b.received_on,
         dueDate: b.due_date,
+        dueStatus: b.due_status,
         cards: (cardsByBag.get(b.id) ?? [])
-          .filter((c) => c.card_seq != null)
           .sort((x, y) => (x.card_seq ?? 0) - (y.card_seq ?? 0))
-          .map((c) => {
-            const code = c.card_code ?? cardCode(orderNumber, c.card_seq!);
-            return {
-              seq: c.card_seq!,
-              code,
-              qrUrl: qrUrl(code),
-              name: c.card_name ?? "",
-              set: c.card_set,
-              year: c.card_year,
-              number: c.card_number,
-            };
-          }),
+          .map((c) => ({
+            seq: c.card_seq!,
+            code: c.card_code ?? cardCode(orderNumber, c.card_seq!),
+            name: c.card_name ?? "",
+            set: c.card_set,
+            year: c.card_year,
+            number: c.card_number,
+          })),
       };
     });
+  for (const b of all) {
+    b.otherBags = all
+      .filter((o) => o.orderId === b.orderId && o.id !== b.id && o.cards.length)
+      .map((o) => ({ bagCode: o.bagCode, tierName: o.tierName, cardCount: o.cards.length }));
+  }
+  const bags = "bagId" in where ? all.filter((b) => b.id === where.bagId) : all;
   return { bags, error: null };
 }
 
-/** A BagSummary (lib/intake/types.ts) as the label layout reads it (no card years there). */
-export function labelBagFromSummary(b: BagSummary): LabelBag {
+/**
+ * A BagSummary (lib/intake/types.ts) as the label layout reads it (no card
+ * years there). `others`: the order's other bags, for "Also in this order".
+ */
+export function labelBagFromSummary(b: BagSummary, others: readonly BagSummary[] = []): LabelBag {
   return {
     bagCode: b.code,
     qrUrl: b.qrUrl,
@@ -116,9 +134,13 @@ export function labelBagFromSummary(b: BagSummary): LabelBag {
     customerName: b.customerName ?? "",
     receivedOn: b.receivedOn,
     dueDate: b.dueDate,
+    dueStatus: b.dueStatus,
     cards: b.cards
       .filter((c) => c.seq != null && c.code)
-      .map((c) => ({ seq: c.seq!, code: c.code!, qrUrl: c.qrUrl, name: c.name, set: c.set, number: c.number })),
+      .map((c) => ({ seq: c.seq!, code: c.code!, name: c.name, set: c.set, number: c.number })),
+    otherBags: others
+      .filter((o) => o.id !== b.id && o.orderId === b.orderId && o.cardCount > 0)
+      .map((o) => ({ bagCode: o.code, tierName: o.tierName, cardCount: o.cardCount })),
   };
 }
 

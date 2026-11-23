@@ -1,7 +1,8 @@
-// Bag labels and reusable tags (Design A "Ledger"). One pure layout engine
-// (layout.ts) turns a bag into pages of positioned elements; the PDF route
-// (pdf.ts) and the on-screen preview (components/intake/label-preview.tsx)
-// both draw those same pages, so the preview is what prints.
+// Bag labels (Design B "Name banner"): ONE label per
+// tier bag, whatever its card count. One pure layout engine (layout.ts) turns
+// a bag into that page of positioned elements; the PDF route (pdf.ts) and
+// the on-screen preview (components/intake/label-preview.tsx) both draw that
+// same page, so the preview is what prints.
 //
 // Units: PDF points (72 per inch). Origin top-left, y grows downward; a
 // text element's y is its baseline.
@@ -16,11 +17,19 @@ export type LabelCard = {
   set?: string | null;
   year?: string | null;
   number?: string | null;
-  /** What the card's QR holds; defaults to labelQrData(code). */
+  /** Not printed: labels have no per-card QR codes any more (kept so older callers still type-check). */
   qrUrl?: string | null;
 };
 
-/** Everything a bag label or tag shows. */
+/** Another bag of the same order, for the label's "Also in this order" line. */
+export type LabelOtherBag = {
+  /** Bag ID, e.g. CD-2549-G. */
+  bagCode: string;
+  tierName: string;
+  cardCount: number;
+};
+
+/** Everything a bag label shows. */
 export type LabelBag = {
   /** Bag ID, e.g. CD-2549-P (tier_bags.bag_code). */
   bagCode: string;
@@ -32,10 +41,14 @@ export type LabelBag = {
   receivedOn: string | null;
   /** The bag's absolute due date, YYYY-MM-DD (null: not set yet). */
   dueDate: string | null;
+  /** tier_bags.due_status: with no due date, 'missing_received_date' prints "SET DATE" instead of a dash. */
+  dueStatus?: string | null;
   /** The cards in the bag, in card-number order. */
   cards: LabelCard[];
   /** What the bag's QR holds; defaults to labelQrData(bagCode). */
   qrUrl?: string | null;
+  /** The order's other bags that hold cards, in tier order ("Also in this order"). */
+  otherBags?: LabelOtherBag[];
 };
 
 /** The label stock loaded in the printer, and the printed content width. */
@@ -49,7 +62,7 @@ export type LabelStock = {
 
 export type FontRole = "display800" | "display900" | "body400" | "body700" | "body800" | "mono600";
 
-/** ink: always black. accent: navy on screen, black when printed. paper: white. */
+/** ink: always black. accent: navy on screen, black when printed (Design B uses ink only). paper: white. */
 export type LabelColor = "ink" | "accent" | "paper";
 
 export type LabelText = {
@@ -110,6 +123,10 @@ export type LabelPage = {
   width: number;
   height: number;
   elements: LabelElement[];
-  /** Which cards this page lists (codes), for tests and the preview caption. */
+  /**
+   * The Card IDs this page lists, in order (for tests and the preview
+   * caption). On a label that is out of room, fewer than the bag's cards:
+   * the rest are behind "+N more: scan the QR".
+   */
   cardCodes: string[];
 };

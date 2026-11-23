@@ -5,10 +5,10 @@ import { getLabelSettings, loadLabelBags } from "@/lib/intake/labels/data";
 import { labelResponse } from "@/lib/intake/labels/respond";
 
 /**
- * GET → PDF of the labels of every bag of the order, bag after bag.
- * ?bags=<id>,<id> → only those bags of the order (the "Print labels" button
- * prints the bags still missing a label). ?tag=1 → one reusable tag per bag
- * instead. ?format=json → the laid-out pages for the on-screen preview.
+ * GET → PDF of one label per tier bag of the order, bag after bag (one page
+ * each; bags whose cards were all refunded are left out). ?bags=<id>,<id> → only those bags of the order (the "Print labels"
+ * step prints the bags still missing a label). ?format=json → the laid-out
+ * pages for the on-screen preview. (?tag=1 is ignored: no reusable tag.)
  */
 export async function GET(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
   if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,11 +23,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ orde
   const admin = createAdminClient();
   const [loaded, settings] = await Promise.all([loadLabelBags(admin, { orderId }), getLabelSettings(admin)]);
   const { error } = loaded;
-  const bags = only ? loaded.bags.filter((b) => only.includes(b.id)) : loaded.bags;
+  // Bags whose cards were all refunded have nothing to label: left out
+  const bags = loaded.bags.filter((b) => b.cards.length && (!only || only.includes(b.id)));
   if (error) return Response.json({ error }, { status: 500 });
   if (!bags.length) {
     if (new URL(request.url).searchParams.get("format") === "json") return labelResponse(request, [], settings, "order");
-    return Response.json({ error: "This order has no bags yet." }, { status: 404 });
+    return Response.json({ error: "This order has no cards in bags yet." }, { status: 404 });
   }
   return labelResponse(request, bags, settings, bags[0].orderNumber || "order");
 }
