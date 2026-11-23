@@ -38,7 +38,7 @@ export default async function ReceivingSettingsPage() {
         <section aria-labelledby="labels-h" className={panel}>
           <h2 id="labels-h" className="font-heading font-black text-lg text-foreground">Bag labels</h2>
           <p className="text-sm text-muted-foreground mt-1 mb-5">
-            Size of the die-cut labels in the Labelife printer and how wide the label prints on them. Every bag label and tag is made at this size.
+            Size of the die-cut labels in the Labelife printer and how wide the label prints on them. Every bag label is made at this size: one label per tier bag.
           </p>
           <LabelSettingsForm initial={labels} />
         </section>
@@ -53,7 +53,7 @@ export default async function ReceivingSettingsPage() {
 
         <section aria-labelledby="steps-h" className={panel}>
           <h2 id="steps-h" className="font-heading font-black text-lg text-foreground">Restoration steps</h2>
-          <p className="text-sm text-muted-foreground mt-1 mb-4">The 8 steps every card moves through (the numbers on the reusable tag). Read only.</p>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">The 8 steps every card moves through. Read only.</p>
           <ol className="grid gap-2 sm:grid-cols-2">
             {STAGES.map((s, i) => (
               <li key={s} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-sm">

@@ -1,12 +1,16 @@
 import { siteUrl } from "@/lib/site-url";
 
 /**
- * Card IDs, Bag IDs and the QR links that point at them. Pure (safe in client
- * components and tests).
+ * Order codes, Card IDs, Bag IDs and the QR links that point at them. Pure
+ * (safe in client components and tests).
  *
+ *   Order    <order_number>                   CD-2549 (orders.order_number: 'CD-' || a sequence)
  *   Card ID  <order_number>-<seq>             CD-2549-03 (2 digits, 3+ from 100)
  *   Bag ID   <order_number>-<letter><batch>   CD-2549-P, second Platinum batch CD-2549-P2
  *   QR       HTTPS://<SITE>/Q/<CODE>          all upper case (QR alphanumeric mode keeps it small)
+ *
+ * The three never overlap: an order code has two parts, Card and Bag IDs three
+ * (the last part all digits for a card, a letter for a bag).
  */
 
 /** One letter per tier for Bag IDs; anything else is "U". */
@@ -83,9 +87,13 @@ export function bagCode(orderNumber: string, tier: string | null | undefined, ba
 }
 
 /**
- * A scanned, typed or pasted code as stored: upper case, no spaces or "#",
- * and the code part of a pasted QR link (".../q/cd-2549-03"). Returns "" when
- * what is left isn't a plausible code (letters, digits and dashes only).
+ * A scanned, typed or pasted code as stored: upper case, no "#", the code part
+ * of a pasted QR link (".../q/cd-2549-03"), spaces read as the dashes
+ * ("CD 2549 03" -> "CD-2549-03", "cd 2549" -> "CD-2549") and an order number
+ * typed without its dash ("cd2549" -> "CD-2549"). Returns "" when what is left
+ * isn't a plausible code (letters, digits and dashes, at least one dash): a
+ * bare number ("2549", "#2549") is never a code, since it could as well be a
+ * kit order (K2549) or anything else.
  */
 export function normalizeCode(raw: string | null | undefined): string {
   let s = String(raw ?? "").trim();
@@ -96,15 +104,50 @@ export function normalizeCode(raw: string | null | undefined): string {
   }
   const link = /\/q\/([^/?#]+)/i.exec(s);
   if (link) s = link[1];
-  s = s.replace(/\s+/g, "").replace(/^#+/, "").toUpperCase();
+  s = s.trim().replace(/^#+\s*/, "").toUpperCase()
+    .replace(/\s*-\s*/g, "-")
+    .replace(/\s+/g, "-")
+    // Order numbers are always 'CD-' || a number (generate_order_number())
+    .replace(/^CD(?=\d)/, "CD-");
   return /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/.test(s) && s.length <= 40 ? s : "";
 }
 
-/** What a normalized code looks like: a Card ID, a Bag ID, or neither. */
-export function codeKind(code: string): "card" | "bag" | null {
+export type CodeKind = "order" | "card" | "bag";
+
+/**
+ * What a normalized code looks like: an order code (the order number,
+ * CD-2549), a Card ID (CD-2549-03), a Bag ID (CD-2549-P, CD-2549-P2), or
+ * none of them (null).
+ */
+export function codeKind(code: string): CodeKind | null {
+  if (/^[A-Z]+-\d+$/.test(code)) return "order";
   if (/^[A-Z]+-\d+-\d{2,}$/.test(code)) return "card";
   if (/^[A-Z]+-\d+-[A-Z]\d*$/.test(code)) return "bag";
   return null;
+}
+
+/**
+ * The photos page (app/admin/receiving/[orderId]/photos): every card of the
+ * order, or with `bagId` only that bag's cards (?bag=<bagId>).
+ */
+export function orderPhotosPath(orderId: string, bagId?: string | null): string {
+  const base = `/admin/receiving/${encodeURIComponent(orderId)}/photos`;
+  return bagId ? `${base}?bag=${encodeURIComponent(bagId)}` : base;
+}
+
+/**
+ * The admin page a scanned code opens (app/q/[code]/route.ts), from what
+ * resolveCode found: `id` is the order's, card's or bag's id, `orderId` its
+ * order's.
+ *   Order code  CD-2549     -> the order's photos      /admin/receiving/<orderId>/photos
+ *   Bag ID      CD-2549-P   -> that bag's photos       /admin/receiving/<orderId>/photos?bag=<bagId>
+ *                              (the bag page, /admin/receiving/bag/<bagId>, if its order is unknown)
+ *   Card ID     CD-2549-03  -> the card page           /admin/receiving/card/<cardId>
+ */
+export function codeTargetPath(kind: CodeKind, id: string, orderId?: string | null): string {
+  if (kind === "order") return orderPhotosPath(orderId || id);
+  if (kind === "bag") return orderId ? orderPhotosPath(orderId, id) : `/admin/receiving/bag/${encodeURIComponent(id)}`;
+  return `/admin/receiving/card/${encodeURIComponent(id)}`;
 }
 
 /** The path a QR opens on this site (lower-case /q; the /Q mirror also works). */
@@ -113,9 +156,10 @@ export function qrPath(code: string): string {
 }
 
 /**
- * What a card or bag QR encodes: the site's /q/<CODE> link, all upper case
- * ("HTTPS://THECARDDOC1.COM/Q/CD-2549-03"), so the QR uses alphanumeric mode.
- * Stable: it never contains an image or other temporary URL.
+ * What an order, card or bag QR encodes: the site's /q/<CODE> link, all upper
+ * case, so the QR uses alphanumeric mode. qrUrl(order.order_number) is the
+ * order label's QR ("HTTPS://THECARDDOC1.COM/Q/CD-2549"); qrUrl(card_code)
+ * ".../Q/CD-2549-03". Stable: it never contains an image or other temporary URL.
  */
 export function qrUrl(code: string): string {
   return `${siteUrl()}${qrPath(code)}`.toUpperCase();

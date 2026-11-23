@@ -39,6 +39,7 @@ import { AgreementsPanel, type PanelCard } from "./agreements-panel";
 import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { labelHref } from "@/lib/label-link";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { OrderBagsPanel } from "@/components/intake/order-bags-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -233,6 +234,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
           );
         })()}
 
+        <OrderBagsPanel orderId={order.id} />
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Left column */}
           <div className="flex-1 flex flex-col gap-5">

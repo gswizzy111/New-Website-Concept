@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -10,9 +11,12 @@ import { STAGES } from "@/lib/restoration-stages";
 import { loadCard } from "@/lib/intake/data";
 import { isMissingIntakeSchema } from "@/lib/intake/completed";
 import { dayText, dueHint, daysUntil, nyDateTime } from "@/lib/intake/tracking-format";
-import type { IntakeCard, StageHistoryEntry } from "@/lib/intake/types";
+import type { BagSummary, IntakeCard, StageHistoryEntry } from "@/lib/intake/types";
 import { StageTrack } from "@/components/intake/stage-track";
 import { AdvanceButton, StageCorrection } from "@/components/intake/tracking-actions";
+import { BagLabelPrint } from "@/components/intake/bag-label-panel";
+import { getLabelSettings } from "@/lib/intake/labels/data";
+import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Card | Receiving", robots: { index: false } };
@@ -112,6 +116,25 @@ function HistoryList({ history }: { history: StageHistoryEntry[] }) {
       ))}
     </ol>
   );
+}
+
+/**
+ * Prints the label of the card's bag once every card in the bag has a
+ * receiving photo; the label stock (for QZ Tray) and the bag's photo count
+ * stream in after the page. Left out if the bag's cards can't be read.
+ */
+async function BagLabelSection({ bag }: { bag: BagSummary }) {
+  const admin = createAdminClient();
+  const [settings, { data: bagCards, error }] = await Promise.all([
+    getLabelSettings(admin),
+    admin.from("cards").select("status, receiving_photo_urls").eq("bag_id", bag.id),
+  ]);
+  if (error) return null;
+  const needPhoto = ((bagCards ?? []) as { status: string | null; receiving_photo_urls: (string | null)[] | null }[]).filter(
+    (c) => c.status !== "refunded" && !(c.receiving_photo_urls ?? []).some(Boolean),
+  ).length;
+  const stock = LABEL_STOCKS[settings.stock];
+  return <BagLabelPrint bag={bag} paper={{ widthIn: stock.widthIn, heightIn: stock.heightIn }} needPhoto={needPhoto} />;
 }
 
 export default async function ReceivingCardPage({ params }: { params: Promise<{ cardId: string }> }) {
@@ -294,6 +317,13 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
               <h2 id="history" className="font-heading font-black text-base text-foreground mb-1">Restoration history</h2>
               <HistoryList history={st.history} />
             </section>
+
+            {/* Refunded cards aren't on the bag's label */}
+            {bag && !card.refunded && (
+              <Suspense fallback={null}>
+                <BagLabelSection bag={bag} />
+              </Suspense>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2">
               <AdminLink href={`/admin/receiving/${order.id}`} className={linkButton}>Open receiving workspace</AdminLink>

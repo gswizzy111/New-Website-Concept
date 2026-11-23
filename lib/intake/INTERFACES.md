@@ -108,10 +108,13 @@ and the view models:
 | `tierRank(tier): number` | sort key |
 | `cardCode(orderNumber, seq): string` | `CD-2549-03`, `CD-2549-104` |
 | `bagCode(orderNumber, tier, batch = 1): string` | `CD-2549-P`, `CD-2549-P2` |
-| `normalizeCode(raw): string` | upper case, strips spaces/`#`, takes the code from a pasted `/q/...` link; `""` if not a code |
-| `codeKind(code): "card" \| "bag" \| null` | shape only |
+| `normalizeCode(raw): string` | upper case, URL-decoded, leading `#` dropped, the code from a pasted `/q/...` link (any host, any case, `?`/`#`/trailing `/` ignored), spaces read as dashes (`cd 2549 03` -> `CD-2549-03`), `CD2549` -> `CD-2549`; `""` unless letters/digits with at least one dash, max 40 (so never `%`, `_`, `*`, `/`, `:` or a line break). A bare number (`2549`, `#2549`) is never a code |
+| `type CodeKind = "order" \| "card" \| "bag"` | |
+| `codeKind(code): CodeKind \| null` | shape only, on a normalized code: order `^[A-Z]+-\d+$` (CD-2549, CD-12345), card `^[A-Z]+-\d+-\d{2,}$` (CD-2549-03, -104), bag `^[A-Z]+-\d+-[A-Z]\d*$` (CD-2549-P, -P2..-P99); never overlap |
+| `orderPhotosPath(orderId, bagId?): string` | `/admin/receiving/<orderId>/photos`, with `bagId` `...?bag=<bagId>` (ids URL-encoded) |
+| `codeTargetPath(kind, id, orderId?): string` | where `/q` sends a resolved code: order -> `orderPhotosPath(orderId \|\| id)`; bag -> `orderPhotosPath(orderId, id)` (`/admin/receiving/bag/<id>` without an orderId); card -> `/admin/receiving/card/<id>` |
 | `qrPath(code): string` | `/q/CD-2549-03` |
-| `qrUrl(code): string` | QR content, ALL upper case: `HTTPS://THECARDDOC1.COM/Q/CD-2549-03` (uses `siteUrl()`) |
+| `qrUrl(code): string` | QR content, ALL upper case: `HTTPS://THECARDDOC1.COM/Q/CD-2549-P` (uses `siteUrl()`); the tier bag label's one QR is `qrUrl(bagCode)` |
 | `compareCardsForSeq(a, b)` | (created_at, id) order with microseconds |
 | `nextCardSeqs(cards): { id, seq }[]` | numbers for cards without one, after the max; never renumbers |
 
@@ -165,7 +168,7 @@ after fromDay; 2026-11-15 + 15 with 2026-11-26 off = 2026-12-07),
 - `loadOrderIntake(admin, orderId, { heal? = true }): IntakeResult<{ intake: OrderIntake }>`
 - `loadBag(admin, bagId): IntakeResult<{ bag: BagSummary; order: IntakeOrder; cards: IntakeCard[]; dueChanges: TierBagDueChange[] }>` (cards: non-refunded first, by card number; dueChanges newest first)
 - `loadCard(admin, cardId): IntakeResult<{ card: IntakeCard; order: IntakeOrder; bag: BagSummary | null }>`
-- `resolveCode(admin, raw): { kind: "card" | "bag"; id; code } | null`
+- `resolveCode(admin, raw): { kind: CodeKind; id; code; orderId? } | null`: no read unless `codeKind` matches; each kind looked up only in its own table (order: `order_number` ILIKE, safe because the shape has no wildcards, exact spelling preferred, a number on two orders -> null; card: `card_code`; bag: `bag_code`). `orderId` is set for an order (= id) and a bag, not for a card. Throws on a failed read.
 - `loadTierNames(admin)`, `CARD_COLUMNS`, `ORDER_COLUMNS`, `INTAKE_EVENT_TYPES`.
 - Loaders also heal bag completion (cards ticked done on the old site or by the ship trigger). Card IDs are NOT assigned on load: cards without one show `code: null` until `receiveCards` / `ensureCardCodes`.
 - Pure builders: `buildOrderIntake({ order, cards, bags, events, tierNames })`, `orderView(row, events, tierNames?)`, `cardView(row, order, bag, events, tierNames?)`, `bagView(bag, order /* id, orderNumber, customerName, status */, cards, tierNames?)`, `receivingStatus`, `completionStatus`, `historicalReceivedOn`, `byCardNumber`, `byBagOrder`, `RECEIVED_EVENT_TEXT`.
@@ -196,11 +199,16 @@ The new `/api/admin/intake/*` routes, `/q/[code]` and the label routes are
 owned by the UI agents and documented in their own files.
 
 **QR links** (`app/q/[code]/route.ts`; `/Q/<CODE>` is rewritten to it in
-`middleware.ts`): without a full admin session the code is never looked up:
-any well-formed code redirects to `/admin/login?next=/q/<CODE>` (the login page
-accepts `/q/<CODE>` and same-site `/admin/...` paths), a malformed one is 404.
-Signed in, a known code redirects to its card or bag page, an unknown one is
-404. A signed-out GET of any other `/admin/...` page redirects to
+`middleware.ts`): first the shape check, for everyone: `normalizeCode` then
+`codeKind` (order, card or bag); anything else, a bare number included, is 404
+without any lookup. Without a full admin session a well-formed code is never
+looked up: it redirects to `/admin/login?next=/q/<CODE>` (the normalized code;
+the login page accepts `/q/[A-Za-z0-9-]{1,40}` and same-site `/admin/...`
+paths), so a signed-out visitor can't tell a real code from a made-up one.
+Signed in, `resolveCode` then `codeTargetPath`: an order code to its photos
+page, a Bag ID to that bag's photos (`?bag=<bagId>`), a Card ID to its card
+page; an unknown code (or a failed read, which is logged) is 404. Every
+response is `no-store`. A signed-out GET of any other `/admin/...` page redirects to
 `/admin/login?next=<path+query>`.
 
 ## Tests

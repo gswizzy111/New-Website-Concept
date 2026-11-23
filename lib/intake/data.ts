@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
-import { normalizeCode } from "@/lib/intake/codes";
+import { codeKind, normalizeCode, type CodeKind } from "@/lib/intake/codes";
 import { BAG_COLUMNS } from "@/lib/intake/due-dates";
 import { bagCompletionPatch } from "@/lib/intake/stage-plan";
 import { buildOrderIntake } from "@/lib/intake/views";
@@ -164,20 +164,42 @@ export async function loadCard(
 }
 
 /**
- * What a scanned or typed Card ID / Bag ID points at (case-insensitive; a
- * pasted QR link works too). Null when it's not a code or nothing has it.
+ * What a scanned or typed order code (CD-2549), Card ID (CD-2549-03) or Bag ID
+ * (CD-2549-P) points at (case-insensitive; a pasted QR link works too): its
+ * id, plus its order's id (orderId) for an order code (the same as id) or a
+ * Bag ID (the bag's photos page needs it; a card's result is as before). Each
+ * kind is looked up only where it lives (codeKind), so a card or bag code is
+ * never taken for an order or the other way round. Null when it's not a code,
+ * nothing has it, or an order number belongs to more than one order (never
+ * another customer's cards). Throws on a failed read (the /q route logs it
+ * and shows "not found").
  */
 export async function resolveCode(
   admin: SupabaseClient,
   raw: string,
-): Promise<{ kind: "card" | "bag"; id: string; code: string } | null> {
+): Promise<{ kind: CodeKind; id: string; code: string; orderId?: string } | null> {
   const code = normalizeCode(raw);
-  if (!code) return null;
-  const [{ data: card }, { data: bag }] = await Promise.all([
-    admin.from("cards").select("id").eq("card_code", code).maybeSingle(),
-    admin.from("tier_bags").select("id").eq("bag_code", code).maybeSingle(),
-  ]);
-  if (card?.id) return { kind: "card", id: card.id as string, code };
-  if (bag?.id) return { kind: "bag", id: bag.id as string, code };
-  return null;
+  const kind = code ? codeKind(code) : null;
+  if (!kind) return null;
+  if (kind === "order") {
+    // Exactly that order number, in any letter case. No LIKE escaping needed:
+    // an order code is letters, a dash and digits only (codeKind).
+    const { data, error } = await admin.from("orders").select("id, order_number").ilike("order_number", code).limit(5);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as { id: string; order_number: string }[];
+    // The exact spelling first, else the only match in another letter case;
+    // two orders with the number is ambiguous: nothing
+    const exact = rows.filter((r) => r.order_number === code);
+    const order = exact.length ? (exact.length === 1 ? exact[0] : null) : rows.length === 1 ? rows[0] : null;
+    return order ? { kind, id: order.id, code, orderId: order.id } : null;
+  }
+  if (kind === "card") {
+    const { data, error } = await admin.from("cards").select("id").eq("card_code", code).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.id ? { kind, id: data.id as string, code } : null;
+  }
+  const { data, error } = await admin.from("tier_bags").select("id, order_id").eq("bag_code", code).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data?.id) return null;
+  return data.order_id ? { kind, id: data.id as string, code, orderId: data.order_id as string } : { kind, id: data.id as string, code };
 }

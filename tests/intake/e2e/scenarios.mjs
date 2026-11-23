@@ -1,9 +1,10 @@
 // End-to-end scenarios for the intake system (receiving, tier bags, QR codes,
-// stages, completion, labels, Historical Order Setup), run in a real browser
-// against the local harness (fake Supabase, fake data, no real emails).
+// stages, completion, the one-per-order label, the order photos page, the
+// "Print labels" step, Historical Order Setup), run in a real browser against
+// the local harness (fake Supabase, fake data, no real emails).
 //
 //   node tests/intake/e2e/scenarios.mjs                 start harness, run all, stop
-//   node tests/intake/e2e/scenarios.mjs --only qr,labels
+//   node tests/intake/e2e/scenarios.mjs --only qr,labels,photos-page,print-step
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -12,11 +13,14 @@
 // tests/intake/e2e/out/. The UI wording the scenarios rely on is in UI and
 // ROUTES below: adjust it there once, if the real pages word things differently.
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PDFDocument } from "pdf-lib";
-import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows } from "../harness/start.mjs";
-import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS } from "../harness/seed.mjs";
+import { createClient } from "@supabase/supabase-js";
+import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows, RUN_DIR } from "../harness/start.mjs";
+import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS, BIG_CARD_TIERS, BIG_CUSTOMER_NAME } from "../harness/seed.mjs";
 import { placeholderPng } from "../harness/mock-supabase.mjs";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
@@ -27,6 +31,11 @@ export const ROUTES = {
   receivingOrder: (orderId) => `/admin/receiving/${orderId}`,
   bag: (bagId) => `/admin/receiving/bag/${bagId}`,
   card: (cardId) => `/admin/receiving/card/${cardId}`,
+  // Every card of an order with all its images (where the order code leads); ?bag=<bagId> = only
+  // that bag's cards (where the bag QR leads)
+  photos: (orderId, bagId) => `/admin/receiving/${orderId}/photos${bagId ? `?bag=${bagId}` : ""}`,
+  // The "Bags" work board: every open bag as its own work order, by due date
+  bags: "/admin/receiving/bags",
   completed: "/admin/receiving/completed",
   setup: "/admin/receiving/setup",
   settings: "/admin/receiving/settings",
@@ -38,12 +47,14 @@ export const ROUTES = {
   oldStageApi: (orderId) => `/api/admin/orders/${orderId}/stage`,
   setupPreviewApi: "/api/admin/intake/setup/preview",
   setupRunApi: "/api/admin/intake/setup/run",
-  // Label PDFs: one bag, or every bag of an order (?tag=1 = reusable tags, ?format=json = preview pages).
-  // The first candidate that answers with a PDF wins.
-  labelPdfCandidates: (bagIds, orderId) => [
-    ...(bagIds.length === 1 ? [`/api/admin/intake/labels/bag/${bagIds[0]}`] : [`/api/admin/intake/labels/order/${orderId}`]),
-  ],
-  tagPdf: (bagId) => `/api/admin/intake/labels/bag/${bagId}?tag=1`,
+  // Labels: ONE label per tier bag (design "B · Name banner"), always one page per bag, and no
+  // reusable tag any more (the owner: "I just need the 1 main label").
+  // Order route: a PDF with one page per bag, bag after bag (?bags=<id>,<id> = only those);
+  // ?format=json: { settings: { stock, contentWidthIn, widthIn, heightIn }, bags: [{ id, bagCode,
+  // cardCount, labelPrintedAt, labels: [LabelPage] (exactly 1) }] } (no `tag`). Bag route: the
+  // same for that one bag.
+  orderLabel: (orderId, query = "") => `/api/admin/intake/labels/order/${orderId}${query}`,
+  bagLabel: (bagId, query = "") => `/api/admin/intake/labels/bag/${bagId}${query}`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -76,6 +87,40 @@ export const UI = {
   setupSelectAll: (page) => page.getByRole("checkbox", { name: /select all/i }).first(),
   setupPreview: (page) => page.getByRole("button", { name: /preview/i }).first(),
   setupRun: (page) => page.getByRole("button", { name: /^(confirm|run|set up|generate|start)\b/i }).first(),
+  // The workspace's print step (components/intake/order-label-print.tsx): a section named by its
+  // heading, "Print label(s)" while photos are missing, then "Ready to print" / "Label(s) printed".
+  printStep: (page) => page.getByRole("region", { name: /^(print (the )?(order )?labels?|ready to print|(the )?(order )?labels? printed)\b/i })
+    .or(page.locator('section[aria-labelledby="print-step-h"]')).first(),
+  // A print-label button: "Print label", "Print labels", "Print 3 labels", "Print bag label",
+  // "Reprint label(s)" (not "Print tag", not "Print all 3 labels")
+  printButton: (scope) => scope.getByRole("button", { name: /^(re)?print (the )?(\d+ )?((order|bag) )?labels?\b/i }).first(),
+  // How the step says how many received cards still need a receiving photo ("4 cards still need one",
+  // "Print labels (4 photos missing)", …): the number and the word "photo" somewhere in the step
+  saysNeedPhoto: (text, n) => new RegExp(`(^|[^0-9-])${n}([^0-9]|$)`).test(text) && /photo/i.test(text),
+  // Once every card has its photo: "Ready to print: 3 labels (one per tier)"
+  saysReady: (text, n) => new RegExp(`ready to print[^]{0,60}?(^|[^0-9-])${n} labels?\\b`, "i").test(text),
+  // The bag label panel: one row per bag with "Print label"/"Reprint label", and "Print all N
+  // labels" when the order has several bags. No "Print tag" anywhere any more (asserted absent).
+  printAll: (page, n) => page.getByRole("button", { name: new RegExp(`^print all ${n} labels$`, "i") }),
+  // Any tag-print button ("Print tag", "Print tags", "Reprint tag", "Print reusable tag"): must be gone
+  printTag: (scope) => scope.getByRole("button", { name: /^(re)?print (the )?(\d+ )?(reusable )?(bag )?tags?\b/i }),
+  // Label previews: <svg role="img" aria-label="…"> (components/intake/label-preview.tsx), named by
+  // their Bag ID ("Label for bag CD-2549-G"); a tag preview (named "…tag…") must no longer appear
+  previewSvgs: (page) => page.locator('svg[role="img"][viewBox]'),
+  isTagPreview: (name) => /\btag\b/i.test(name ?? ""),
+  // A collapsed preview opens with "Preview" / "Show preview" / "Label preview"
+  previewToggles: (page) => page.getByRole("button", { name: /^(show )?(label )?preview$/i }),
+  // Text printed on a bag's label (design "B · Name banner"), read from the label JSON
+  labelAlsoInOrder: /also in this order/i,
+  labelMore: /\+\s*(\d+)\s+more\b/i,
+  // A photo on the photos page, by its file name (src, or srcset for next/image)
+  photoImg: (page, fileStem) => page.locator(`img[src*="${fileStem}"], img[srcset*="${fileStem}"]`),
+  // Photos page with ?bag: links to the bag page and to the whole order ("Whole order (10 cards in 4 bags)")
+  bagPageLink: (page, bagId) => page.locator(`a[href*="/admin/receiving/bag/${bagId}"]`).first(),
+  wholeOrderLink: (page) => page.getByRole("link", { name: /^whole order\b/i }).first(),
+  // The Bags work board: one row per open bag (table row, list item or card), found by its own
+  // "Open bag <Bag ID>" link (a row also names the order's other bags, so text alone can't tell)
+  boardRow: (page, bagCode) => page.locator("tr, li, article, [role='row']").filter({ has: page.getByRole("link", { name: `Open bag ${bagCode}`, exact: true }) }),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -132,6 +177,262 @@ async function receiveViaApi(ctx, orderId, cardIds, receivedOn) {
   return r.body;
 }
 const pngFile = (name, rgb) => ({ name, mimeType: "image/png", buffer: placeholderPng(rgb) });
+
+// ─── Direct writes to the mock database (test setup) ────────────────────────
+/**
+ * fetch for supabase-js that trusts the harness's self-signed localhost certificate, the way
+ * start.mjs's mock helpers do (Node's own fetch only reads extra CAs at process start).
+ */
+async function harnessFetch(input, init = {}) {
+  const req = input instanceof Request ? input : null;
+  const url = new URL(req ? req.url : String(input));
+  const method = (init.method ?? req?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init.headers ?? req?.headers ?? {});
+  let body = init.body ?? null;
+  if (body != null && typeof body !== "string" && !(body instanceof Uint8Array)) {
+    // Blob, FormData, ArrayBuffer, URLSearchParams…: let the platform serialize it
+    const r = new Request(url, { method, headers, body });
+    if (!headers.has("content-type") && r.headers.get("content-type")) headers.set("content-type", r.headers.get("content-type"));
+    body = Buffer.from(await r.arrayBuffer());
+  }
+  if (body != null) headers.set("content-length", String(Buffer.byteLength(body)));
+  const certPath = path.join(RUN_DIR, "localhost-cert.pem");
+  const ca = url.protocol === "https:" && fs.existsSync(certPath) ? fs.readFileSync(certPath) : undefined;
+  return new Promise((resolve, reject) => {
+    const r = (url.protocol === "https:" ? https : http).request(url, { method, headers: Object.fromEntries(headers), ca }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const out = new Headers();
+        for (const [k, v] of Object.entries(res.headers)) for (const x of [].concat(v ?? [])) out.append(k, String(x));
+        const empty = [204, 205, 304].includes(res.statusCode) || method === "HEAD";
+        resolve(new Response(empty ? null : Buffer.concat(chunks), { status: res.statusCode, statusText: res.statusMessage, headers: out }));
+      });
+      res.on("error", reject);
+    });
+    r.on("error", reject);
+    init.signal?.addEventListener?.("abort", () => r.destroy(new Error("aborted")));
+    if (body != null) r.write(body);
+    r.end();
+  });
+}
+const mockDbs = new Map();
+/** supabase-js (service role placeholder) against the harness's mock, for test setup writes. */
+function mockDb(mockUrl = process.env.HARNESS_MOCK_URL) {
+  if (!mockDbs.has(mockUrl)) {
+    mockDbs.set(mockUrl, createClient(mockUrl, "placeholder-service", {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { fetch: harnessFetch },
+    }));
+  }
+  return mockDbs.get(mockUrl);
+}
+/** Receiving photos are stored as `${RECEIVING_PHOTO_STEM}<card id>.png` (so a page's <img> can be told apart). */
+const RECEIVING_PHOTO_STEM = "harness-receiving-";
+/**
+ * One receiving photo per card, set directly in the mock (as if taken on the workspace): the PNG
+ * goes into mock storage (card-photos), its public URL into cards.receiving_photo_urls.
+ */
+async function setReceivingPhotos(mockUrl, cardIds) {
+  const db = mockDb(mockUrl);
+  for (const [i, cid] of cardIds.entries()) {
+    const name = `${RECEIVING_PHOTO_STEM}${cid}.png`;
+    const up = await db.storage.from("card-photos").upload(name, placeholderPng([200 - ((i * 23) % 160), 80, 60 + ((i * 37) % 160)]), { contentType: "image/png", upsert: true });
+    assert(!up.error, `photo upload for ${cid}: ${up.error?.message}`);
+    const url = db.storage.from("card-photos").getPublicUrl(name).data.publicUrl;
+    const { data, error } = await db.from("cards").update({ receiving_photo_urls: [url] }).eq("id", cid).select("id");
+    assert(!error && data?.length === 1, `receiving_photo_urls on ${cid}: ${error?.message ?? "no such card"}`);
+  }
+}
+/** Poll until a locator is enabled (a print button may wait for data), up to `timeout` ms. */
+async function waitEnabled(locator, timeout = 15_000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if (await locator.isEnabled().catch(() => false)) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+// ─── Label checks (one label per tier bag) ──────────────────────────────────
+const PT = 72;
+/** GET a label route and parse its PDF (fails with the route's answer when it isn't one). */
+async function labelPdf(ctx, url) {
+  const res = await ctx.request.get(url, { failOnStatusCode: false });
+  const type = res.headers()["content-type"] ?? "";
+  if (!res.ok() || !type.includes("application/pdf")) throw new Error(`${url}: HTTP ${res.status()} ${type} ${(await res.text().catch(() => "")).slice(0, 160)}`);
+  return PDFDocument.load(await res.body());
+}
+async function labelJson(ctx, url) {
+  const r = await api(ctx, "GET", url);
+  assert(r.status === 200 && r.body && typeof r.body === "object", `${url}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  return r.body;
+}
+function checkSettings(st) {
+  assert(st && typeof st.stock === "string" && [st.contentWidthIn, st.widthIn, st.heightIn].every((v) => typeof v === "number" && v > 0), `settings: ${JSON.stringify(st)}`);
+}
+const isLabelPage = (p) => !!p && typeof p.width === "number" && typeof p.height === "number" && Array.isArray(p.elements) && Array.isArray(p.cardCodes);
+const texts = (p) => p.elements.filter((e) => e.kind === "text" && String(e.text ?? "").trim());
+const qrs = (p) => p.elements.filter((e) => e.kind === "qr");
+const norm = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+/** What a bag's QR must hold: qrUrl(<BAG CODE>), i.e. the site's /Q/<BAG CODE> in upper case (the harness's site is the local app). */
+const bagQrData = (appUrl, bagCode) => [`${appUrl.replace(/\/+$/, "")}/q/${bagCode}`.toUpperCase(), `HTTPS://THECARDDOC1.COM/Q/${bagCode}`];
+/** The order's bags and, per bag, its received cards (bag_id set, not refunded) in card-number order. */
+function receivedByBag(t, orderId) {
+  const bags = bagsOf(t, orderId);
+  const cards = cardsOf(t, orderId).filter((c) => c.bag_id && c.status !== "refunded").sort((a, b) => a.card_seq - b.card_seq);
+  return bags.map((b) => ({ bag: b, cards: cards.filter((c) => c.bag_id === b.id) }));
+}
+
+/**
+ * The label checks for one order as it stands: the order route (JSON, PDF, ?bags=) and
+ * every bag's own route. `title` prefixes the step names.
+ */
+async function labelSteps(s, ctx, { appUrl, orderId, customerName, title }) {
+  const t = await tables();
+  const want = receivedByBag(t, orderId);
+  const orderNumber = t.orders.find((o) => o.id === orderId)?.order_number;
+  let json = null;
+  const entryOf = (bagId) => json?.bags?.find((b) => b.id === bagId);
+  const needJson = () => assert(json, "no label JSON (see the step above)");
+
+  await s.step(`${title}: ?format=json has one entry per bag, each with exactly ONE label page and no tag`, async () => {
+    const body = await labelJson(ctx, ROUTES.orderLabel(orderId, "?format=json"));
+    checkSettings(body.settings);
+    assert(Array.isArray(body.bags), `bags is not an array: ${JSON.stringify(body).slice(0, 160)}`);
+    eq(body.bags.map((b) => b.id).sort(), want.map((w) => w.bag.id).sort(), "bag ids (every bag of the order)");
+    const w = body.settings.widthIn * PT, h = body.settings.heightIn * PT;
+    for (const { bag, cards } of want) {
+      const e = body.bags.find((b) => b.id === bag.id);
+      eq(e.bagCode, bag.bag_code, "bagCode");
+      eq(e.cardCount, cards.length, `${bag.bag_code} cardCount`);
+      assert(Array.isArray(e.labels), `${bag.bag_code}: labels is not an array`);
+      eq(e.labels.length, 1, `${bag.bag_code}: label pages`);
+      assert(isLabelPage(e.labels[0]), `${bag.bag_code}: the label is not a LabelPage`);
+      eq(e.tag, undefined, `${bag.bag_code}: tag (no reusable tag any more)`);
+      assert(Math.abs(e.labels[0].width - w) < 1 && Math.abs(e.labels[0].height - h) < 1, `${bag.bag_code}: label ${e.labels[0].width}x${e.labels[0].height} pt, stock ${w}x${h} pt`);
+    }
+    json = body;
+    return want.map((x) => `${x.bag.bag_code} ${x.cards.length}`).join(", ");
+  }, { shot: false });
+
+  await s.step(`${title}: each label has ONE QR, its bag's (…/Q/<BAG CODE>), at least 1 in`, async () => {
+    needJson();
+    const out = [];
+    for (const { bag } of want) {
+      const e = entryOf(bag.id);
+      const ok = bagQrData(appUrl, bag.bag_code);
+      const q = qrs(e.labels[0]);
+      eq(q.length, 1, `${bag.bag_code}: QR codes on the label (no card QR codes)`);
+      assert(ok.includes(q[0].data), `${bag.bag_code}: QR holds "${q[0].data}", expected ${ok.join(" or ")}`);
+      const size = qrs(e.labels[0])[0].size;
+      assert(size >= PT - 0.5, `${bag.bag_code}: QR ${(size / PT).toFixed(2)} in, want at least 1 in`);
+      out.push(`${bag.bag_code} ${(size / PT).toFixed(2)} in`);
+    }
+    return `${qrs(entryOf(want[0].bag.id).labels[0])[0].data}; ${out.join(", ")}`;
+  }, { shot: false });
+
+  await s.step(`${title}: the customer name is the largest type on every label`, async () => {
+    needJson();
+    const full = norm(customerName);
+    const isName = (e) => { const x = norm(String(e.text).replace(/…$/, "")); return x.includes(full) || (x.length >= 4 && full.includes(x)); };
+    const out = [];
+    for (const { bag } of want) {
+      const all = texts(entryOf(bag.id).labels[0]);
+      const name = all.filter(isName);
+      assert(name.length, `${bag.bag_code}: customer name "${customerName}" not on the label`);
+      const nameSize = Math.max(...name.map((e) => e.size));
+      const top = all.filter((e) => !isName(e)).reduce((a, e) => (e.size > (a?.size ?? 0) ? e : a), null);
+      assert(!top || nameSize >= top.size, `${bag.bag_code}: name ${nameSize} pt is smaller than "${top.text}" ${top.size} pt`);
+      out.push(`${bag.bag_code} name ${nameSize.toFixed(1)} pt vs next "${top?.text ?? "-"}" ${top?.size?.toFixed(1) ?? "-"} pt`);
+    }
+    return out.join("; ");
+  }, { shot: false });
+
+  await s.step(`${title}: each label lists its bag's cards in card order (all, or what fits + "+N more: scan the QR"), Bag ID, order number, other bags`, async () => {
+    needJson();
+    const out = [];
+    for (const { bag, cards } of want) {
+      const p = entryOf(bag.id).labels[0];
+      const codes = cards.map((c) => c.card_code);
+      const listed = p.cardCodes;
+      const strangers = listed.filter((c) => !codes.includes(c));
+      assert(!strangers.length, `${bag.bag_code}: lists cards from outside the bag: ${strangers.join(", ")}`);
+      eq(new Set(listed).size, listed.length, `${bag.bag_code}: a card listed twice`);
+      eq(listed, codes.filter((c) => listed.includes(c)), `${bag.bag_code}: cards in card-number order`);
+      const text = texts(p).map((e) => e.text).join(" | ");
+      const more = UI.labelMore.exec(text);
+      if (listed.length < codes.length) {
+        assert(more, `${bag.bag_code}: lists ${listed.length} of ${codes.length} cards with no "+N more" line`);
+        eq(Number(more[1]), codes.length - listed.length, `${bag.bag_code}: "+N more" count`);
+        assert(/scan/i.test(text), `${bag.bag_code}: the "+N more" line doesn't point at the QR`);
+      }
+      if (codes.length <= 16) eq(listed.length, codes.length, `${bag.bag_code}: cards listed (every card fits up to 16)`);
+      assert(text.includes(bag.bag_code), `${bag.bag_code}: Bag ID not on its label`);
+      assert(text.includes(orderNumber), `${bag.bag_code}: order number ${orderNumber} not on its label`);
+      const others = want.filter((x) => x.bag.id !== bag.id);
+      if (others.length) {
+        assert(UI.labelAlsoInOrder.test(text), `${bag.bag_code}: no "Also in this order" line for ${others.map((x) => x.bag.bag_code).join(", ")}`);
+        assert(others.some((x) => text.includes(x.bag.bag_code)), `${bag.bag_code}: "Also in this order" names none of ${others.map((x) => x.bag.bag_code).join(", ")}`);
+      } else {
+        assert(!UI.labelAlsoInOrder.test(text), `${bag.bag_code}: "Also in this order" on a one-bag order`);
+      }
+      out.push(`${bag.bag_code} ${listed.length}/${codes.length}${more ? ` ${more[0]}` : ""}`);
+    }
+    return out.join(", ");
+  }, { shot: false });
+
+  await s.step(`${title}: order PDF = one page per bag at the label size; ?bags=<one> = 1 page`, async () => {
+    needJson();
+    const doc = await labelPdf(ctx, ROUTES.orderLabel(orderId));
+    eq(doc.getPageCount(), want.length, "order PDF pages (one per bag)");
+    for (const pg of doc.getPages()) {
+      const { width, height } = pg.getSize();
+      const l = json.bags[0].labels[0];
+      assert(Math.abs(width - l.width) < 1 && Math.abs(height - l.height) < 1, `page ${width}x${height} pt, label ${l.width}x${l.height} pt`);
+    }
+    eq((await labelPdf(ctx, ROUTES.orderLabel(orderId, `?bags=${want[0].bag.id}`))).getPageCount(), 1, "?bags=<one bag> pages");
+    const { width, height } = doc.getPage(0).getSize();
+    return `${doc.getPageCount()} page(s) of ${Math.round(width)}x${Math.round(height)} pt`;
+  }, { shot: false });
+
+  await s.step(`${title}: each bag's own route: PDF 1 page, ?format=json = that bag with the same label and no tag`, async () => {
+    needJson();
+    for (const { bag } of want) {
+      eq((await labelPdf(ctx, ROUTES.bagLabel(bag.id))).getPageCount(), 1, `${bag.bag_code} PDF pages`);
+      const one = await labelJson(ctx, ROUTES.bagLabel(bag.id, "?format=json"));
+      eq((one.bags ?? []).map((b) => b.id), [bag.id], `${bag.bag_code} JSON bags`);
+      eq(one.bags[0].labels.length, 1, `${bag.bag_code} JSON label pages`);
+      eq(one.bags[0].tag, undefined, `${bag.bag_code} JSON tag (no reusable tag any more)`);
+      eq(one.bags[0].labels[0].cardCodes, entryOf(bag.id).labels[0].cardCodes, `${bag.bag_code} JSON cards (same as the order's)`);
+      eq(qrs(one.bags[0].labels[0]).map((q) => q.data), qrs(entryOf(bag.id).labels[0]).map((q) => q.data), `${bag.bag_code} JSON QR (same as the order's)`);
+    }
+    return `${want.length} bag route(s)`;
+  }, { shot: false });
+}
+
+/** Names (aria-label) of the label-size <svg role="img"> previews on the page; opens collapsed previews if fewer than `want` show. */
+async function previewNames(page, settings, want) {
+  const w = settings.widthIn * PT, h = settings.heightIn * PT;
+  const read = () => UI.previewSvgs(page).evaluateAll((els, [w, h]) => els.filter((el) => {
+    const v = (el.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+    return v.length === 4 && Math.abs(v[2] - w) < 0.5 && Math.abs(v[3] - h) < 0.5;
+  }).map((el) => el.getAttribute("aria-label") ?? ""), [w, h]);
+  const labelsIn = (names) => names.filter((n) => !UI.isTagPreview(n));
+  const settle = async (ms) => {
+    const end = Date.now() + ms;
+    let names = await read();
+    while (labelsIn(names).length < want && Date.now() < end) { await page.waitForTimeout(500); names = await read(); }
+    return names;
+  };
+  let names = await settle(15_000);
+  if (labelsIn(names).length < want) {
+    for (const b of await UI.previewToggles(page).all()) if (await b.isVisible() && (await b.getAttribute("aria-expanded")) !== "true") await b.click().catch(() => {});
+    names = await settle(15_000);
+  }
+  await page.waitForTimeout(500);
+  return read();
+}
 
 // ─── Runner ─────────────────────────────────────────────────────────────────
 class Scenario {
@@ -451,7 +752,9 @@ const SCENARIOS = {
     }, { shot: false });
   },
 
-  // /q/<CODE> and /Q/<CODE> redirect to the admin card/bag pages; unknown -> 404; signed out -> sign in, then back
+  // /q/<CODE> and /Q/<CODE>: a card code -> its card page, a bag code (the label's QR) -> that bag's
+  // photos (/admin/receiving/<orderId>/photos?bag=<bagId>), the order code -> the whole order's
+  // photos; unknown -> 404; signed out -> sign in, then back
   async qr({ page, ctx, s, browser, appUrl }) {
     await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(6)], "2026-11-15");
     const t = await tables();
@@ -467,13 +770,27 @@ const SCENARIOS = {
       const r = await api(ctx, "GET", ROUTES.qr(card.card_code.toLowerCase()));
       eq(new URL(r.headers.location ?? "/", appUrl).pathname, ROUTES.card(card.id), "redirect");
     }, { shot: false });
-    await s.step(`/Q/${bag.bag_code} (upper-case path) -> bag page`, async () => {
-      const r = await api(ctx, "GET", ROUTES.qrUpper(bag.bag_code));
-      assert([301, 302, 303, 307, 308].includes(r.status), `status ${r.status}`);
+    // Where a scanned code goes, signed in (a middleware redirect from /Q to /q may come first)
+    const scanTo = async (url) => {
+      const r = await api(ctx, "GET", url);
+      assert([301, 302, 303, 307, 308].includes(r.status), `${url}: status ${r.status}`);
       let loc = new URL(r.headers.location, appUrl);
-      // a middleware rewrite/redirect from /Q to /q may come first
       if (loc.pathname.startsWith("/q/")) loc = new URL((await api(ctx, "GET", loc.pathname)).headers.location ?? "/", appUrl);
-      eq(loc.pathname, ROUTES.bag(bag.id), "redirect");
+      return loc;
+    };
+    const photosOf = (loc) => `${loc.pathname}${loc.searchParams.get("bag") ? `?bag=${loc.searchParams.get("bag")}` : ""}`;
+    await s.step(`/Q/${bag.bag_code} (upper-case path, the label's QR) -> that bag's photos`, async () => {
+      eq(photosOf(await scanTo(ROUTES.qrUpper(bag.bag_code))), ROUTES.photos(IDS.mailOrder, bag.id), "redirect");
+    }, { shot: false });
+    await s.step(`/q/${bag.bag_code.toLowerCase()} (bag code in lower case) -> that bag's photos`, async () => {
+      eq(photosOf(await scanTo(ROUTES.qr(bag.bag_code.toLowerCase()))), ROUTES.photos(IDS.mailOrder, bag.id), "redirect");
+    }, { shot: false });
+    await s.step(`/q/${ORDER_NUMBERS.mailOrder} (order code) -> the whole order's photos`, async () => {
+      eq(photosOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder))), ROUTES.photos(IDS.mailOrder), "redirect");
+    }, { shot: false });
+    await s.step(`/Q/${ORDER_NUMBERS.mailOrder} and /q/${ORDER_NUMBERS.mailOrder.toLowerCase()} -> the whole order's photos`, async () => {
+      eq(photosOf(await scanTo(ROUTES.qrUpper(ORDER_NUMBERS.mailOrder))), ROUTES.photos(IDS.mailOrder), "redirect (/Q)");
+      eq(photosOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder.toLowerCase()))), ROUTES.photos(IDS.mailOrder), "redirect (lower case)");
     }, { shot: false });
     await s.step("unknown code -> 404", async () => {
       const r = await api(ctx, "GET", ROUTES.qr("CD-0000-99"));
@@ -499,6 +816,30 @@ const SCENARIOS = {
     await s.step("scanning in the signed-in browser lands on the card page", async () => {
       await goto(page, ROUTES.qr(card.card_code));
       eq(new URL(page.url()).pathname, ROUTES.card(card.id), "landed on");
+    });
+    await s.step("signed out: the order code and the bag's photos page go to sign-in, with next= (no lookup)", async () => {
+      const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
+      try {
+        const signIn = async (url) => {
+          let r = await anon.request.fetch(url, { maxRedirects: 0, failOnStatusCode: false });
+          assert([301, 302, 303, 307, 308].includes(r.status()), `${url}: status ${r.status()}`);
+          let loc = new URL(r.headers().location ?? "/", appUrl);
+          if (loc.pathname.startsWith("/q/")) {
+            r = await anon.request.fetch(loc.pathname, { maxRedirects: 0, failOnStatusCode: false });
+            loc = new URL(r.headers().location ?? "/", appUrl);
+          }
+          eq(loc.pathname, "/admin/login", `${url} redirect`);
+          return loc.searchParams.get("next");
+        };
+        eq(await signIn(ROUTES.qr(ORDER_NUMBERS.mailOrder.toLowerCase())), `/q/${ORDER_NUMBERS.mailOrder}`, "next (order code, lower case scanned)");
+        eq(await signIn(ROUTES.qrUpper(ORDER_NUMBERS.mailOrder)), `/q/${ORDER_NUMBERS.mailOrder}`, "next (order code, /Q)");
+        eq(await signIn(ROUTES.photos(IDS.mailOrder, bag.id)), ROUTES.photos(IDS.mailOrder, bag.id), "next (bag photos page)");
+      } finally { await anon.close(); }
+    }, { shot: false });
+    await s.step("scanning the bag's label QR in the signed-in browser lands on that bag's photos", async () => {
+      await goto(page, ROUTES.qrUpper(bag.bag_code));
+      const u = new URL(page.url());
+      eq(`${u.pathname}?bag=${u.searchParams.get("bag")}`, ROUTES.photos(IDS.mailOrder, bag.id), "landed on");
     });
   },
 
@@ -604,64 +945,259 @@ const SCENARIOS = {
     });
   },
 
-  // Label PDFs: one 4x6 page per label; a big bag continues on more labels
-  async labels({ ctx, s }) {
-    const tiered = [0, 1, 2, 3, 4, 5, 6, 7, 8].map(mailCard);
-    await receiveViaApi(ctx, IDS.mailOrder, tiered, "2026-11-15");
-    // A big Gold bag: 14 more Gold cards on the drop-off order
-    const extra = Array.from({ length: 14 }, (_, i) => ({
-      id: crypto.randomUUID(), order_id: IDS.dropoffOrder, created_at: "2026-11-21T19:00:00.000Z", card_name: `Test Bulk Card ${i + 1}`,
-      card_set: "Base Set", card_number: `${60 + i}/102`, tier: "premium", photo_urls: [], service_ids: [], completed: false, status: "active",
-      current_round: 1, refunded_cents: 0, slab_removal_selected: false, pregrade_selected: false, awaiting_arrival: false, receiving_photo_urls: [],
-    }));
-    await insertRows("cards", extra);
-    await receiveViaApi(ctx, IDS.dropoffOrder, [...IDS.dropoffCards, ...extra.map((c) => c.id)], "2026-11-21");
-    const t = await tables();
-    const mailBags = bagsOf(t, IDS.mailOrder);
-    const bigBag = bagsOf(t, IDS.dropoffOrder)[0];
-    let route = null;
-    const fetchPdf = async (bagIds, orderId) => {
-      const tried = [];
-      for (const url of route ? [route(bagIds, orderId)] : ROUTES.labelPdfCandidates(bagIds, orderId)) {
-        const res = await ctx.request.get(url, { failOnStatusCode: false });
-        tried.push(`${url} ${res.status()}`);
-        if (res.ok() && (res.headers()["content-type"] ?? "").includes("application/pdf")) {
-          if (!route) {
-            const idx = ROUTES.labelPdfCandidates(bagIds, orderId).indexOf(url);
-            route = (b, o) => ROUTES.labelPdfCandidates(b, o)[idx];
-          }
-          return { url, doc: await PDFDocument.load(await res.body()) };
-        }
-      }
-      throw new Error(`no label PDF route answered with a PDF: ${tried.join("; ")}`);
-    };
-    let one;
-    await s.step("one bag's label: a PDF with 1 page of 4x6 in (288x432 pt)", async () => {
-      one = await fetchPdf([mailBags.find((b) => b.tier === "ultra_premium").id], IDS.mailOrder);
-      eq(one.doc.getPageCount(), 1, "pages");
-      const { width, height } = one.doc.getPage(0).getSize();
-      assert(Math.abs(width - 288) < 1 && Math.abs(height - 432) < 1, `page size ${width}x${height}`);
-      return one.url;
+  // Labels: ONE label per tier bag, always one page per bag whatever the card count (4, 16 and 32
+  // cards in a bag here; 40 in labels-40); each label one QR (its bag's); the customer name biggest
+  async labels({ ctx, s, appUrl }) {
+    await s.step("nothing received yet: the order's ?format=json lists no bags", async () => {
+      const body = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, "?format=json"));
+      checkSettings(body.settings);
+      eq(body.bags, [], "bags");
+    }, { shot: false });
+    await s.step("receive 4 Gold + 1 Platinum of CD-2549 on 2026-11-15 (two bags: 4 cards and 1)", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6].map(mailCard), "2026-11-15");
+      const by = receivedByBag(await tables(), IDS.mailOrder);
+      eq(by.map((x) => x.cards.length).sort(), [1, 4], "cards per bag");
+      return by.map((x) => `${x.bag.bag_code} ${x.cards.length}`).join(", ");
     }, { critical: true, shot: false });
-    await s.step("all of the order's bag labels at once: one page per label", async () => {
-      const each = [];
-      for (const b of mailBags) each.push((await fetchPdf([b.id], IDS.mailOrder)).doc.getPageCount());
-      const all = await fetchPdf(mailBags.map((b) => b.id), IDS.mailOrder);
-      eq(all.doc.getPageCount(), each.reduce((a, b) => a + b, 0), "pages (sum of each bag's labels)");
-      return `${mailBags.length} bags -> ${all.doc.getPageCount()} pages`;
+    await labelSteps(s, ctx, { appUrl, orderId: IDS.mailOrder, customerName: "Test Customer A", title: "CD-2549 G4+P1" });
+
+    const gold = IDS.bigCards.filter((_, i) => BIG_CARD_TIERS[i] === "premium");
+    const plat = IDS.bigCards.filter((_, i) => BIG_CARD_TIERS[i] === "ultra_premium");
+    await s.step("receive 16 Gold cards of CD-2600 on 2026-11-20 (one bag of 16)", async () => {
+      await receiveViaApi(ctx, IDS.bigOrder, gold.slice(0, 16), "2026-11-20");
+      const by = receivedByBag(await tables(), IDS.bigOrder);
+      eq(by.map((x) => x.cards.length), [16], "cards per bag");
+      return by[0].bag.bag_code;
+    }, { critical: true, shot: false });
+    await labelSteps(s, ctx, { appUrl, orderId: IDS.bigOrder, customerName: BIG_CUSTOMER_NAME, title: "CD-2600 G16" });
+    await s.step("receive the other 16 Gold + 8 Platinum the same day: a Gold bag of 32 and a Platinum bag of 8", async () => {
+      await receiveViaApi(ctx, IDS.bigOrder, [...gold.slice(16), ...plat], "2026-11-20");
+      const by = receivedByBag(await tables(), IDS.bigOrder);
+      const sizes = by.map((x) => `${x.bag.bag_code} ${x.cards.length}`).join(", ");
+      assert(by.some((x) => x.cards.length >= 30), `no bag of 30+ cards (same-day cards should join the open bag): ${sizes}`);
+      return sizes;
+    }, { critical: true, shot: false });
+    await labelSteps(s, ctx, { appUrl, orderId: IDS.bigOrder, customerName: BIG_CUSTOMER_NAME, title: "CD-2600 G32+P8" });
+  },
+
+  // 40 cards in ONE bag: still one page (shrink, two columns, then "+N more: scan the QR")
+  async "labels-40"({ ctx, s, appUrl, mockUrl }) {
+    await s.step("setup: every card of CD-2600 Gold (set in the mock), all 40 received at once: one bag of 40", async () => {
+      const { error } = await mockDb(mockUrl).from("cards").update({ tier: "premium" }).eq("order_id", IDS.bigOrder);
+      assert(!error, `set tiers: ${error?.message}`);
+      await receiveViaApi(ctx, IDS.bigOrder, IDS.bigCards, "2026-11-20");
+      const by = receivedByBag(await tables(), IDS.bigOrder);
+      eq(by.map((x) => x.cards.length), [40], "cards per bag");
+      return by[0].bag.bag_code;
+    }, { critical: true, shot: false });
+    await labelSteps(s, ctx, { appUrl, orderId: IDS.bigOrder, customerName: BIG_CUSTOMER_NAME, title: "CD-2600 G40" });
+  },
+
+  // The photos page (where the order code and each bag's QR lead): every card with all its images,
+  // grouped by bag; with ?bag=<bagId> only that bag's cards
+  async "photos-page"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step("setup: Bronze for the no-tier card (in the mock), receive all 10 on 2026-11-15, a receiving photo on each", async () => {
+      const { error } = await mockDb(mockUrl).from("cards").update({ tier: "regular" }).eq("id", mailCard(9));
+      assert(!error, `set tier: ${error?.message}`);
+      await receiveViaApi(ctx, IDS.mailOrder, IDS.mailCards, "2026-11-15");
+      await setReceivingPhotos(mockUrl, IDS.mailCards);
+      t = await tables();
+      assert(cardsOf(t, IDS.mailOrder).every((c) => c.card_code && c.bag_id && c.receiving_photo_urls.length === 1), "not every card received with a photo");
+      return bagsOf(t, IDS.mailOrder).map((b) => b.bag_code).sort().join(", ");
+    }, { critical: true, shot: false });
+    const cards = () => cardsOf(t, IDS.mailOrder).sort((a, b) => a.card_seq - b.card_seq);
+    const bags = () => bagsOf(t, IDS.mailOrder);
+    const mainText = async () => page.locator("main").first().innerText();
+    const dueDec7 = /Dec(ember)? 7\b|2026-12-07|12\/7\/2026/;
+
+    await s.step("open the whole order's photos page", () => goto(page, ROUTES.photos(IDS.mailOrder)), { critical: true });
+    await s.step("every card's Card ID (CD-2549-01..10) and name, and the customer, appear", async () => {
+      const text = await mainText();
+      const missing = [...cards().flatMap((c) => [c.card_code, c.card_name]), "Test Customer A"].filter((w) => !text.includes(w));
+      assert(!missing.length, `not shown: ${missing.join(", ")}`);
+    });
+    await s.step("grouped by bag: each card under its own Bag ID; tiers, Platinum due Dec 7 and the stage shown", async () => {
+      const text = await mainText();
+      const missing = [...bags().map((b) => b.bag_code), "Gold", "Silver", "Platinum", "Bronze"].filter((w) => !text.includes(w));
+      assert(!missing.length, `not shown: ${missing.join(", ")}`);
+      assert(dueDec7.test(text), "Platinum due date Dec 7 not shown");
+      assert(/not started/i.test(text), "stage (Not started) not shown");
+      // the nearest Bag ID before each Card ID is that card's bag
+      const heads = [...text.matchAll(new RegExp(`${esc(ORDER_NUMBERS.mailOrder)}-[A-Z]+\\d*(?![0-9A-Z])`, "g"))].map((m) => ({ code: m[0], at: m.index }));
+      for (const c of cards()) {
+        const at = text.indexOf(c.card_code);
+        const head = heads.filter((h) => h.at < at).at(-1);
+        const own = bags().find((b) => b.id === c.bag_id).bag_code;
+        eq(head?.code ?? null, own, `bag heading above ${c.card_code}`);
+      }
     }, { shot: false });
-    await s.step("reusable tag for a bag: a PDF (?tag=1)", async () => {
-      const res = await ctx.request.get(ROUTES.tagPdf(mailBags[0].id), { failOnStatusCode: false });
-      assert(res.ok() && (res.headers()["content-type"] ?? "").includes("application/pdf"), `tag route answered ${res.status()} ${res.headers()["content-type"]}`);
-      const doc = await PDFDocument.load(await res.body());
-      const { width, height } = doc.getPage(0).getSize();
-      return `${doc.getPageCount()} page(s), ${Math.round(width)}x${Math.round(height)} pt`;
+    await s.step("every image of every card is there (10 receiving + 3 customer photos); a receiving and a customer photo load", async () => {
+      const srcs = await page.locator("img").evaluateAll((els) => els.map((el) => `${el.getAttribute("src") ?? ""} ${el.getAttribute("srcset") ?? ""}`).join("\n"));
+      const files = cards().flatMap((c) => [...c.receiving_photo_urls, ...c.photo_urls]).map((u) => u.split("/").pop().replace(/\.png$/, ""));
+      const missing = files.filter((f) => !srcs.includes(f));
+      assert(!missing.length, `images not on the page: ${missing.join(", ")}`);
+      for (const [what, loc] of [["receiving photo", UI.photoImg(page, RECEIVING_PHOTO_STEM)], ["customer photo", UI.photoImg(page, "seed-a-card01-front")]]) {
+        const img = loc.first();
+        await img.scrollIntoViewIfNeeded();
+        const loaded = await img.evaluate((el) => new Promise((done) => {
+          if (el.complete) return done(el.naturalWidth > 0);
+          el.addEventListener("load", () => done(el.naturalWidth > 0), { once: true });
+          el.addEventListener("error", () => done(false), { once: true });
+          setTimeout(() => done(el.complete && el.naturalWidth > 0), 15_000);
+        }));
+        assert(loaded, `the ${what} <img> did not load`);
+      }
+      return `${files.length} images`;
+    });
+    await s.step("desktop (1440px) and phone (390px): no sideways scroll; screenshots", async () => {
+      await page.screenshot({ path: path.join(OUT, "photos-page-order-desktop.png"), fullPage: true });
+      const wide = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      assert(wide <= 1, `desktop page scrolls sideways by ${wide}px`);
+      const w = await phoneShot(browser, appUrl, ROUTES.photos(IDS.mailOrder), "photos-page-order");
+      assert(!w, w);
     }, { shot: false });
-    await s.step("a 16-card bag continues on more than one label (same Bag ID)", async () => {
-      const big = await fetchPdf([bigBag.id], IDS.dropoffOrder);
-      assert(big.doc.getPageCount() >= 2, `16 cards on ${big.doc.getPageCount()} page(s)`);
-      return `${big.doc.getPageCount()} labels`;
+
+    const P = t ? bags().find((b) => b.tier === "ultra_premium") : null; // (null: setup failed, the steps below skip)
+    await s.step("?bag=<CD-2549-P>: open that bag's photos", () => goto(page, ROUTES.photos(IDS.mailOrder, P.id)), { critical: true });
+    await s.step("?bag: only that bag's cards and Card IDs (Platinum 07-09), none of the other bags'", async () => {
+      const text = await mainText();
+      const mine = cards().filter((c) => c.bag_id === P.id);
+      const others = cards().filter((c) => c.bag_id !== P.id);
+      const missing = mine.flatMap((c) => [c.card_code, c.card_name]).filter((w) => !text.includes(w));
+      assert(!missing.length, `not shown: ${missing.join(", ")}`);
+      const leaked = others.flatMap((c) => [c.card_code, c.card_name]).filter((w) => text.includes(w));
+      assert(!leaked.length, `other bags' cards shown: ${leaked.join(", ")}`);
+      assert(await UI.photoImg(page, "seed-a-card07-front").count() > 0, "Platinum One's customer photo not shown");
+      eq(await UI.photoImg(page, "seed-a-card01-front").count(), 0, "Gold One's customer photo (another bag) shown");
+      return mine.map((c) => c.card_code).join(", ");
+    });
+    await s.step("?bag: customer, Bag ID, tier and due date; links to the bag page and to the whole order (10 cards in 4 bags)", async () => {
+      const text = await mainText();
+      for (const w of ["Test Customer A", P.bag_code, "Platinum"]) assert(text.includes(w), `"${w}" not shown`);
+      assert(dueDec7.test(text), "due date Dec 7 not shown");
+      assert(await UI.bagPageLink(page, P.id).count() > 0, `no link to the bag page ${ROUTES.bag(P.id)}`);
+      const whole = UI.wholeOrderLink(page);
+      const name = (await whole.innerText()).replace(/\s+/g, " ").trim();
+      assert(/10 cards in 4 bags/i.test(name), `whole-order link reads "${name}"`);
+      const href = new URL(await whole.getAttribute("href"), appUrl);
+      eq(`${href.pathname}${href.searchParams.get("bag") ? "?bag" : ""}`, ROUTES.photos(IDS.mailOrder), "whole-order link");
+      return name;
+    });
+    await s.step("?bag: phone (390px) has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.photos(IDS.mailOrder, P.id), "photos-page-bag").then((w) => { assert(!w, w); }));
+  },
+
+  // The "Print labels" step (photo gate) and the bag label panel: one label per bag
+  async "print-step"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const picked = [0, 1, 4, 6].map(mailCard); // 2 Gold, 1 Silver, 1 Platinum: three bags
+    let bags = [];
+    await s.step("setup: receive 2 Gold + 1 Silver + 1 Platinum of CD-2549 (three bags)", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, picked, "2026-11-15");
+      bags = bagsOf(await tables(), IDS.mailOrder);
+      eq(bags.length, 3, "bags");
+    }, { critical: true, shot: false });
+    const openStep = async () => {
+      await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
+      const step = UI.printStep(page);
+      await step.waitFor({ timeout: 15_000 });
+      return step;
+    };
+    const stepText = async (step) => (await step.innerText()).replace(/\s+/g, " ").trim();
+    await s.step("no receiving photos yet: Print label(s) is disabled and says 4 cards need a photo", async () => {
+      const step = await openStep();
+      const btn = UI.printButton(step);
+      await btn.waitFor();
+      assert(await btn.isDisabled(), "the print button is enabled before every card has a receiving photo");
+      const text = await stepText(step);
+      assert(UI.saysNeedPhoto(text, picked.length), `the step doesn't say ${picked.length} cards need a photo: "${text.slice(0, 160)}"`);
+      return text.slice(0, 120);
+    });
+    await s.step("photos on 3 of the 4 cards (set in the mock): still disabled, 1 card left", async () => {
+      await setReceivingPhotos(mockUrl, picked.slice(0, 3));
+      const step = await openStep();
+      const btn = UI.printButton(step);
+      await btn.waitFor();
+      assert(await btn.isDisabled(), "enabled while a card still has no receiving photo");
+      const text = await stepText(step);
+      assert(UI.saysNeedPhoto(text, 1), `the step doesn't say 1 card needs a photo: "${text.slice(0, 160)}"`);
+      return text.slice(0, 120);
+    });
+    await s.step("a receiving photo on every received card: enabled, \"Ready to print: 3 labels\"", async () => {
+      await setReceivingPhotos(mockUrl, picked.slice(3));
+      const step = await openStep();
+      const btn = UI.printButton(step);
+      await btn.waitFor();
+      assert(await waitEnabled(btn), "the print button stays disabled");
+      const text = await stepText(step);
+      assert(UI.saysReady(text, bags.length), `the step doesn't say "Ready to print: ${bags.length} labels": "${text.slice(0, 160)}"`);
+      return text.slice(0, 120);
+    });
+    await s.step("bag label panel: one label preview per bag, each named by its Bag ID; Print all 3 labels; no tag (no Print tag, no tag preview)", async () => {
+      await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
+      const { settings } = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, "?format=json"));
+      const names = await previewNames(page, settings, bags.length);
+      const labels = names.filter((n) => !UI.isTagPreview(n));
+      eq(labels.length, bags.length, `label previews (${labels.join(" | ")})`);
+      for (const b of bags) eq(labels.filter((n) => new RegExp(`${esc(b.bag_code)}(?![0-9A-Z])`).test(n)).length, 1, `label previews naming ${b.bag_code}`);
+      eq(names.filter((n) => UI.isTagPreview(n)), [], "tag previews (no reusable tag any more)");
+      eq(await UI.printTag(page).count(), 0, "Print tag buttons on the order page");
+      assert(await UI.printAll(page, bags.length).count() > 0, `no "Print all ${bags.length} labels" button`);
+      return labels.join(" | ");
+    });
+    await s.step("bag page: ONE label preview (its own), a print-label button, no Print tag", async () => {
+      const P = bags.find((b) => b.tier === "ultra_premium");
+      await goto(page, ROUTES.bag(P.id));
+      const { settings } = await labelJson(ctx, ROUTES.bagLabel(P.id, "?format=json"));
+      const names = await previewNames(page, settings, 1);
+      const labels = names.filter((n) => !UI.isTagPreview(n));
+      eq(labels.length, 1, `label previews (${labels.join(" | ")})`);
+      assert(labels[0].includes(P.bag_code), `the preview is named "${labels[0]}", not after ${P.bag_code}`);
+      eq(names.filter((n) => UI.isTagPreview(n)), [], "tag previews (no reusable tag any more)");
+      assert(await UI.printButton(page).count() > 0, "no print-label button");
+      eq(await UI.printTag(page).count(), 0, "Print tag buttons on the bag page");
+    });
+    await s.step("card page: a print-label button (prints its bag's label), no Print tag", async () => {
+      await goto(page, ROUTES.card(picked[3]));
+      assert(await UI.printButton(page).count() > 0, "no print-label button on the card page");
+      eq(await UI.printTag(page).count(), 0, "Print tag buttons on the card page");
+    });
+    await s.step("phone layout of the workspace (390px) has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.receivingOrder(IDS.mailOrder), "print-step-workspace").then((w) => { assert(!w, w); }));
+  },
+
+  // The "Bags" work board: every open bag is its own work order (own row), by due date
+  async "bags-board"({ page, ctx, s, browser, appUrl }) {
+    let bags = [];
+    await s.step("setup: receive Gold One + Platinum One of CD-2549 (11-15) and 16 Gold of CD-2600 (11-20)", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(6)], "2026-11-15");
+      await receiveViaApi(ctx, IDS.bigOrder, IDS.bigCards.filter((_, i) => BIG_CARD_TIERS[i] === "premium").slice(0, 16), "2026-11-20");
+      const t = await tables();
+      bags = [...bagsOf(t, IDS.mailOrder), ...bagsOf(t, IDS.bigOrder)].sort((a, b) => a.due_date.localeCompare(b.due_date) || a.bag_code.localeCompare(b.bag_code));
+      eq(bags.map((b) => b.bag_code).sort(), ["CD-2549-G", "CD-2549-P", "CD-2600-G"], "bags");
+      return bags.map((b) => `${b.bag_code} due ${b.due_date}`).join(", ");
+    }, { critical: true, shot: false });
+    await s.step("open the Bags board", () => goto(page, ROUTES.bags), { critical: true });
+    await s.step("CD-2549-P and CD-2549-G are separate rows (each bag its own work order)", async () => {
+      for (const [code, other] of [["CD-2549-P", "CD-2549-G"], ["CD-2549-G", "CD-2549-P"]]) {
+        const rows = UI.boardRow(page, code);
+        eq(await rows.count(), 1, `rows of their own for ${code}`);
+        eq(await rows.getByRole("link", { name: `Open bag ${other}`, exact: true }).count(), 0, `${code}'s row also opens ${other}`);
+      }
+    });
+    await s.step("rows in due-date order (earliest first)", async () => {
+      const text = await page.locator("main").first().innerText();
+      const at = bags.map((b) => ({ code: b.bag_code, at: text.search(new RegExp(`${esc(b.bag_code)}(?![0-9A-Z])`)) }));
+      const missing = at.filter((x) => x.at < 0).map((x) => x.code);
+      assert(!missing.length, `not listed: ${missing.join(", ")}`);
+      eq([...at].sort((a, b) => a.at - b.at).map((x) => x.code), bags.map((b) => b.bag_code), "order on the board");
+      return bags.map((b) => `${b.bag_code} ${b.due_date}`).join(" < ");
     }, { shot: false });
+    await s.step("CD-2549-P's row shows the customer and its due date (Dec 7)", async () => {
+      const row = UI.boardRow(page, "CD-2549-P").first();
+      const text = await row.innerText();
+      assert(text.includes("Test Customer A"), `customer not in the row: "${text.replace(/\s+/g, " ").slice(0, 160)}"`);
+      assert(/Dec(ember)? 7\b|2026-12-07|12\/7\/2026/.test(text), `due date not in the row: "${text.replace(/\s+/g, " ").slice(0, 160)}"`);
+    }, { shot: false });
+    await s.step("phone layout (390px) has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.bags, "bags-board").then((w) => { assert(!w, w); }));
   },
 
   // Historical Order Setup: preview, run, run again: no duplicate codes or bags

@@ -7,20 +7,40 @@ import type { FontRole } from "./types";
 
 const ELLIPSIS = "…";
 
+/** Invisible characters (format and control characters, variation selectors): never printed. */
+const INVISIBLE = /^[\p{Cf}\p{Cc}\p{Variation_Selector}]$/u;
+/** Emoji and pictographs (and their skin tones and flag letters): nothing a bag label needs, so left out rather than printed as "?". */
+const PICTO = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}]$/u;
+const MARK = /\p{M}/gu;
+/** Latin letters and marks with no decomposition to a plain letter the fonts have. */
+const SPELLED: Record<string, string> = {
+  "Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "Ħ": "H", "ħ": "h", "ı": "i", "ĸ": "k", "Ŀ": "L", "ŀ": "l",
+  "Ŋ": "N", "ŋ": "n", "Œ": "OE", "œ": "oe", "Ŧ": "T", "ŧ": "t", "ſ": "s", "ẞ": "SS", "Ƒ": "F", "ƒ": "f",
+  "‐": "-", "‑": "-", "‒": "-", "―": "—", "−": "-", "‚": ",", "„": "\"", "′": "'", "″": "\"", "ʼ": "'",
+};
+
 /**
- * The text as the label fonts can draw it: one line, NFC, accents dropped
- * where only the plain letter exists, anything else as "?".
+ * The text as the label fonts can draw it: one line, NFC; accents dropped
+ * where only the plain letter exists (and a few letters spelled out: Ł → L,
+ * Œ → OE); emoji and invisible characters left out; any other run of
+ * characters the fonts lack (another script) as one "?", which the on-screen
+ * preview shows too.
  */
 export function printable(text: string | null | undefined, font: FontRole): string {
   const widths = FONT_METRICS[font].widths;
+  const has = (s: string) => !!s && [...s].every((b) => widths[b.codePointAt(0)!] !== undefined);
   let out = "";
+  let missing = false;
   for (const ch of (text ?? "").normalize("NFC").replace(/\s+/g, " ").trim()) {
-    const cp = ch.codePointAt(0)!;
-    if (widths[cp] !== undefined) { out += ch; continue; }
-    const base = ch.normalize("NFD").replace(/[̀-ͯ]/g, "");
-    out += base && [...base].every((b) => widths[b.codePointAt(0)!] !== undefined) ? base : "?";
+    if (INVISIBLE.test(ch)) continue;
+    if (widths[ch.codePointAt(0)!] !== undefined) { out += ch; missing = false; continue; }
+    if (PICTO.test(ch) || /^\p{M}$/u.test(ch)) continue;
+    const plain = [ch.normalize("NFD").replace(MARK, ""), ch.normalize("NFKD").replace(MARK, ""), SPELLED[ch] ?? ""].find(has);
+    if (plain) { out += plain; missing = false; continue; }
+    if (!missing) out += "?";
+    missing = true;
   }
-  return out;
+  return out.replace(/ {2,}/g, " ").trim();
 }
 
 /** Width in points: advances plus `tracking` after every character but the last. */

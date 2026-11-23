@@ -1,9 +1,9 @@
-/** Card IDs, Bag IDs and QR links (lib/intake/codes.ts). */
+/** Order codes, Card IDs, Bag IDs and QR links (lib/intake/codes.ts). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  TIER_LETTERS, bagCode, cardCode, codeKind, effectiveTier, nextCardSeqs, normalizeCode, normalizeTier, qrPath, qrUrl,
-  tierDisplayName, tierLetter,
+  TIER_LETTERS, bagCode, cardCode, codeKind, codeTargetPath, effectiveTier, nextCardSeqs, normalizeCode, normalizeTier,
+  orderPhotosPath, qrPath, qrUrl, tierDisplayName, tierLetter,
 } from "@/lib/intake/codes";
 
 test("tier letters", () => {
@@ -53,12 +53,81 @@ test("scanned and typed codes normalize to the stored form", () => {
   assert.equal(normalizeCode("HTTPS://THECARDDOC1.COM/Q/CD-2549-G?x=1"), "CD-2549-G");
   assert.equal(normalizeCode("CD%2D2549%2D03"), "CD-2549-03");
   assert.equal(normalizeCode("<script>"), "");
-  assert.equal(normalizeCode("CD2549"), "");
+  assert.equal(normalizeCode("CD 2549 03"), "CD-2549-03", "spaces read as dashes");
+  assert.equal(normalizeCode("cd-2549 - p2"), "CD-2549-P2");
+  assert.equal(normalizeCode("CD2549-03"), "CD-2549-03");
   assert.equal(codeKind("CD-2549-03"), "card");
   assert.equal(codeKind("CD-2549-104"), "card");
   assert.equal(codeKind("CD-2549-P"), "bag");
   assert.equal(codeKind("CD-2549-P2"), "bag");
-  assert.equal(codeKind("CD-2549"), null);
+  assert.equal(codeKind("CD-2549"), "order");
+  assert.equal(codeKind("CD-2549-3"), null);
+  assert.equal(codeKind("JOHN-SMITH"), null);
+  assert.equal(codeKind("CD-2549-P-2"), null);
+});
+
+test("order codes: the order number in the forms staff type or a scanner sends", () => {
+  for (const raw of [
+    "CD-2549", "cd-2549", " Cd-2549 ", "#CD-2549", "# cd-2549", "CD 2549", "cd  2549", "CD - 2549", "CD2549", "cd2549",
+    "CD%2D2549", "https://thecarddoc1.com/q/cd-2549", "HTTPS://THECARDDOC1.COM/Q/CD-2549", "HTTPS://THECARDDOC1.COM/Q/CD-2549?x=1",
+    "https://theonethatsaveditall.com/Q/CD-2549/", "/q/CD-2549",
+  ]) {
+    assert.equal(normalizeCode(raw), "CD-2549", raw);
+    assert.equal(codeKind(normalizeCode(raw)), "order", raw);
+  }
+  assert.equal(normalizeCode("cd-12345"), "CD-12345", "five-digit order numbers (after CD-9999)");
+  // A bare number is never a code: it could as well be a kit order (K2549) or a typo
+  for (const raw of ["2549", "#2549", " 2549 ", "%232549", "https://thecarddoc1.com/q/2549", "K2549", "k-2549x", "CD-", "CD--2549", ""]) {
+    assert.equal(codeKind(normalizeCode(raw)), null, raw);
+  }
+  assert.equal(normalizeCode("2549"), "");
+  assert.equal(normalizeCode("#2549"), "");
+  assert.equal(normalizeCode("https://thecarddoc1.com/q/2549"), "");
+  assert.equal(normalizeCode(null), "");
+});
+
+test("order codes, Card IDs and Bag IDs never read as each other", () => {
+  const order = "CD-2549";
+  const cards = [cardCode(order, 1), cardCode(order, 12), cardCode(order, 104)];
+  const bags = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass", "prep", null].flatMap((t) => [bagCode(order, t), bagCode(order, t, 2), bagCode(order, t, 11)]);
+  assert.equal(codeKind(normalizeCode(order)), "order");
+  for (const c of cards) assert.equal(codeKind(normalizeCode(c.toLowerCase())), "card", c);
+  for (const b of bags) assert.equal(codeKind(normalizeCode(b.toLowerCase())), "bag", b);
+  // Each from its QR link too
+  for (const c of [order, ...cards, ...bags]) assert.equal(normalizeCode(qrUrl(c)), c, c);
+});
+
+test("a scanned code opens: order -> its photos, bag -> that bag's photos, card -> card page", () => {
+  const order = "00000000-0000-4000-8000-000000000001";
+  const bag = "00000000-0000-4000-8000-0000000000b1";
+  const card = "00000000-0000-4000-8000-0000000000c1";
+  assert.equal(codeTargetPath("order", order, order), `/admin/receiving/${order}/photos`);
+  assert.equal(codeTargetPath("order", order), `/admin/receiving/${order}/photos`);
+  assert.equal(codeTargetPath("bag", bag, order), `/admin/receiving/${order}/photos?bag=${bag}`);
+  assert.equal(codeTargetPath("bag", bag), `/admin/receiving/bag/${bag}`, "a bag without a known order: its bag page");
+  assert.equal(codeTargetPath("card", card, order), `/admin/receiving/card/${card}`);
+  assert.equal(codeTargetPath("card", card), `/admin/receiving/card/${card}`);
+  assert.equal(orderPhotosPath(order), `/admin/receiving/${order}/photos`);
+  assert.equal(orderPhotosPath(order, null), `/admin/receiving/${order}/photos`);
+  assert.equal(orderPhotosPath(order, bag), `/admin/receiving/${order}/photos?bag=${bag}`);
+  assert.equal(codeTargetPath("bag", "b&c", "a/b?c"), "/admin/receiving/a%2Fb%3Fc/photos?bag=b%26c", "ids are escaped");
+});
+
+test("LIKE wildcards, line breaks and path tricks never survive as a code", () => {
+  for (const raw of [
+    "CD-25_9", "CD-2549%", "CD-%", "CD%25", "CD-*", "CD-2549-P*", "cd_2549", "CD-2549-P%0aSet-Cookie:x",
+    "../admin", "%2e%2e", "CD-2549/../x", "//evil.example", "CD-2549?next=//evil.example", "ＣＤ-2549", "CD-٢٥٤٩",
+  ]) {
+    const code = normalizeCode(raw);
+    assert.ok(code === "" || /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/.test(code), raw);
+    assert.equal(codeKind(code), null, raw);
+  }
+  // A scanner's trailing line break or an encoded one after the link is dropped
+  assert.equal(normalizeCode("CD-2549-P\r\n"), "CD-2549-P");
+  assert.equal(normalizeCode("HTTPS://THECARDDOC1.COM/Q/CD-2549-P%0D%0A"), "CD-2549-P");
+  // Bag batches 2..99 and order numbers past CD-9999
+  for (const b of [2, 9, 10, 99]) assert.equal(codeKind(normalizeCode(bagCode("CD-12345", "premium", b).toLowerCase())), "bag", String(b));
+  assert.equal(codeKind(normalizeCode("cd-12345-104")), "card");
 });
 
 test("QR content is the site's /q link, all upper case (alphanumeric mode)", () => {
@@ -67,6 +136,10 @@ test("QR content is the site's /q link, all upper case (alphanumeric mode)", () 
     delete process.env.NEXT_PUBLIC_APP_URL;
     assert.equal(qrUrl("cd-2549-03"), "HTTPS://THECARDDOC1.COM/Q/CD-2549-03");
     assert.equal(qrUrl("CD-2549-P2"), "HTTPS://THECARDDOC1.COM/Q/CD-2549-P2");
+    // The order label's one QR: qrUrl(order_number)
+    assert.equal(qrUrl("CD-2549"), "HTTPS://THECARDDOC1.COM/Q/CD-2549");
+    assert.equal(qrUrl(" cd-2549 "), "HTTPS://THECARDDOC1.COM/Q/CD-2549");
+    assert.equal(qrPath("cd-2549"), "/q/CD-2549");
     process.env.NEXT_PUBLIC_APP_URL = "https://Preview.example.com/";
     assert.equal(qrUrl("CD-2549-G"), "HTTPS://PREVIEW.EXAMPLE.COM/Q/CD-2549-G");
     assert.match(qrUrl("CD-2549-G"), /^[0-9A-Z $%*+\-./:]+$/, "only QR alphanumeric characters");

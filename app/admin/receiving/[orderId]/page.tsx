@@ -164,9 +164,13 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const bagsNeedReview = bags.filter((b) => b.dueStatus === "needs_review");
   const payment = paymentState(order.paymentStatus);
   // "Print labels" opens once every received card has a receiving photo
-  const needPhoto = workspaceCards
-    .filter((c) => !c.refunded && !!c.bagId && c.receivingPhotos.length === 0)
-    .map((c) => ({ id: c.id, label: c.code ?? c.name }));
+  const photoless = workspaceCards.filter((c) => !c.refunded && !!c.bagId && c.receivingPhotos.length === 0);
+  const needPhoto = photoless.map((c) => ({ id: c.id, label: c.code ?? c.name }));
+  // A single bag's label prints once every card in that bag has its photo
+  const needPhotoByBag: Record<string, number> = {};
+  for (const c of photoless) needPhotoByBag[c.bagId!] = (needPhotoByBag[c.bagId!] ?? 0) + 1;
+  // One label per tier bag; a bag whose cards were all refunded gets none
+  const labelBags = bags.filter((b) => b.cardCount > 0);
   const stock = LABEL_STOCKS[(await getLabelSettings(admin)).stock];
   const paper = { widthIn: stock.widthIn, heightIn: stock.heightIn };
 
@@ -256,7 +260,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               payment={payment}
             />
           )}
-          <OrderLabelPrint orderId={order.id} orderNumber={order.orderNumber} bags={bags} paper={paper} needPhoto={needPhoto} />
+          <OrderLabelPrint orderId={order.id} orderNumber={order.orderNumber} bags={labelBags} paper={paper} needPhoto={needPhoto} />
           {payment !== "refunded" && order.status !== "cancelled" && (
             <div className="mt-4">
               <AddCardForm orderId={order.id} orderTier={order.restorationTier} today={today} maxPhotos={MAX_RECEIVING_PHOTOS} unpaid={payment === "unpaid"} />
@@ -274,9 +278,9 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               {bags.map((b) => <BagRow key={b.id} bag={b} orderId={order.id} today={today} />)}
             </ul>
           )}
-          {bags.length > 0 && (
+          {labelBags.length > 0 && (
             <div className="mt-4">
-              <BagLabelPanel orderId={order.id} bags={bags} />
+              <BagLabelPanel orderId={order.id} bags={labelBags} needPhoto={needPhotoByBag} />
             </div>
           )}
         </section>
