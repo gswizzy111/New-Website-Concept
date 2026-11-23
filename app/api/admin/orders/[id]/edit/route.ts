@@ -63,6 +63,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (removed.some((c) => c.completed || c.cleaning_started_at || c.slab_opening_started_at || c.status === "refunded" || (c.refunded_cents ?? 0) > 0)) {
       return Response.json({ error: "A card you removed is done, has work started, or was refunded, so it stays on the order." }, { status: 409 });
     }
+    // ...and one checked in at Receiving: its Card ID is on its bag's label, and Card IDs are never reused
+    const { data: checkedIn, error: inErr } = await admin.from("cards").select("card_code")
+      .in("id", removed.map((c) => c.id)).or("bag_id.not.is.null,received_at.not.is.null");
+    if (inErr && !["42703", "PGRST204"].includes(inErr.code ?? "")) {
+      return Response.json({ error: "Couldn't check the cards' receiving. Nothing was changed." }, { status: 500 });
+    }
+    if ((checkedIn ?? []).length > 0) {
+      const codes = (checkedIn ?? []).map((c) => c.card_code).filter(Boolean).join(", ");
+      return Response.json({ error: `A card you removed${codes ? ` (${codes})` : ""} was received into a bag, so it stays on the order. To take it off, mark it not received on the order's Receiving page first.` }, { status: 409 });
+    }
   }
 
   const reprice = d.price_per_card_cents !== undefined;

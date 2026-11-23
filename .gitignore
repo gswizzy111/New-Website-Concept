@@ -51,3 +51,10 @@ deploy-*.zip
 
 # Competitor study screenshots (reference only, not ours to publish)
 docs/redesign/mint-shots/
+
+# Intake label test output (sample PDFs and renders)
+/tests/intake/out/
+
+# Intake test harness: screenshots, certificates and logs
+tests/intake/e2e/out/
+tests/intake/harness/.run/

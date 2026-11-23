@@ -5,6 +5,7 @@ import { pendingRefundRequestCount } from "@/lib/refund-requests";
 import { getAdminSession } from "@/lib/admin-auth";
 import { INQUIRY_TYPE, OPEN_CASE_STATUSES } from "@/lib/card-inquiries";
 import { openProblemCount } from "@/lib/email-problems";
+import { countUnseenCompletedBags } from "@/lib/intake/completed";
 import { ViewAsButton } from "./view-as-button";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./admin-legacy.css";
@@ -46,6 +47,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   let openInquiryCount = 0;
   let emailProblemCount = 0;
   let refundRequestCount = 0;
+  let completedBagCount = 0;
   if (isAdmin || isSupport) {
     const admin = createAdminClient();
     // Support staff don't see internal cases, so they aren't in their count
@@ -55,7 +57,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       .in("status", OPEN_CASE_STATUSES);
     // One round trip for all the badges: every page and prefetch renders this
     // layout, so each extra wave of queries is felt everywhere
-    const [{ count }, { count: inquiryCount }, problemCount, refundCount] = await Promise.all([
+    const [{ count }, { count: inquiryCount }, problemCount, refundCount, bagCount] = await Promise.all([
       isSupport ? openCases.neq("type", "internal") : openCases,
       admin
         .from("cases")
@@ -65,11 +67,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       openProblemCount(),
       // Refunds support asked for wait on an admin
       isAdmin ? pendingRefundRequestCount(admin) : 0,
+      // Tier bags completed since anyone last looked (0 before the intake tables exist)
+      isAdmin ? countUnseenCompletedBags().catch(() => 0) : 0,
     ]);
     openCaseCount = count ?? 0;
     openInquiryCount = inquiryCount ?? 0;
     emailProblemCount = problemCount;
     refundRequestCount = refundCount;
+    completedBagCount = bagCount;
   }
 
   // Signed out (sign-in, forgot and reset password pages): no admin menu
@@ -78,7 +83,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className={ADMIN_LOOK}>
     <div className="flex min-h-screen">
-      <AdminNav openCaseCount={openCaseCount} openUpdateRequestCount={openInquiryCount} emailProblemCount={emailProblemCount} role={role} username={session?.name ?? session?.username ?? null} />
+      <AdminNav openCaseCount={openCaseCount} openUpdateRequestCount={openInquiryCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} role={role} username={session?.name ?? session?.username ?? null} />
       <main className="flex-1 min-w-0 pt-14 lg:pt-0">
         {session?.preview && (
           <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900 px-6 py-3 text-sm font-semibold text-white">

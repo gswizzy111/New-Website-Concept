@@ -7,28 +7,9 @@ import { siteUrl } from "@/lib/site-url";
 import { checkCatalogPicks, missingCatalogColumns } from "@/lib/card-catalog-pick";
 import { accountInviteHtml, sendDropoffConfirmationEmail } from "@/lib/dropoff-confirmation-email";
 import { MAX_CARD_PHOTOS } from "@/lib/site-config";
+import { isOurCardPhoto } from "@/lib/intake/photos";
 
 const TIER_IDS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"] as const;
-
-// Card photos must be our own uploads. /api/upload stores each one under a
-// random name at the top of the public card-photos bucket and answers with
-// getPublicUrl(): `${NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/card-photos/<name>`.
-const CARD_PHOTOS_PATH = "/storage/v1/object/public/card-photos/";
-function isOurCardPhoto(value: string): boolean {
-  let url: URL;
-  let supabase: URL;
-  try {
-    url = new URL(value);
-    supabase = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "");
-  } catch {
-    return false;
-  }
-  return url.protocol === "https:"
-    && url.host === supabase.host
-    && !url.username && !url.password && !url.search && !url.hash
-    && url.pathname.startsWith(CARD_PHOTOS_PATH)
-    && /^[A-Za-z0-9-]{1,100}\.[a-z]{3,4}$/.test(url.pathname.slice(CARD_PHOTOS_PATH.length));
-}
 
 const BodySchema = z.object({
   order_type: z.enum(["online", "dropoff"]).default("dropoff"),

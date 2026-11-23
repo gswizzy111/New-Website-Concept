@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAdminSession } from "@/lib/admin-auth";
 import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
+import { baggedCards, cardsMovedByOrderTier, tierLockMessage } from "@/lib/intake/tier-lock";
 
 const TIER_LABELS: Record<string, string> = {
   prep: "Prep",
@@ -26,6 +27,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
   const from = order.restoration_tier as string | null;
   if (from === tier) return Response.json({ ok: true });
+
+  // Cards already in a tier bag keep their tier: their Bag ID, label and due
+  // date belong to that tier (Receiving can take them out of the bag first)
+  const bagged = await baggedCards(admin, { orderId: id });
+  if (!bagged.ok) return Response.json({ error: bagged.error }, { status: 500 });
+  const moved = cardsMovedByOrderTier(bagged.cards, from, tier);
+  if (moved.length) {
+    return Response.json({ error: tierLockMessage(moved), receivingUrl: `/admin/receiving/${id}` }, { status: 409 });
+  }
 
   const { error } = await admin.from("orders").update({ restoration_tier: tier }).eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });

@@ -11,6 +11,16 @@ const COMING_SOON = false;
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Bag labels and tags print their QR links in upper case (/Q/<CODE>: QR
+  // alphanumeric mode keeps the codes small). They reach the same handler as
+  // /q/<code> (app/q/[code]/route.ts). A rewrite, not an app/Q folder, which
+  // would clash with app/q on case-insensitive disks.
+  if (pathname.startsWith("/Q/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/q/${pathname.slice(3)}`;
+    return NextResponse.rewrite(url);
+  }
+
   // Admin, accountant and support sign-in sessions (lib/admin-session.ts), looked up
   // only on admin paths and remembered for 5 minutes per edge instance. Each page and
   // route checks the role again itself, uncached.
@@ -80,7 +90,16 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith("/admin")) {
     if (isAuthPage) return NextResponse.next();
     if (!isAdminSession) {
-      return NextResponse.redirect(new URL("/admin/login", request.url));
+      const loginUrl = new URL("/admin/login", request.url);
+      // Signing in returns to the page asked for (say a scanned card or bag QR
+      // code's page). The login page accepts only this site's /admin/... and /q/<CODE> paths.
+      if (request.method === "GET" && pathname.startsWith("/admin/")) {
+        const search = new URLSearchParams(request.nextUrl.searchParams);
+        search.delete("_rsc");
+        const query = search.toString();
+        loginUrl.searchParams.set("next", query ? `${pathname}?${query}` : pathname);
+      }
+      return NextResponse.redirect(loginUrl);
     }
     return NextResponse.next();
   }

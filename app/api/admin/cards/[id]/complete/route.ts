@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
+import { refreshBagCompletionForCard } from "@/lib/intake/stages";
 
 export async function POST(
   _req: Request,
@@ -38,6 +39,8 @@ export async function POST(
     console.error("[card complete] update error:", updateErr);
     return Response.json({ error: updateErr?.message ?? "Update failed" }, { status: 500 });
   }
+
+  await refreshBagCompletionForCard(id, admin); // its tier bag completes or reopens with it
 
   return Response.json({ completed: updated.completed });
 }

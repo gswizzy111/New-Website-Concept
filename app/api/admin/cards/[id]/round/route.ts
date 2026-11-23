@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdmin } from "@/lib/admin-auth";
 import { STAGES, parseStageEvent } from "@/lib/restoration-stages";
+import { refreshBagCompletionForCard } from "@/lib/intake/stages";
 
 /**
  * Sends a card through another round of restoration: its round goes up by
@@ -36,6 +37,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .update({ current_round: next, completed: false, completed_at: null })
     .eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
+  await refreshBagCompletionForCard(id, admin); // a completed tier bag reopens
 
   await admin.from("order_events").insert({
     order_id: card.order_id,

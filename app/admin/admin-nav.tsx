@@ -15,6 +15,9 @@ const NAV_ITEMS = [
   { href: "/admin/shop-orders",  label: "Kit Orders",   icon: "📦" },
   { href: "/admin/show-dropoffs", label: "Show Dropoffs", icon: "🎪" },
   { href: "/admin/incoming",    label: "Incoming",   icon: "📬" },
+  { href: "/admin/receiving",   label: "Receiving",  icon: "📥" },
+  { href: "/admin/receiving/completed", label: "Completed Bags", icon: "✅" },
+  { href: "/admin/receiving/setup", label: "Order Setup", icon: "🛠️" },
   { href: "/admin/ship-queue",  label: "Ship Queue", icon: "🚚" },
   { href: "/admin/unclaimed",   label: "Unclaimed",  icon: "⏳" },
   { href: "/admin/partners",    label: "Partners",   icon: "🤝" },
@@ -51,7 +54,7 @@ const SUPPORT_NAV_ITEMS = [
   { href: "/admin/email-problems", label: "Email Problems", icon: "📭" },
 ];
 
-function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProblemCount, role }: { onNavigate?: () => void; openCaseCount?: number; openUpdateRequestCount?: number; emailProblemCount?: number; role?: string | null }) {
+function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProblemCount, completedBagCount, role }: { onNavigate?: () => void; openCaseCount?: number; openUpdateRequestCount?: number; emailProblemCount?: number; completedBagCount?: number; role?: string | null }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const items = role === "accountant" ? ACCOUNTANT_NAV_ITEMS : role === "support" ? SUPPORT_NAV_ITEMS : NAV_ITEMS;
@@ -69,14 +72,18 @@ function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProb
     if (href.includes("?")) return href === activeFilter;
     if (activeFilter?.startsWith(`${href}?`)) return false;
     // /admin/support is active on its own pages, not on /admin/support-team
-    return pathname === href || pathname.startsWith(`${href}/`);
+    const within = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
+    if (!within(href)) return false;
+    // An item for a page inside another's (Completed Bags in Receiving) takes over its pages
+    return !items.some((item) => !item.href.includes("?") && item.href.startsWith(`${href}/`) && within(item.href));
   }
 
-  // Red count badges: open cases, update requests waiting on a reply, and
-  // emails that didn't reach a customer
+  // Red count badges: open cases, update requests waiting on a reply, emails
+  // that didn't reach a customer, and tier bags completed but not yet seen
   function badgeFor(href: string) {
     if (href === "/admin/cases") return openCaseCount ?? 0;
     if (href === "/admin/email-problems") return emailProblemCount ?? 0;
+    if (href === "/admin/receiving/completed") return completedBagCount ?? 0;
     if (href.startsWith("/admin/cases?") && href.includes("type=inquiry")) return openUpdateRequestCount ?? 0;
     return 0;
   }
@@ -134,7 +141,7 @@ function ProfileLink({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function AdminNav({ openCaseCount, openUpdateRequestCount, emailProblemCount, role, username }: { openCaseCount?: number; openUpdateRequestCount?: number; emailProblemCount?: number; role?: string | null; username?: string | null }) {
+export function AdminNav({ openCaseCount, openUpdateRequestCount, emailProblemCount, completedBagCount, role, username }: { openCaseCount?: number; openUpdateRequestCount?: number; emailProblemCount?: number; completedBagCount?: number; role?: string | null; username?: string | null }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -147,7 +154,7 @@ export function AdminNav({ openCaseCount, openUpdateRequestCount, emailProblemCo
           <p className="text-xs text-muted-foreground mt-0.5">Admin</p>
         </div>
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 flex flex-col gap-1">
-          <NavLinks openCaseCount={openCaseCount} openUpdateRequestCount={openUpdateRequestCount} emailProblemCount={emailProblemCount} role={role} />
+          <NavLinks openCaseCount={openCaseCount} openUpdateRequestCount={openUpdateRequestCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} role={role} />
           {(role === "accountant" || role === "support") && (
             <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-3 pt-4">{role === "support" ? "Support View" : "Accountant View"}</p>
           )}
@@ -203,7 +210,7 @@ export function AdminNav({ openCaseCount, openUpdateRequestCount, emailProblemCo
       )}
       <div className={`lg:hidden fixed top-14 left-0 right-0 z-30 max-h-[calc(100dvh-3.5rem)] overflow-y-auto bg-white border-b border-border transition-transform duration-200 ${open ? "translate-y-0" : "-translate-y-full pointer-events-none"}`}>
         <nav className="px-3 py-3 flex flex-col gap-1">
-          <NavLinks onNavigate={() => setOpen(false)} openCaseCount={openCaseCount} openUpdateRequestCount={openUpdateRequestCount} emailProblemCount={emailProblemCount} role={role} />
+          <NavLinks onNavigate={() => setOpen(false)} openCaseCount={openCaseCount} openUpdateRequestCount={openUpdateRequestCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} role={role} />
         </nav>
         <div className="px-3 py-3 border-t border-border">
           {role === "admin" && <ProfileLink onNavigate={() => setOpen(false)} />}
