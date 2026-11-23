@@ -1,6 +1,6 @@
 // Smoke test: the harness renders EXISTING admin pages, signed in, with no
 // server or browser errors. Desktop (1440x900) and phone (iPhone 13).
-//   node tests/intake/harness/start.mjs --smoke
+//   node tests/intake/harness/smoke.mjs
 //   (or, against a running harness) HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/harness/smoke.mjs
 import fs from "node:fs";
 import path from "node:path";

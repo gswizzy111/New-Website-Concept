@@ -4,7 +4,7 @@
 // Shippo keys that work.
 //
 //   node tests/intake/harness/start.mjs            start both; Ctrl+C stops both
-//   node tests/intake/harness/start.mjs --smoke    start, smoke-test existing admin pages, stop
+//   node tests/intake/harness/smoke.mjs            start, smoke-test existing admin pages, stop
 //
 // As a library (Playwright scripts):
 //   import { startHarness, loadPlaywright, newAdminContext } from "../harness/start.mjs";
@@ -258,13 +258,9 @@ export function serverErrorsSince(offset = 0) {
 
 // CLI
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  // (Smoke test and scenarios import this file, so they run as their own scripts:
+  // node tests/intake/harness/smoke.mjs, node tests/intake/e2e/scenarios.mjs.)
   const h = await startHarness();
-  if (process.argv.includes("--smoke")) {
-    const { runSmoke } = await import("./smoke.mjs");
-    const ok = await runSmoke(h);
-    await h.stop();
-    process.exit(ok ? 0 : 1);
-  }
   console.log(`\n  App:    ${h.appUrl}/admin   (cookie admin_session=${ADMIN_TOKEN})\n  Mock:   ${h.mockUrl}/__dump\n  Ctrl+C stops both.\n`);
   console.log(`  Reuse from another shell:\n    HARNESS_APP_URL=${h.appUrl} HARNESS_MOCK_URL=${h.mockUrl} node tests/intake/e2e/scenarios.mjs\n`);
 }

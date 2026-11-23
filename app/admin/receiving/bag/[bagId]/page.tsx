@@ -61,7 +61,8 @@ function groupLabel(group: BagStageGroup): string {
   return n === 1 ? `Move this card to ${next.label}` : `Move these ${n} cards to ${next.label}`;
 }
 
-function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
+/** One card of a step group; its own button only when the group has others (one card: the group button moves it). */
+function CardRow({ card, orderId, ownButton }: { card: IntakeCard; orderId: string; ownButton: boolean }) {
   const st = card.stage;
   const next = st.next;
   return (
@@ -83,7 +84,7 @@ function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
           </div>
         </div>
       </AdminLink>
-      {next && !card.refunded && !card.awaitingArrival && (
+      {ownButton && next && !card.refunded && !card.awaitingArrival && (
         <div className="sm:shrink-0">
           <AdvanceButton
             orderId={orderId}
@@ -229,7 +230,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
                         )}
                       </div>
                       <ul className="mt-1 divide-y divide-border">
-                        {groupCards.map((c) => <CardRow key={c.id} card={c} orderId={order.id} />)}
+                        {groupCards.map((c) => <CardRow key={c.id} card={c} orderId={order.id} ownButton={groupCards.length > 1} />)}
                       </ul>
                     </div>
                   );
