@@ -168,7 +168,7 @@ export function KitCustomerEditor({ orderId, name, email, phone, address }: Prop
       </div>
 
       <input name="name" placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} />
-      <input name="email" type="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} />
+      <input name="email" type="text" inputMode="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} />
       <input name="phone" placeholder="Phone" value={form.phone} onChange={handleChange} className={inp} />
 
       <div className="border-t border-border pt-3 flex flex-col gap-2">

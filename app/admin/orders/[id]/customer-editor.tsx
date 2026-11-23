@@ -6,17 +6,27 @@ import { AddressAutocomplete } from "@/components/ui/address-autocomplete";
 
 interface Props {
   orderId: string;
-  name: string;
-  email: string;
-  phone: string;
-  street1?: string;
-  street2?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  street1?: string | null;
+  street2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
 }
 
-export function CustomerEditor({ orderId, name, email, phone, street1 = "", street2 = "", city = "", state = "", zip = "" }: Props) {
+export function CustomerEditor(props: Props) {
+  // Saved addresses keep empty lines as null (street2 most often): treat them as empty text
+  const { orderId } = props;
+  const name = props.name ?? "";
+  const email = props.email ?? "";
+  const phone = props.phone ?? "";
+  const street1 = props.street1 ?? "";
+  const street2 = props.street2 ?? "";
+  const city = props.city ?? "";
+  const state = props.state ?? "";
+  const zip = props.zip ?? "";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,8 +44,8 @@ export function CustomerEditor({ orderId, name, email, phone, street1 = "", stre
 
   async function handleSave() {
     setError("");
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
-      setError("Name, email, and phone are required.");
+    if (!form.name.trim() || !form.email.trim()) {
+      setError("Name and email are required.");
       return;
     }
     setSaving(true);
@@ -107,8 +117,8 @@ export function CustomerEditor({ orderId, name, email, phone, street1 = "", stre
       </div>
 
       <input name="name" placeholder="Full name *" value={form.name} onChange={handleChange} className={inp} autoComplete="name" />
-      <input name="email" type="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} autoComplete="email" />
-      <input name="phone" placeholder="Phone *" value={form.phone} onChange={handleChange} className={inp} autoComplete="tel" />
+      <input name="email" type="text" inputMode="email" placeholder="Email *" value={form.email} onChange={handleChange} className={inp} autoComplete="email" />
+      <input name="phone" placeholder="Phone" value={form.phone} onChange={handleChange} className={inp} autoComplete="tel" />
 
       <div className="border-t border-border pt-3 flex flex-col gap-2">
         <p className="text-xs text-muted-foreground font-medium">Address</p>
