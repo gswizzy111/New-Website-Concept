@@ -23,8 +23,12 @@ export const LABEL_LIMITS = {
 
 /** The mock's content width in its own px (384px label, 16px padding). */
 const REF_CONTENT_PX = 352;
-/** Keep at least this much white at each side of the label (printer margin). */
-const SIDE_MIN = 0.06 * PT;
+/**
+ * Keep at least this much white at each side of the label: die-cut labels
+ * shift a millimetre or so in a direct thermal printer, and a clipped QR
+ * doesn't scan.
+ */
+const SIDE_MIN = 0.1 * PT;
 /** Labels shorter than this use the compact spacing. */
 const COMPACT_BELOW = 4.5 * PT;
 

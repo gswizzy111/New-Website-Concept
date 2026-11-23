@@ -59,6 +59,19 @@ function printedText(iso: string | null): string {
 
 type Loaded = { key: string; body: LabelPreviewResponse | null; error: string | null };
 
+/** Everything a bag's label shows, so an edit (a due date, a card's name) fetches the preview and PDFs again. */
+function bagVersion(b: BagSummary): string {
+  const cards = b.cards.map((c) => [c.code, c.name, c.set, c.number].join("|")).join(";");
+  return [b.id, b.code, b.tierName, b.customerName ?? "", b.dueDate ?? "", b.receivedOn ?? "", b.cardCount, cards].join(".");
+}
+
+/** A short fingerprint (FNV-1a) for the PDF addresses, so a changed label is never a stale pre-fetched file. */
+function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
+  return (h >>> 0).toString(36);
+}
+
 /**
  * Labels for an order's bags (Design A "Ledger"): a preview of each bag's
  * labels and tag drawn from the same layout the PDF prints, and print
@@ -76,7 +89,7 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   // What the labels show; when it changes the preview and PDFs are fetched again
-  const version = bags.map((b) => `${b.id}.${b.cardCount}.${b.dueDate ?? ""}.${b.receivedOn ?? ""}`).join("~");
+  const version = bags.map(bagVersion).join("~");
   const key = `${orderId}|${version}|${retry}`;
 
   useEffect(() => {
@@ -117,7 +130,7 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
   const paper = settings ? { widthIn: settings.widthIn, heightIn: settings.heightIn } : { widthIn: 4, heightIn: 6 };
   const stockName = settings?.stock ?? "4x6";
   const previewById = new Map((current?.body?.bags ?? []).map((b) => [b.id, b]));
-  const v = encodeURIComponent(version.length > 200 ? String(version.length) + version.slice(0, 64) : version);
+  const v = shortHash(version);
   const markPrinted = (ids: string[]) => (at: string) => {
     setPrintedAt((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, at])) }));
     writeFlag(HINT_KEY, true);
@@ -191,7 +204,7 @@ export function BagLabelPanel({ orderId, bags }: { orderId: string; bags: BagSum
           const printed = printedAt[b.id] ?? b.labelPrintedAt;
           const count = preview?.labels.length ?? 0;
           const expanded = isOpen(b);
-          const url = `/api/admin/intake/labels/bag/${b.id}?v=${encodeURIComponent(`${b.cardCount}.${b.dueDate ?? ""}.${b.receivedOn ?? ""}`)}`;
+          const url = `/api/admin/intake/labels/bag/${b.id}?v=${shortHash(bagVersion(b))}`;
           return (
             <li key={b.id} className="py-3 first:pt-0 last:pb-0">
               <div className="flex flex-wrap items-center justify-between gap-3">

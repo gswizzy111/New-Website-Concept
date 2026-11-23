@@ -27,8 +27,10 @@
 -- backlog. backlog_compute() is unchanged: it already replays card_removed /
 -- card_added, so history stays exact. Order statuses, order_events texts and
 -- the 'Status updated to: Cards Received' event are untouched. Deleting an
--- order still works: its bags go with it (on delete cascade) and a deleted
--- bag only clears cards.bag_id (on delete set null).
+-- order still works: its cards and bags go with it (on delete cascade; the
+-- cards.bag_id check runs at the end of the statement). A bag on its own can
+-- only be deleted once no card is in it (receiving deletes empty bags only),
+-- so a race can never leave a received card without its bag.
 --
 -- Run it on production before deploying the code that reads these columns.
 
@@ -113,7 +115,10 @@ on conflict (day) do nothing;
 -- ── 4. Cards ─────────────────────────────────────────────────────────────────
 alter table cards add column if not exists card_seq int check (card_seq >= 1);  -- 1, 2, 3... within the order; never reused
 alter table cards add column if not exists card_code text;                       -- Card ID, e.g. CD-2549-03
-alter table cards add column if not exists bag_id uuid references tier_bags(id) on delete set null;
+-- No "on delete set null": deleting a bag that still has cards is refused
+-- (NO ACTION), so a bag emptied and deleted while another receipt puts cards
+-- in it fails loudly instead of silently unbagging received cards.
+alter table cards add column if not exists bag_id uuid references tier_bags(id);
 alter table cards add column if not exists received_at timestamptz;
 alter table cards add column if not exists received_by text;
 alter table cards add column if not exists awaiting_arrival boolean not null default false;
@@ -226,14 +231,18 @@ end $function$;
 -- each row) is unchanged.
 
 -- ── Rollback (run by hand only if this has to be undone) ─────────────────────
--- Restore the two functions first (their previous text is in
--- 20261023_dashboard_metrics.sql, with search_path from 20261027_infra.sql):
+-- In this order. Backlog events already written stay (backlog_events is
+-- insert-only), so FIRST, while the new log_card_change() is still in place,
+-- clear the flags so each flagged card's last event is card_added again (the
+-- old trigger would not log it, and backlog_compute() would keep those cards
+-- out of the history while backlog_now() counts them):
+--   update cards set awaiting_arrival = false where awaiting_arrival;
+-- THEN restore the two functions (their previous text is in
+-- 20261023_dashboard_metrics.sql, with set search_path to 'public' from
+-- 20261027_infra.sql; the live text on Nov 23 2026 matched it):
 --   backlog_now(): remove "and not c.awaiting_arrival".
 --   log_card_change(): remove the three awaiting_arrival branches and write
 --     the order move as one insert of both rows again.
--- Backlog events already written stay (backlog_events is insert-only); before
--- dropping awaiting_arrival, clear it so the last event per card is card_added:
---   update cards set awaiting_arrival = false where awaiting_arrival;
 -- Then:
 --   drop index if exists cards_bag_id_idx;
 --   drop index if exists cards_order_seq_key;
