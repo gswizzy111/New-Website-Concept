@@ -228,7 +228,7 @@ export function CardPhotoCapture({
         </ul>
       )}
 
-      {confirmingReplace && (
+      {confirmingReplace && saved.includes(confirmingReplace) && (
         <div role="group" aria-label={`Replace a receiving photo of ${cardLabel}`} className="rounded-lg border border-amber-300 bg-amber-50 p-3 flex flex-col gap-2">
           <p className="text-sm font-semibold text-amber-900">
             Replace receiving photo {saved.indexOf(confirmingReplace) + 1}? The old photo comes off the card once the new one is saved. The customer&apos;s own photos are not changed.

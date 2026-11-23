@@ -11,6 +11,7 @@
  */
 import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
+import net from "node:net";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,10 +59,22 @@ try {
     logLevel: "warning",
   });
   const outputs = files.map((f) => path.join(outDir, f.replace(/\.ts$/, ".mjs")));
-  const run = spawnSync(process.execPath, ["--enable-source-maps", "--test", "--test-reporter=spec", ...outputs], {
+  // services.test.ts runs the in-memory Supabase/Resend stand-in on this port.
+  // The Resend SDK reads RESEND_BASE_URL when it loads, so it is set here.
+  const port = await new Promise((resolve) => {
+    const s = net.createServer();
+    s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+  const run = spawnSync(process.execPath, ["--enable-source-maps", "--test", "--test-timeout=60000", "--test-reporter=spec", ...outputs], {
     stdio: "inherit",
     cwd: root,
-    env: { ...process.env, TZ: process.env.TZ ?? "UTC" },
+    env: {
+      ...process.env,
+      TZ: process.env.TZ ?? "UTC",
+      INTAKE_TEST_MOCK_PORT: String(port),
+      RESEND_BASE_URL: `http://localhost:${port}/__resend`,
+      RESEND_API_KEY: "re_test_key",
+    },
   });
   status = run.status ?? 1;
 } catch (e) {

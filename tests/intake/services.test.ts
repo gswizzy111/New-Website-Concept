@@ -47,9 +47,9 @@ const cardRow = (id: string) => mock.store.table("cards").find((c) => c.id === i
 let gold: Row[], silver: Row[], plat: Row[];
 
 before(async () => {
-  mock = await startMock({ port: 0, quiet: true });
-  process.env.RESEND_API_KEY = "re_test_key";
-  process.env.RESEND_BASE_URL = `${mock.url}/__resend`;
+  // scripts/test-intake.mjs picks the port and points RESEND_BASE_URL at it
+  // (the Resend SDK reads it when it loads, before this hook runs)
+  mock = await startMock({ port: Number(process.env.INTAKE_TEST_MOCK_PORT) || 0, quiet: true });
   process.env.ADMIN_NOTIFY_EMAIL = "staff@example.com";
   delete process.env.NEXT_PUBLIC_APP_URL;
   gold = [1, 2, 3, 4].map((n) => card(n, "premium"));
