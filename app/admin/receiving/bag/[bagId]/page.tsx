@@ -257,7 +257,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
 
             {/* One label per tier bag, once every card in it has a receiving photo; none once every card was refunded */}
             {bag.cardCount > 0 && (
-              <BagLabelPanel orderId={order.id} bags={[bag]} needPhoto={{ [bag.id]: live.filter((c) => c.receivingPhotos.length === 0).length }} />
+              <BagLabelPanel orderId={order.id} bags={[bag]} needPhoto={{}} />
             )}
 
             <div className="flex flex-col sm:flex-row gap-2">
