@@ -7,9 +7,9 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { addBusinessDays } from "@/lib/intake/business-days";
-// @ts-expect-error: plain .mjs test harness without types
-import { startMock } from "./harness/mock-supabase.mjs";
+import { addBusinessDays, nyToday } from "@/lib/intake/business-days";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 type Row = Record<string, unknown>;
 type Mock = { url: string; store: { table(name: string): Row[]; load(seed: { tables: Record<string, Row[]> }): void; emails: Row[] }; close(): Promise<void> };
@@ -49,6 +49,9 @@ let gold: Row[], silver: Row[], plat: Row[];
 before(async () => {
   // scripts/test-intake.mjs picks the port and points RESEND_BASE_URL at it
   // (the Resend SDK reads it when it loads, before this hook runs)
+  // Loaded at run time, not bundled (its "run as a script" check would fire inside a bundle)
+  const harness = pathToFileURL(path.resolve("tests/intake/harness/mock-supabase.mjs")).href;
+  const { startMock } = (await import(harness)) as { startMock: (o: { port: number; quiet: boolean }) => Promise<Mock> };
   mock = await startMock({ port: Number(process.env.INTAKE_TEST_MOCK_PORT) || 0, quiet: true });
   process.env.ADMIN_NOTIFY_EMAIL = "staff@example.com";
   delete process.env.NEXT_PUBLIC_APP_URL;
@@ -163,6 +166,9 @@ test("bulk advance: one email, cards at another step skipped; Final Dry -> done 
   if (!bulk.ok) return;
   assert.equal(bulk.moved.length, 2);
   assert.deepEqual(bulk.skipped.map((s) => [s.cardId, s.reason, s.current]), [[plat[0].id, "different_stage", "Humidor"]]);
+  // The card that is ahead moves on alone: the bag's cards are now at different steps
+  const ahead = await svc.stages.advanceCards(admin, { orderId: ORDER, cardIds: ids(plat.slice(0, 1)), fromStage: "Humidor", by: "sam" });
+  assert.ok(ahead.ok && ahead.moved[0].stage === "Humidity Press");
 
   const loaded = await svc.data.loadOrderIntake(admin, ORDER);
   assert.ok(loaded.ok);
@@ -202,7 +208,8 @@ test("reopening a card (Done toggled off elsewhere) reopens its bag on the hook 
   assert.ok(loaded.ok);
   if (!loaded.ok) return;
   assert.equal(loaded.bag.complete, true);
-  assert.equal(loaded.bag.completedAt, "2026-12-02T10:00:00Z");
+  // completed_at is the card's done time (the database stamps it when Done is ticked)
+  assert.equal(loaded.bag.completedAt, cardRow(g2card).completed_at);
 });
 
 test("unreceive: refused once a card has steps; allowed before; awaiting flag follows the rest of the order", async () => {
@@ -246,7 +253,8 @@ test("due dates: manual change needs a reason and is logged; loaders, card page,
   assert.equal(lc.card.stage.currentLabel, "Humidity Press");
   assert.deepEqual(lc.card.stage.history.map((h) => h.label), ["Received", "Ready for Slab Crack", "Humidor", "Humidity Press"]);
   assert.equal(lc.bag?.code, "CD-3001-P");
-  assert.equal(lc.order.historicalReceivedOn, "2026-11-15");
+  // The status event's day (today), not the bag's back-dated received day
+  assert.equal(lc.order.historicalReceivedOn, nyToday());
 
   assert.deepEqual(await svc.data.resolveCode(admin, "https://thecarddoc1.com/q/cd-3001-p"), { kind: "bag", id: bag.id, code: "CD-3001-P" });
   assert.deepEqual(await svc.data.resolveCode(admin, "cd-3001-07"), { kind: "card", id: plat[0].id, code: "CD-3001-07" });

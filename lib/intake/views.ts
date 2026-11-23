@@ -1,7 +1,7 @@
 import { ORDER_STATUSES, type OrderStatus } from "@/lib/constants";
 import { toNyDate } from "@/lib/intake/business-days";
 import { compareCardsForSeq, effectiveTier, normalizeTier, qrUrl, tierDisplayName, tierLetter, tierRank } from "@/lib/intake/codes";
-import { cardStageState, stageGroups } from "@/lib/intake/stage-plan";
+import { cardStageState, keepsHistoricalCompletion, stageGroups } from "@/lib/intake/stage-plan";
 import type {
   BagSummary, CompletionStatus, IntakeCard, IntakeCardRow, IntakeOrder, IntakeOrderRow, OrderIntake,
   ReceivingStatus, StageEventRow, TierBagRow,
@@ -109,10 +109,14 @@ export function cardView(
   };
 }
 
-/** `cards`: the bag's cards (any order; refunded ones are left out of the counts and label lines). */
+/**
+ * `cards`: the bag's cards (any order; refunded ones are left out of the
+ * counts and label lines). A Historical Order Setup bag of a finished order
+ * stays complete even if its old cards were never ticked done.
+ */
 export function bagView(
   bag: TierBagRow,
-  order: Pick<IntakeOrder, "id" | "orderNumber" | "customerName">,
+  order: Pick<IntakeOrder, "id" | "orderNumber" | "customerName" | "status">,
   cards: readonly IntakeCard[],
   tierNames?: Readonly<Record<string, string>>,
 ): BagSummary {
@@ -143,7 +147,7 @@ export function bagView(
     createdBy: bag.created_by,
     cardCount: live.length,
     completedCount,
-    complete: live.length > 0 && completedCount === live.length,
+    complete: (live.length > 0 && completedCount === live.length) || (!!bag.completed_at && keepsHistoricalCompletion(bag, order.status)),
     stagesDiffer: groups.length > 1,
     stageGroups: groups,
     cards: live.map((c) => ({ id: c.id, seq: c.seq, code: c.code, qrUrl: c.qrUrl, name: c.name, set: c.set, number: c.number })),

@@ -63,8 +63,12 @@ function BagPanel({ bag }: { bag: CompletedBag }) {
         )}
       </div>
 
-      <div className="mt-3 flex flex-col sm:flex-row sm:items-start gap-2">
-        {p.canMarkCompleted && !orderDone && <MarkOrderCompletedButton orderId={bag.order.id} orderNumber={bag.order.order_number} />}
+      <div className="mt-3 flex flex-wrap items-start gap-2">
+        {p.canMarkCompleted && !orderDone && (
+          <div className="w-full sm:w-auto">
+            <MarkOrderCompletedButton orderId={bag.order.id} orderNumber={bag.order.order_number} />
+          </div>
+        )}
         {bag.isNew && <MarkSeenButton bagIds={[bag.id]} label="Mark seen" />}
         <AdminLink
           href={`/admin/receiving/bag/${bag.id}`}

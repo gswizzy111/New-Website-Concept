@@ -75,7 +75,7 @@ function CardImages({ card, orderId }: { card: IntakeCard; orderId: string }) {
     );
   }
   return (
-    <div className="flex flex-col items-center justify-center gap-2 aspect-[63/88] max-h-80 w-full rounded-xl border border-dashed border-border bg-secondary/50 text-center p-4">
+    <div className="flex flex-col items-center justify-center gap-2 h-36 lg:h-72 w-full rounded-xl border border-dashed border-border bg-secondary/50 text-center p-4">
       <p className="text-sm font-bold text-foreground">No customer image</p>
       <AdminLink href={`/admin/receiving/${orderId}`} className="text-sm font-semibold text-primary hover:underline">
         Add a photo in receiving

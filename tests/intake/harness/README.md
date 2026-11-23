@@ -187,8 +187,8 @@ still say whether the backend is right.
   event, a `cards_received` event "Received 5 of 10 cards…", backlog rule, at
   most one customer email, phone width without sideways scroll.
 - `receive-rest`: the rest on 2026-11-18 → G2/S2/P2 (batch 2, own due dates,
-  batch 1 unchanged); the no-tier card is refused with a message naming it,
-  then gets Bronze → CD-2549-B.
+  batch 1 unchanged); the no-tier card is refused (by the page and by the API)
+  with a message naming it, then gets Bronze → CD-2549-B.
 - `dropoff-add-card`: add a card with a photo (real `/api/upload` into mock
   storage; `INTERCEPT_UPLOAD=1` answers it in the browser) and receive it: same
   order, CD-2550-03, Gold bag, photo saved.
@@ -205,13 +205,14 @@ still say whether the backend is right.
   completed".
 - `labels`: `GET /api/admin/intake/labels/bag/<bagId>` and
   `/labels/order/<orderId>` (`ROUTES.labelPdfCandidates`): one bag → 1 page of
-  288x432 pt (4x6 in); all bags at once = sum of each bag's pages; a 16-card
-  bag → 2+ labels. Parsed with pdf-lib.
+  288x432 pt (4x6 in); all bags at once = sum of each bag's pages; the
+  reusable tag (`?tag=1`) is a PDF; a 16-card bag → 2+ labels. Parsed with
+  pdf-lib.
 - `setup`: Historical Order Setup preview → run → unique Card IDs, received
   dates from 'Cards Received' events / drop-off `created_at` (New York day),
   missing date flagged, delivered order stays delivered with its bag completed,
-  stage history untouched, awaiting order left alone; run again → no new cards,
-  bags or codes.
+  stage history untouched, awaiting order left alone; preview + run again
+  through the API → no new cards, bags or codes.
 
 Steps time out after 30 s (navigation 240 s for first compiles) instead of
 waiting forever for a missing button.

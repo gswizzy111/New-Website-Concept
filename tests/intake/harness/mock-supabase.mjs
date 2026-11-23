@@ -868,7 +868,7 @@ function parseMultipartFile(body, contentType) {
   return { bytes: body, contentType: "application/octet-stream" };
 }
 
-function handleStorage(store, req, res, url, body, base) {
+function handleStorage(store, req, res, url, body) {
   const p = decodeURIComponent(url.pathname.replace(/^\/storage\/v1/, ""));
   const send = (status, obj, headers = {}) => { res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(obj)); };
   const serve = (key) => {
@@ -1153,7 +1153,7 @@ export async function startMock({ port = 0, tls = null, seedFn = null, quiet = f
         if (p === "/__emails") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(store.emails)); }
         if (p === "/__requests") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify(store.requests)); }
         if (p.startsWith("/rest/v1")) return handleRest(store, req, res, url, body);
-        if (p.startsWith("/storage/v1")) return handleStorage(store, req, res, url, body, baseUrl);
+        if (p.startsWith("/storage/v1")) return handleStorage(store, req, res, url, body);
         if (p.startsWith("/auth/v1")) return handleAuth(req, res, url, body);
         if (p.startsWith("/__resend")) return handleResend(store, req, res, url, body);
         if (p.startsWith("/realtime") || p.startsWith("/functions/v1")) { res.writeHead(404); return res.end(); }

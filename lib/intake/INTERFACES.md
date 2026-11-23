@@ -149,7 +149,8 @@ after fromDay; 2026-11-15 + 15 with 2026-11-26 off = 2026-12-07),
 - `NOT_STARTED_LABEL`, `DONE_LABEL`, `stageIndex(stage)`, `nextStepAfter(stage | null): NextStep`.
 - `cardStageState(card, events): CardStageState`: `card` = { id, completed, completed_at?, current_round?, received_at?, received_by? }; `events` = the order's order_events NEWEST FIRST (stage_update and round_started rows are used). Current stage uses the existing `currentStages()`.
 - `planAdvance({ cards: AdvanceCard[], cardIds, fromStage, toStage? }): { ok, plan: AdvancePlan } | refusal`; `AdvanceCard` = { id, current, completed, refunded, awaiting, round }; `SkipReason` = `different_stage | done | refunded | awaiting_arrival | not_on_order`.
-- `isBagComplete(cards)`, `bagCompletionPatch(bag, cards, now)`, `stageGroups(cards)`.
+- `isBagComplete(cards)`, `bagCompletionPatch(bag, cards, now, orderStatus?)`, `stageGroups(cards)`.
+- `keepsHistoricalCompletion(bag, orderStatus)`: a `migration` bag of a finished order (completed / shipped_back / delivered) stays complete even though its old cards were never ticked done (finished historical orders are never reopened). `refreshBagCompletion`, the loaders' healing and `bagView().complete` all follow it.
 - `advanceCards(admin, { orderId, cardIds, fromStage, toStage?, by }): AdvanceResult`
   - Moves only the chosen cards whose current step equals `fromStage` (null = not started) to the next step, or `toStage` (a stage name, or `"complete"`). From Final Dry the next step marks the card done (`completed = true`, like the Done toggle).
   - Writes exactly what the stage buttons write: `order_events` `stage_update`, description `Stage: <stage> [card:<id>]`, metadata `{ card_id, stage, round, by, bulk }`, customer visible.
@@ -165,7 +166,8 @@ after fromDay; 2026-11-15 + 15 with 2026-11-26 off = 2026-12-07),
 - `resolveCode(admin, raw): { kind: "card" | "bag"; id; code } | null`
 - `loadTierNames(admin)`, `CARD_COLUMNS`, `ORDER_COLUMNS`, `INTAKE_EVENT_TYPES`.
 - Loaders also heal bag completion (cards ticked done on the old site or by the ship trigger). Card IDs are NOT assigned on load: cards without one show `code: null` until `receiveCards` / `ensureCardCodes`.
-- Pure builders: `buildOrderIntake({ order, cards, bags, events, tierNames })`, `orderView`, `cardView`, `bagView`, `receivingStatus`, `completionStatus`, `historicalReceivedOn`, `byCardNumber`, `byBagOrder`, `RECEIVED_EVENT_TEXT`.
+- Pure builders: `buildOrderIntake({ order, cards, bags, events, tierNames })`, `orderView(row, events, tierNames?)`, `cardView(row, order, bag, events, tierNames?)`, `bagView(bag, order /* id, orderNumber, customerName, status */, cards, tierNames?)`, `receivingStatus`, `completionStatus`, `historicalReceivedOn`, `byCardNumber`, `byBagOrder`, `RECEIVED_EVENT_TEXT`.
+- `historicalReceivedOn` is the day of the first 'Cards Received' status event, so for an order received through this system it is the day the status changed, not a back-dated received day; use the bag's `receivedOn` for due dates and labels.
 
 ## lib/order-status.ts (server)
 
@@ -189,3 +191,12 @@ status only while it still has that value (`skipped: true` otherwise).
 
 The new `/api/admin/intake/*` routes, `/q/[code]` and the label routes are
 owned by the UI agents and documented in their own files.
+
+## Tests
+
+`node scripts/test-intake.mjs [filter]` bundles `tests/intake/*.test.ts` with
+esbuild (the `@/` alias resolved, `server-only` stubbed) and runs them with
+node:test; no Next.js and no database. `services.test.ts` runs the services
+end to end against the in-memory Supabase + Resend stand-in
+(`tests/intake/harness/mock-supabase.mjs`, loaded at run time); the runner
+picks its port and sets `RESEND_BASE_URL` / `RESEND_API_KEY` for it.

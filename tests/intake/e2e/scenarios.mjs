@@ -689,13 +689,9 @@ const SCENARIOS = {
       eq(latestStage(t1, IDS.inProgressCards[0]), "Heat Press", "in-progress card 1 stage");
       eq(bagsOf(t1, IDS.mailOrder).length, 0, "awaiting-cards order got bags");
     }, { shot: false });
-    await s.step("run again (UI or API): no new cards, codes or bags", async () => {
-      if (ranInUi) {
-        await goto(page, ROUTES.setup);
-        await UI.setupSelectAll(page).check().catch(() => {});
-        await clickForApi(page, UI.setupPreview(page), "/setup/preview").catch(() => {});
-        await clickForApi(page, UI.setupRun(page), "/setup/run", 120_000).catch(() => {});
-      }
+    await s.step("run again (same orders, through the API): no new cards, codes or bags", async () => {
+      const p = await api(ctx, "POST", ROUTES.setupPreviewApi, { orderIds: historical });
+      assert(p.status < 500, `second preview ${p.status}`);
       const r = await api(ctx, "POST", ROUTES.setupRunApi, { orderIds: historical });
       assert(r.status < 500, `second run ${r.status}`);
       const t2 = await tables();
