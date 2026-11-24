@@ -101,7 +101,8 @@ async function occupantIds(admin: SupabaseClient, locationId: string): Promise<s
 /** The 409 for a full slot, or null when there's room (or `force`). */
 async function capacityCheck(admin: SupabaseClient, loc: LocationRow, plan: CardPlan, force: boolean | undefined): Promise<CapacityConflict | null> {
   if (force || loc.capacity == null) return null;
-  const going = plan.results.filter((r) => r.ok).map((r) => r.cardId);
+  // Only cards that would go in count; cards already inside never trip it
+  const going = plan.moves.filter((m) => m.locationChanges && m.toLocationId === loc.id).map((m) => m.cardId);
   if (!going.length) return null;
   const inside = await occupantIds(admin, loc.id);
   if (!overCapacity(loc.capacity, inside, going)) return null;

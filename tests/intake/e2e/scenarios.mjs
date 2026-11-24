@@ -5,6 +5,7 @@
 //
 //   node tests/intake/e2e/scenarios.mjs                 start harness, run all, stop
 //   node tests/intake/e2e/scenarios.mjs --only qr,labels,photos-page,print-step
+//   node tests/intake/e2e/scenarios.mjs --only 'track-*'  card tracking with serial-numbered slots
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -169,7 +170,7 @@ export const UI = {
   shipFlag: /⚠|not done|still in/i,
   shipOk: /✅|\bready\b|\bok\b/i,
   stillIn: (slotName) => new RegExp(`still in\\s+${esc(slotName)}(?!\\d)`, "i"),
-  markDone: (scope) => scope.getByRole("button", { name: /^mark( as)? done\b/i }).first(),
+  shipMarkDone: (scope) => scope.getByRole("button", { name: /^mark( as)? done\b/i }).first(),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1512,6 +1513,837 @@ const SCENARIOS = {
       eq(t2.cards.map((c) => `${c.id}:${c.card_code}`).sort(), t1.cards.map((c) => `${c.id}:${c.card_code}`).sort(), "card codes");
     });
   },
+
+  // ═══ Card tracking with serial-numbered slots (owner's model, Nov 24) ══════════════════════
+  // Cards carry no sticker. Every holder is a slot with a QR label (CLAMP 07 = LOC-CLAMP-07);
+  // staff put cards in slots, move them on, mark them done or take them out. API first, then
+  // light UI. Run them alone: --only 'track-*'
+
+  // Places: LOC-DONE + LOC-SHIP seeded; staff make numbered slots in bulk; capacity, rename, switch off
+  async "track-slots"({ page, ctx, s, browser, appUrl }) {
+    await s.step("seeded: LOC-DONE and LOC-SHIP only (no slots); the list names the 8 station types", async () => {
+      const r = await api(ctx, "GET", ROUTES.trackLocations());
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 120)})`);
+      assert(Array.isArray(r.body?.locations), `locations: ${JSON.stringify(r.body).slice(0, 160)}`);
+      eq(r.body.locations.map((l) => l.code).sort(), DEFAULT_PLACES.map((p) => p.code).sort(), "places");
+      const types = r.body.stations ?? [];
+      for (const [key, st] of Object.entries(STATIONS)) eq(types.find((x) => x.key === key)?.stage, st.stage, `station type ${key}: step`);
+      return types.map((x) => `${x.key} (${x.defaultCapacity ?? "no limit"})`).join(", ");
+    }, { critical: true, shot: false });
+    await s.step("make 5 clamps: CLAMP 01..05 = LOC-CLAMP-01..05, numbered slots of step Clamp Work", async () => {
+      const body = await bulkSlots(ctx, "clamp", 5);
+      eq(body.created.map((l) => l.code), range(1, 5).map((n) => slotCode("clamp", n)), "codes");
+      eq(body.created.map((l) => l.name), range(1, 5).map((n) => slotName("clamp", n)), "names");
+      eq(body.skipped ?? [], [], "skipped");
+      const t = await tables();
+      for (const n of range(1, 5)) {
+        const l = placeOf(t, slotCode("clamp", n));
+        eq([l.kind, l.station, l.serial, l.stage, l.active], ["station", "clamp", n, "Clamp Work", true], `${l.code} kind, station, serial, stage, active`);
+      }
+      return `capacity ${placeOf(t, "LOC-CLAMP-01").capacity ?? "no limit"} each`;
+    }, { critical: true, shot: false });
+    await s.step("make 3 heat press spots: HEAT PRESS 01..03 = LOC-HEAT-PRESS-01..03, step Heat Press", async () => {
+      const body = await bulkSlots(ctx, "heat-press", 3);
+      eq(body.created.map((l) => l.code), range(1, 3).map((n) => slotCode("heat-press", n)), "codes");
+      eq(body.created.map((l) => l.name), range(1, 3).map((n) => slotName("heat-press", n)), "names");
+      const t = await tables();
+      for (const n of range(1, 3)) eq([placeOf(t, slotCode("heat-press", n)).station, placeOf(t, slotCode("heat-press", n)).stage], ["heat-press", "Heat Press"], `HEAT PRESS ${nn(n)} station, stage`);
+    }, { critical: true, shot: false });
+    await s.step("2 more clamps with no start number: CLAMP 06 and 07 (after the highest number in use)", async () => {
+      const body = await bulkSlots(ctx, "clamp", 2);
+      eq(body.created.map((l) => l.code), [slotCode("clamp", 6), slotCode("clamp", 7)], "codes");
+    }, { shot: false });
+    await s.step("startAt 4, count 2: CLAMP 04 and 05 exist, so both are skipped and nothing is made", async () => {
+      const before = (await tables()).locations.length;
+      const body = await bulkSlots(ctx, "clamp", 2, 4);
+      eq(body.created.map((l) => l.code), [], "created");
+      eq([...(body.skipped ?? [])].sort(), [slotCode("clamp", 4), slotCode("clamp", 5)], "skipped");
+      eq((await tables()).locations.length, before, "places");
+    }, { shot: false });
+    await s.step("refused, nothing made: an unknown station type; count 0", async () => {
+      const before = (await tables()).locations.length;
+      const bad = await api(ctx, "POST", ROUTES.trackLocations(), { station: "toaster", count: 2 });
+      assert(bad.status >= 400 && bad.status < 500, `unknown station type: HTTP ${bad.status}`);
+      const zero = await api(ctx, "POST", ROUTES.trackLocations(), { station: "clamp", count: 0 });
+      assert(zero.status >= 400 && zero.status < 500, `count 0: HTTP ${zero.status}`);
+      eq((await tables()).locations.length, before, "places");
+      return `${bad.body?.error ?? bad.status} / ${zero.body?.error ?? zero.status}`;
+    }, { shot: false });
+    await s.step("GET ?station=clamp: the 7 clamps in number order, each empty and free, QR = /Q/<code>", async () => {
+      const r = await api(ctx, "GET", ROUTES.trackLocations("?station=clamp"));
+      eq(r.status, 200, "HTTP");
+      const list = r.body?.locations ?? [];
+      eq(list.map((l) => l.code), range(1, 7).map((n) => slotCode("clamp", n)), "codes");
+      assert(list.every((l) => l.cardCount === 0 && l.free === true), `occupancy: ${JSON.stringify(list.map((l) => [l.code, l.cardCount, l.free]))}`);
+      eq(list[0].stationName, "Clamp", "stationName");
+      assert(codeQrData(appUrl, "LOC-CLAMP-01").includes(list[0].qrUrl), `qrUrl "${list[0].qrUrl}"`);
+    }, { shot: false });
+    await s.step("PATCH capacity: 3 on CLAMP 01, none (null) on CLAMP 02; 0 is refused", async () => {
+      const t0 = await tables();
+      const c1 = placeOf(t0, "LOC-CLAMP-01").id, c2 = placeOf(t0, "LOC-CLAMP-02").id;
+      eq((await api(ctx, "PATCH", ROUTES.trackLocations(), { id: c1, capacity: 3 })).status, 200, "capacity 3: HTTP");
+      eq((await api(ctx, "PATCH", ROUTES.trackLocations(), { id: c2, capacity: null })).status, 200, "capacity null: HTTP");
+      const zero = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: c1, capacity: 0 });
+      assert(zero.status >= 400 && zero.status < 500, `capacity 0: HTTP ${zero.status}`);
+      const t = await tables();
+      eq([placeOf(t, "LOC-CLAMP-01").capacity, placeOf(t, "LOC-CLAMP-02").capacity], [3, null], "capacities");
+    }, { shot: false });
+    await s.step('rename CLAMP 07 "SPARE CLAMP" (code and number stay), switch it off: off the list, still in ?all=1', async () => {
+      const slot = placeOf(await tables(), "LOC-CLAMP-07");
+      assert(slot, "no CLAMP 07 (see above)");
+      const ren = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: slot.id, name: "SPARE CLAMP" });
+      eq(ren.status, 200, `rename: HTTP (${JSON.stringify(ren.body).slice(0, 120)})`);
+      let row = placeOf(await tables(), "LOC-CLAMP-07");
+      eq([row.name, row.code, row.serial], ["SPARE CLAMP", "LOC-CLAMP-07", 7], "name, code, serial");
+      const off = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: slot.id, active: false });
+      eq(off.status, 200, "switch off: HTTP");
+      row = placeOf(await tables(), "LOC-CLAMP-07");
+      eq(row.active, false, "active");
+      const list = await api(ctx, "GET", ROUTES.trackLocations());
+      assert(!list.body?.locations?.some((l) => l.id === slot.id), "a switched-off slot is still listed");
+      const all = await api(ctx, "GET", ROUTES.trackLocations("?all=1"));
+      assert(all.body?.locations?.some((l) => l.id === slot.id), "?all=1 doesn't list the switched-off slot");
+    }, { shot: false });
+    await s.step('one other place: "Bench 2" (kind other) -> LOC-BENCH-2; a "station" made by name is refused', async () => {
+      const r = await api(ctx, "POST", ROUTES.trackLocations(), { name: "Bench 2", kind: "other" });
+      assert([200, 201].includes(r.status), `HTTP ${r.status}: ${JSON.stringify(r.body).slice(0, 200)}`);
+      eq([r.body?.location?.code, r.body?.location?.name, r.body?.location?.kind], ["LOC-BENCH-2", "Bench 2", "other"], "code, name, kind");
+      const row = placeOf(await tables(), "LOC-BENCH-2");
+      assert(row && row.kind === "other" && row.stage == null && row.station == null, `row: ${JSON.stringify(row)}`);
+      const before = (await tables()).locations.length;
+      const st = await api(ctx, "POST", ROUTES.trackLocations(), { name: "Mystery Station", kind: "station" });
+      assert(st.status >= 400 && st.status < 500, `a station by name: HTTP ${st.status}`);
+      eq((await tables()).locations.length, before, "places");
+    }, { shot: false });
+    await s.step("Places page lists the slots and places; no sideways scroll at 1440 and 390 px", async () => {
+      await goto(page, ROUTES.places);
+      const text = (await page.locator("main").first().innerText()).toUpperCase();
+      const want = [...range(1, 6).map((n) => ["clamp", n]), ...range(1, 3).map((n) => ["heat-press", n])];
+      const missing = want.filter(([st, n]) => !nameRe(slotName(st, n)).test(text) && !text.includes(slotCode(st, n))).map(([st, n]) => slotName(st, n));
+      for (const p of DEFAULT_PLACES) if (!text.includes(p.name.toUpperCase()) && !text.includes(p.code)) missing.push(p.code);
+      assert(!missing.length, `not shown: ${missing.join(", ")}`);
+      const wide = await sidewaysScroll(page);
+      assert(wide <= 1, `desktop page scrolls sideways by ${wide}px`);
+      const w = await phoneShot(browser, appUrl, ROUTES.places, "track-slots-places");
+      assert(!w, w);
+    });
+  },
+
+  // ASSIGN: put cards in a slot (step = the slot's, one email per order), capacity warning + "add
+  // anyway", a card leaves its old slot, refunded cards refused
+  async "track-assign"({ ctx, s, mockUrl }) {
+    let t0 = null;
+    await s.step("setup: receive CD-2549 (01-04, 07-08) and CD-2600-01; make CLAMP 01..05, HEAT PRESS 01..03; CLAMP 01 no limit, CLAMP 02 holds 1", async () => {
+      await trackSetup(ctx, { clamp: 5, "heat-press": 3 });
+      await mockUpdate(mockUrl, "locations", { capacity: null }, "code", "LOC-CLAMP-01");
+      await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", "LOC-CLAMP-02");
+      t0 = await tables();
+    }, { critical: true, shot: false });
+    const three = ["CD-2549-07", "CD-2549-08", "CD-2600-01"];
+    let body1 = null, mails0 = 0;
+    await s.step("assign CD-2549-07 + CD-2549-08 + CD-2600-01 to CLAMP 01: all in, step Clamp Work", async () => {
+      mails0 = (await emails()).length;
+      body1 = await assignOk(ctx, "LOC-CLAMP-01", three.map((c) => cardIdOf(t0, c)));
+      eq(body1.location?.code, "LOC-CLAMP-01", "location.code");
+      for (const code of three) {
+        const r = resultOf(body1, cardIdOf(t0, code));
+        assert(r?.ok && r.changed, `${code}: ${r?.message ?? "no result"}`);
+        eq(r.stage, "Clamp Work", `${code} stage`);
+      }
+      eq(body1.changed, 3, "changed");
+      return body1.message;
+    }, { critical: true, shot: false });
+    await s.step("the 3 cards are in CLAMP 01 (location_id, located_at) at step Clamp Work; the others didn't move", async () => {
+      const t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-01"), [...three].sort(), "cards in CLAMP 01");
+      for (const code of three) {
+        assert(cardByCode(t, code).located_at, `${code} has no located_at`);
+        eq(latestStage(t, cardIdOf(t, code)), "Clamp Work", `${code} step`);
+      }
+      for (const code of ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"]) {
+        eq(cardByCode(t, code).location_id ?? null, cardByCode(t0, code).location_id ?? null, `${code} location_id`);
+        eq(latestStage(t, cardIdOf(t, code)), null, `${code} step`);
+      }
+      eq(stageEventCount(t) - stageEventCount(t0), 3, "new stage_update events");
+    }, { shot: false });
+    await s.step("card_moves: one 'assign' row per card (to CLAMP 01, from where it was, step null -> Clamp Work, order and bag)", async () => {
+      const t = await tables();
+      const to = placeOf(t, "LOC-CLAMP-01").id;
+      for (const code of three) {
+        const c = cardByCode(t, code);
+        const rows = movesOf(t, c.id).filter((m) => m.to_location_id === to);
+        eq(rows.length, 1, `${code} rows to CLAMP 01`);
+        eq([rows[0].action, rows[0].stage_before ?? null, rows[0].stage_after], ["assign", null, "Clamp Work"], `${code} action, stage_before, stage_after`);
+        eq([rows[0].order_id, rows[0].bag_id, rows[0].from_location_id ?? null], [c.order_id, c.bag_id, cardByCode(t0, code).location_id ?? null], `${code} order_id, bag_id, from_location_id`);
+      }
+    }, { shot: false });
+    await s.step("one customer email per order: one to Test Customer A (2 cards), one to Test Customer G", async () => {
+      const fresh = (await emails()).slice(mails0);
+      eq(mailsTo(fresh, CUSTOMER_A).length, 1, "emails to Test Customer A");
+      eq(mailsTo(fresh, CUSTOMER_G).length, 1, "emails to Test Customer G");
+      eq((body1?.emailedOrders ?? []).length, 2, `emailedOrders ${JSON.stringify(body1?.emailedOrders)}`);
+      return fresh.map((m) => m.subject).join(" | ").slice(0, 160);
+    }, { shot: false });
+    await s.step("the same assign again: ok, nothing changed; no new step event, move row or email", async () => {
+      const before = await dump();
+      const body = await assignOk(ctx, "LOC-CLAMP-01", three.map((c) => cardIdOf(t0, c)));
+      assert(body.results.every((r) => r.ok && !r.changed), body.results.map((r) => `${r.code}: ok ${r.ok}, changed ${r.changed}`).join(" | "));
+      eq(body.changed, 0, "changed");
+      const after = await dump();
+      eq(after.tables.card_moves.length, before.tables.card_moves.length, "card_moves rows");
+      eq(stageEventCount(after.tables), stageEventCount(before.tables), "stage_update events");
+      eq(after.emails.length, before.emails.length, "emails");
+    }, { shot: false });
+
+    await s.step("CLAMP 02 (holds 1): CD-2549-01 goes in", async () => {
+      const body = await assignOk(ctx, "LOC-CLAMP-02", [mailCard(0)]);
+      assert(resultOf(body, mailCard(0))?.ok, body.message);
+      eq(cardsIn(await tables(), "LOC-CLAMP-02"), ["CD-2549-01"], "cards in CLAMP 02");
+    }, { critical: true, shot: false });
+    await s.step("CD-2549-02 into the full CLAMP 02: 409 over capacity (capacity 1, holds CD-2549-01); nothing written", async () => {
+      const before = await dump();
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-02", cardIds: [mailCard(1)] });
+      const msg = checkCapacityConflict(r, 1, ["CD-2549-01"]);
+      const after = await dump();
+      eq(cardsIn(after.tables, "LOC-CLAMP-02"), ["CD-2549-01"], "cards in CLAMP 02");
+      eq(after.tables.card_moves.length, before.tables.card_moves.length, "card_moves rows");
+      eq(stageEventCount(after.tables), stageEventCount(before.tables), "stage_update events");
+      eq(after.emails.length, before.emails.length, "emails");
+      return msg;
+    }, { shot: false });
+    await s.step('"Add anyway" (force: true): CD-2549-02 goes in too; CLAMP 02 holds 2; step Clamp Work; one email', async () => {
+      const n = (await emails()).length;
+      const body = await assignOk(ctx, "LOC-CLAMP-02", [mailCard(1)], true);
+      assert(resultOf(body, mailCard(1))?.ok, body.message);
+      const t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-02"), ["CD-2549-01", "CD-2549-02"], "cards in CLAMP 02");
+      eq(latestStage(t, mailCard(1)), "Clamp Work", "CD-2549-02 step");
+      eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, 1, "emails to Test Customer A");
+    }, { shot: false });
+    await s.step("a card put in another slot leaves its old one: CD-2549-03 in CLAMP 03, then CLAMP 04 -> CLAMP 03 freed, no new step", async () => {
+      await assignOk(ctx, "LOC-CLAMP-03", [mailCard(2)]);
+      const before = await dump();
+      const body = await assignOk(ctx, "LOC-CLAMP-04", [mailCard(2)]);
+      const t = (await dump()).tables;
+      eq(cardsIn(t, "LOC-CLAMP-03"), [], "cards in CLAMP 03");
+      eq(cardsIn(t, "LOC-CLAMP-04"), ["CD-2549-03"], "cards in CLAMP 04");
+      assert(freedCodes(body).includes("LOC-CLAMP-03"), `freed ${JSON.stringify(freedCodes(body))}`);
+      eq(latestStage(t, mailCard(2)), "Clamp Work", "step");
+      eq(stageEventCount(t), stageEventCount(before.tables), "stage_update events (same step)");
+      eq((await emails()).length, before.emails.length, "emails (same step)");
+      const row = movesOf(t, mailCard(2)).find((m) => m.to_location_id === placeOf(t, "LOC-CLAMP-04").id);
+      eq(row?.from_location_id, placeOf(t, "LOC-CLAMP-03").id, "the move row's from_location_id");
+    }, { shot: false });
+    await s.step("a scanned link names the slot (https://thecarddoc1.com/q/loc-heat-press-01): CD-2549-04 -> HEAT PRESS 01, step Heat Press", async () => {
+      const body = await assignOk(ctx, "https://thecarddoc1.com/q/loc-heat-press-01", [mailCard(3)]);
+      eq(body.location?.code, "LOC-HEAT-PRESS-01", "location.code");
+      const t = await tables();
+      eq(cardsIn(t, "LOC-HEAT-PRESS-01"), ["CD-2549-04"], "cards in HEAT PRESS 01");
+      eq(latestStage(t, mailCard(3)), "Heat Press", "step");
+    }, { shot: false });
+    await s.step("a refunded card is refused (CD-2549-04 refunded, into CLAMP 05): it stays where it was, no move row", async () => {
+      await mockUpdate(mockUrl, "cards", { status: "refunded" }, "id", mailCard(3));
+      const before = await tables();
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-05", cardIds: [mailCard(3)] });
+      const res = r.status === 200 ? resultOf(r.body, mailCard(3)) : null;
+      const said = r.status === 200 ? res?.message ?? "" : r.body?.error ?? "";
+      assert((r.status === 200 && res && !res.ok) || (r.status >= 400 && r.status < 500), `HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      assert(/refund/i.test(said), `the answer should say it was refunded: "${said}"`);
+      const t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-05"), [], "cards in CLAMP 05");
+      eq(movesOf(t, mailCard(3)).length, movesOf(before, mailCard(3)).length, "move rows");
+      return said;
+    }, { shot: false });
+    await s.step("refused, nothing written: an unknown slot (LOC-CLAMP-99); no cards", async () => {
+      const before = await tables();
+      const unk = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-99", cardIds: [mailCard(0)] });
+      assert(unk.status >= 400 && unk.status < 500, `unknown slot: HTTP ${unk.status}`);
+      const none = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-05", cardIds: [] });
+      assert(none.status >= 400 && none.status < 500, `no cards: HTTP ${none.status}`);
+      eq((await tables()).card_moves.length, before.card_moves.length, "card_moves rows");
+      return `${unk.status} ${unk.body?.error ?? ""}`;
+    }, { shot: false });
+  },
+
+  // MOVE a slot's cards to another slot (capacity, the step never goes backwards), then Done and Take out
+  async "track-move"({ ctx, s, mockUrl }) {
+    const three = ["CD-2549-07", "CD-2549-08", "CD-2600-01"];
+    let t0 = null;
+    await s.step("setup: receive; make CLAMP 01..03, HEAT PRESS 01..03, FINAL DRY 01..02; CD-2549-07, -08 and CD-2600-01 in CLAMP 01", async () => {
+      await trackSetup(ctx, { clamp: 3, "heat-press": 3, "final-dry": 2 });
+      await mockUpdate(mockUrl, "locations", { capacity: null }, "code", "LOC-CLAMP-01");
+      for (const code of ["LOC-HEAT-PRESS-02", "LOC-FINAL-DRY-01"]) await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", code);
+      t0 = await tables();
+      await assignOk(ctx, "LOC-CLAMP-01", three.map((c) => cardIdOf(t0, c)));
+      eq(cardsIn(await tables(), "LOC-CLAMP-01"), [...three].sort(), "cards in CLAMP 01");
+    }, { critical: true, shot: false });
+    await s.step("move CLAMP 01 -> HEAT PRESS 02 (holds 1): 409 over capacity; nothing moved", async () => {
+      const before = await tables();
+      const r = await trackPost(ctx, ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HEAT-PRESS-02" });
+      const msg = checkCapacityConflict(r, 1, []);
+      const t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-01"), [...three].sort(), "still in CLAMP 01");
+      eq(t.card_moves.length, before.card_moves.length, "card_moves rows");
+      return msg;
+    }, { shot: false });
+    await s.step("again with force: all 3 in HEAT PRESS 02, CLAMP 01 empty (freed); step stays Clamp Work (Heat Press is earlier); no email", async () => {
+      const before = await dump();
+      const body = await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HEAT-PRESS-02", force: true });
+      eq(body.location?.code, "LOC-HEAT-PRESS-02", "location.code");
+      assert(body.results.length === 3 && body.results.every((r) => r.ok), body.results.map((r) => `${r.code}: ${r.message}`).join(" | "));
+      const after = await dump();
+      const t = after.tables;
+      eq(cardsIn(t, "LOC-HEAT-PRESS-02"), [...three].sort(), "cards in HEAT PRESS 02");
+      eq(cardsIn(t, "LOC-CLAMP-01"), [], "cards in CLAMP 01");
+      assert(freedCodes(body).includes("LOC-CLAMP-01"), `freed ${JSON.stringify(freedCodes(body))}`);
+      for (const code of three) eq(latestStage(t, cardIdOf(t, code)), "Clamp Work", `${code} step (never backwards)`);
+      eq(stageEventCount(t), stageEventCount(before.tables), "stage_update events");
+      eq(after.emails.length, before.emails.length, "emails");
+      const from = placeOf(t, "LOC-CLAMP-01").id, to = placeOf(t, "LOC-HEAT-PRESS-02").id;
+      for (const code of three) {
+        const row = movesOf(t, cardIdOf(t, code)).find((m) => m.to_location_id === to);
+        assert(row, `${code}: no move row to HEAT PRESS 02`);
+        eq([row.action, row.from_location_id, row.stage_before, row.stage_after], ["move", from, "Clamp Work", "Clamp Work"], `${code} action, from, stage_before, stage_after`);
+      }
+      return body.message;
+    }, { critical: true, shot: false });
+    await s.step("move only CD-2549-07 + -08 on to FINAL DRY 01 (force): step Final Dry, one email to A; CD-2600-01 stays", async () => {
+      const n = (await emails()).length;
+      const body = await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-02", toCode: "LOC-FINAL-DRY-01", cardIds: [mailCard(6), mailCard(7)], force: true });
+      const t = await tables();
+      eq(cardsIn(t, "LOC-FINAL-DRY-01"), ["CD-2549-07", "CD-2549-08"], "cards in FINAL DRY 01");
+      eq(cardsIn(t, "LOC-HEAT-PRESS-02"), ["CD-2600-01"], "left in HEAT PRESS 02");
+      assert(!freedCodes(body).includes("LOC-HEAT-PRESS-02"), "HEAT PRESS 02 reported empty, but CD-2600-01 is still in it");
+      for (const cid of [mailCard(6), mailCard(7)]) eq(latestStage(t, cid), "Final Dry", `${cid} step`);
+      eq(latestStage(t, IDS.bigCards[0]), "Clamp Work", "CD-2600-01 step");
+      const fresh = (await emails()).slice(n);
+      eq([mailsTo(fresh, CUSTOMER_A).length, mailsTo(fresh, CUSTOMER_G).length], [1, 0], "emails to A, G");
+      return body.message;
+    }, { critical: true, shot: false });
+    await s.step("refused, nothing moved: from an empty slot (CLAMP 01); a card that isn't in the from-slot", async () => {
+      const before = await tables();
+      const empty = await trackPost(ctx, ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-CLAMP-02" });
+      assert(empty.status >= 400 && empty.status < 500, `from an empty slot: HTTP ${empty.status}`);
+      const stranger = await trackPost(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-02", toCode: "LOC-CLAMP-02", cardIds: [mailCard(0)] });
+      const refused = (stranger.status >= 400 && stranger.status < 500) || (stranger.status === 200 && (stranger.body?.results ?? []).every((r) => !r.ok || !r.changed));
+      assert(refused, `a card not in the slot: HTTP ${stranger.status} ${JSON.stringify(stranger.body).slice(0, 160)}`);
+      const t = await tables();
+      eq(t.card_moves.length, before.card_moves.length, "card_moves rows");
+      eq(cardsIn(t, "LOC-CLAMP-02"), [], "cards in CLAMP 02");
+      eq(cardsIn(t, "LOC-HEAT-PRESS-02"), ["CD-2600-01"], "cards in HEAT PRESS 02");
+    }, { shot: false });
+    await s.step("Done (CD-2549-07 + -08): done, at LOC-DONE; FINAL DRY 01 freed; bag CD-2549-P complete; no customer email", async () => {
+      const n = (await emails()).length;
+      const body = await trackOk(ctx, ROUTES.trackDone, { cardIds: [mailCard(6), mailCard(7)] });
+      eq(body.location?.code, "LOC-DONE", "location.code");
+      const t = await tables();
+      const doneId = placeOf(t, "LOC-DONE").id;
+      for (const code of ["CD-2549-07", "CD-2549-08"]) {
+        const c = cardByCode(t, code);
+        assert(c.completed && c.completed_at, `${code} not done`);
+        eq(c.location_id, doneId, `${code} location_id`);
+        const row = movesOf(t, c.id).find((m) => m.to_location_id === doneId);
+        assert(row, `${code}: no move row to LOC-DONE`);
+        eq([row.action, row.from_location_id, row.stage_before, row.stage_after], ["done", placeOf(t, "LOC-FINAL-DRY-01").id, "Final Dry", "done"], `${code} action, from, stage_before, stage_after`);
+      }
+      eq(cardsIn(t, "LOC-FINAL-DRY-01"), [], "cards in FINAL DRY 01");
+      assert(freedCodes(body).includes("LOC-FINAL-DRY-01"), `freed ${JSON.stringify(freedCodes(body))}`);
+      const bag = bagByCode(t, "CD-2549-P");
+      assert(bag.completed_at, "bag CD-2549-P not completed");
+      assert((body.bagsCompleted ?? []).includes(bag.id), `bagsCompleted ${JSON.stringify(body.bagsCompleted)} doesn't name CD-2549-P`);
+      assert(!bagByCode(t, "CD-2549-G").completed_at, "the Gold bag must stay open");
+      assert(!["completed", "shipped_back", "delivered"].includes(t.orders.find((o) => o.id === IDS.mailOrder).status), "the order was completed");
+      eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, 0, "customer emails for done (none, as before)");
+      return body.message;
+    }, { shot: false });
+    await s.step("Take out (release) CD-2600-01: in no place, HEAT PRESS 02 freed, step still Clamp Work, a 'release' row", async () => {
+      const before = await dump();
+      const body = await trackOk(ctx, ROUTES.trackRelease, { cardIds: [IDS.bigCards[0]] });
+      eq(body.location ?? null, null, "location");
+      const t = (await dump()).tables;
+      eq(cardByCode(t, "CD-2600-01").location_id ?? null, null, "location_id");
+      eq(cardsIn(t, "LOC-HEAT-PRESS-02"), [], "cards in HEAT PRESS 02");
+      assert(freedCodes(body).includes("LOC-HEAT-PRESS-02"), `freed ${JSON.stringify(freedCodes(body))}`);
+      eq(latestStage(t, IDS.bigCards[0]), "Clamp Work", "step");
+      const rows = movesOf(t, IDS.bigCards[0]).filter((m) => m.action === "release");
+      eq(rows.length, 1, "release rows");
+      eq([rows[0].from_location_id, rows[0].to_location_id ?? null], [placeOf(t, "LOC-HEAT-PRESS-02").id, null], "from, to");
+      eq((await emails()).length, before.emails.length, "emails");
+    }, { shot: false });
+    await s.step("take it out again: ok, nothing changed, no new row", async () => {
+      const before = await tables();
+      const body = await trackOk(ctx, ROUTES.trackRelease, { cardIds: [IDS.bigCards[0]] });
+      assert(body.results.every((r) => r.ok && !r.changed), body.results.map((r) => `${r.code}: ok ${r.ok}, changed ${r.changed}`).join(" | "));
+      eq((await tables()).card_moves.length, before.card_moves.length, "card_moves rows");
+    }, { shot: false });
+  },
+
+  // FIND: a slot -> its cards; a bag/order -> its cards with their slots; a typed Card ID; search; history
+  async "track-find"({ ctx, s, appUrl, mockUrl }) {
+    await s.step("setup: receive; make CLAMP 01..03; CD-2549-07 + -08 in CLAMP 01, CD-2549-01 in CLAMP 02", async () => {
+      await trackSetup(ctx, { clamp: 3 });
+      await mockUpdate(mockUrl, "locations", { capacity: null }, "code", "LOC-CLAMP-01");
+      await assignOk(ctx, "LOC-CLAMP-01", [mailCard(6), mailCard(7)]);
+      await assignOk(ctx, "LOC-CLAMP-02", [mailCard(0)]);
+    }, { critical: true, shot: false });
+    const platDue = "2026-12-07";
+    await s.step("slot LOC-CLAMP-01: CLAMP 01, Clamp, number 1, step Clamp Work, 2 cards (Card ID, name, customer, due)", async () => {
+      const l = await resolveVia(ctx, "LOC-CLAMP-01", "location");
+      eq([l.code, l.name, l.kind, l.station, l.stationName, l.serial, l.stage], ["LOC-CLAMP-01", "CLAMP 01", "station", "clamp", "Clamp", 1, "Clamp Work"], "slot");
+      eq([l.cardCount, l.free, l.overCapacity], [2, true, false], "cardCount, free, overCapacity");
+      eq((l.cards ?? []).map((c) => c.code).sort(), ["CD-2549-07", "CD-2549-08"], "cards");
+      const c = l.cards.find((x) => x.code === "CD-2549-07");
+      eq([c.name, c.customer, c.dueDate, c.stage], ["Test Card Platinum One", "Test Customer A", platDue, "Clamp Work"], "CD-2549-07 name, customer, due, step");
+      return l.cards.map((x) => `${x.code} ${x.stageLabel}`).join(", ");
+    }, { shot: false });
+    await s.step("empty slot LOC-CLAMP-03: no cards, free", async () => {
+      const l = await resolveVia(ctx, "LOC-CLAMP-03", "location");
+      eq([l.name, l.cardCount, (l.cards ?? []).length, l.free], ["CLAMP 03", 0, 0, true], "name, cardCount, cards, free");
+    }, { shot: false });
+    await s.step("scanned links (any host, any case) find the slot; LOC-DONE is a place", async () => {
+      eq((await resolveVia(ctx, "https://thecarddoc1.com/q/loc-clamp-01", "location")).code, "LOC-CLAMP-01", "lower-case link");
+      eq((await resolveVia(ctx, `${appUrl}/Q/LOC-CLAMP-02`, "location")).code, "LOC-CLAMP-02", "this site's link");
+      eq((await resolveVia(ctx, "HTTPS://THECARDDOC1.COM/Q/LOC-DONE", "location")).kind, "done", "LOC-DONE kind");
+    }, { shot: false });
+    await s.step("bag CD-2549-P: both cards, each in CLAMP 01 at Clamp Work", async () => {
+      const b = await resolveVia(ctx, "CD-2549-P", "bag");
+      eq([b.code, b.cardCount, b.doneCount, b.dueDate], ["CD-2549-P", 2, 0, platDue], "bag");
+      eq(b.cards.map((c) => [c.code, c.location?.name ?? null, c.stage]), [["CD-2549-07", "CLAMP 01", "Clamp Work"], ["CD-2549-08", "CLAMP 01", "Clamp Work"]], "cards, slots, steps");
+    }, { shot: false });
+    await s.step("bag CD-2549-G: CD-2549-01 in CLAMP 02; 02-04 in no slot", async () => {
+      const b = await resolveVia(ctx, "CD-2549-G", "bag");
+      const slotOf = (code) => b.cards.find((c) => c.code === code)?.location;
+      eq(slotOf("CD-2549-01")?.name, "CLAMP 02", "CD-2549-01 slot");
+      for (const code of ["CD-2549-02", "CD-2549-03", "CD-2549-04"]) assert(!slotOf(code) || slotOf(code).kind !== "station", `${code} is in a slot: ${JSON.stringify(slotOf(code))}`);
+    }, { shot: false });
+    await s.step("order CD-2549: bags G and P with their cards' slots, and the 4 cards in no bag", async () => {
+      const o = await resolveVia(ctx, "CD-2549", "order");
+      eq([o.id, o.orderNumber, o.customer], [IDS.mailOrder, ORDER_NUMBERS.mailOrder, "Test Customer A"], "order");
+      eq((o.bags ?? []).map((b) => b.code).sort(), ["CD-2549-G", "CD-2549-P"], "bags");
+      const card7 = o.bags.flatMap((b) => b.cards).find((c) => c.code === "CD-2549-07");
+      eq(card7?.location?.code, "LOC-CLAMP-01", "CD-2549-07 slot");
+      eq((o.looseCards ?? []).length, 4, "cards in no bag");
+    }, { shot: false });
+    await s.step("a typed Card ID (cd-2549-07): the card, in CLAMP 01, due Dec 7", async () => {
+      const c = await resolveVia(ctx, "cd-2549-07", "card");
+      eq([c.id, c.code, c.location?.code, c.dueDate, c.customer, c.orderNumber], [mailCard(6), "CD-2549-07", "LOC-CLAMP-01", platDue, "Test Customer A", ORDER_NUMBERS.mailOrder], "card");
+      assert(c.locatedAt, "locatedAt");
+      eq(c.cardUrl, ROUTES.card(mailCard(6)), "cardUrl");
+    }, { shot: false });
+    await s.step("unknown codes -> 404 (LOC-CLAMP-99, CD-2549-99, CD-9999); not a code -> 400", async () => {
+      for (const code of ["LOC-CLAMP-99", "CD-2549-99", "CD-9999"]) eq((await api(ctx, "GET", ROUTES.trackResolve(code))).status, 404, `"${code}" HTTP`);
+      eq((await api(ctx, "GET", ROUTES.trackResolve("hello"))).status, 400, `"hello" HTTP`);
+    }, { shot: false });
+    await s.step("search by Card ID, card name, customer and order number (each card with its slot)", async () => {
+      const byCode = await searchVia(ctx, "CD-2549-07");
+      eq(byCode.cards.find((c) => c.code === "CD-2549-07")?.location?.code, "LOC-CLAMP-01", "Card ID: CD-2549-07 in CLAMP 01");
+      assert((await searchVia(ctx, "Platinum One")).cards.some((c) => c.code === "CD-2549-07"), "card name: CD-2549-07 not found");
+      const byCustomer = await searchVia(ctx, "Test Customer A");
+      assert(byCustomer.cards.some((c) => c.code === "CD-2549-01"), "customer: CD-2549-01 not found");
+      assert(byCustomer.cards.every((c) => c.orderNumber === ORDER_NUMBERS.mailOrder), `customer: other orders' cards: ${byCustomer.cards.filter((c) => c.orderNumber !== ORDER_NUMBERS.mailOrder).map((c) => c.code).join(", ")}`);
+      const byOrder = await searchVia(ctx, ORDER_NUMBERS.bigOrder);
+      assert(byOrder.cards.length && byOrder.cards.every((c) => c.orderNumber === ORDER_NUMBERS.bigOrder), `order number: ${byOrder.cards.map((c) => c.code).slice(0, 5).join(", ")}`);
+      const short = await api(ctx, "GET", ROUTES.trackSearch("x"));
+      assert(short.status === 400 || (short.status === 200 && (short.body?.cards ?? []).length === 0), `one character: HTTP ${short.status}, ${(short.body?.cards ?? []).length} cards`);
+      return `${byCustomer.cards.length} for the customer, ${byOrder.cards.length} for ${ORDER_NUMBERS.bigOrder}${byOrder.truncated ? " (truncated)" : ""}`;
+    }, { shot: false });
+    await s.step("history: the slot's moves, the card's (newest first) and the bag's; unknown -> 404", async () => {
+      const sh = await api(ctx, "GET", ROUTES.trackHistory("LOC-CLAMP-01"));
+      eq(sh.status, 200, "slot history HTTP");
+      eq([...new Set((sh.body?.moves ?? []).filter((m) => m.to?.code === "LOC-CLAMP-01").map((m) => m.cardCode))].sort(), ["CD-2549-07", "CD-2549-08"], "slot history: cards put in");
+      const ch = await api(ctx, "GET", ROUTES.trackHistory("CD-2549-07"));
+      eq(ch.status, 200, "card history HTTP");
+      const m = ch.body?.moves ?? [];
+      eq([m[0]?.action, m[0]?.to?.code, m[0]?.stageAfter, m[0]?.cardCode], ["assign", "LOC-CLAMP-01", "Clamp Work", "CD-2549-07"], "latest move");
+      eq(m.map((x) => x.id), [...m].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).map((x) => x.id), "newest first");
+      const bh = await api(ctx, "GET", ROUTES.trackHistory("CD-2549-P"));
+      eq(bh.status, 200, "bag history HTTP");
+      eq([...new Set((bh.body?.moves ?? []).map((x) => x.cardCode))].sort(), ["CD-2549-07", "CD-2549-08"], "bag history cards");
+      eq((await api(ctx, "GET", ROUTES.trackHistory("CD-2549-99"))).status, 404, "unknown code HTTP");
+    }, { shot: false });
+  },
+
+  // SHIP CHECK: done + out of the slots = OK; ⚠ "still in CLAMP 02"; ⚠ not done (Mark done)
+  async "track-ship"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const G = ["CD-2549-01", "CD-2549-02", "CD-2549-03"];
+    await s.step("setup: receive CD-2549 Gold 01-03 (bag CD-2549-G); make CLAMP 01..02; 01 in CLAMP 01, 02 in CLAMP 02", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2].map(mailCard), "2026-11-15");
+      await bulkSlots(ctx, "clamp", 2);
+      await assignOk(ctx, "LOC-CLAMP-01", [mailCard(0)]);
+      await assignOk(ctx, "LOC-CLAMP-02", [mailCard(1)]);
+      eq(cardsIn(await tables(), "LOC-CLAMP-02"), ["CD-2549-02"], "cards in CLAMP 02");
+    }, { critical: true, shot: false });
+    await s.step("ship check CD-2549-G: the bag's 3 cards, all not done; not ready", async () => {
+      const b = await shipCheckVia(ctx, "CD-2549-G");
+      eq([b.scope, b.order?.orderNumber], ["bag", ORDER_NUMBERS.mailOrder], "scope, order");
+      eq(b.cards.map((c) => c.code).sort(), G, "cards");
+      eq(G.map((c) => statusOf(b, c)), ["not_done", "not_done", "not_done"], "statuses");
+      eq([b.ready, b.counts?.notDone], [false, 3], "ready, counts.notDone");
+    }, { shot: false });
+    await s.step("Done on CD-2549-01: ok (done, out of its slot)", async () => {
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [mailCard(0)] });
+      eq(statusOf(await shipCheckVia(ctx, "CD-2549-G"), "CD-2549-01"), "ok", "CD-2549-01 status");
+    }, { shot: false });
+    await s.step('CD-2549-02 ticked done elsewhere but still in CLAMP 02: in_slot, "CLAMP 02"', async () => {
+      await mockUpdate(mockUrl, "cards", { completed: true }, "id", mailCard(1));
+      const b = await shipCheckVia(ctx, "CD-2549-G");
+      const c = b.cards.find((x) => x.code === "CD-2549-02");
+      eq([c?.status, c?.done, c?.location?.name], ["in_slot", true, "CLAMP 02"], "status, done, slot");
+      eq([b.counts?.inSlot, b.ready], [1, false], "counts.inSlot, ready");
+    }, { shot: false });
+    await s.step('ship page: 01 ✅; 02 ⚠ "still in CLAMP 02"; 03 ⚠ not done with a Mark done button; 390 px', async () => {
+      await goto(page, ROUTES.ship(IDS.mailOrder));
+      const row = async (code) => (await UI.shipRow(page, code).innerText()).replace(/\s+/g, " ");
+      const r1 = await row("CD-2549-01"), r2 = await row("CD-2549-02"), r3 = await row("CD-2549-03");
+      assert(UI.shipOk.test(r1) && !/⚠/.test(r1), `CD-2549-01 row: "${r1.slice(0, 120)}"`);
+      assert(/⚠/.test(r2) || UI.shipFlag.test(r2), `CD-2549-02 row not flagged: "${r2.slice(0, 120)}"`);
+      assert(UI.stillIn("CLAMP 02").test(r2), `CD-2549-02 row doesn't say "still in CLAMP 02": "${r2.slice(0, 120)}"`);
+      assert((/⚠/.test(r3) || UI.shipFlag.test(r3)) && !/✅/.test(r3), `CD-2549-03 row: "${r3.slice(0, 120)}"`);
+      eq(await UI.shipMarkDone(UI.shipRow(page, "CD-2549-03")).count(), 1, "Mark done button on CD-2549-03's row");
+      const w = await phoneShot(browser, appUrl, ROUTES.ship(IDS.mailOrder), "track-ship");
+      assert(!w, w);
+      return `01 "${r1.slice(0, 50)}" | 02 "${r2.slice(0, 50)}"`;
+    });
+    let markedInUi = false;
+    await s.step("Mark done on CD-2549-03's row: done (POST done), then ok", async () => {
+      const res = await clickForApi(page, UI.shipMarkDone(UI.shipRow(page, "CD-2549-03")), ROUTES.trackDone);
+      assert(res.status() < 300, `done answered ${res.status()}: ${await res.text()}`);
+      markedInUi = true;
+      assert(cardByCode(await tables(), "CD-2549-03").completed, "CD-2549-03 not done");
+      eq(statusOf(await shipCheckVia(ctx, "CD-2549-G"), "CD-2549-03"), "ok", "CD-2549-03 status");
+    });
+    if (!markedInUi) await s.step("(fallback) Done on CD-2549-03 through the API", () => trackOk(ctx, ROUTES.trackDone, { cardIds: [mailCard(2)] }), { shot: false });
+    await s.step("take CD-2549-02 out of CLAMP 02: every card ok, ready", async () => {
+      await trackOk(ctx, ROUTES.trackRelease, { cardIds: [mailCard(1)] });
+      const b = await shipCheckVia(ctx, "CD-2549-G");
+      eq(G.map((c) => statusOf(b, c)), ["ok", "ok", "ok"], "statuses");
+      eq([b.ready, b.counts?.ok], [true, 3], "ready, counts.ok");
+    }, { shot: false });
+    await s.step("a refunded card (CD-2549-01) reads refunded; the bag is still ready", async () => {
+      await mockUpdate(mockUrl, "cards", { status: "refunded" }, "id", mailCard(0));
+      const b = await shipCheckVia(ctx, "CD-2549-G");
+      eq([statusOf(b, "CD-2549-01"), b.ready], ["refunded", true], "CD-2549-01 status, ready");
+    }, { shot: false });
+    await s.step("by order code (scope order) and by Card ID (checks its bag)", async () => {
+      const o = await shipCheckVia(ctx, ORDER_NUMBERS.mailOrder);
+      eq(o.scope, "order", "order code scope");
+      eq(G.map((c) => statusOf(o, c)), ["refunded", "ok", "ok"], "order code statuses");
+      const c = await shipCheckVia(ctx, "CD-2549-02");
+      eq([c.scope, c.bags?.map((b) => b.code)], ["bag", ["CD-2549-G"]], "Card ID scope, bag");
+    }, { shot: false });
+  },
+
+  // FORGOTTEN: a card in the same slot for more than 3 days; a finished order's card not done
+  async "track-forgotten"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const today = todayNy();
+    await s.step(`setup: receive CD-2549 Gold 01-02 and CD-2600-01 today (${today}); make CLAMP 01..02; CD-2549-02 in CLAMP 02 now`, async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(1)], today);
+      await receiveViaApi(ctx, IDS.bigOrder, [IDS.bigCards[0]], today);
+      await bulkSlots(ctx, "clamp", 2);
+      await assignOk(ctx, "LOC-CLAMP-02", [mailCard(1)]);
+    }, { critical: true, shot: false });
+    await s.step("CD-2549-01 put in CLAMP 01 4 days ago, untouched since (its placement, move row and step written as then)", async () => {
+      const t = await tables();
+      const slot = placeOf(t, "LOC-CLAMP-01");
+      const card = cardByCode(t, "CD-2549-01");
+      const then = new Date(Date.now() - 4 * 86400e3).toISOString();
+      // nothing newer may say it moved: drop this card's move rows from receiving today (deletes are allowed)
+      const { error } = await mockDb(mockUrl).from("card_moves").delete().eq("card_id", card.id);
+      assert(!error, `card_moves: ${error?.message}`);
+      await insertRows("card_moves", [{ id: crypto.randomUUID(), card_id: card.id, order_id: card.order_id, bag_id: card.bag_id, from_location_id: null, to_location_id: slot.id, stage_before: null, stage_after: "Clamp Work", action: "assign", by: "harness", session_id: null, created_at: then }]);
+      await insertRows("order_events", [{ id: crypto.randomUUID(), order_id: card.order_id, event_type: "stage_update", is_customer_visible: true, created_at: then, description: `Stage: Clamp Work [card:${card.id}]`, metadata: { card_id: card.id, stage: "Clamp Work", round: 1 } }]);
+      await mockUpdate(mockUrl, "cards", { location_id: slot.id, located_at: then }, "id", card.id);
+      return then;
+    }, { critical: true, shot: false });
+    await s.step("CD-2600 marked Completed with CD-2600-01 not done (a finished order's card)", async () => {
+      await mockUpdate(mockUrl, "orders", { status: "completed" }, "id", IDS.bigOrder);
+    }, { shot: false });
+    await s.step("Forgotten cards lists CD-2549-01 (in CLAMP 01 for days) and CD-2600-01; not CD-2549-02 (just put in) or CD-2400", async () => {
+      await goto(page, ROUTES.forgotten);
+      const text = await page.locator("main").first().innerText();
+      const shows = (code, name) => text.includes(code) || text.includes(name);
+      assert(shows("CD-2549-01", "Test Card Gold One"), "CD-2549-01 (4 days in CLAMP 01) not listed");
+      assert(nameRe("CLAMP 01", "i").test(text), "its slot CLAMP 01 isn't named");
+      assert(shows("CD-2600-01", "Test Big Order Card 01"), "CD-2600-01 (Completed order, not done) not listed");
+      assert(!shows("CD-2549-02", "Test Card Gold Two"), "CD-2549-02 is listed, but it went into CLAMP 02 minutes ago");
+      assert(!text.includes(ORDER_NUMBERS.deliveredOrder), `${ORDER_NUMBERS.deliveredOrder} (delivered, all done) is listed`);
+    });
+    await s.step("phone layout (390px) has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.forgotten, "track-forgotten").then((w) => { assert(!w, w); }));
+  },
+
+  // Slot QR labels: a batch PDF, one 50 x 80 mm page per slot (huge "CLAMP 01", step, QR, code);
+  // the due-date shelf sign; the bag label still prints on 50 x 80 mm
+  async "track-labels"({ ctx, s, appUrl, mockUrl }) {
+    await s.step("setup: make CLAMP 01..05 and HEAT PRESS 01..03; receive CD-2549 Gold One + Platinum One (11-15)", async () => {
+      await bulkSlots(ctx, "clamp", 5);
+      await bulkSlots(ctx, "heat-press", 3);
+      await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(6)], "2026-11-15");
+    }, { critical: true, shot: false });
+    const clamps = `?station=clamp&from=1&to=5`;
+    await s.step("clamps 01-05 (?station=clamp&from=1&to=5): a PDF of 5 pages, each 50 x 80 mm portrait", async () => {
+      const sizes = await pdfSizes(ctx, ROUTES.slotLabels(clamps));
+      eq(sizes.length, 5, "PDF pages");
+      const off = sizes.filter((sz) => !sameSize(sz, STICKER));
+      assert(!off.length, `pages ${off.map(ptText).join(", ")}, want ${ptText(STICKER)}`);
+    }, { shot: false });
+    await s.step("each clamp label: huge CLAMP 0n (the biggest type), the step, one QR of /Q/LOC-CLAMP-0n, the code", async () => {
+      const pages = labelPagesIn(await labelJson(ctx, ROUTES.slotLabels(`${clamps}&format=json`)));
+      eq(pages.length, 5, "label pages in the JSON");
+      const out = [];
+      for (const [i, n] of range(1, 5).entries()) {
+        assert(sameSize(pageSize(pages[i]), STICKER), `page ${i + 1}: ${ptText(pageSize(pages[i]))}`);
+        out.push(checkPlaceLabel(pages[i], appUrl, slotCode("clamp", n), slotName("clamp", n)));
+        assert(/clamp work/i.test(texts(pages[i]).map((e) => e.text).join(" ")), `CLAMP ${nn(n)}: the step (Clamp Work) isn't printed`);
+      }
+      return out[0];
+    }, { shot: false });
+    await s.step("?ids=<HEAT PRESS 01>,<HEAT PRESS 03>: 2 pages, those two slots", async () => {
+      const t = await tables();
+      const ids = [placeOf(t, "LOC-HEAT-PRESS-01").id, placeOf(t, "LOC-HEAT-PRESS-03").id].join(",");
+      eq((await pdfSizes(ctx, ROUTES.slotLabels(`?ids=${ids}`))).length, 2, "PDF pages");
+      const pages = labelPagesIn(await labelJson(ctx, ROUTES.slotLabels(`?ids=${ids}&format=json`)));
+      eq(pages.map((p) => qrs(p)[0]?.data.split("/").pop()).sort(), ["LOC-HEAT-PRESS-01", "LOC-HEAT-PRESS-03"], "QR codes");
+    }, { shot: false });
+    await s.step("the bag-label stock setting (4x6) doesn't change slot labels: still 50 x 80 mm", async () => {
+      await setLabelStock(mockUrl, "4x6");
+      const sizes = await pdfSizes(ctx, ROUTES.slotLabels(clamps));
+      assert(sizes.every((sz) => sameSize(sz, STICKER)), `pages ${sizes.map(ptText).join(", ")}`);
+    }, { shot: false });
+    await s.step("(route guess: &stock=4x6) the same labels on 4 x 6 in", async () => {
+      const sizes = await pdfSizes(ctx, ROUTES.slotLabels(`${clamps}&stock=4x6`));
+      eq(sizes.length, 5, "PDF pages");
+      assert(sizes.every((sz) => sameSize(sz, STOCK_4X6)), `pages ${sizes.map(ptText).join(", ")}, want ${ptText(STOCK_4X6)}`);
+    }, { shot: false });
+    await s.step("the due-date shelf sign (LOC-SHELF-20261207): 1 page of 50 x 80 mm, big DUE MON DEC 7, its QR", async () => {
+      const shelf = placeOf(await tables(), shelfCode("2026-12-07"));
+      assert(shelf, `no shelf slot ${shelfCode("2026-12-07")} after receiving a Platinum card due Dec 7`);
+      eq((await pdfSizes(ctx, ROUTES.slotLabels(`?ids=${shelf.id}`))).length, 1, "PDF pages");
+      const pages = labelPagesIn(await labelJson(ctx, ROUTES.slotLabels(`?ids=${shelf.id}&format=json`)));
+      eq(pages.length, 1, "label pages");
+      assert(sameSize(pageSize(pages[0]), STICKER), `page ${ptText(pageSize(pages[0]))}`);
+      return checkPlaceLabel(pages[0], appUrl, shelf.code, "DUE MON DEC 7");
+    }, { shot: false });
+    await s.step("the bag label still prints on 50 x 80 mm (stock 50x80mm): one page per bag, one QR (the bag's)", async () => {
+      await setLabelStock(mockUrl, STOCK_50X80);
+      const body = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, "?format=json"));
+      eq(body.settings?.stock, STOCK_50X80, "settings.stock");
+      eq((body.bags ?? []).length, 2, "bags");
+      for (const b of body.bags) {
+        eq(b.labels.length, 1, `${b.bagCode} label pages`);
+        assert(sameSize(pageSize(b.labels[0]), STICKER), `${b.bagCode}: ${ptText(pageSize(b.labels[0]))}`);
+        eq(qrs(b.labels[0]).length, 1, `${b.bagCode} QR codes`);
+        assert(bagQrData(appUrl, b.bagCode).includes(qrs(b.labels[0])[0].data), `${b.bagCode}: QR "${qrs(b.labels[0])[0].data}"`);
+      }
+      const sizes = await pdfSizes(ctx, ROUTES.orderLabel(IDS.mailOrder));
+      eq(sizes.length, 2, "order PDF pages");
+      assert(sizes.every((sz) => sameSize(sz, STICKER)), `pages ${sizes.map(ptText).join(", ")}`);
+    }, { shot: false });
+  },
+
+  // /q/<LOC code>: a slot's QR label opens the Scan page with that slot scanned; signed out: sign in first
+  async "track-q"({ page, ctx, s, browser, appUrl }) {
+    // Where a scanned code goes, signed in (a middleware redirect from /Q to /q may come first)
+    const scanTo = async (url) => {
+      const r = await api(ctx, "GET", url);
+      assert([301, 302, 303, 307, 308].includes(r.status), `${url}: HTTP ${r.status}`);
+      let loc = new URL(r.headers.location, appUrl);
+      if (loc.pathname.startsWith("/q/")) loc = new URL((await api(ctx, "GET", loc.pathname)).headers.location ?? "/", appUrl);
+      return loc;
+    };
+    await s.step("setup: make CLAMP 01..03", () => bulkSlots(ctx, "clamp", 3), { critical: true, shot: false });
+    for (const url of [ROUTES.qr("LOC-CLAMP-01"), ROUTES.qrUpper("LOC-CLAMP-01"), ROUTES.qr("loc-clamp-01")]) {
+      await s.step(`${url} -> /admin/scan?loc=LOC-CLAMP-01`, async () => {
+        const loc = await scanTo(url);
+        eq([loc.pathname, loc.searchParams.get("loc")], [ROUTES.scan, "LOC-CLAMP-01"], "redirect");
+        return `${loc.pathname}${loc.search}`;
+      }, { shot: false });
+    }
+    await s.step("/q/LOC-DONE and /q/LOC-SHIP -> the Scan page with that place", async () => {
+      for (const code of ["LOC-DONE", "LOC-SHIP"]) {
+        const loc = await scanTo(ROUTES.qr(code));
+        eq([loc.pathname, loc.searchParams.get("loc")], [ROUTES.scan, code], `${code} redirect`);
+      }
+    }, { shot: false });
+    await s.step("bag and order codes still open their photos; a Card ID its card page", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [mailCard(6)], "2026-11-15");
+      const bag = bagByCode(await tables(), "CD-2549-P");
+      const b = await scanTo(ROUTES.qrUpper("CD-2549-P"));
+      eq(`${b.pathname}?bag=${b.searchParams.get("bag")}`, ROUTES.photos(IDS.mailOrder, bag.id), "bag redirect");
+      eq((await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder))).pathname, ROUTES.photos(IDS.mailOrder), "order redirect");
+      eq((await scanTo(ROUTES.qr("CD-2549-07"))).pathname, ROUTES.card(mailCard(6)), "card redirect");
+    }, { shot: false });
+    await s.step("signed out: /q/loc-clamp-01 and /Q/LOC-CLAMP-01 -> sign in with next=/q/LOC-CLAMP-01", async () => {
+      const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
+      try {
+        for (const url of [ROUTES.qr("loc-clamp-01"), ROUTES.qrUpper("LOC-CLAMP-01")]) {
+          let r = await anon.request.fetch(url, { maxRedirects: 0, failOnStatusCode: false });
+          assert([301, 302, 303, 307, 308].includes(r.status()), `${url}: HTTP ${r.status()}`);
+          let loc = new URL(r.headers().location ?? "/", appUrl);
+          if (loc.pathname.startsWith("/q/")) {
+            r = await anon.request.fetch(loc.pathname, { maxRedirects: 0, failOnStatusCode: false });
+            loc = new URL(r.headers().location ?? "/", appUrl);
+          }
+          eq([loc.pathname, loc.searchParams.get("next")], ["/admin/login", "/q/LOC-CLAMP-01"], `${url} redirect`);
+        }
+      } finally { await anon.close(); }
+    }, { shot: false });
+    await s.step("scanning CLAMP 01's label in the signed-in browser lands on the Scan page, showing CLAMP 01", async () => {
+      await goto(page, ROUTES.qrUpper("LOC-CLAMP-01"));
+      const u = new URL(page.url());
+      eq([u.pathname, u.searchParams.get("loc")], [ROUTES.scan, "LOC-CLAMP-01"], "landed on");
+      await page.getByText(nameRe("CLAMP 01", "i")).first().waitFor({ timeout: 15_000 });
+    });
+  },
+
+  // Due-date shelf slots: after Receive "Put in shelf: DUE MON DEC 7"; one slot per due date; Shelf view
+  async "track-shelf"({ page, ctx, s, browser, appUrl }) {
+    const platDue = "2026-12-07";
+    const goldDue = addBusinessDays("2026-11-15", TURNAROUND.premium);
+    const bigGoldDue = addBusinessDays("2026-11-20", TURNAROUND.premium);
+    await s.step("workspace: receive Platinum Three on 2026-11-15 -> \"Put in shelf: DUE MON DEC 7\"", async () => {
+      await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
+      await UI.arrived(page, MAIL_NAMES[8]).check();
+      await UI.receivedOn(page).fill("2026-11-15");
+      const res = await clickForApi(page, UI.receiveButton(page), "/receive");
+      assert(res.status() < 300, `receive answered ${res.status()}: ${await res.text()}`);
+      const slots = shelvesIn(await res.json().catch(() => null));
+      await page.getByText(UI.putInShelf).first().waitFor({ timeout: 15_000 });
+      const text = await page.locator("main").first().innerText();
+      assert(nameRe(shelfName(platDue), "i").test(text), `"${shelfName(platDue)}" not shown`);
+      return `answer names ${slots.map((x) => x.code).join(", ") || "no shelf slot"}`;
+    });
+    if (!cardByCode(await tables(), "CD-2549-09")?.received_at) {
+      await s.step("(fallback) receive Platinum Three through the API", () => receiveViaApi(ctx, IDS.mailOrder, [mailCard(8)], "2026-11-15"), { critical: true, shot: false });
+    }
+    await s.step("workspace: a Print shelf sign button", async () => {
+      await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
+      assert(await UI.printShelfSign(page).count() > 0, "no Print shelf sign button or link");
+    });
+    let decSeven = null;
+    await s.step(`the slot exists once: ${shelfCode(platDue)}, kind shelf, due ${platDue}, named "${shelfName(platDue)}"`, async () => {
+      const rows = (await tables()).locations.filter((l) => l.code === shelfCode(platDue));
+      eq(rows.length, 1, "rows");
+      decSeven = rows[0];
+      eq([decSeven.kind, decSeven.due_date, decSeven.name, decSeven.active, decSeven.station ?? null, decSeven.stage ?? null], ["shelf", platDue, shelfName(platDue), true, null, null], "kind, due_date, name, active, station, stage");
+    }, { critical: true, shot: false });
+    await s.step(`receive Gold One + Platinum One (11-15) through the API: the answer names both shelves (Dec 7 reused, ${shelfName(goldDue)})`, async () => {
+      const body = await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(6)], "2026-11-15");
+      const slots = shelvesIn(body);
+      const byCode = Object.fromEntries(slots.map((x) => [x.code, x]));
+      assert(byCode[shelfCode(platDue)] && byCode[shelfCode(goldDue)], `shelves in the answer: ${slots.map((x) => x.code).join(", ") || "none"}`);
+      eq(byCode[shelfCode(platDue)].name, shelfName(platDue), "Dec 7 name");
+      eq(byCode[shelfCode(goldDue)].name, shelfName(goldDue), "Gold name");
+      if (byCode[shelfCode(platDue)].id) eq(byCode[shelfCode(platDue)].id, decSeven.id, "Dec 7 slot id (reused)");
+      eq((await tables()).locations.filter((l) => l.code === shelfCode(platDue)).length, 1, "Dec 7 rows");
+      return slots.map((x) => `${x.code} "${x.name}"`).join(", ");
+    }, { shot: false });
+    await s.step("another order due the same day (CD-2600 Platinum, 11-15) shares the Dec 7 slot; its Gold (11-20) gets its own", async () => {
+      await receiveViaApi(ctx, IDS.bigOrder, [IDS.bigCards[4]], "2026-11-15");
+      await receiveViaApi(ctx, IDS.bigOrder, [IDS.bigCards[0]], "2026-11-20");
+      const t = await tables();
+      eq(t.locations.filter((l) => l.code === shelfCode(platDue)).length, 1, "Dec 7 rows");
+      assert(placeOf(t, shelfCode(bigGoldDue)), `no ${shelfCode(bigGoldDue)}`);
+      const placed = t.tier_bags.filter((b) => b.location_id).map((b) => `${b.bag_code}@${t.locations.find((l) => l.id === b.location_id)?.code}`);
+      return `bags placed at receive: ${placed.join(", ") || "none (location_id not set)"}`;
+    }, { shot: false });
+    await s.step("Shelf view: slots in due-date order, each bag under its own slot", async () => {
+      await goto(page, ROUTES.shelf);
+      const text = (await page.locator("main").first().innerText()).toUpperCase();
+      const slots = [platDue, goldDue, bigGoldDue].sort().map((d) => ({ name: shelfName(d), at: text.search(nameRe(shelfName(d))) }));
+      const missing = slots.filter((x) => x.at < 0).map((x) => x.name);
+      assert(!missing.length, `slots not shown: ${missing.join(", ")}`);
+      eq([...slots].sort((a, b) => a.at - b.at).map((x) => x.name), slots.map((x) => x.name), "slot order");
+      const want = { "CD-2549-P": platDue, "CD-2600-P": platDue, "CD-2549-G": goldDue, "CD-2600-G": bigGoldDue };
+      for (const [bag, due] of Object.entries(want)) {
+        const at = text.search(new RegExp(`${esc(bag)}(?![0-9A-Z])`));
+        assert(at >= 0, `${bag} not shown`);
+        const under = slots.filter((x) => x.at < at).at(-1);
+        eq(under?.name ?? null, shelfName(due), `slot above ${bag}`);
+      }
+      return slots.map((x) => x.name).join(" < ");
+    });
+    await s.step(`/q/${shelfCode(platDue)} -> the Scan page with that shelf`, async () => {
+      const r = await api(ctx, "GET", ROUTES.qr(shelfCode(platDue)));
+      const loc = new URL(r.headers.location ?? "/", appUrl);
+      eq([loc.pathname, loc.searchParams.get("loc")], [ROUTES.scan, shelfCode(platDue)], "redirect");
+    }, { shot: false });
+    await s.step("Shelf view at 390 px has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.shelf, "track-shelf").then((w) => { assert(!w, w); }));
+  },
+
+  // The Scan page on a phone (390 px): handheld-scanner box, an empty slot asks for a card, a full slot shows it
+  async "track-scan-page"({ page, ctx, s, browser, appUrl }) {
+    await s.step("setup: receive; make CLAMP 01..03; CD-2549-01 in CLAMP 02", async () => {
+      await trackSetup(ctx, { clamp: 3 });
+      await assignOk(ctx, "LOC-CLAMP-02", [mailCard(0)]);
+    }, { critical: true, shot: false });
+    const phone = await phoneContext(browser, appUrl);
+    const p = phone.page;
+    const shot = (name) => p.screenshot({ path: path.join(OUT, `track-scan-page-${name}.png`), fullPage: true }).catch(() => {});
+    try {
+      await s.step("/admin/scan at 390 px: loads signed in, a scanner box, no sideways scroll", async () => {
+        await goto(p, ROUTES.scan);
+        await UI.scanInput(p).waitFor({ timeout: 30_000 });
+        const w = await sidewaysScroll(p);
+        await shot("01-open");
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+      }, { critical: true, shot: false });
+      await s.step('the handheld scanner types CLAMP 01\'s link + Enter: "Put a card in CLAMP 01" (no navigation, no sideways scroll)', async () => {
+        await Promise.all([
+          p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 60_000 }),
+          scanType(p, "HTTPS://THECARDDOC1.COM/Q/LOC-CLAMP-01"),
+        ]);
+        await p.getByText(UI.putCardIn("CLAMP 01")).first().waitFor({ timeout: 15_000 });
+        eq(new URL(p.url()).pathname, ROUTES.scan, "still on the Scan page");
+        await shot("02-empty-slot");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+      }, { shot: false });
+      await s.step("then the bag's QR (CD-2549-P) lists its cards; tap CD-2549-07: it goes into CLAMP 01 (step Clamp Work)", async () => {
+        await scanType(p, "HTTPS://THECARDDOC1.COM/Q/CD-2549-P");
+        const pick = UI.pickCard(p, "CD-2549-07");
+        await pick.waitFor({ timeout: 15_000 });
+        await shot("03-bag-cards");
+        const assigned = p.waitForResponse((r) => r.url().includes(ROUTES.trackAssign) && r.request().method() === "POST", { timeout: 30_000 });
+        await pick.click();
+        // a page that collects picks first has a confirm button ("Put 1 card in CLAMP 01")
+        const confirm = UI.confirmPut(p);
+        if (await confirm.isVisible().catch(() => false)) await confirm.click().catch(() => {});
+        const res = await assigned;
+        assert(res.status() < 300, `assign answered ${res.status()}: ${await res.text()}`);
+        const t = await tables();
+        eq(cardsIn(t, "LOC-CLAMP-01"), ["CD-2549-07"], "cards in CLAMP 01");
+        eq(latestStage(t, mailCard(6)), "Clamp Work", "CD-2549-07 step");
+        await shot("04-assigned");
+      }, { shot: false });
+      await s.step("scanning the full CLAMP 02 shows its card (Card ID, name, customer) with Move, Done and Take out", async () => {
+        await Promise.all([
+          p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 60_000 }),
+          scanType(p, "LOC-CLAMP-02"),
+        ]);
+        await p.getByText("CD-2549-01").first().waitFor({ timeout: 15_000 });
+        const text = await p.locator("main").first().innerText();
+        for (const want of ["Test Card Gold One", "Test Customer A"]) assert(text.includes(want), `"${want}" not shown`);
+        for (const [what, loc] of [["Move", UI.slotMove(p)], ["Done", UI.slotDone(p)], ["Take out", UI.slotTakeOut(p)]]) assert(await loc.count() > 0, `no ${what} button`);
+        await shot("05-full-slot");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+      }, { shot: false });
+      await s.step('opened from a label (/admin/scan?loc=LOC-CLAMP-03): "Put a card in CLAMP 03" right away', async () => {
+        await goto(p, ROUTES.scanAt("LOC-CLAMP-03"));
+        await p.getByText(UI.putCardIn("CLAMP 03")).first().waitFor({ timeout: 30_000 });
+        await shot("06-from-label");
+      }, { shot: false });
+      await s.step("no browser errors on the phone (headless: no camera)", async () => {
+        assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+    await s.step('desktop: the menu has "Scan" (top of the intake group)', async () => {
+      await goto(page, ROUTES.receiving);
+      eq(new URL(await UI.scanNavLink(page).getAttribute("href"), appUrl).pathname, ROUTES.scan, "Scan link");
+    });
+  },
 };
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -1523,7 +2355,8 @@ export async function runScenarios({ only = null } = {}) {
   const results = [];
   try {
     for (const [name, fn] of Object.entries(SCENARIOS)) {
-      if (only && !only.includes(name)) continue;
+      // --only a,b or a prefix with a star: --only 'track-*'
+      if (only && !only.some((o) => o === name || (o.endsWith("*") && name.startsWith(o.slice(0, -1))))) continue;
       console.log(`\n▶ ${name}`);
       await reset();
       const ctx = await newAdminContext(browser, { appUrl: h.appUrl });

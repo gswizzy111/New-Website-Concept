@@ -20,7 +20,7 @@ import { LABEL_LIMITS, PT, planBagLabel, printedWidth } from "@/lib/intake/label
 import { PLACE_LIMITS, layoutPlaceLabel, placeSubLine, planPlaceLabel, slotNameParts, type LabelPlace } from "@/lib/intake/labels/place";
 import { renderLabelPdf } from "@/lib/intake/labels/pdf";
 import { qrMatrix } from "@/lib/intake/labels/qr";
-import { placeLabelsResponse, placeSignResponse, type PlaceLabelsResponse, type PlaceSignResponse } from "@/lib/intake/labels/respond";
+import { labelResponse, placeLabelsResponse, placeSignResponse, type LabelPreviewResponse, type PlaceLabelsResponse, type PlaceSignResponse } from "@/lib/intake/labels/respond";
 import {
   LABEL_STOCKS,
   MIN_CONTENT_WIDTH_IN,
@@ -365,4 +365,42 @@ test("PDF: brand fonts embedded; sample slot labels, signs and 50 x 80 mm bag la
   writeFileSync(path.join(out, "sample-places-50x80.pdf"), slots.bytes);
   const bags = await renderLabelPdf([4, 16, 40].map((n) => planBagLabel(bag(n), BAG_STOCK).page), { title: "Bag labels 50x80" });
   writeFileSync(path.join(out, "sample-bags-50x80.pdf"), bags.bytes);
+});
+
+test("bag label routes: ?stock=50x80mm lays the label out on 50 x 80 mm (JSON and PDF) even when 4x6 is saved", async () => {
+  const b = { ...bag(4), id: id(70), orderId: id(71), labelPrintedAt: null };
+  const saved = { stock: "4x6" as const, contentWidthIn: 3.2 };
+  const json = (await (await labelResponse(new Request("http://x/api?format=json&stock=50x80mm"), [b], saved, "CD-10482-P")).json()) as LabelPreviewResponse;
+  assert.equal(json.settings.stock, "50x80mm");
+  assert.equal(json.settings.contentWidthIn, 1.96);
+  const page = json.bags[0].labels[0];
+  checkPage(page, BAG_STOCK, qrUrl(b.bagCode), LABEL_LIMITS.minBagQrIn, "bag ?stock=50x80mm");
+  // Every mark inside the middle 48 mm of the 50 mm label (the Katasymbol's 384-dot head)
+  const mm = (pt: number) => (pt / PT) * 25.4;
+  for (const e of page.elements) {
+    const bx = box(e);
+    assert.ok(mm(bx.x1) >= 1 && mm(bx.x2) <= 49, `${e.kind} at ${mm(bx.x1).toFixed(2)}..${mm(bx.x2).toFixed(2)} mm`);
+  }
+  const pdf = await labelResponse(new Request("http://x/api?stock=50x80mm"), [b], saved, "CD-10482-P");
+  const size = (await PDFDocument.load(new Uint8Array(await pdf.arrayBuffer()))).getPages()[0].getSize();
+  assert.ok(Math.abs(mm(size.width) - 50) < 0.01 && Math.abs(mm(size.height) - 80) < 0.01, "PDF page is 50 x 80 mm");
+  // Without it, or with an unknown stock, the saved setting; the saved stock keeps its saved width
+  for (const q of ["?format=json", "?format=json&stock=8x10"]) {
+    const r = (await (await labelResponse(new Request(`http://x/api${q}`), [b], saved, "x")).json()) as LabelPreviewResponse;
+    assert.deepEqual([r.settings.stock, r.settings.contentWidthIn], ["4x6", 3.2]);
+  }
+  const same = (await (await labelResponse(new Request("http://x/api?format=json&stock=4x6"), [b], { stock: "4x6", contentWidthIn: 2.5 }, "x")).json()) as LabelPreviewResponse;
+  assert.equal(same.settings.contentWidthIn, 2.5);
+  const back = (await (await labelResponse(new Request("http://x/api?format=json&stock=4x6"), [b], { stock: "50x80mm", contentWidthIn: 1.96 }, "x")).json()) as LabelPreviewResponse;
+  assert.deepEqual([back.settings.stock, back.settings.contentWidthIn], ["4x6", 3.2]);
+});
+
+test("place labels: every mark inside the middle 48 mm of the 50 mm label", () => {
+  const mm = (pt: number) => (pt / PT) * 25.4;
+  for (const place of [...SLOTS, ...SIGNS]) {
+    for (const e of layoutPlaceLabel(place, MM50).elements) {
+      const bx = box(e);
+      assert.ok(mm(bx.x1) >= 1 && mm(bx.x2) <= 49, `${place.name}: ${e.kind} at ${mm(bx.x1).toFixed(2)}..${mm(bx.x2).toFixed(2)} mm`);
+    }
+  }
 });

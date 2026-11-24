@@ -164,3 +164,20 @@ test("card numbers: existing kept, new ones after the max in (created_at, id) or
   // A gap is never refilled: numbers are never reused
   assert.deepEqual(nextCardSeqs([{ id: "a", created_at: t, card_seq: 5 }, { id: "b", created_at: t, card_seq: null }]), [{ id: "b", seq: 6 }]);
 });
+
+test("place codes (LOC-...) are their own kind and open the Scan page", () => {
+  for (const c of ["LOC-CLAMP-07", "LOC-HEAT-PRESS-03", "LOC-SHELF-20261207", "LOC-DONE", "LOC-SHIP"]) {
+    assert.equal(codeKind(c), "location", c);
+    assert.equal(codeKind(normalizeCode(`https://thecarddoc1.com/q/${c.toLowerCase()}`)), "location", c);
+  }
+  // Checked first: these would otherwise read as an order or a Card ID
+  assert.equal(codeKind("LOC-123"), "location");
+  assert.equal(codeKind("LOC-2026-12"), "location");
+  assert.equal(codeKind(`LOC-${"X".repeat(36)}`), "location", "40 characters");
+  assert.equal(codeKind(`LOC-${"X".repeat(37)}`), null, "41 characters");
+  assert.equal(codeTargetPath("location", "id-1", null, "LOC-CLAMP-07"), "/admin/scan?loc=LOC-CLAMP-07");
+  // Order, card and bag codes are unchanged
+  assert.equal(codeKind("CD-2549"), "order");
+  assert.equal(codeKind("CD-2549-03"), "card");
+  assert.equal(codeKind("CD-2549-P2"), "bag");
+});

@@ -1,7 +1,7 @@
 import { layoutBagLabels } from "./layout";
 import { bagLabelsPdf, renderLabelPdf } from "./pdf";
 import { layoutPlaceLabel } from "./place";
-import { LABEL_STOCKS, PLACE_LABEL_STOCK, fullWidthPoints, isStockId, stockPixels, stockPoints, type LabelStockId } from "./stock";
+import { LABEL_STOCKS, PLACE_LABEL_STOCK, fullWidthPoints, isStockId, normalizeLabelSettings, stockPixels, stockPoints, type LabelStockId } from "./stock";
 import type { LabelBagWithId, LabelPlaceWithId } from "./data";
 import type { LabelPage } from "./types";
 
@@ -38,13 +38,26 @@ function safeName(s: string) {
   return s.replace(/[^A-Za-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "labels";
 }
 
+/**
+ * The bag label's stock for this request: ?stock=<id> lays the label out on
+ * that stock (the Katasymbol print button asks for 50x80mm while the saved
+ * setting is 4x6), at the saved width when it is the saved stock, else at
+ * that stock's default width. Without it, the saved setting.
+ */
+export function bagLabelSettings(url: URL, saved: { stock: LabelStockId; contentWidthIn: number }): { stock: LabelStockId; contentWidthIn: number } {
+  const asked = url.searchParams.get("stock");
+  if (!isStockId(asked) || asked === saved.stock) return saved;
+  return normalizeLabelSettings(asked, undefined);
+}
+
 export async function labelResponse(
   request: Request,
   bags: LabelBagWithId[],
-  settings: { stock: LabelStockId; contentWidthIn: number },
+  savedSettings: { stock: LabelStockId; contentWidthIn: number },
   name: string,
 ): Promise<Response> {
   const url = new URL(request.url);
+  const settings = bagLabelSettings(url, savedSettings);
   const stock = stockPoints(settings.stock, settings.contentWidthIn);
   const size = LABEL_STOCKS[settings.stock];
 

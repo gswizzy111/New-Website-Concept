@@ -264,11 +264,17 @@ export function ScanCamera({ onRead, label, compact = false }: { onRead: (text: 
   }
 
   // Start by itself when it was left on last time, or on a phone the first time
+  // (just after the first paint, so the page shows at once)
   useEffect(() => {
     const pref = readPref();
     const touch = window.matchMedia("(pointer: coarse)").matches;
-    if (pref === "on" || (pref === null && touch)) void start();
-    return () => release();
+    const timer = setTimeout(() => {
+      if (pref === "on" || (pref === null && touch)) void start();
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      release();
+    };
   }, [start, release]);
 
   // Phone locked, another tab or app: let go of the camera; back: start again

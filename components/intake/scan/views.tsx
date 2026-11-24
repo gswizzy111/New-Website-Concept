@@ -202,7 +202,7 @@ const KIND_STYLE: Record<string, string> = {
 };
 
 /** The slot's header: huge name, what it is, how full. */
-export function SlotHeader({ slot }: { slot: TrackSlotSummary }) {
+export function SlotHeader({ slot, onOpenBag }: { slot: TrackSlotSummary; onOpenBag?: (code: string) => void }) {
   return (
     <div className={`rounded-2xl border px-4 py-3 ${KIND_STYLE[slot.kind] ?? KIND_STYLE.other}`}>
       <p className="text-4xl font-black uppercase leading-none tracking-tight break-words sm:text-5xl">{slot.name}</p>
@@ -213,9 +213,23 @@ export function SlotHeader({ slot }: { slot: TrackSlotSummary }) {
         {!slot.active && <span className="ml-1 text-red-700">· switched off</span>}
       </p>
       {slot.bags.length > 0 && (
-        <p className="mt-1 text-sm">
-          Bags here: <span className="font-mono font-bold">{slot.bags.map((b) => b.code).join(", ")}</span>
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+          <span>Bags here:</span>
+          {slot.bags.map((b) =>
+            onOpenBag ? (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => onOpenBag(b.code)}
+                className="min-h-11 rounded-xl border border-current/30 bg-white/70 px-3 font-mono font-bold hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              >
+                {b.code}
+              </button>
+            ) : (
+              <span key={b.id} className="font-mono font-bold">{b.code}</span>
+            ),
+          )}
+        </div>
       )}
     </div>
   );

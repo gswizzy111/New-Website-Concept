@@ -18,9 +18,13 @@ import { CornerDownLeft } from "lucide-react";
 const KEY_GAP_MS = 100;
 const MIN_LENGTH = 4;
 
+/** Input types that take no typing (a scanner's keys on a focused checkbox are still a scan). */
+const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
+
 function isEditable(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
-  return el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
+  if (el instanceof HTMLInputElement) return !NOT_TEXT.has(el.type);
+  return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
 }
 
 /** Catches a handheld scanner's keystrokes and pastes when no box has focus. */

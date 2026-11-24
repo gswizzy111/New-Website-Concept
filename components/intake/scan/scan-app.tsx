@@ -34,7 +34,6 @@ import {
   smallButton,
   useNow,
   type FlashState,
-  type LogItem,
 } from "./views";
 
 /**
@@ -99,8 +98,24 @@ function useMirror<T>(initial: T) {
   return [value, set, ref] as const;
 }
 
-function shipPath(orderId: string) {
-  return `/admin/receiving/ship/${encodeURIComponent(orderId)}`;
+/**
+ * A slot cards can be put in by tapping them: active, with room, and a work
+ * station, shelf or other place. Done goes through the Done button (or
+ * scanning DONE after Move); Shipping is for the ship check.
+ */
+function canFill(slot: TrackSlotSummary): boolean {
+  return slot.active && slot.kind !== "done" && slot.kind !== "shipping" && roomLeft(slot.capacity, slot.cardCount) > 0;
+}
+
+function scrollToTop() {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+}
+
+/** The ship check page (?bag= highlights the scanned bag). */
+function shipPath(orderId: string, bagId?: string | null) {
+  const base = `/admin/receiving/ship/${encodeURIComponent(orderId)}`;
+  return bagId ? `${base}?bag=${encodeURIComponent(bagId)}` : base;
 }
 
 /** Cards in a view that can go in a slot (not refunded). */
@@ -197,8 +212,6 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(null, "", next);
   }, [ship, urlLoc]);
 
-  const addLog = addLogItem;
-
   const show = useCallback((tone: "ok" | "error", text: string) => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlash({ key: Date.now(), tone, text });
@@ -210,7 +223,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     (text: string, logIt = true) => {
       beep("error", soundStore.get());
       show("error", text);
-      if (logIt) addLog("error", text);
+      if (logIt) addLogItem("error", text);
     },
     [show],
   );
@@ -222,13 +235,13 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (problem && res.results.some((r) => r.ok)) {
         beep("error", soundStore.get());
         show("error", `${text} ${problem}`);
-        addLog("warn", `${text} ${problem}`);
+        addLogItem("warn", `${text} ${problem}`);
       } else if (problem) {
         fail(problem);
       } else {
         beep("ok", soundStore.get());
         show("ok", text);
-        addLog("ok", text);
+        addLogItem("ok", text);
       }
     },
     [fail, show],
@@ -246,7 +259,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       setView({ type: "slot", slot });
       setSelected(new Set(slot.cards.map((c) => c.id)));
       setConfirmDone(false);
-      setTarget(roomLeft(slot.capacity, slot.cardCount) > 0 && slot.active ? { slot, at: Date.now() } : null);
+      setTarget(canFill(slot) ? { slot, at: Date.now() } : null);
     },
     [setTarget, setView],
   );
@@ -298,7 +311,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         const again = await api.resolve(slot.code);
         if (again.ok && again.data.kind === "location") {
           const fresh = again.data.location;
-          setTarget(roomLeft(fresh.capacity, fresh.cardCount) > 0 ? { slot: fresh, at: t.at } : null);
+          setTarget(canFill(fresh) ? { slot: fresh, at: t.at } : null);
         } else {
           setTarget(null);
         }
@@ -335,11 +348,12 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (picksRef.current) setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location) });
       await refreshSlot(to.code);
     },
-    [enqueue, fail, picksRef, refreshSlot, saved, setPicks, setWaiting],
+    [fail, picksRef, refreshSlot, saved, setPicks, setWaiting],
   );
 
+  /** Done or Take out, for cards in `slot` (shown again after) or picked from a bag or search (null: the list stays). */
   const doFinish = useCallback(
-    async (kind: "done" | "release", slot: TrackSlotSummary, cards: TrackCardSummary[]) => {
+    async (kind: "done" | "release", slot: TrackSlotSummary | null, cards: TrackCardSummary[]) => {
       setConfirmDone(false);
       setBusy(kind === "done" ? `Marking ${cardsLabel(cards)} done…` : `Taking ${cardsLabel(cards)} out…`);
       const body = { cardIds: cards.map((c) => c.id), sessionId: scanSessionId() };
@@ -349,13 +363,15 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         fail(res.error);
         return;
       }
-      saved(res.data, kind === "done" ? `${cardsLabel(cards)} done.` : `${cardsLabel(cards)} taken out of ${slot.name}.`);
+      setWaiting(null);
+      saved(res.data, kind === "done" ? `${cardsLabel(cards)} done.` : `${cardsLabel(cards)} taken out${slot ? ` of ${slot.name}` : ""}.`);
       if (picksRef.current) {
         setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location, kind === "done") });
       }
-      await refreshSlot(slot.code);
+      if (slot) await refreshSlot(slot.code);
+      else setView(patchView(viewRef.current, res.data, res.data.location, kind === "done"));
     },
-    [fail, picksRef, refreshSlot, saved, setPicks],
+    [fail, picksRef, refreshSlot, saved, setPicks, setView, setWaiting, viewRef],
   );
 
   // ----- what a scan does -----
@@ -363,6 +379,11 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const onSlot = useCallback(
     async (slot: TrackSlotSummary) => {
       const w = waitingRef.current;
+      // Move or Assign, then the DONE sign: the cards are finished
+      if (w && slot.kind === "done") {
+        await doFinish("done", w.type === "move" ? w.from : null, w.cards);
+        return;
+      }
       if (w?.type === "move") {
         if (slot.code === w.from.code) {
           fail(`${slot.name} is where ${w.cards.length === 1 ? "it is" : "they are"} now. Scan the next slot.`, false);
@@ -378,7 +399,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       setConflict(null);
       showSlot(slot);
     },
-    [doAssign, doMove, fail, showSlot, waitingRef],
+    [doAssign, doFinish, doMove, fail, showSlot, waitingRef],
   );
 
   const showCards = useCallback(
@@ -429,11 +450,16 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         await onSlot(found.location);
         return;
       }
-      const orderId = found.kind === "bag" ? found.bag.orderId : found.kind === "order" ? found.order.id : found.card.orderId;
       if (shipRef.current && source !== "link") {
         beep("ok", soundStore.get());
         setBusy("Opening the ship check…");
-        router.push(shipPath(orderId));
+        router.push(
+          found.kind === "bag"
+            ? shipPath(found.bag.orderId, found.bag.id)
+            : found.kind === "order"
+              ? shipPath(found.order.id)
+              : shipPath(found.card.orderId, found.card.bagId),
+        );
         return;
       }
       if (found.kind === "bag") {
@@ -521,7 +547,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     setConflict(null);
     setWaiting({ type: "assign", cards });
     setStatus(`Scan the slot for ${cardsLabel(cards)}.`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollToTop();
   }
 
   function openSlot(code: string) {
@@ -532,7 +558,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (res.ok && res.data.kind === "location") {
         setWaiting(null);
         showSlot(res.data.location);
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        scrollToTop();
       } else if (!res.ok) fail(res.error, false);
     });
   }
@@ -562,7 +588,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   /** A card row's button: "Put in CLAMP 07" while a slot is waiting for a card, else "Assign to a slot". */
   const putAction = (card: TrackCardSummary) => {
-    if (card.refunded) return null;
+    if (card.refunded || card.done) return null;
     if (activeTarget) {
       const inIt = card.location?.code === activeTarget.code;
       return { label: inIt ? `In ${activeTarget.name}` : `Put in ${activeTarget.name}`, disabled: inIt || !!busy, primary: !inIt };
@@ -692,7 +718,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
           {slotView && (
             <div className="flex flex-col gap-3">
-              <SlotHeader slot={slotView} />
+              <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "typed")} />
               {slotCards.length > 0 && (
                 <ul className={panel}>
                   {slotCards.map((card) => (
@@ -797,7 +823,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
           {view.type === "bag" && (
             <div className={panel}>
-              <BagHeader bag={view.bag} shipHref={shipPath(view.bag.orderId)} />
+              <BagHeader bag={view.bag} shipHref={shipPath(view.bag.orderId, view.bag.id)} />
               <BulkPut cards={view.bag.cards} target={activeTarget} busy={!!busy} onPut={(cards) => startAssign(cards)} />
               <ul className="border-t border-border">
                 {view.bag.cards.map((card) => (
