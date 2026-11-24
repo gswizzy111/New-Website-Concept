@@ -491,7 +491,7 @@ async function previewNames(page, settings, want) {
 // ─── Card tracking helpers (serial-numbered slots) ──────────────────────────
 const MM = PT / 25.4;
 /** The Katasymbol label, portrait: 50 mm wide, 80 mm tall (141.7 x 226.8 pt). Slot labels print on it. */
-const STICKER = { w: 50 * MM, h: 80 * MM };
+const LABEL_50X80 = { w: 50 * MM, h: 80 * MM };
 const STOCK_4X6 = { w: 4 * PT, h: 6 * PT };
 /** store_config key and value of the bag-label stock setting (lib/intake/labels/stock.ts). */
 const LABEL_STOCK_KEY = "intake_label_stock";
@@ -2092,15 +2092,15 @@ const SCENARIOS = {
     await s.step("clamps 01-05 (?station=clamp&from=1&to=5): a PDF of 5 pages, each 50 x 80 mm portrait", async () => {
       const sizes = await pdfSizes(ctx, ROUTES.slotLabels(clamps));
       eq(sizes.length, 5, "PDF pages");
-      const off = sizes.filter((sz) => !sameSize(sz, STICKER));
-      assert(!off.length, `pages ${off.map(ptText).join(", ")}, want ${ptText(STICKER)}`);
+      const off = sizes.filter((sz) => !sameSize(sz, LABEL_50X80));
+      assert(!off.length, `pages ${off.map(ptText).join(", ")}, want ${ptText(LABEL_50X80)}`);
     }, { shot: false });
     await s.step("each clamp label: huge CLAMP 0n (the biggest type), the step, one QR of /Q/LOC-CLAMP-0n, the code", async () => {
       const pages = labelPagesIn(await labelJson(ctx, ROUTES.slotLabels(`${clamps}&format=json`)));
       eq(pages.length, 5, "label pages in the JSON");
       const out = [];
       for (const [i, n] of range(1, 5).entries()) {
-        assert(sameSize(pageSize(pages[i]), STICKER), `page ${i + 1}: ${ptText(pageSize(pages[i]))}`);
+        assert(sameSize(pageSize(pages[i]), LABEL_50X80), `page ${i + 1}: ${ptText(pageSize(pages[i]))}`);
         out.push(checkPlaceLabel(pages[i], appUrl, slotCode("clamp", n), slotName("clamp", n)));
         assert(/clamp work/i.test(texts(pages[i]).map((e) => e.text).join(" ")), `CLAMP ${nn(n)}: the step (Clamp Work) isn't printed`);
       }
@@ -2116,7 +2116,7 @@ const SCENARIOS = {
     await s.step("the bag-label stock setting (4x6) doesn't change slot labels: still 50 x 80 mm", async () => {
       await setLabelStock(mockUrl, "4x6");
       const sizes = await pdfSizes(ctx, ROUTES.slotLabels(clamps));
-      assert(sizes.every((sz) => sameSize(sz, STICKER)), `pages ${sizes.map(ptText).join(", ")}`);
+      assert(sizes.every((sz) => sameSize(sz, LABEL_50X80)), `pages ${sizes.map(ptText).join(", ")}`);
     }, { shot: false });
     await s.step("(route guess: &stock=4x6) the same labels on 4 x 6 in", async () => {
       const sizes = await pdfSizes(ctx, ROUTES.slotLabels(`${clamps}&stock=4x6`));
@@ -2129,7 +2129,7 @@ const SCENARIOS = {
       eq((await pdfSizes(ctx, ROUTES.slotLabels(`?ids=${shelf.id}`))).length, 1, "PDF pages");
       const pages = labelPagesIn(await labelJson(ctx, ROUTES.slotLabels(`?ids=${shelf.id}&format=json`)));
       eq(pages.length, 1, "label pages");
-      assert(sameSize(pageSize(pages[0]), STICKER), `page ${ptText(pageSize(pages[0]))}`);
+      assert(sameSize(pageSize(pages[0]), LABEL_50X80), `page ${ptText(pageSize(pages[0]))}`);
       return checkPlaceLabel(pages[0], appUrl, shelf.code, "DUE MON DEC 7");
     }, { shot: false });
     await s.step("the bag label still prints on 50 x 80 mm (stock 50x80mm): one page per bag, one QR (the bag's)", async () => {
@@ -2139,13 +2139,13 @@ const SCENARIOS = {
       eq((body.bags ?? []).length, 2, "bags");
       for (const b of body.bags) {
         eq(b.labels.length, 1, `${b.bagCode} label pages`);
-        assert(sameSize(pageSize(b.labels[0]), STICKER), `${b.bagCode}: ${ptText(pageSize(b.labels[0]))}`);
+        assert(sameSize(pageSize(b.labels[0]), LABEL_50X80), `${b.bagCode}: ${ptText(pageSize(b.labels[0]))}`);
         eq(qrs(b.labels[0]).length, 1, `${b.bagCode} QR codes`);
         assert(bagQrData(appUrl, b.bagCode).includes(qrs(b.labels[0])[0].data), `${b.bagCode}: QR "${qrs(b.labels[0])[0].data}"`);
       }
       const sizes = await pdfSizes(ctx, ROUTES.orderLabel(IDS.mailOrder));
       eq(sizes.length, 2, "order PDF pages");
-      assert(sizes.every((sz) => sameSize(sz, STICKER)), `pages ${sizes.map(ptText).join(", ")}`);
+      assert(sizes.every((sz) => sameSize(sz, LABEL_50X80)), `pages ${sizes.map(ptText).join(", ")}`);
     }, { shot: false });
   },
 

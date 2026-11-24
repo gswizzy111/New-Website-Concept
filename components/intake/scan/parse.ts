@@ -39,7 +39,7 @@ export function scanKindLabel(kind: ScanKind | string | null | undefined): strin
  * Ignores a repeat: the same code seen again within `windowMs` (2 s) of the
  * last time it was seen. Every sighting renews the time, so a code held in
  * front of the camera fires once, and again only after it has been out of
- * view for 2 s. Several codes are remembered at once, so two stickers in the
+ * view for 2 s. Several codes are remembered at once, so two labels in the
  * same frame don't fire turn about.
  */
 export function createScanGate(windowMs = 2000) {

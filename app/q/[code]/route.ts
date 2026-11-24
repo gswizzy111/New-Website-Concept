@@ -16,9 +16,9 @@ function redirect(request: Request, to: string) {
 
 /**
  * Where a scanned QR code goes (`/q/<CODE>`): the bag QR on each tier bag's
- * label and tag (CD-2549-P), an order code (CD-2549), the card QRs on card
- * stickers (CD-2549-03) and the place signs (LOC-HUMIDOR: the Scan page,
- * ready to move things there, /admin/scan?loc=LOC-HUMIDOR). Public on
+ * label and tag (CD-2549-P), an order code (CD-2549), a Card ID (CD-2549-03)
+ * and the slot labels and place signs (LOC-CLAMP-07: the Scan page, ready to
+ * put cards there, /admin/scan?loc=LOC-CLAMP-07). Public on
  * purpose, so the phone camera can open it, but it shows nothing itself and tells a signed-out visitor
  * nothing: without a full admin session it never looks the code up, it sends
  * them to sign in and back here (`/admin/login?next=/q/<CODE>`). Signed in, a known code
