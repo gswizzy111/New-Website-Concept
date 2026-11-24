@@ -423,7 +423,7 @@ export function setFitted(set: string, num: string, size: number, maxW: number):
  * never cut while a line holds them). Without `wrap`, a set that doesn't fit
  * is cut, or left out when little of it would show.
  */
-function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number, wrap: boolean): { h: number; wrapped: boolean; draw: (x: number, y: number) => LabelElement[] } {
+function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number, wrap: boolean): { h: number; wrapped: boolean; cut: boolean; draw: (x: number, y: number) => LabelElement[] } {
   const size = st.body;
   const lineH = size * 1.25;
   const rule = st.rules ? LABEL_LIMITS.minRulePt : 0;
@@ -437,9 +437,12 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
   const setW = textWidth(set, "body400", size);
   const wrapped = wrap && !!set && (fullW > avail || setW > setAvail);
   let setText: string;
+  let cut = false;
   if (wrapped) {
     const parts = setParts(c);
-    setText = setFitted(printable(parts.set, "body400"), printable(parts.num, "body400"), size, avail);
+    const [pSet, pNum] = [printable(parts.set, "body400"), printable(parts.num, "body400")];
+    setText = setFitted(pSet, pNum, size, avail);
+    cut = setText !== [pSet, pNum].filter(Boolean).join(" ");
   } else {
     // The set in full, or cut only when most of it still shows (a stub like "1986 Fle…" is noise)
     setText = set && fullW <= avail && (setW <= setAvail || setAvail >= Math.max(4 * size, 0.8 * setW)) ? truncate(set, "body400", size, setAvail) : "";
@@ -448,6 +451,7 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
   return {
     h,
     wrapped,
+    cut,
     draw: (x, y) => {
       const base = baselineIn(y + st.pad, "body700", size, 1.25);
       const nameEl = text(nameText, x + idW + gap, base, size, "body700", "ink");
@@ -465,7 +469,7 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
  * left column then the right, split where the columns come out most even.
  * `wrap`: see cardRow.
  */
-function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, wrap: boolean): Block & { wrapped: number } {
+function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, wrap: boolean): Block & { wrapped: number; cut: number } {
   const idW = Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
   const gap = st.body * 0.6;
   const colW = st.cols === 2 ? (Wi - colGap) / 2 : Wi;
@@ -486,6 +490,7 @@ function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, co
   return {
     h: Math.max(leftH, total - leftH),
     wrapped: rows.filter((r) => r.wrapped).length,
+    cut: rows.filter((r) => r.cut).length,
     draw: (y) => {
       const out: LabelElement[] = [];
       let ty = y;
@@ -522,13 +527,20 @@ function moreLine(n: number, xi: number, Wi: number, st: ListStyle): Block {
 }
 
 /** "Also in this order: …", small, up to two lines, breaking between bags. */
-function alsoBlock(s: S, xi: number, Wi: number, bag: LabelBag): Block | null {
+function alsoBlock(s: S, xi: number, Wi: number, bag: LabelBag, narrow = false): Block | null {
   const parts = alsoParts(bag).map((p) => printable(p, "body700"));
   if (!parts.length) return null;
   const size = s.fs(10);
   const fits = (t: string) => textWidth(t, "body700", size) <= Wi;
   const lines: string[] = [];
   let i = 0;
+  // On the narrow label "Also in this order:" takes a line of its own when the first bag
+  // won't fit beside it, so the other bag's ID isn't cut
+  const head = "Also in this order: ";
+  if (narrow && !fits(parts[0]) && parts[0].startsWith(head)) {
+    lines.push(head.trim());
+    parts[0] = parts[0].slice(head.length);
+  }
   while (i < parts.length && lines.length < 2) {
     let line = parts[i++];
     while (i < parts.length && fits(`${line} · ${parts[i]}`)) line += ` · ${parts[i++]}`;
@@ -673,7 +685,7 @@ const NARROW_BELOW = 2 * PT - 0.5;
  * smaller one (never more columns, which would cut the names) with the set
  * and number on a second line under the name.
  */
-function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGap: number) {
+function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGap: number, narrow = false) {
   const twoColsFit = LIST_STYLES.some((st) => st.cols === 2 && usable(st, cards, Wi, colGap, true));
   let style = -1;
   let shown = cards;
@@ -692,15 +704,22 @@ function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGa
   }
   let list = rowsBlock(shown, LIST_STYLES[style], xi, Wi, colGap, false);
   if (shown.length === cards.length && list.h <= room) {
+    // The first style that holds the rows with their sets; on the narrow label
+    // (where a set rarely fits at full size) the first that also cuts none, if any
+    let pick: [number, typeof list] | null = null;
     for (let i = style; i < LIST_STYLES.length; i++) {
       const st = LIST_STYLES[i];
       if (st.cols > LIST_STYLES[style].cols || !usable(st, cards, Wi, colGap, twoColsFit)) continue;
       const full = rowsBlock(cards, st, xi, Wi, colGap, true);
       if (full.h <= room) {
-        [style, list] = [i, full];
-        break;
+        pick ??= [i, full];
+        if (!narrow || !full.cut) {
+          pick = [i, full];
+          break;
+        }
       }
     }
+    if (pick) [style, list] = pick;
   }
   return { style, shown, list };
 }
@@ -733,7 +752,7 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
     const cap = top.nameSize * 0.9;
     const tier = tierRow(s, xi, Wi, bag, cap);
     const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);
-    const also = withAlso ? alsoBlock(s, xi, Wi, bag) : null;
+    const also = withAlso ? alsoBlock(s, xi, Wi, bag, narrow) : null;
     const tierY = padY + top.h + s.sp(10);
     const listTop = tierY + tier.h;
     const bottomY = stock.pageH - padY - bottom.h;
@@ -747,11 +766,11 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
   if (at.room < need && at.also) at = place(1, false);
   for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false);
   const colGap = Math.max(6, s.px(14));
-  let fitted = fitList(cards, at.room, xi, Wi, colGap);
+  let fitted = fitList(cards, at.room, xi, Wi, colGap, narrow);
   // On the narrow label every card listed beats "Also in this order" (the QR shows the whole order)
   if (narrow && at.also && fitted.shown.length < cards.length) {
     const without = place(1, false);
-    const refit = fitList(cards, without.room, xi, Wi, colGap);
+    const refit = fitList(cards, without.room, xi, Wi, colGap, narrow);
     if (refit.shown.length > fitted.shown.length) [at, fitted] = [without, refit];
   }
   const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY } = at;

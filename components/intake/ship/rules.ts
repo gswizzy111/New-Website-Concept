@@ -22,22 +22,27 @@ import { toNyDate } from "@/lib/intake/business-days";
  *   (e) slot_idle          it has sat in the same slot for N+ days (default
  *                          3) with no move (done cards too: a done card
  *                          still in a slot may have been left behind);
- *   (c) stale              its order is open (Cards Received / In Progress)
- *                          and nothing has happened to it (slot move, step
- *                          change) for 14+ days;
+ *   (c) stale              its order is open (Cards Received / In Progress),
+ *                          work on it started, and nothing has happened to
+ *                          it since (slot move, step change) for 14+ days
+ *                          (a card not started yet is waiting its turn on
+ *                          its due-date shelf, often for months: (d) covers
+ *                          it once its bag is past due);
  *   (d) a bag is past its due date with cards not done (bagPastDue).
- * Days are New York calendar days (daysSince). A card is listed once, under the first of a, b, e, c it trips. The menu
- * badge counts (a) and (b). Refunded cards and cards still awaiting arrival
- * are never forgotten; neither are the old cards of a Historical Order Setup
- * bag on a finished order (never ticked done on purpose:
- * keepsHistoricalCompletion in lib/intake/stage-plan.ts).
+ * Days are New York calendar days (daysSince). A card is listed once,
+ * under the first of a, b, e, c it trips. The menu badge counts (a) and
+ * (b). Refunded cards and cards still awaiting arrival are never forgotten;
+ * neither are the old cards of a Historical Order Setup bag on a finished
+ * order (never ticked done on purpose: keepsHistoricalCompletion in
+ * lib/intake/stage-plan.ts).
  */
 
 export const FINAL_DRY_STAGE = "Final Dry";
 /** Days at Final Dry (or on the Done shelf) before a card that isn't marked done is flagged. */
 export const FINAL_DRY_DAYS = 3;
-/** Default days in one slot with no move before a card is flagged; the report can change it. */
-export const SLOT_DAYS = 3;
+/** Default days in one slot with no move before a card is flagged; the report can change it.
+ * 7, not 3: real step times run long (Drying median 3.6 days, Clamp Work 90th percentile 10.5). */
+export const SLOT_DAYS = 7;
 export const SLOT_DAY_CHOICES: readonly number[] = [2, 3, 5, 7, 14];
 /** Days without a slot move or step change before a card of an open order is flagged. */
 export const STALE_DAYS = 14;
@@ -270,8 +275,8 @@ export function forgottenReasons(f: ForgottenCardFacts, now: number, slotDays = 
     if (since && days >= slotDays) out.push({ rule: "slot_idle", days, since });
   }
 
-  // (c) an open order's card nothing has happened to for two weeks
-  if (!f.done && OPEN_ORDER_STATUSES.includes(f.orderStatus)) {
+  // (c) an open order's card, started, that nothing has happened to for two weeks
+  if (!f.done && f.stage && OPEN_ORDER_STATUSES.includes(f.orderStatus)) {
     const last = latest(f.lastStageActivityAt, f.locatedAt, f.lastMoveAt) ?? f.orderCreatedAt;
     const days = daysSince(last, now);
     if (last && days >= STALE_DAYS) out.push({ rule: "stale", days, since: last });

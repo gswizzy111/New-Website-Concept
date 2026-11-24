@@ -233,7 +233,7 @@ function factsOf(
 
 /**
  * The report. `includeOlder` adds orders from before Receiving went live;
- * `slotDays` is rule (e)'s days in one slot (default 3).
+ * `slotDays` is rule (e)'s days in one slot (default SLOT_DAYS, 7).
  */
 export async function loadForgotten(
   admin: SupabaseClient,

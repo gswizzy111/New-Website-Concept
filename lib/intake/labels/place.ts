@@ -96,6 +96,31 @@ export function placeFooter(place: Pick<LabelPlace, "kind">): string {
   return place.kind === "station" ? "SCAN TO ADD OR MOVE CARDS" : "SCAN TO SEE WHAT'S HERE";
 }
 
+/**
+ * The code under the QR, never cut (staff type it when a QR won't scan): one
+ * line, smaller if need be; a code too long for one line at the minimum
+ * (LOC- codes run to 40 characters: about 30 fit on 50 x 80 mm) breaks after
+ * a hyphen into two lines as even as can be.
+ */
+export function codeLines(code: string, size: number, maxW: number, min: number): { lines: string[]; size: number } {
+  const one = fitLine(code, "mono600", size, maxW, min);
+  if (one.text === code) return { lines: [code], size: one.size };
+  let best: { lines: string[]; size: number } | null = null;
+  for (let i = code.indexOf("-") + 1; i > 0 && i < code.length; i = code.indexOf("-", i) + 1) {
+    const lines = [code.slice(0, i), code.slice(i)];
+    const widest = Math.max(...lines.map((l) => textWidth(l, "mono600", 1)));
+    const fit = Math.min(size, floor2(maxW / widest));
+    if (!best || fit > best.size) best = { lines, size: fit };
+  }
+  if (best && best.size >= min) return best;
+  // No hyphen to break at (or still too wide): two lines cut between characters
+  const chars = [...code];
+  const half = Math.ceil(chars.length / 2);
+  const lines = [chars.slice(0, half).join(""), chars.slice(half).join("")];
+  const fit = Math.max(min, Math.min(size, floor2(maxW / Math.max(...lines.map((l) => textWidth(l, "mono600", 1))))));
+  return { lines: lines.map((l) => fitLine(l, "mono600", fit, maxW, min).text), size: fit };
+}
+
 type Try = { k: number; cap: number; qrMin: number };
 
 function build(place: LabelPlace, stock: LabelStock, t: Try): { elements: LabelElement[]; fits: boolean; nameSize: number; qrSize: number } {
@@ -161,14 +186,13 @@ function build(place: LabelPlace, stock: LabelStock, t: Try): { elements: LabelE
   // White around the QR: at least 2.5 modules above it and 2 below, at the size it ends up
   const quietFor = (q: number) => Math.max(5 * k, (2.5 * q) / modules);
   const codeGapFor = (q: number) => Math.max(3 * k, (2 * q) / modules);
-  const codeSize = fs(11);
-  const code = fitLine(printable(place.code, "mono600") || "NO CODE", "mono600", codeSize, Wi, min);
+  const code = codeLines(printable(place.code, "mono600") || "NO CODE", fs(11), Wi, min);
   const footSize = fs(6.5);
   const footTrack = 0.5 * k;
   const foot = wrapLines(placeFooter(place), "body800", footSize, Wi, 2, footTrack);
   const footGap = 2.5 * k;
 
-  const fixed = PAD_Y + bannerH + (subLines.length ? subGap + subH : 0) + subGap + rule + code.size * 1.15 + footGap + foot.length * footSize * 1.3 + PAD_Y;
+  const fixed = PAD_Y + bannerH + (subLines.length ? subGap + subH : 0) + subGap + rule + code.lines.length * code.size * 1.15 + footGap + foot.length * footSize * 1.3 + PAD_Y;
   const room = stock.pageH - fixed;
   // The QR takes what is left (less its white), up to a size that leaves the label balanced
   const qrMax = Math.min(Wi, 1.4 * PT * Math.max(1, k));
@@ -211,15 +235,18 @@ function build(place: LabelPlace, stock: LabelStock, t: Try): { elements: LabelE
   y += rule;
 
   // The QR, the code and the footer, centered in what is left
-  const restH = quiet + qrSize + codeGap + code.size * 1.15 + footGap + foot.length * footSize * 1.3;
+  const restH = quiet + qrSize + codeGap + code.lines.length * code.size * 1.15 + footGap + foot.length * footSize * 1.3;
   const spare = Math.max(0, stock.pageH - PAD_Y - y - restH);
   y += quiet + spare / 2;
   const qx = xi + (Wi - qrSize) / 2;
   els.push({ kind: "qr", data, x: qx, y, size: qrSize, alt: `QR code for ${place.name}` });
   y += qrSize + codeGap;
   const center = (e: ReturnType<typeof text>) => ((e.x = xi + (Wi - e.width) / 2), e);
-  els.push(center(text(code.text, 0, baselineIn(y, "mono600", code.size, 1.15), code.size, "mono600", "ink")));
-  y += code.size * 1.15 + footGap;
+  for (const l of code.lines) {
+    els.push(center(text(l, 0, baselineIn(y, "mono600", code.size, 1.15), code.size, "mono600", "ink")));
+    y += code.size * 1.15;
+  }
+  y += footGap;
   for (const l of foot) {
     els.push(center(text(l, 0, baselineIn(y, "body800", footSize, 1.3), footSize, "body800", "ink", footTrack)));
     y += footSize * 1.3;

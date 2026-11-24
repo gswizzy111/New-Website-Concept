@@ -137,13 +137,15 @@ test("(b) never for a done card or a finished order (that is (a))", () => {
 
 // ── (e) same slot for N days ───────────────────────────────────────────────
 
-test("(e) in the same slot for N+ days with no move (default 3)", () => {
-  assert.equal(SLOT_DAYS, 3);
-  const f = card({ stage: "Clamp Work", stageSince: daysAgo(4), location: CLAMP, locatedAt: daysAgo(4) });
+test("(e) in the same slot for N+ days with no move (default 7)", () => {
+  assert.equal(SLOT_DAYS, 7);
+  const f = card({ stage: "Clamp Work", stageSince: daysAgo(8), location: CLAMP, locatedAt: daysAgo(8) });
   const r = forgottenReasons(f, NOW);
   assert.equal(r[0].rule, "slot_idle");
-  assert.equal(r[0].days, 4);
-  assert.deepEqual(rules(f, 5), [], "the report's 5-day setting");
+  assert.equal(r[0].days, 8);
+  assert.deepEqual(rules(f, 14), [], "the report's 14-day setting");
+  assert.deepEqual(rules(card({ location: CLAMP, locatedAt: daysAgo(4) })), [], "4 days is normal work at the default");
+  assert.deepEqual(rules(card({ location: CLAMP, locatedAt: daysAgo(4) }), 3), ["slot_idle"], "the report's 3-day setting");
   assert.deepEqual(rules(card({ location: CLAMP, locatedAt: daysAgo(2) })), [], "2 days");
   assert.deepEqual(rules(card({ location: SHELF, locatedAt: daysAgo(10) })), [], "a shelf isn't a slot");
 });
@@ -153,14 +155,15 @@ test("(e) a later move resets the clock", () => {
 });
 
 test("(e) a done card still in a slot is flagged (it may have been left behind)", () => {
-  const f = card({ done: true, stage: null, location: CLAMP, locatedAt: daysAgo(5) });
+  const f = card({ done: true, stage: null, location: CLAMP, locatedAt: daysAgo(8) });
   assert.deepEqual(rules(f), ["slot_idle"]);
   assert.deepEqual(rules({ ...f, orderStatus: "shipped_back" }), ["slot_idle"], "even after the order shipped");
   assert.deepEqual(rules({ ...f, refunded: true }), [], "refunded");
 });
 
 test("a Final Dry slot past 3 days is (b) first, (e) as well", () => {
-  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: daysAgo(4), location: FINAL_DRY_SLOT, locatedAt: daysAgo(4) })), ["final_dry", "slot_idle"]);
+  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: daysAgo(4), location: FINAL_DRY_SLOT, locatedAt: daysAgo(4) }), 3), ["final_dry", "slot_idle"]);
+  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: daysAgo(4), location: FINAL_DRY_SLOT, locatedAt: daysAgo(4) })), ["final_dry"], "at the 7-day default only (b)");
 });
 
 // ── (c) untouched for 14 days ──────────────────────────────────────────────
@@ -176,10 +179,10 @@ test("(c) an open order's card with no step change or move for 14+ days", () => 
   assert.deepEqual(rules({ ...f, orderStatus: "awaiting_cards" }), [], "order not in the shop");
 });
 
-test("(c) nothing ever happened: counts from the order's creation", () => {
-  const f = card({ stage: null, stageSince: null, lastStageActivityAt: null, orderCreatedAt: daysAgo(20) });
-  assert.deepEqual(rules(f), ["stale"]);
-  assert.deepEqual(rules({ ...f, orderCreatedAt: daysAgo(3) }), []);
+test("(c) never for a card not started yet (waiting its turn on the due-date shelf; (d) covers a late bag)", () => {
+  const f = card({ stage: null, stageSince: null, lastStageActivityAt: daysAgo(40), orderCreatedAt: daysAgo(45) });
+  assert.deepEqual(rules(f), []);
+  assert.deepEqual(rules({ ...f, lastStageActivityAt: null }), [], "nothing ever happened");
 });
 
 test("(c) in a slot a long time is (e) first, (c) as well", () => {

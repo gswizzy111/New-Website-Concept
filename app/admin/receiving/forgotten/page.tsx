@@ -64,7 +64,7 @@ function sections(slotDays: number): SectionDef[] {
     { rule: "slot_idle", id: "slot", title: `Same slot ${slotDays}+ days`, tone: "amber", icon: icon(Clock),
       hint: `In one slot for ${slotDays} days or more with no move. A done card still in a slot may have been left behind.` },
     { rule: "stale", id: "untouched", title: `Untouched ${STALE_DAYS}+ days`, tone: "amber", icon: icon(CalendarClock),
-      hint: `Its order is open, but nothing has happened to it (slot move, step change) for ${STALE_DAYS} days or more.` },
+      hint: `Work on it started, then nothing happened (no slot move, no step change) for ${STALE_DAYS} days or more. Cards still waiting to start aren't listed: late bags are below.` },
   ];
 }
 

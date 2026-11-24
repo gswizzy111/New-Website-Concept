@@ -196,15 +196,21 @@ function placeFromRow(r: PlaceRow): LabelPlaceWithId {
  * Places to print labels for (server only: the service-role client):
  *   { ids }                    those places, in the order asked (inactive ones too: asked for by id)
  *   { station, from?, to? }    the station type's active slots, by serial number
- *                              (from..to inclusive: "Clamps 01 to 20")
+ *                              (from..to inclusive: "Clamps 01 to 20"), at most `limit`
+ *                              (default 1,000, the most one read returns): the range is
+ *                              read from the database, so slot 1,500 prints too
  */
 export async function loadLabelPlaces(
   admin: SupabaseClient,
-  where: { ids: string[] } | { station: string; from?: number | null; to?: number | null },
+  where: { ids: string[] } | { station: string; from?: number | null; to?: number | null; limit?: number },
 ): Promise<{ places: LabelPlaceWithId[]; error: string | null }> {
   const read = async (columns: string) => {
     const q = admin.from("locations").select(columns);
-    return "ids" in where ? await q.in("id", where.ids) : await q.eq("station", where.station);
+    if ("ids" in where) return await q.in("id", where.ids);
+    let range = q.eq("station", where.station).eq("active", true).not("serial", "is", null);
+    if (where.from != null) range = range.gte("serial", where.from);
+    if (where.to != null) range = range.lte("serial", where.to);
+    return await range.order("serial", { ascending: true }).order("code", { ascending: true }).limit(where.limit ?? 1000);
   };
   let res = await read(PLACE_COLUMNS);
   // Before the slot columns exist, places asked for by id still print (as signs)

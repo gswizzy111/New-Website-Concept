@@ -17,17 +17,23 @@ import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActio
  * take out and done), server only. Admin access is checked by the calling
  * route. The rules are in move-plan.ts (planCards); this file reads, checks
  * the slot's capacity, then writes in this order:
- *   1. stage_update events for cards going into a slot at a later step:
+ *   1. cards.location_id / located_at (the old slot frees up), only where
+ *      each card still is where it was read: a second phone moving the same
+ *      card, or the same request sent twice, finds it gone and writes nothing
+ *      for it (no second step event, history row or email);
+ *   2. card_moves rows (history);
+ *   3. stage_update events for cards going into a slot at a later step:
  *      exactly what the stage buttons and advanceCards() write ("Stage:
  *      <stage> [card:<id>]", metadata { card_id, stage, round, by, bulk },
  *      customer visible);
- *   2. cards marked done (as POST /api/admin/cards/[id]/complete);
- *   3. card_moves rows (history);
- *   4. cards.location_id / located_at (the old slot frees up);
+ *   4. cards marked done (as POST /api/admin/cards/[id]/complete);
  *   5. at most ONE customer email per order (step changes only, none for done);
  *   6. bag completion refresh for cards marked done.
  * A failed write stops there and answers 500; doing it again is safe (cards
- * already there at that step are left alone).
+ * already there at that step are left alone; a card already in its new slot
+ * still gets its step). Capacity is checked before writing, so two phones
+ * filling the last space at the same moment can both get in (capacity is a
+ * warning staff can override anyway).
  */
 
 export const MAX_CARDS = 200;
@@ -242,17 +248,27 @@ async function planAndRun(
   }
   const run = await writePlan(admin, plan, ctx, target, input);
   if (!run.ok) return run;
+  // Cards someone else moved between the read and the write (left alone)
+  const lost = new Set(run.lost);
+  const results = plan.results.map((r) => (lost.has(r.cardId)
+    ? { cardId: r.cardId, code: r.code, name: r.name, ok: false, changed: false, message: MOVED_MEANWHILE }
+    : r));
+  const message = !lost.size ? plan.message
+    : plan.results.length === 1 ? MOVED_MEANWHILE
+    : `${plan.message} ${lost.size === 1 ? "1 card was" : `${lost.size} cards were`} moved by someone else just now: scan again.`;
   return {
     ok: true,
     location: target ? locationRef(target) : null,
-    results: [...plan.results, ...extraResults],
-    message: plan.message,
-    changed: plan.moves.length,
+    results: [...results, ...extraResults],
+    message,
+    changed: plan.moves.length - lost.size,
     emailedOrders: run.emailedOrders,
     bagsCompleted: run.bagsCompleted,
     freed: run.freed,
   };
 }
+
+const MOVED_MEANWHILE = "Someone moved it just now. Scan the slot again.";
 
 async function writePlan(
   admin: SupabaseClient,
@@ -260,40 +276,34 @@ async function writePlan(
   ctx: OrdersContext,
   target: LocationRow | null,
   input: Common,
-): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[] } | { ok: false; status: number; error: string }> {
-  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[] };
+): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[] } | { ok: false; status: number; error: string }> {
+  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[] };
   if (!plan.moves.length) return out;
   const by = input.by;
   const sessionId = input.sessionId && UUID.test(input.sessionId) ? input.sessionId : null;
   const now = new Date().toISOString();
 
-  // 1. Steps (one stage_update per card, as the stage buttons write them)
-  type Staged = PlannedMove & { stageEvent: NonNullable<PlannedMove["stageEvent"]> };
-  const staged = plan.moves.filter((m): m is Staged => !!m.stageEvent);
-  const stagedPerOrder = new Map<string, Staged[]>();
-  for (const m of staged) stagedPerOrder.set(m.orderId, [...(stagedPerOrder.get(m.orderId) ?? []), m]);
-  if (staged.length) {
-    const { error } = await admin.from("order_events").insert(staged.map((m) => ({
-      order_id: m.orderId,
-      event_type: "stage_update",
-      description: `Stage: ${m.stageEvent.stage} [card:${m.cardId}]`,
-      metadata: { card_id: m.cardId, stage: m.stageEvent.stage, round: m.stageEvent.round, by, bulk: (stagedPerOrder.get(m.orderId)?.length ?? 0) > 1 },
-      is_customer_visible: true,
-    })));
-    if (error) return { ok: false, status: 500, error: `Couldn't save the step. Nothing was changed. (${error.message})` };
+  // 1. Where the cards are (the old slot frees up). Only a card still where
+  // it was read moves: one moved meanwhile (another phone, or this request
+  // sent twice) is left alone and nothing else is written for it
+  const fromGroups = new Map<string | null, string[]>();
+  for (const m of plan.moves) if (m.locationChanges) fromGroups.set(m.fromLocationId, [...(fromGroups.get(m.fromLocationId) ?? []), m.cardId]);
+  const lost = new Set<string>();
+  for (const [from, ids] of fromGroups) {
+    for (const part of chunks(ids)) {
+      const q = admin.from("cards").update({ location_id: target?.id ?? null, located_at: target ? now : null }).in("id", part);
+      const { data, error } = await (from ? q.eq("location_id", from) : q.is("location_id", null)).select("id");
+      if (error) return { ok: false, status: 500, error: `Couldn't save where the cards are. (${error.message})` };
+      const got = new Set((data ?? []).map((r) => r.id as string));
+      for (const id of part) if (!got.has(id)) lost.add(id);
+    }
   }
+  out.lost = [...lost];
+  const moves = plan.moves.filter((m) => !lost.has(m.cardId));
+  if (!moves.length) return out;
 
-  // 2. Done (as the card's Done toggle: completed + completed_at)
-  const completed: string[] = [];
-  for (const part of chunks(plan.moves.filter((m) => m.complete).map((m) => m.cardId))) {
-    const { data, error } = await admin.from("cards").update({ completed: true, completed_at: now })
-      .in("id", part).not("completed", "is", true).select("id");
-    if (error) return { ok: false, status: 500, error: `Couldn't mark the cards done. (${error.message})` };
-    completed.push(...(data ?? []).map((r) => r.id as string));
-  }
-
-  // 3. History
-  for (const part of chunks(plan.moves, 500)) {
+  // 2. History
+  for (const part of chunks(moves, 500)) {
     const { error } = await admin.from("card_moves").insert(part.map((m) => ({
       card_id: m.cardId,
       order_id: m.orderId,
@@ -309,23 +319,39 @@ async function writePlan(
     if (error) return { ok: false, status: 500, error: `Couldn't save the move. (${error.message})` };
   }
 
-  // 4. Where the cards are (the old slot frees up)
-  const relocated = plan.moves.filter((m) => m.locationChanges);
-  for (const part of chunks(relocated.map((m) => m.cardId))) {
-    const { error } = await admin.from("cards")
-      .update({ location_id: target?.id ?? null, located_at: target ? now : null })
-      .in("id", part);
-    if (error) return { ok: false, status: 500, error: `Couldn't save where the cards are. (${error.message})` };
+  // 3. Steps (one stage_update per card, as the stage buttons write them)
+  type Staged = PlannedMove & { stageEvent: NonNullable<PlannedMove["stageEvent"]> };
+  const staged = moves.filter((m): m is Staged => !!m.stageEvent);
+  const stagedPerOrder = new Map<string, Staged[]>();
+  for (const m of staged) stagedPerOrder.set(m.orderId, [...(stagedPerOrder.get(m.orderId) ?? []), m]);
+  if (staged.length) {
+    const { error } = await admin.from("order_events").insert(staged.map((m) => ({
+      order_id: m.orderId,
+      event_type: "stage_update",
+      description: `Stage: ${m.stageEvent.stage} [card:${m.cardId}]`,
+      metadata: { card_id: m.cardId, stage: m.stageEvent.stage, round: m.stageEvent.round, by, bulk: (stagedPerOrder.get(m.orderId)?.length ?? 0) > 1 },
+      is_customer_visible: true,
+    })));
+    if (error) return { ok: false, status: 500, error: `Couldn't save the step. (${error.message})` };
+  }
+
+  // 4. Done (as the card's Done toggle: completed + completed_at)
+  const completed: string[] = [];
+  for (const part of chunks(moves.filter((m) => m.complete).map((m) => m.cardId))) {
+    const { data, error } = await admin.from("cards").update({ completed: true, completed_at: now })
+      .in("id", part).not("completed", "is", true).select("id");
+    if (error) return { ok: false, status: 500, error: `Couldn't mark the cards done. (${error.message})` };
+    completed.push(...(data ?? []).map((r) => r.id as string));
   }
 
   // 5. One email per order for the steps
   const names = new Map(ctx.cards.map((c) => [c.id, c.card_name]));
-  for (const [orderId, moves] of stagedPerOrder) {
+  for (const [orderId, orderMoves] of stagedPerOrder) {
     const order = ctx.orders.get(orderId);
     if (!order) continue;
     const sent = await sendStageUpdateEmail(
       { customer_email: order.customer_email, customer_name: order.customer_name, order_number: order.order_number },
-      moves.map((m) => ({ name: names.get(m.cardId) ?? null, stage: m.stageEvent.stage, round: m.stageEvent.round })),
+      orderMoves.map((m) => ({ name: names.get(m.cardId) ?? null, stage: m.stageEvent.stage, round: m.stageEvent.round })),
     );
     if (sent) out.emailedOrders.push(orderId);
   }
@@ -337,6 +363,7 @@ async function writePlan(
   }
 
   // Slots left empty (best effort: the move itself is saved)
+  const relocated = moves.filter((m) => m.locationChanges);
   const left = [...new Set(relocated.map((m) => m.fromLocationId).filter((id): id is string => !!id && id !== target?.id))];
   if (left.length) {
     try {

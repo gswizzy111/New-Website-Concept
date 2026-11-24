@@ -39,10 +39,11 @@ export async function GET(request: Request) {
   }
 
   const admin = createAdminClient();
-  const { places, error } = await loadLabelPlaces(admin, parsed.data);
+  // One more than the most a print makes: enough to tell a range that is too long
+  const { places, error } = await loadLabelPlaces(admin, "ids" in parsed.data ? parsed.data : { ...parsed.data, limit: MAX_LABELS + 1 });
   if (error) return Response.json({ error }, { status: 500 });
   if (!places.length) return Response.json({ error: "No places to print." }, { status: 404 });
-  if (places.length > MAX_LABELS) return Response.json({ error: `That is ${places.length} labels: print at most ${MAX_LABELS} at a time.` }, { status: 400 });
+  if (places.length > MAX_LABELS) return Response.json({ error: `That is more than ${MAX_LABELS} labels: print at most ${MAX_LABELS} at a time.` }, { status: 400 });
 
   const q = parsed.data;
   const first = places[0];
