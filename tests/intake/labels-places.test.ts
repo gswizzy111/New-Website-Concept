@@ -89,9 +89,9 @@ function checkPage(p: LabelPage, stock: LabelStock, qrData: string, minQrIn: num
   const [q] = codes;
   assert.equal(q.data, qrData, `${label}: QR data`);
   assert.ok(q.size >= minQrIn * PT - 1e-6, `${label}: QR ${(q.size / PT).toFixed(3)} in`);
-  const module = q.size / qrMatrix(q.data).size;
-  assert.ok(module >= LABEL_LIMITS.moduleIn * PT - 1e-9, `${label}: QR module ${(module / PT).toFixed(4)} in`);
-  assert.ok((module / PT) * 203 >= 4 - 1e-9, `${label}: QR module ${((module / PT) * 203).toFixed(1)} dots at 203 dpi`);
+  const moduleSize = q.size / qrMatrix(q.data).size;
+  assert.ok(moduleSize >= LABEL_LIMITS.moduleIn * PT - 1e-9, `${label}: QR moduleSize ${(moduleSize / PT).toFixed(4)} in`);
+  assert.ok((moduleSize / PT) * 203 >= 4 - 1e-9, `${label}: QR moduleSize ${((moduleSize / PT) * 203).toFixed(1)} dots at 203 dpi`);
 
   // White text sits on a black rect; black text, rules and the QR never touch each other
   const inkRects = p.elements.filter((e) => e.kind === "rect" && e.fill === "ink");

@@ -2051,11 +2051,12 @@ const SCENARIOS = {
       await bulkSlots(ctx, "clamp", 2);
       await assignOk(ctx, "LOC-CLAMP-02", [mailCard(1)]);
     }, { critical: true, shot: false });
-    await s.step("CD-2549-01 put in CLAMP 01 4 days ago, untouched since (its placement, move row and step written as then)", async () => {
+    await s.step("CD-2549-01 put in CLAMP 01 9 days ago, untouched since (its placement, move row and step written as then)", async () => {
       const t = await tables();
       const slot = placeOf(t, "LOC-CLAMP-01");
       const card = cardByCode(t, "CD-2549-01");
-      const then = new Date(Date.now() - 4 * 86400e3).toISOString();
+      // past SLOT_DAYS (7, components/intake/ship/rules.ts) and short of STALE_DAYS (14)
+      const then = new Date(Date.now() - 9 * 86400e3).toISOString();
       // nothing newer may say it moved: drop this card's move rows from receiving today (deletes are allowed)
       const { error } = await mockDb(mockUrl).from("card_moves").delete().eq("card_id", card.id);
       assert(!error, `card_moves: ${error?.message}`);
@@ -2071,7 +2072,7 @@ const SCENARIOS = {
       await goto(page, ROUTES.forgotten);
       const text = await page.locator("main").first().innerText();
       const shows = (code, name) => text.includes(code) || text.includes(name);
-      assert(shows("CD-2549-01", "Test Card Gold One"), "CD-2549-01 (4 days in CLAMP 01) not listed");
+      assert(shows("CD-2549-01", "Test Card Gold One"), "CD-2549-01 (9 days in CLAMP 01) not listed");
       assert(nameRe("CLAMP 01", "i").test(text), "its slot CLAMP 01 isn't named");
       assert(shows("CD-2600-01", "Test Big Order Card 01"), "CD-2600-01 (Completed order, not done) not listed");
       assert(!shows("CD-2549-02", "Test Card Gold Two"), "CD-2549-02 is listed, but it went into CLAMP 02 minutes ago");

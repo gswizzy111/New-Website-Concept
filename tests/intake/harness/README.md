@@ -314,7 +314,7 @@ mock (`mockUpdate()`), not left to the station type's default.
   not in a slot", "Still in CLAMP 02", "Not marked done" + Mark done (Yes,
   mark done → POST done); take out → ready; refunded; order code and Card ID
   scopes; 390 px.
-- `track-forgotten`: CD-2549-01 placed in CLAMP 01 four days ago (rows written
+- `track-forgotten`: CD-2549-01 placed in CLAMP 01 nine days ago (past the 7-day slot rule; rows written
   as then) and CD-2600 Completed with a card not done are listed; CD-2549-02,
   put in a slot minutes ago, and CD-2400 are not; 390 px.
 - `track-labels`: slot labels batch `?station=clamp&from=1&to=5` = 5 pages of
