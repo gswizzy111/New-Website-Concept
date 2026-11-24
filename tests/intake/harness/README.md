@@ -15,6 +15,8 @@ node tests/intake/harness/smoke.mjs         # existing admin pages render signed
 node tests/intake/e2e/scenarios.mjs         # intake scenarios (all)
 node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
+node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
+node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -138,6 +140,18 @@ Constraints (from the live schema and `20261123_intake_tracking.sql`):
 - triggers: order numbers `CD-<n>`, `orders.updated_at`, `cards.completed_at`
   stamp, cards ticked done when an order becomes shipped_back/delivered,
   `tier_bag_due_changes` immutable, `show_dropoffs` undeletable.
+- card tracking (`20261124_card_tracking.sql`): `locations` (unique `code`,
+  `LOC-[A-Z0-9-]` code check, name check, kind check, `station`/`serial`/
+  `capacity` checks, stage one of the 8 steps, the slot shape check: kind
+  'station' ⇔ a stage, and a slot has `station` + `serial`; unique
+  `(station, serial)`); `card_moves` insert-only (an update answers 400
+  `P0001`; deleting a card deletes its moves), action one of
+  assign/move/release/done/receive/ship_check, `from_location_id` /
+  `to_location_id` → locations NO ACTION (a place with history can't be
+  deleted); `cards.location_id` and `tier_bags.location_id` → locations ON
+  DELETE SET NULL. Two FKs from `card_moves` to `locations`: an embed of
+  `locations` from `card_moves` needs a hint (`locations!to_location_id`), or
+  the mock answers 300 `PGRST201` as PostgREST does.
 - defaults: ids, `created_at`, card `status 'active'`, `completed false`,
   `current_round 1`, `photo_urls []`, `receiving_photo_urls []`,
   `awaiting_arrival false`, bag `batch 1`, `due_status 'pending'`,
@@ -167,6 +181,13 @@ calls and `generate_link` return fakes.
 | CD-2450 (`IDS.inProgressOrder`) | in_progress, Gold, received 2026-11-02 | at Heat Press, at Humidor, not started |
 | CD-2460 (`IDS.noDateOrder`) | received, Silver, self-ship, no received event | 2 (missing receiving date) |
 | CD-2600 (`IDS.bigOrder`) | awaiting_cards, mail-in, mixed tiers (order tier null), customer `BIG_CUSTOMER_NAME`, `admin_notes` set (keeps it out of selftest's `admin_notes is null` list) | 40: 32 Gold + 8 Platinum (`BIG_CARD_TIERS`: every 5th Platinum), names `BIG_CARD_NAMES` (4 long ones), for the one-page-per-bag label tests |
+
+Card tracking: `locations` holds only what the migration seeds, `LOC-DONE`
+("Done", kind done) and `LOC-SHIP` ("Shipping", kind shipping) (`DEFAULT_PLACES`,
+`IDS.places`); no slots (staff make them: the scenarios use the bulk API, `POST
+/api/admin/track/locations { station, count }` → CLAMP 01..N) and no shelf slots
+(made when a bag first needs one). Every card has `location_id`/`located_at`
+null; `card_moves` is empty.
 
 Also: all 6 tiers in `restoration_settings` (live values: Bronze 45-60, Silver
 30-45, Gold 15-20, Platinum 10-15, Diamond 5-10, Fast Pass 1-7), the live
@@ -254,12 +275,74 @@ harness's localhost certificate the way `start.mjs`'s mock helpers do.
   stage history untouched, awaiting order left alone; preview + run again
   through the API → no new cards, bags or codes.
 
+### Card tracking (`track-*`, the owner's slot model of Nov 24)
+
+Cards carry no sticker and are never scanned: every holder is a slot with a QR
+label (CLAMP 07 = `LOC-CLAMP-07`), staff put cards in slots, move a slot's
+cards to the next slot, mark them done or take them out. Response shapes are
+`lib/intake/tracking/types.ts`. Most scenarios receive CD-2549 Gold 01-04 +
+Platinum 07-08 (2026-11-15) and CD-2600-01 (2026-11-20) and make slots through
+the bulk API first (`trackSetup()`); capacities a step needs are set in the
+mock (`mockUpdate()`), not left to the station type's default.
+
+- `track-slots`: seeded LOC-DONE/LOC-SHIP only and the 8 station types; bulk
+  CLAMP 01..05 and HEAT PRESS 01..03 (codes, names, serials, steps), 2 more
+  continue at 06-07, `startAt` over existing numbers skips them, unknown type
+  and count 0 refused; `?station=clamp` occupancy; PATCH capacity (3, null, 0
+  refused), rename + switch off (`?all=1`); an "other" place (LOC-BENCH-2), no
+  station by name; the Places page at 1440 and 390 px.
+- `track-assign`: CD-2549-07 + -08 + CD-2600-01 into CLAMP 01: step Clamp Work,
+  `assign` rows, exactly one customer email per order; the same request again
+  changes nothing; CLAMP 02 (capacity 1): 409 `overCapacity` naming its card,
+  then `force` adds anyway; a card put in another slot frees its old one (no
+  new step, no email); a scanned link as the slot; refunded card refused;
+  unknown slot / no cards refused.
+- `track-move`: CLAMP 01 → HEAT PRESS 02 (capacity 1): 409, then `force`: CLAMP
+  01 empty and `freed`, step stays Clamp Work (Heat Press is an earlier step:
+  never backwards), no email, `move` rows; two of three cards on to FINAL DRY 01:
+  step Final Dry, one email; from an empty slot / a card not in the slot
+  refused; Done: cards done at LOC-DONE, slot freed, bag CD-2549-P complete,
+  no email, `done` rows (stage_after 'done'); Take out: no place, slot freed,
+  step kept, a `release` row; again: nothing changes.
+- `track-find`: resolve a slot (name, number, step, occupancy, its cards), an
+  empty slot, scanned links, LOC-DONE, a bag and an order (cards with their
+  slots), a typed Card ID; 404 / 400; search by Card ID, card name, customer,
+  order number (1 character refused); history of a slot, a card (newest
+  first), a bag.
+- `track-ship`: ship check of bag CD-2549-G: not done → ok after Done;
+  ticked done but still in CLAMP 02 → `in_slot`; the ship page shows ✓ "Done ·
+  not in a slot", "Still in CLAMP 02", "Not marked done" + Mark done (Yes,
+  mark done → POST done); take out → ready; refunded; order code and Card ID
+  scopes; 390 px.
+- `track-forgotten`: CD-2549-01 placed in CLAMP 01 four days ago (rows written
+  as then) and CD-2600 Completed with a card not done are listed; CD-2549-02,
+  put in a slot minutes ago, and CD-2400 are not; 390 px.
+- `track-labels`: slot labels batch `?station=clamp&from=1&to=5` = 5 pages of
+  50 x 80 mm, each a huge "CLAMP 0n" (biggest type), "Clamp Work", one QR of
+  `/Q/LOC-CLAMP-0n`, the code; `?ids=` two heat press slots; the bag-label stock
+  setting doesn't change them; `&stock=4x6`; the Dec 7 shelf sign; the bag
+  label on 50 x 80 mm (stock `50x80mm`).
+- `track-q`: `/q/LOC-CLAMP-01`, `/Q/…`, lower case → `/admin/scan?loc=LOC-CLAMP-01`;
+  LOC-DONE, LOC-SHIP; bag/order/card codes unchanged; signed out → sign in
+  with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page.
+- `track-shelf`: Receive on the workspace says "Put in shelf: DUE MON DEC 7";
+  Print shelf sign; one LOC-SHELF-20261207 slot shared by bags due that day
+  (same order later, another order); the receive answer names the shelves;
+  Shelf view in due-date order with each bag under its slot; `/q/LOC-SHELF-…`;
+  390 px.
+- `track-scan-page` (iPhone 13, 390 px): the handheld-scanner box; CLAMP 01's
+  link + Enter shows "Put a card in CLAMP 01" without navigating; the bag's QR
+  lists its cards, "Put in CLAMP 01" on CD-2549-07 assigns it; a full slot
+  shows its card with Move, Done, Take out; `/admin/scan?loc=LOC-CLAMP-03`;
+  no browser errors (no camera in headless); the desktop menu's "Scan" link.
+
 Steps time out after 30 s (navigation 240 s for first compiles) instead of
 waiting forever for a missing button.
 
 The intake UI was being built while these were written: the wording they rely
 on (`UI`) and the routes (`ROUTES`) are guesses where a page didn't exist yet
-(bag, card, completed and setup pages, the label PDF route). Fix them there.
+(bag, card, completed and setup pages, the label PDF route; for tracking, the
+`&stock=4x6` slot-label parameter). Fix them there.
 
 ## Known limits
 

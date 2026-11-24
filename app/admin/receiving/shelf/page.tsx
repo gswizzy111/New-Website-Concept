@@ -268,7 +268,7 @@ export default async function ShelfPage({ searchParams }: { searchParams: Promis
             {sections.length > 1 && (
               <nav aria-label="Jump to a shelf" className="flex flex-wrap gap-1.5 text-xs">
                 {sections.map((s) => (
-                  <a key={s.key} href={`#due-${s.key}`} className={`inline-flex items-center min-h-9 px-2.5 rounded-md border border-border bg-white font-bold hover:border-primary/40 ${s.dueDate && s.dueDate < today ? "text-red-700" : "text-foreground"} ${focusRing}`}>
+                  <a key={s.key} href={`#due-${s.key}`} className={`inline-flex items-center min-h-11 px-3 rounded-md border border-border bg-white font-bold hover:border-primary/40 ${s.dueDate && s.dueDate < today ? "text-red-700" : "text-foreground"} ${focusRing}`}>
                     {s.done ? "All done" : s.dueDate ? shortDay(s.dueDate, today) : "No due date"} · {s.bags.length}
                   </a>
                 ))}

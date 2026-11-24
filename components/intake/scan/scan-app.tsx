@@ -107,6 +107,14 @@ function canFill(slot: TrackSlotSummary): boolean {
   return slot.active && slot.kind !== "done" && slot.kind !== "shipping" && roomLeft(slot.capacity, slot.cardCount) > 0;
 }
 
+/** "CLAMP 07 already holds Charizard. Add anyway?" (the server's sentence when it names no card). */
+function conflictText(slotName: string, conflict: CapacityConflict): string {
+  const names = conflict.occupants.map((c) => c.name ?? c.code ?? "a card");
+  if (!names.length) return conflict.error;
+  const shown = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(names.length === 2 ? " and " : ", ");
+  return `${slotName} already holds ${shown}. Add anyway?`;
+}
+
 function scrollToTop() {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
@@ -302,7 +310,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         if (res.conflict) {
           beep("error", soundStore.get());
           setStatus(res.error);
-          setConflict({ text: res.error, conflict: res.conflict, retry: { type: "assign", cards, slot } });
+          setConflict({ text: conflictText(slot.name, res.conflict), conflict: res.conflict, retry: { type: "assign", cards, slot } });
           return;
         }
         fail(res.error);
@@ -349,7 +357,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         if (res.conflict) {
           beep("error", soundStore.get());
           setStatus(res.error);
-          setConflict({ text: res.error, conflict: res.conflict, retry: { type: "move", from, to, cards } });
+          setConflict({ text: conflictText(to.name, res.conflict), conflict: res.conflict, retry: { type: "move", from, to, cards } });
           return;
         }
         fail(res.error);
@@ -700,6 +708,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
               {conflict.conflict.occupants.length > 0 && (
                 <p className="mt-1 text-sm">
                   In it now: <span className="font-mono font-bold">{conflict.conflict.occupants.map((c) => c.code ?? c.name).join(", ")}</span>
+                  {` · holds ${conflict.conflict.capacity === 1 ? "1 card" : `${conflict.conflict.capacity} cards`}`}
                 </p>
               )}
               <div className="mt-3 grid grid-cols-2 gap-2">

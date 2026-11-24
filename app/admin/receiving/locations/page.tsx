@@ -51,6 +51,7 @@ function toItem(p: PlaceWithCards, today: string): PlaceItemData {
     stage: p.stage,
     active: p.active,
     cardCount: p.cards.length,
+    bagCount: p.bagCount,
     note: p.kind === "shelf" ? shelfNote(p.due_date, today) : null,
     shelfHref: p.kind === "shelf" && p.due_date ? `/admin/receiving/shelf#due-${p.due_date}` : null,
   };
@@ -69,6 +70,7 @@ function toTile(p: PlaceWithCards, today: string): SlotTileData {
       name: c.name,
       customer: c.customer,
       dueText: c.dueDate ? `Due ${shortDay(c.dueDate, today)}` : null,
+      note: c.note,
     })),
   };
 }
@@ -136,7 +138,7 @@ export default async function PlacesPage() {
   const shelves = active.filter((p) => p.kind === "shelf")
     .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") || byName(a, b));
   // Past slots with nothing on them fold away (one is made per due date, so they pile up)
-  const currentShelves = shelves.filter((p) => p.cards.length > 0 || !p.due_date || p.due_date >= today);
+  const currentShelves = shelves.filter((p) => p.cards.length > 0 || p.bagCount > 0 || !p.due_date || p.due_date >= today);
   const oldShelves = shelves.filter((p) => !currentShelves.includes(p));
   const done = active.filter((p) => p.kind === "done").sort(byName);
   const shipping = active.filter((p) => p.kind === "shipping").sort(byName);
@@ -215,6 +217,7 @@ export default async function PlacesPage() {
                         min={serials.length === list.length ? Math.min(...serials) : null}
                         max={serials.length === list.length ? Math.max(...serials) : null}
                         ids={list.map((p) => p.id)}
+                        serials={serials}
                       />
                     </div>
                     <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">

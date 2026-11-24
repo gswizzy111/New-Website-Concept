@@ -99,7 +99,7 @@ function RenameForm({ id, name, busy, onSave, onCancel }: { id: string; name: st
 
 // ── Slots ──────────────────────────────────────────────────────────────────
 
-export type SlotCard = { id: string; code: string | null; name: string; customer: string | null; dueText: string | null };
+export type SlotCard = { id: string; code: string | null; name: string; customer: string | null; dueText: string | null; note: string | null };
 
 export type SlotTileData = {
   id: string;
@@ -142,6 +142,7 @@ export function SlotTile({ slot }: { slot: SlotTileData }) {
               {(c.customer || c.dueText) && (
                 <span className="block text-xs text-muted-foreground [overflow-wrap:anywhere]">{[c.customer, c.dueText].filter(Boolean).join(" · ")}</span>
               )}
+              {c.note && <span className="block text-xs font-bold text-amber-800">{c.note}: take it out</span>}
             </li>
           ))}
           {n > 3 && <li className="text-xs font-bold text-muted-foreground">and {n - 3} more</li>}
@@ -195,7 +196,7 @@ export function SlotTile({ slot }: { slot: SlotTileData }) {
  * A station type's labels for a serial range ("Clamps 01-20"), one label per
  * slot; slots without serial numbers print all together by id.
  */
-export function StationRangePrint({ station, name, min, max, ids }: { station: string; name: string; min: number | null; max: number | null; ids: string[] }) {
+export function StationRangePrint({ station, name, min, max, ids, serials = [] }: { station: string; name: string; min: number | null; max: number | null; ids: string[]; serials?: number[] }) {
   if (min == null || max == null) {
     return (
       <LazyPrintButton
@@ -206,16 +207,17 @@ export function StationRangePrint({ station, name, min, max, ids }: { station: s
       />
     );
   }
-  return <SerialRangePrint station={station} name={name} min={min} max={max} />;
+  return <SerialRangePrint station={station} name={name} min={min} max={max} serials={serials} />;
 }
 
-function SerialRangePrint({ station, name, min, max }: { station: string; name: string; min: number; max: number }) {
+function SerialRangePrint({ station, name, min, max, serials }: { station: string; name: string; min: number; max: number; serials: number[] }) {
   const [from, setFrom] = useState(min);
   const [to, setTo] = useState(max);
   const lo = Math.max(min, Math.min(from, to));
   const hi = Math.min(max, Math.max(from, to));
   const url = placeLabelsUrl({ station, from: lo, to: hi });
-  const count = hi - lo + 1;
+  // The route prints the slots that exist in the range (numbers can have gaps)
+  const count = serials.length ? serials.filter((s) => s >= lo && s <= hi).length : hi - lo + 1;
   return (
     <div className="flex flex-wrap items-end gap-2">
       <label className={`${caption} w-20`}>
@@ -262,12 +264,22 @@ export function AddSlotsForm({ types, nextSerial }: { types: readonly StationTyp
     const list = (Array.isArray(d) ? d : [d?.locations, d?.created, d?.slots].find(Array.isArray) ?? []) as { id?: unknown; serial?: unknown }[];
     const ids = list.map((x) => x?.id).filter((id): id is string => typeof id === "string");
     const serials = list.map((x) => x?.serial).filter((s): s is number => typeof s === "number");
+    // { created, skipped }: numbers already in use are skipped, never changed
+    const skippedList = Array.isArray(d) ? null : d?.skipped;
+    const skipped = Array.isArray(skippedList) ? skippedList.length : 0;
+    const made = Array.isArray(d) || Array.isArray(d?.created) ? ids.length : n;
+    if (!made) {
+      setMessage({ ok: false, text: `Those numbers are taken already: no new ${type.name.toLowerCase()} slots were made.` });
+      router.refresh();
+      return;
+    }
     const labels = ids.length
       ? { url: placeLabelsUrl({ ids }), n: ids.length }
       : serials.length
         ? { url: placeLabelsUrl({ station, from: Math.min(...serials), to: Math.max(...serials) }), n: serials.length }
         : { url: placeLabelsUrl({ station, from: first, to: first + n - 1 }), n };
-    setMessage({ ok: true, text: `Added ${n} ${type.name.toLowerCase()} slot${n === 1 ? "" : "s"}. Print their labels and stick one on each.`, labels });
+    const taken = skipped ? ` ${skipped} number${skipped === 1 ? " was" : "s were"} taken already.` : "";
+    setMessage({ ok: true, text: `Added ${made} ${type.name.toLowerCase()} slot${made === 1 ? "" : "s"}.${taken} Print their labels and stick one on each.`, labels });
     router.refresh();
   }
 
@@ -318,6 +330,8 @@ export type PlaceItemData = {
   stage: string | null;
   active: boolean;
   cardCount: number;
+  /** Open bags put on the place (shelf slots). */
+  bagCount: number;
   /** "Past due date", "Due today" for a shelf slot. */
   note?: string | null;
   /** The Shelf view's section for this slot. */
@@ -329,6 +343,10 @@ export function PlaceItem({ place }: { place: PlaceItemData }) {
   const { busy, error, rename, setActive } = usePlaceEdits(place);
   const [renaming, setRenaming] = useState(false);
   const detail = place.kind === "station" ? stepText(place.stage) : place.kind === "shelf" ? "" : KIND_NAMES[place.kind];
+  const held = [
+    place.cardCount ? `${place.cardCount} card${place.cardCount === 1 ? "" : "s"}` : "",
+    place.bagCount ? `${place.bagCount} bag${place.bagCount === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
 
   return (
     <li className={`bg-white rounded-xl border border-border p-4 ${place.active ? "" : "opacity-70"}`}>
@@ -347,15 +365,13 @@ export function PlaceItem({ place }: { place: PlaceItemData }) {
           </p>
         </div>
 
-        <p className="text-sm md:w-28 md:text-right">
-          {place.shelfHref && place.cardCount > 0 ? (
+        <p className="text-sm md:w-36 md:text-right">
+          {place.shelfHref && held ? (
             <AdminLink href={place.shelfHref} className={`font-bold text-primary hover:underline rounded ${focusRing}`}>
-              {place.cardCount} card{place.cardCount === 1 ? "" : "s"}
+              {held}
             </AdminLink>
           ) : (
-            <span className={place.cardCount ? "font-bold text-foreground" : "text-muted-foreground"}>
-              {place.cardCount ? `${place.cardCount} card${place.cardCount === 1 ? "" : "s"}` : "No cards"}
-            </span>
+            <span className={held ? "font-bold text-foreground" : "text-muted-foreground"}>{held || "No cards"}</span>
           )}
         </p>
 

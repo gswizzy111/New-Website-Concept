@@ -13,6 +13,8 @@ import { LABEL_PAPER, placeLabelsUrl } from "../_lib/places";
  * printed (slot labels and signs aren't bag labels).
  */
 
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+
 /** Prints one label PDF route at once (on a phone the file is fetched ahead of the tap). */
 export function PlaceLabelButton({
   pdfUrl,
@@ -94,7 +96,7 @@ export function LazyPrintButton({
         >
           {printLabel(ready.count)}
         </LabelPrintButton>
-        <button type="button" onClick={() => setReady(null)} className="min-h-11 px-2 rounded-lg text-sm font-bold text-muted-foreground hover:text-foreground">
+        <button type="button" onClick={() => setReady(null)} className={`min-h-11 px-2 rounded-lg text-sm font-bold text-muted-foreground hover:text-foreground ${focusRing}`}>
           Cancel
         </button>
       </span>
@@ -107,7 +109,7 @@ export function LazyPrintButton({
         onClick={prepare}
         disabled={busy}
         aria-label={ariaLabel}
-        className={`border border-border bg-white text-foreground hover:bg-muted inline-flex min-h-11 items-center justify-center gap-2 rounded-lg ${compact ? "px-2.5" : "px-4"} text-sm font-bold transition-opacity disabled:opacity-50`}
+        className={`border border-border bg-white text-foreground hover:bg-muted inline-flex min-h-11 items-center justify-center gap-2 rounded-lg ${compact ? "px-2.5" : "px-4"} text-sm font-bold transition-opacity disabled:opacity-50 ${focusRing}`}
       >
         <Printer className="size-4" strokeWidth={1.75} aria-hidden />
         {busy ? "Getting ready…" : prepareLabel}

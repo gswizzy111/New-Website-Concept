@@ -19,7 +19,8 @@ export async function prepareShelfSlots(days = 10): Promise<{ ok: true; slots: P
   const admin = createAdminClient();
   const holidays = await loadHolidays(admin);
   const dates: string[] = [];
-  for (let day = nyToday(); dates.length < n; day = addCalendarDays(day, 1)) {
+  // New York days; at most a year ahead, whatever the holiday list says
+  for (let day = nyToday(), i = 0; dates.length < n && i < 366; day = addCalendarDays(day, 1), i++) {
     if (isBusinessDay(day, holidays)) dates.push(day);
   }
   const slots: PreparedSlot[] = [];
