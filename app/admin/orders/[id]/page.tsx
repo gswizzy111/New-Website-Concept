@@ -40,6 +40,7 @@ import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { labelHref } from "@/lib/label-link";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { OrderBagsPanel } from "@/components/intake/order-bags-panel";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { paidOnlineLater } from "@/lib/show-dropoff-pricing";
 
 export const dynamic = "force-dynamic";
@@ -200,6 +201,8 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             >
               📥 Receiving &amp; labels
             </AdminLink>
+            {/* One tap: fills missing tiers, bags the cards, prints every bag's label */}
+            <PrintOrderLabels orderId={order.id} orderNumber={order.order_number} status={order.status} paymentStatus={order.payment_status} size="sm" refreshAfterBagging />
             <ResendConfirmationButton orderId={order.id} />
             <AccountInviteButton orderId={order.id} customerEmail={order.customer_email} />
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />

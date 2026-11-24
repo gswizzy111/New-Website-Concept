@@ -15,6 +15,7 @@ import { ReceivingCards } from "./receiving-cards";
 import { AddCardForm } from "./add-card-form";
 import { BagReceivedDate } from "./bag-received-date";
 import { OrderLabelPrint } from "@/components/intake/order-label-print";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { getLabelSettings } from "@/lib/intake/labels/data";
 import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import type { WorkspaceCard } from "./types";
@@ -171,6 +172,10 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const labelBags = bags.filter((b) => b.cardCount > 0);
   const stock = LABEL_STOCKS[(await getLabelSettings(admin)).stock];
   const paper = { widthIn: stock.widthIn, heightIn: stock.heightIn };
+  // Cards in the shop but in no bag yet (older orders, orders marked received from the order page):
+  // one "Print labels" at the top bags them all and prints, no ticking (owner, Nov 24 2026)
+  const inShop = ["received", "in_progress", "completed", "shipped_back", "delivered"].includes(order.status) && payment !== "refunded";
+  const unbagged = cards.filter((c) => !c.refunded && !c.bagId && !c.awaitingArrival).length;
   // Where each newly received bag goes: its due date's shelf slot (none before the card tracking update)
   const received = cards.filter((c) => !c.refunded && c.bagId);
   let shelfGroups: ShelfGroup[] = [];
@@ -233,6 +238,27 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             <p className="mt-3 text-xs text-muted-foreground">Marked received before Receiving existed, on {dayText(order.historicalReceivedOn)}. Receiving starts from that date; change it if the cards really arrived another day.</p>
           )}
         </header>
+
+        {/* Kept mounted after the cards are bagged, so the reload doesn't take its "Print 3 labels" away */}
+        {inShop && (
+          <PrintOrderLabels
+            layout="panel"
+            className="mt-4"
+            hidden={unbagged === 0}
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+            status={order.status}
+            paymentStatus={order.paymentStatus}
+            paper={paper}
+            variant="primary"
+            refreshAfterBagging
+            hint={
+              unbagged > 0
+                ? `${unbagged} card${unbagged === 1 ? " isn't" : "s aren't"} in a bag yet. One tap fills in missing tiers (it asks only when unsure), puts every card in its tier bag and prints each bag's label. The order's status stays the same and the customer isn't emailed.`
+                : "Every card is in its tier bag."
+            }
+          />
+        )}
 
         {/* Flags */}
         {(counts.missingImage > 0 || counts.missingTier > 0 || counts.missingReceivedDate > 0 || bagsMissingDate.length > 0 || bagsNeedReview.length > 0 || counts.awaiting > 0) && (
