@@ -137,6 +137,7 @@ after fromDay; 2026-11-15 + 15 with 2026-11-26 off = 2026-12-07),
 - `BAG_COLUMNS` (select list for `TierBagRow`).
 - `changeBagDueDate(admin, { bagId, newDue, reason, by }): IntakeResult<{ bag: TierBagRow }>`: reason required (<= 500 chars); sets `due_status 'manual'`, `due_note = reason`, logs `tier_bag_due_changes` (reverts if the log fails). Same date + reason = "reviewed".
 - `setBagReceivedOn(admin, { bagId, receivedOn, by, holidays? }): IntakeResult<{ bag }>`: not in the future; recomputes the due date (bag's turnaround snapshot, else today's tier setting; `migration` bags stay `needs_review`) unless the due date is `manual`; logs a due change when the date changes.
+- `lacksDueDate(bag)` (pure) and `fillMissingDueDates(admin, { orderId, by, holidays?, turnarounds? }): { filled: { bagId, bagCode, dueDate, dueStatus }[] }`: bags saved with no due date because their tier had no turnaround then (Prep before `PREP_TURNAROUND_KEY` is set), not `manual`, with a received day, get the date their tier's turnaround gives now (same rule as `setBagReceivedOn`); the update is guarded (`due_date is null`, not manual), each fill logged in `tier_bag_due_changes`; never throws. Saving the setting itself never dates old bags: "Print labels" does, per order.
 
 ## receiving-plan.ts (pure) and receiving.ts (server)
 
@@ -287,7 +288,8 @@ rerunnable; apply before deploying the code):
 `moves.ts` (`assignCards`, `moveSlot`, `releaseCards`, `markCardsDone`,
 `placeCards`), `locations.ts` (list with occupancy, `createSlots`,
 `createLocation`, `updateLocation`), `shelf.ts` (`ensureShelfSlot`,
-`shelveBags`), `resolve.ts`, `ship-check.ts`, `history.ts`, `desk.ts` (loaders;
+`shelvesFor` (each just-received bag's shelf slot, best effort: every
+receipt calls it), `shelveBags`), `resolve.ts`, `ship-check.ts`, `history.ts`, `desk.ts` (loaders;
 no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 `summaries.ts`, `desk-codes.ts`; response shapes in `types.ts`.
 
@@ -308,7 +310,8 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `GET locations/[id]/sign` | `&stock=`, `&format=json` | one slot label or shelf sign |
 
 `POST /api/admin/intake/orders/[orderId]/receive` also answers `shelves` (each
-received bag's due-date shelf slot, made with `ensureShelfSlot`).
+received bag's due-date shelf slot, made with `ensureShelfSlot` through
+`shelvesFor`; "Receive all and print" does the same).
 
 **Pages**: `/admin/scan` (menu "Scan"), `/admin/receiving/desk` (menu "Desk"),
 `/admin/receiving/locations` (Places: add slots and desks, capacity per type,
@@ -316,6 +319,89 @@ print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).
+
+## Prepare labels (any order)
+
+The owner's request of Nov 24 2026: "I want to easily be able to just print it
+for any order", with tiers filled in automatically. One action, the same on the
+order page (header), Receiving search rows, the receiving workspace (a box at
+the top, shown while the order has cards to bag or receive, or bags to date)
+and, for one bag, the Bags board and the "Bags missing labels" queue (those
+print that bag only, no bagging, and only for a bag with live cards).
+
+Code: `lib/intake/prepare-labels.ts` (types at the top; client components may
+`import type` only, its functions reach server-only modules), the guesses in
+`lib/intake/tier-guess.ts`, the button in `components/intake/print-order-labels.tsx`.
+
+**API** (full admins only, the `adminName()` guard of the other receiving routes; 401 otherwise):
+
+| route | body | response |
+|---|---|---|
+| `GET /api/admin/intake/orders/[orderId]/prepare-labels` | none | `PreparePlan` (read-only): `mode`, `reason?`, `payment`, `bags`, `toBag`, `tierQuestions`, `needsAnswers`, `dueDatesToFill`, `receivedOn` + `receivedOnSource` (`event`, `dropoff`, `bag`, `today`), `skipped` { refunded, awaitingArrival }; 404 / 500 `{ error }` |
+| `POST` same | `{ tiers?: { [cardId]: tierKey }, confirmReceive?, allowUnpaid?, receivedOn? }` (empty = `{}`) | 200 `PrepareResponse` { bags (every bag with live cards, fastest tier first: the labels to print), newlyBagged, emailed, orderStatusChanged, shelves, dueDatesFilled, message }; 409 `PrepareConflict` (the plan + `error`, `needsConfirmReceive`, `needsAllowUnpaid`, `unpaid?`, `unanswered` card ids; nothing written); 409 `{ error }` not allowed; 400 bad body, unknown tier (`Unknown tier "gold".`), bad or future `receivedOn`; 500 |
+
+Then the labels print through the existing paths: `GET /api/admin/intake/labels/order/<orderId>?bags=<ids>`
+(PDF, one page per bag, design B) or the Katasymbol path (`LabelPrintButton`).
+
+**Modes** (`buildPreparePlan`, pure):
+
+- `bag_in_shop`: received, in progress, completed, shipped back, delivered
+  (`SETUP_STATUSES`) with live, arrived cards in no bag. Bagged with the
+  Historical Order Setup's own plan (`planOrderSetup` / `applyOrderSetup`,
+  source `migration`, due date from the received day + the tier's max
+  turnaround marked `needs_review`, finished orders' bags created completed
+  and seen). Received day: the order's first "Status updated to: Cards
+  Received" day, else the drop-off day, else a day already on its bags, else
+  today (then only for the cards bagged now), or `receivedOn` when sent.
+  Cards added to the order after it arrived are left for Receiving (`reason`
+  says so). Orders from before `INTAKE_START` are included.
+- `receive_first`: Awaiting Cards. POST needs `confirmReceive: true` ("Cards
+  arrived? Receive all and print"); an order that isn't paid also needs
+  `allowUnpaid: true` after the dialog's tick on the Receive button's
+  `UNPAID_CONFIRM` (without it: 409, `error` = `UNPAID_ERROR`, `unpaid: true`,
+  as the receive route's `paymentBlock`). Then exactly the Receive button:
+  `receiveCards` (Card IDs, bags source `receiving` with calculated due dates,
+  status -> Cards Received through `setOrderStatus`, the usual customer and
+  staff emails, the `cards_received` line), `shelvesFor` (shelf slots), and
+  the `received_unpaid` line for an unpaid order.
+- `ready`: every live, arrived card is in a bag: print. The button POSTs first
+  only when `dueDatesToFill > 0` (a harmless no-op otherwise).
+- `not_allowed`: cancelled, refunded, awaiting payment, no cards, a status
+  outside the above. The button is disabled up front for cancelled, refunded
+  and awaiting payment; any other refusal shows its `reason` under the button
+  and the next tap asks again.
+- `skipped`: refunded cards and cards flagged `awaiting_arrival` are never
+  bagged here (they are counted and named in `reason`).
+
+**Tier sources** (`guessTiers`, first that applies; only for cards among
+`toBag` with neither a card nor an order tier):
+
+1. `cards.tier`, then `orders.restoration_tier` (no question).
+2. The signed checkout record (`signatures` master_terms `card_snapshot` /
+   `document_text`, i.e. `authorizedOrderText`) or the signed show drop-off
+   form: `confidence: "sure"`, filled in without asking (`needsAnswer: false`,
+   listed in the dialog for information).
+3. What was paid (service lines, checkout events, subtotal) against the tier
+   prices (`restoration_settings`): `"likely"` when only one tier fits; a card
+   name saying Prep: `"likely"` Prep.
+4. Otherwise `"unknown"` with a best guess (e.g. "Paid for 4 Gold and 2
+   Silver, but not which card is which": the most valuable cards get the faster
+   tier) or `guess: null`.
+
+`likely` and `unknown` questions need one confirm tap (`needsAnswer: true`):
+the dialog preselects `guess`, shows `why` under the select, and has "Set each
+card" to pick a tier per card. Questions are grouped by guess (most orders: one).
+Answers are written to `cards.tier` only where it is still null and the card
+is in no bag (bagged cards' tiers are locked, `tier-lock.ts`), with one
+staff-only `tier_changed` line ("Tiers filled in for labels: …").
+
+**Never** (in-shop orders): an order status change, a customer email, awaiting
+flags, stage events or a value that is already set. The only rows written are
+the tiers above, Card IDs, bags and card links (`applyOrderSetup`), the
+`intake_setup` line worded "Bagged for labels: …" (staff only), and due
+dates for dateless bags (`fillMissingDueDates`, logged). The Awaiting Cards
+path writes what the Receive button writes, nothing more. Idempotent: a repeat
+bags nothing new, sends nothing, and answers the same bags.
 
 ## Tests
 

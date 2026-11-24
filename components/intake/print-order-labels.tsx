@@ -199,6 +199,8 @@ type Props = {
    * after bagging doesn't take the "Print 3 labels" button away).
    */
   layout?: "inline" | "panel";
+  /** The panel's heading (default "Print labels"). */
+  heading?: string;
   hint?: ReactNode;
   hidden?: boolean;
   /** Where the keyboard goes when the button itself is gone after closing (a hidden panel): an element id. */
@@ -219,6 +221,7 @@ export function PrintOrderLabels({
   whenBlocked = "disable",
   refreshAfterBagging = false,
   layout = "inline",
+  heading = "Print labels",
   hint,
   hidden = false,
   returnFocusTo,
@@ -499,7 +502,7 @@ export function PrintOrderLabels({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1 basis-64">
             <h2 id={`${uid}-h`} className="font-heading text-base font-black text-foreground">
-              Print labels
+              {heading}
             </h2>
             {hint && <p className="mt-0.5 text-sm text-muted-foreground">{hint}</p>}
           </div>
