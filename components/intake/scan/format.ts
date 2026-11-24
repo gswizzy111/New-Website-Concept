@@ -1,5 +1,6 @@
 import type { TrackCardSummary, TrackLocation } from "@/lib/intake/tracking/types";
 import { dayText } from "@/lib/intake/tracking-format";
+import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 
 /**
  * Short wording for the Scan page. Pure (safe in client components and tests).
@@ -24,8 +25,13 @@ export function whereLine(card: Pick<TrackCardSummary, "location" | "locatedAt" 
   return [card.location.name, card.stageLabel, sinceText(card.locatedAt, now)].filter(Boolean).join(" · ");
 }
 
-/** Under a slot's big name: "Clamp · step: Clamp Work", "Shelf for cards due Mon, Dec 7, 2026", "Finished cards". */
-export function placeSubtitle(place: Pick<TrackLocation, "kind" | "stationName" | "stageLabel" | "dueDate">): string {
+/**
+ * Under a slot's big name: "Clamp · step: Clamp Work", "Shelf for cards due Mon, Dec 7, 2026", "Finished cards",
+ * "Desk · cards keep their step" (a desk: an 'other' place coded LOC-DESK or LOC-DESK-<NAME>, isDeskCode in
+ * lib/intake/tracking/desk-codes.ts).
+ */
+export function placeSubtitle(place: Pick<TrackLocation, "kind" | "stationName" | "stageLabel" | "dueDate"> & { code?: string | null }): string {
+  if (place.kind === "other" && isDeskCode(place.code)) return "Desk · cards keep their step";
   if (place.kind === "station") {
     return [place.stationName, place.stageLabel ? `step: ${place.stageLabel}` : null].filter(Boolean).join(" · ") || "Work station";
   }

@@ -10,7 +10,7 @@ import { overCapacity, planCards, type PlanCard, type PlanLocation } from "@/lib
 import {
   compareLocations, hasRoom, locationCodeCandidates, locationSlug, moveStageLabel, shelfSlotCode, shelfSlotName, shelfSlotSort,
 } from "@/lib/intake/tracking/places";
-import { STATION_TYPES, slotCode, slotName, stationType } from "@/lib/intake/tracking/stations";
+import { STATION_TYPES, capacityText, slotCode, slotName, stationType } from "@/lib/intake/tracking/stations";
 import { shipCheckStatus } from "@/lib/intake/tracking/summaries";
 import { STAGES } from "@/lib/restoration-stages";
 
@@ -64,6 +64,41 @@ test("slots: one station type per step, codes LOC-CLAMP-07, names CLAMP 07", () 
   for (const t of STATION_TYPES) assert.equal(codeKind(slotCode(t.key, 9999)), "location", t.key);
   assert.throws(() => slotCode("clamp", 0));
   assert.throws(() => slotCode("Clamp", 1));
+});
+
+test("default capacity: holders that take a stack have no limit; a clamp and a slab crack hold 1", () => {
+  assert.deepEqual(Object.fromEntries(STATION_TYPES.map((t) => [t.key, t.defaultCapacity])), {
+    "slab-crack": 1, humidor: null, "humidity-press": null, drying: null, "heat-press": null, clamp: 1, "book-weights": null, "final-dry": null,
+  });
+  assert.deepEqual([capacityText(null), capacityText(undefined), capacityText(1), capacityText(8)], ["No limit", "No limit", "Holds 1 card", "Holds 8 cards"]);
+  // A stack of 8 fits a no-limit heat press; a clamp takes one
+  assert.equal(overCapacity(stationType("heat-press")!.defaultCapacity, [], ["a", "b", "c", "d", "e", "f", "g", "h"]), false);
+  assert.equal(hasRoom(stationType("heat-press")!.defaultCapacity, 8, 8), true);
+  assert.equal(overCapacity(stationType("clamp")!.defaultCapacity, ["a"], ["b"]), true);
+});
+
+test("desks: \"Desk\" and \"Desk <name>\" get LOC-DESK and LOC-DESK-<NAME>, never a reserved slot code", () => {
+  assert.equal(locationCodeCandidates("Desk")[0], "LOC-DESK");
+  assert.equal(locationCodeCandidates("Desk Gavin")[0], "LOC-DESK-GAVIN");
+  assert.equal(locationCodeCandidates("DESK GAVIN")[0], "LOC-DESK-GAVIN");
+  assert.equal(locationCodeCandidates("Desk Gavin's")[0], "LOC-DESK-GAVIN-S");
+  assert.equal(locationCodeCandidates("Desk 2")[0], "LOC-DESK-2");
+  // A second "Desk" is LOC-DESK-2: still a desk (LOC-DESK-...)
+  assert.equal(locationCodeCandidates("Desk")[1], "LOC-DESK-2");
+  for (const code of ["LOC-DESK", "LOC-DESK-GAVIN"]) assert.equal(codeKind(code), "location", code);
+});
+
+test("a desk is an 'other' place: only the place changes, never the step", () => {
+  const DESK: PlanLocation = { id: "loc-desk", code: "LOC-DESK", name: "Desk", kind: "other", stage: null };
+  const plan = planCards({
+    action: "move", target: DESK, cardIds: ["c01", "c02"],
+    cards: [card("c01", { current: "Heat Press", locationId: "loc-heat-03" }), card("c02", { current: "Heat Press", locationId: "loc-heat-03" })],
+  });
+  assert.deepEqual(plan.moves.map((m) => [m.fromLocationId, m.toLocationId, m.stageEvent, m.stageBefore, m.stageAfter]), [
+    ["loc-heat-03", "loc-desk", null, "Heat Press", "Heat Press"],
+    ["loc-heat-03", "loc-desk", null, "Heat Press", "Heat Press"],
+  ]);
+  assert.equal(plan.results[0].message, "In Desk.");
 });
 
 test("shelf slots: code, name and sort from the due date", () => {
