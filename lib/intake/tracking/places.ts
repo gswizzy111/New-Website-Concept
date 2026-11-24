@@ -49,9 +49,20 @@ export function locationSlug(name: string, max = MAX_SLUG): string {
 }
 
 /**
+ * Codes kept for the places made for us: a due-date shelf slot
+ * (LOC-SHELF-20261207) and a numbered slot of a station type (LOC-CLAMP-07),
+ * so a place named "Clamp 07" or "Shelf 20261207" never takes the code that
+ * slot or shelf will need.
+ */
+export function isReservedPlaceCode(code: string): boolean {
+  if (/^LOC-SHELF-\d{8}$/.test(code)) return true;
+  return STATION_TYPES.some((t) => new RegExp(`^LOC-${t.key.toUpperCase()}-\\d+$`).test(code));
+}
+
+/**
  * Place codes to try for a new place named `name`, in order: LOC-<SLUG>,
  * then LOC-<SLUG>-2 ... LOC-<SLUG>-99 (the slug shortened so every code stays
- * within 40 characters).
+ * within 40 characters). Codes kept for shelf and station slots are left out.
  */
 export function locationCodeCandidates(name: string): string[] {
   const base = locationSlug(name);
@@ -60,7 +71,7 @@ export function locationCodeCandidates(name: string): string[] {
     const suffix = `-${n}`;
     out.push(`LOC-${locationSlug(base, MAX_SLUG - suffix.length)}${suffix}`);
   }
-  return out.filter(isLocationCode);
+  return out.filter((c) => isLocationCode(c) && !isReservedPlaceCode(c));
 }
 
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];

@@ -57,6 +57,8 @@ export async function loadShipCheck(
       bagCode: card.bagCode,
       done: card.completed,
       refunded: card.refunded,
+      // as the tracking API's isReceived (lib/intake/tracking/summaries.ts)
+      received: !card.awaitingArrival && (!!card.bagId || !!card.receivedAt),
       stageLabel: card.stage.currentLabel,
       atFinalDry: !card.completed && card.stage.current === "Final Dry",
       place: placeOf(p),

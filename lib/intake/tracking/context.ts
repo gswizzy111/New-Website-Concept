@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
 import { loadTierNames } from "@/lib/intake/data";
 import type { StageEventRow } from "@/lib/intake/types";
-import { locationRef } from "@/lib/intake/tracking/places";
+import { LOCATION_REF_COLUMNS, locationRef } from "@/lib/intake/tracking/places";
 import {
   TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS,
   type SummaryContext, type TrackBagRow, type TrackCardRow, type TrackOrderRow,
@@ -26,8 +26,8 @@ export { chunks };
 
 /** Every place by id (a small table: stations, a slot per due date, a few others). */
 export async function loadLocationRefs(admin: SupabaseClient): Promise<Map<string, LocationRef>> {
-  const rows = await fetchAll<Pick<LocationRow, "id" | "code" | "name" | "kind">>((from, to) =>
-    admin.from("locations").select("id, code, name, kind").order("id").range(from, to));
+  const rows = await fetchAll<Pick<LocationRow, "id" | "code" | "name" | "kind" | "station" | "serial" | "stage">>((from, to) =>
+    admin.from("locations").select(LOCATION_REF_COLUMNS).order("id").range(from, to));
   return new Map(rows.map((r) => [r.id, locationRef(r)]));
 }
 

@@ -225,8 +225,9 @@ export function PrintImagesButton({
     ? "Preparing…"
     : busy
       ? "Sending…"
-      : inProgress
-        ? `Next label (${(flow.next ?? 0) + 1} of ${n})`
+      : flow.next !== null
+        ? // One at a time (also right after "couldn't take all at once", which says to tap Next label)
+          `Next label (${flow.next + 1} of ${n})`
         : children;
 
   return (

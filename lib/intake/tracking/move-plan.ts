@@ -9,7 +9,9 @@ import type { LocationKind, MoveAction, TrackCardResult } from "@/lib/intake/tra
  * cards, calls planCards and writes the result.
  *
  * Rules:
- * - A refunded card, or one not received yet, is refused (named in its result).
+ * - A refunded card, or one not received yet, is refused (named in its result),
+ *   except by `release`: a card refunded while it sat in a slot can still be
+ *   taken out, so the slot frees up.
  * - Into a slot (kind 'station'): the card's step becomes the slot's step,
  *   forward only. A card at an earlier step (or not started) jumps to it; a
  *   card already at a later step keeps its step (it still goes in the slot,
@@ -108,12 +110,12 @@ export function planCards(input: {
       continue;
     }
     const base = { cardId: id, code: card.code, name: card.name };
-    if (card.refunded) {
+    if (card.refunded && action !== "release") {
       results.push({ ...base, ok: false, changed: false, message: `${label(card)} was refunded. Not moved.` });
       refused.push("refunded");
       continue;
     }
-    if (!card.received) {
+    if (!card.received && action !== "release") {
       results.push({ ...base, ok: false, changed: false, message: `${label(card)} hasn't been received yet. Receive it first.` });
       refused.push("not received yet");
       continue;

@@ -70,7 +70,7 @@ function StatusLine({ row, trackPlaces }: { row: ShipRow; trackPlaces: boolean }
   );
 }
 
-function RowActions({ row, onSaved }: { row: ShipRow; onSaved: () => void }) {
+function RowActions({ row, onSaved, orderId, trackPlaces }: { row: ShipRow; onSaved: () => void; orderId: string; trackPlaces: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -92,6 +92,17 @@ function RowActions({ row, onSaved }: { row: ShipRow; onSaved: () => void }) {
   }
 
   const button = "min-h-11 px-3.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 inline-flex items-center gap-1.5";
+  // Cards that never came in through Receiving (older orders), or before the
+  // places tables exist: the tracking API can't mark them done, the order page can
+  if (row.status === "not_done" && (!row.received || !trackPlaces)) {
+    return (
+      <div className="mt-2">
+        <AdminLink href={`/admin/orders/${orderId}`} className={`${button} border border-border bg-white text-foreground hover:bg-secondary ${focusRing}`}>
+          Mark done on the order page →
+        </AdminLink>
+      </div>
+    );
+  }
   return (
     <div className="mt-2">
       {row.status === "not_done" && !confirming && (
@@ -127,8 +138,8 @@ function RowActions({ row, onSaved }: { row: ShipRow; onSaved: () => void }) {
   );
 }
 
-function CardRow({ row, ticked, onTick, onSaved, trackPlaces }: {
-  row: ShipRow; ticked: boolean; onTick: (on: boolean) => void; onSaved: () => void; trackPlaces: boolean;
+function CardRow({ row, ticked, onTick, onSaved, trackPlaces, orderId }: {
+  row: ShipRow; ticked: boolean; onTick: (on: boolean) => void; onSaved: () => void; trackPlaces: boolean; orderId: string;
 }) {
   const live = isLive(row);
   const tone = row.status === "ok" ? "bg-white" : row.status === "not_done" ? "bg-red-50/60" : row.status === "in_slot" ? "bg-amber-50/70" : "bg-gray-50";
@@ -161,7 +172,7 @@ function CardRow({ row, ticked, onTick, onSaved, trackPlaces }: {
         </div>
         {row.detail && <p className="text-xs text-muted-foreground break-words">{row.detail}</p>}
         <StatusLine row={row} trackPlaces={trackPlaces} />
-        <RowActions row={row} onSaved={onSaved} />
+        <RowActions row={row} onSaved={onSaved} orderId={orderId} trackPlaces={trackPlaces} />
       </div>
     </li>
   );
@@ -300,6 +311,7 @@ export function ShipChecklist({
                   onTick={(on) => save({ ...present, [row.id]: on })}
                   onSaved={refresh}
                   trackPlaces={trackPlaces}
+                  orderId={orderId}
                 />
               ))}
             </ul>

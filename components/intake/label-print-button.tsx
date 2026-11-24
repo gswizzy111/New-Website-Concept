@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChevronDown, Printer } from "lucide-react";
 import { findPrinter, isQZActive, printPdfBase64 } from "@/lib/qz-print";
 import { detectShareDevice, labelJsonUrl } from "./label-image";
@@ -112,6 +112,7 @@ export function LabelPrinterChoice({
   const saved = useLabelPrinter(group);
   const current = saved ?? defaultPrinter ?? DEFAULT_PRINTER[group];
   const [open, setOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const name = LABEL_PRINTERS.find((p) => p.id === current)?.name ?? "";
 
   const options = (
@@ -126,7 +127,10 @@ export function LabelPrinterChoice({
             aria-checked={on}
             onClick={() => {
               setLabelPrinter(p.id, group);
+              if (!compact) return;
+              // The choices close: keep the keyboard on the "Printer: …" line
               setOpen(false);
+              toggleRef.current?.focus();
             }}
             className={`min-h-11 rounded-lg border px-3 text-left text-sm transition-colors ${
               on ? "border-foreground bg-foreground text-background" : "border-border bg-white text-foreground hover:bg-muted"
@@ -144,6 +148,7 @@ export function LabelPrinterChoice({
   return (
     <span className="inline-flex flex-col gap-1">
       <button
+        ref={toggleRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -205,7 +210,11 @@ type LabelPrintProps = {
    * Katasymbol for 50 x 80 mm labels, the PDF path (as before) for the rest.
    */
   defaultPrinter?: LabelPrinter;
-  /** The "Printer: …" line under the button. Default: on phones, and wherever Katasymbol is picked. */
+  /**
+   * The "Printer: …" line under the button. Default: on 50 x 80 mm labels,
+   * and wherever Katasymbol is picked; the D520's inch labels look as before
+   * (their printer is picked on the printing guide).
+   */
   showPrinterChoice?: boolean;
 };
 
@@ -228,7 +237,7 @@ export function LabelPrintButton({ imageUrl, defaultPrinter, showPrinterChoice, 
   const group = paperGroup(props.paper);
   const saved = useLabelPrinter(group);
   const printer = saved ?? defaultPrinter ?? DEFAULT_PRINTER[group];
-  const showChoice = showPrinterChoice ?? (share || printer === "katasymbol");
+  const showChoice = showPrinterChoice ?? (group === "50x80" || printer === "katasymbol");
   const { pdfUrl, fileName, bagIds, markPrinted = true, onPrinted, variant, children } = props;
 
   return (

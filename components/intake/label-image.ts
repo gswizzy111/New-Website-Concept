@@ -304,7 +304,11 @@ function loadFont(role: FontRole): Promise<string | null> {
       await face.load();
       document.fonts.add(face);
       return `"${family}"`;
-    })().catch(() => null);
+    })().catch(() => {
+      // This picture uses the fallback; the next one (Try again) loads the font afresh
+      loadedFaces.delete(role);
+      return null;
+    });
     loadedFaces.set(role, p);
   }
   return p;
@@ -463,7 +467,11 @@ function canvasPng(canvas: HTMLCanvasElement): Promise<Blob> {
 
 /** One page as a PNG at the printer's resolution (recorded in the file). */
 export async function renderLabelPng(page: LabelPage, opts: LabelImageOptions = {}): Promise<Blob> {
-  const blob = await canvasPng(await renderLabelCanvas(page, opts));
+  const canvas = await renderLabelCanvas(page, opts);
+  const blob = await canvasPng(canvas);
+  // Free the pixels now: iPhone Safari caps the memory all canvases hold, and a batch makes one per label
+  canvas.width = 0;
+  canvas.height = 0;
   const bytes = withPngResolution(new Uint8Array(await blob.arrayBuffer()), opts.dotsPerMm ?? KATASYMBOL_DOTS_PER_MM);
   return new Blob([bytes as BlobPart], { type: "image/png" });
 }

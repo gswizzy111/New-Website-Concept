@@ -17,4 +17,4 @@ export function isMissingTracking(error: { code?: string; message?: string } | n
 
 /** What the pages say while the places tables are missing. */
 export const PLACES_NOTICE =
-  "Card places aren't set up yet (supabase/migrations/20261124_card_tracking.sql isn't applied), so “scanned at Shipping” and “last seen” can't be checked. Done / not done still shows.";
+  "Card places aren't set up yet (supabase/migrations/20261124_card_tracking.sql isn't applied), so “still in a slot” and “last seen” can't be checked. Done / not done still shows.";

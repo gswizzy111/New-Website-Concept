@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FINAL_DRY_DAYS, SLOT_DAYS, STALE_DAYS, ago, allCardsOk, bagPastDue, countsForBadge, daysSince, finalDrySince,
+  FINAL_DRY_DAYS, SLOT_DAYS, STALE_DAYS, ago, allCardsOk, bagPastDue, countsForBadge, daysSince, finalDryReadBefore, finalDrySince,
   forgottenReasons, inNewSystem, isSlot, lastSeenText, latest, primaryRule, readyToShip, reasonText, shipCheckStatus,
   shipCounts, type ForgottenCardFacts,
 } from "@/components/intake/ship/rules";
@@ -41,7 +41,12 @@ const rules = (f: ForgottenCardFacts, slotDays?: number) => forgottenReasons(f, 
 
 test("daysSince, ago and latest", () => {
   assert.equal(daysSince(daysAgo(3), NOW), 3);
-  assert.equal(daysSince(daysAgo(2, 23), NOW), 2);
+  // New York calendar days (NOW is 10 a.m. Dec 10 in New York)
+  assert.equal(daysSince("2026-12-08T05:00:00Z", NOW), 2, "midnight Dec 8 New York");
+  assert.equal(daysSince("2026-12-08T04:59:00Z", NOW), 3, "11:59 p.m. Dec 7 New York");
+  assert.equal(daysSince(daysAgo(2, 23), NOW), 3, "Dec 7, 11 a.m. New York: 3 days though under 72 hours");
+  assert.equal(daysSince("2026-12-10T05:00:00Z", NOW), 0, "earlier today");
+  assert.equal(daysSince("2026-12-10T04:59:00Z", NOW), 1, "late yesterday");
   assert.equal(daysSince(null, NOW), 0);
   assert.equal(daysSince(new Date(NOW + 86_400_000).toISOString(), NOW), 0, "the future counts as 0");
   assert.equal(ago(new Date(NOW - 20_000).toISOString(), NOW), "just now");
@@ -98,7 +103,8 @@ test("(b) at Final Dry for 3+ days by step", () => {
   assert.equal(r[0].rule, "final_dry");
   assert.equal(r[0].days, 5);
   assert.equal(r[0].since, daysAgo(5));
-  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: daysAgo(2, 23) })), [], "under 3 days");
+  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: "2026-12-08T05:00:00Z" })), [], "since Dec 8 New York: 2 days");
+  assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: "2026-12-08T04:59:00Z" })), ["final_dry"], "since Dec 7 New York: 3 days");
   assert.deepEqual(rules(card({ stage: "Final Dry", stageSince: daysAgo(3) })), ["final_dry"], "exactly 3 days");
   assert.deepEqual(rules(card({ stage: "Heat Press", stageSince: daysAgo(5) })), [], "another step");
 });
@@ -110,6 +116,18 @@ test("(b) in a Final Dry slot or on the Done place for 3+ days, whichever is ear
   const f = card({ stage: "Final Dry", stageSince: daysAgo(6), location: FINAL_DRY_SLOT, locatedAt: daysAgo(4) });
   assert.equal(finalDrySince(f, NOW), daysAgo(6));
   assert.equal(forgottenReasons(f, NOW)[0].days, 6);
+});
+
+test("(b) the badge's database read never misses a card the rule flags (New York days, DST weeks too)", () => {
+  // Any time 3+ New York days old must be <= the read cutoff
+  for (const nowIso of ["2026-12-10T15:00:00Z", "2026-11-03T04:30:00Z", "2026-11-02T04:59:00Z", "2027-03-16T04:10:00Z", "2027-03-15T23:00:00Z"]) {
+    const now = Date.parse(nowIso);
+    const readBefore = Date.parse(finalDryReadBefore(now));
+    for (let t = now - 5 * 86_400_000; t <= now; t += 15 * 60_000) {
+      const iso = new Date(t).toISOString();
+      if (daysSince(iso, now) >= FINAL_DRY_DAYS) assert.ok(t <= readBefore, `${iso} at ${nowIso}`);
+    }
+  }
 });
 
 test("(b) never for a done card or a finished order (that is (a))", () => {

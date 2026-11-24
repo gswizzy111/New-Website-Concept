@@ -1,4 +1,5 @@
 import { INTAKE_START } from "@/lib/intake/start";
+import { toNyDate } from "@/lib/intake/business-days";
 
 /**
  * The rules behind the ship check (/admin/receiving/ship/<orderId>) and the
@@ -25,7 +26,7 @@ import { INTAKE_START } from "@/lib/intake/start";
  *                          and nothing has happened to it (slot move, step
  *                          change) for 14+ days;
  *   (d) a bag is past its due date with cards not done (bagPastDue).
- * A card is listed once, under the first of a, b, e, c it trips. The menu
+ * Days are New York calendar days (daysSince). A card is listed once, under the first of a, b, e, c it trips. The menu
  * badge counts (a) and (b). Refunded cards and cards still awaiting arrival
  * are never forgotten; neither are the old cards of a Historical Order Setup
  * bag on a finished order (never ticked done on purpose:
@@ -52,10 +53,17 @@ const time = (iso: string | null | undefined): number | null => {
   return Number.isFinite(t) ? t : null;
 };
 
-/** Whole days from `iso` to `now` (0 for the future or a missing time). */
+/**
+ * Days from `iso` to `now` as New York calendar days (the shop's days: a card
+ * put at Final Dry on Friday afternoon is 3 days there on Monday morning).
+ * 0 for the future or a missing time.
+ */
 export function daysSince(iso: string | null | undefined, now: number): number {
   const t = time(iso);
-  return t === null ? 0 : Math.max(0, Math.floor((now - t) / DAY_MS));
+  if (t === null) return 0;
+  const from = toNyDate(new Date(t));
+  const to = toNyDate(new Date(now));
+  return from && to ? Math.max(0, dayDiff(from, to)) : 0;
 }
 
 /** "just now", "5 min ago", "3 h ago", "1 day ago", "12 days ago". */
@@ -68,7 +76,8 @@ export function ago(iso: string | null | undefined, now: number): string {
   if (m < 60) return `${m} min ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} h ago`;
-  const d = Math.floor(h / 24);
+  // New York days, as the rules count them
+  const d = Math.max(1, daysSince(iso, now));
   return `${d} day${d === 1 ? "" : "s"} ago`;
 }
 
@@ -216,16 +225,24 @@ export function inNewSystem(f: { inBag: boolean; orderCreatedAt: string | null }
  * or on the Done shelf, for FINAL_DRY_DAYS or more (the earlier time wins).
  */
 export function finalDrySince(f: Pick<ForgottenCardFacts, "stage" | "stageSince" | "location" | "locatedAt">, now: number): string | null {
-  const cutoff = now - FINAL_DRY_DAYS * DAY_MS;
+  const longEnough = (iso: string | null): iso is string => time(iso) !== null && daysSince(iso, now) >= FINAL_DRY_DAYS;
   const hits: string[] = [];
-  const st = time(f.stageSince);
-  if (f.stage === FINAL_DRY_STAGE && st !== null && st <= cutoff) hits.push(f.stageSince!);
-  const lt = time(f.locatedAt);
-  if (f.location && (f.location.kind === "done" || (isSlot(f.location) && f.location.stage === FINAL_DRY_STAGE)) && lt !== null && lt <= cutoff) {
-    hits.push(f.locatedAt!);
+  if (f.stage === FINAL_DRY_STAGE && longEnough(f.stageSince)) hits.push(f.stageSince);
+  if (f.location && (f.location.kind === "done" || (isSlot(f.location) && f.location.stage === FINAL_DRY_STAGE)) && longEnough(f.locatedAt)) {
+    hits.push(f.locatedAt);
   }
   if (!hits.length) return null;
   return hits.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b));
+}
+
+/**
+ * For a database read of (b) candidates: anything FINAL_DRY_DAYS or more New
+ * York days old is older than this time (ISO), so `<=` it reads a little more
+ * than the rule needs (never less); finalDrySince() then decides exactly.
+ * One New York day is 23 to 25 hours.
+ */
+export function finalDryReadBefore(now: number): string {
+  return new Date(now - (FINAL_DRY_DAYS - 1) * DAY_MS + 2 * 3_600_000).toISOString();
 }
 
 /** Every rule the card trips, in report order ([] when it looks fine). */

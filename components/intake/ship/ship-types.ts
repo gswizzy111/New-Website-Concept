@@ -14,6 +14,12 @@ export type ShipRow = {
   bagCode: string | null;
   done: boolean;
   refunded: boolean;
+  /**
+   * Came in through Receiving (in a tier bag or received_at set): the tracking
+   * actions (Mark done, Taken out) accept it. Older cards are marked done on
+   * the order page instead.
+   */
+  received: boolean;
   /** "Final Dry", "Drying", "Not started", "Done". */
   stageLabel: string;
   atFinalDry: boolean;

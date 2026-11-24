@@ -11,8 +11,8 @@ import { loadTierNames } from "@/lib/intake/data";
 import { cardStageState } from "@/lib/intake/stage-plan";
 import type { StageEventRow } from "@/lib/intake/types";
 import {
-  FINAL_DRY_DAYS, FINAL_DRY_STAGE, FINISHED_ORDER_STATUSES, FORGOTTEN_RULES, SLOT_DAYS,
-  bagPastDue, countsForBadge, forgottenReasons, inNewSystem, lastSeenText, latest, reasonText,
+  FINAL_DRY_STAGE, FINISHED_ORDER_STATUSES, FORGOTTEN_RULES, SLOT_DAYS,
+  bagPastDue, countsForBadge, finalDryReadBefore, finalDrySince, forgottenReasons, inNewSystem, lastSeenText, latest, reasonText,
   type ForgottenCardFacts, type ForgottenReason, type ForgottenRule,
 } from "./rules";
 import { chunks, lastOut, loadLastMoves, loadPlaces, type Place } from "./places-data";
@@ -38,7 +38,6 @@ import { isMissingTracking } from "./schema";
 /** Order statuses whose cards can be forgotten (cancelled and unpaid / not-arrived orders can't). */
 const READ_STATUSES = ["received", "in_progress", "completed", "shipped_back", "delivered"];
 const LIVE_IN_SHOP = ["received", "in_progress"];
-const DAY_MS = 86_400_000;
 
 type OrderJoin = { order_number: string; customer_name: string | null; status: string; created_at: string | null };
 type CardRow = {
@@ -373,14 +372,16 @@ export async function loadForgotten(
  * The "Check" menu badge: cards the report lists under (a) finished order,
  * card not done, and (b) at Final Dry / on the Done shelf for 3+ days, new
  * system only. Built to be cheap on every admin page: two head counts for
- * (a); for (b) the Final Dry stage events older than 3 days on open orders
+ * (a); for (b) the Final Dry stage events 3+ New York days old on open orders
  * and the cards sitting 3+ days in a Final Dry slot or on the Done place,
  * then one read of those few cards and their orders' stage events. 0 when
  * anything fails (the layout never waits on an error).
  */
 export async function countForgottenCards(admin: SupabaseClient = createAdminClient(), now = Date.now()): Promise<number> {
   try {
-    const cutoff = new Date(now - FINAL_DRY_DAYS * DAY_MS).toISOString();
+    // The rule counts New York days: read a little wider (finalDryReadBefore)
+    // and let finalDrySince() decide exactly, as the report does
+    const cutoff = finalDryReadBefore(now);
     const finished = FINISHED_ORDER_STATUSES as string[];
     const liveCount = (select: string) =>
       admin.from("cards").select(select, { count: "exact", head: true })
@@ -415,7 +416,10 @@ export async function countForgottenCards(admin: SupabaseClient = createAdminCli
     if (a1.error || a2.error) throw new Error((a1.error ?? a2.error)!.message);
 
     const inScope = (c: CardRow) => inNewSystem({ inBag: !!c.bag_id, orderCreatedAt: c.orders?.created_at ?? null });
-    const stuck = new Set(placed.filter(inScope).map((c) => c.id));
+    type Placed = CardRow & { locations?: { kind: string; stage: string | null } | null };
+    const placedLongEnough = (c: Placed) => !!c.locations && !!finalDrySince(
+      { stage: null, stageSince: null, location: { kind: c.locations.kind, stage: c.locations.stage }, locatedAt: c.located_at ?? null }, now);
+    const stuck = new Set((placed as Placed[]).filter((c) => inScope(c) && placedLongEnough(c)).map((c) => c.id));
 
     // Cards whose Final Dry event is old enough: still at Final Dry this round?
     const fdCardIds = [...new Set(fdEvents.map((e) => parseStageEvent(e)?.card_id).filter((id): id is string => !!id && !stuck.has(id)))];
@@ -432,7 +436,7 @@ export async function countForgottenCards(admin: SupabaseClient = createAdminCli
       for (const c of cards) {
         if (!inScope(c)) continue;
         const st = cardStageState(c, events.get(c.id) ?? []);
-        if (st.current === FINAL_DRY_STAGE && st.updatedAt && Date.parse(st.updatedAt) <= Date.parse(cutoff)) stuck.add(c.id);
+        if (finalDrySince({ stage: st.current, stageSince: st.current ? st.updatedAt : null, location: null, locatedAt: null }, now)) stuck.add(c.id);
       }
     }
     return (a1.count ?? 0) + (a2.count ?? 0) + stuck.size;
