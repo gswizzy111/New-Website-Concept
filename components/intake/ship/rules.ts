@@ -1,5 +1,4 @@
 import { INTAKE_START } from "@/lib/intake/start";
-import type { LocationKind, ShipCheckStatus } from "@/lib/intake/tracking/types";
 
 /**
  * The rules behind the ship check (/admin/receiving/ship/<orderId>) and the
@@ -7,27 +6,39 @@ import type { LocationKind, ShipCheckStatus } from "@/lib/intake/tracking/types"
  * badge). Pure: no database, no clock (callers pass `now`), safe in client
  * components and tests (tests/intake/forgotten.test.ts).
  *
+ * The model (the owner, Nov 24 2026): cards carry no sticker and are never
+ * scanned. They sit in serial-numbered SLOTS (CLAMP 07, HEAT PRESS 03: places
+ * of kind "station", one step each); cards.location_id is the slot a card is
+ * in now. Done, Shipping and the due-date shelves are places, not slots.
+ *
  * The owner's problem: "Once in a while a card will be forgotten to be marked
  * done. And then we have no way of knowing." A card looks forgotten when:
  *   (a) finished_not_done  its order is Completed / Shipped Back / Delivered
  *                          but the card isn't marked done;
- *   (b) final_dry          its step has been Final Dry (or it has sat at a
- *                          Final Dry station or the Done shelf) for 3+ days
+ *   (b) final_dry          its step has been Final Dry, or it has sat in a
+ *                          Final Dry slot or on the Done shelf, for 3+ days
  *                          without being marked done;
+ *   (e) slot_idle          it has sat in the same slot for N+ days (default
+ *                          3) with no move (done cards too: a done card
+ *                          still in a slot may have been left behind);
  *   (c) stale              its order is open (Cards Received / In Progress)
- *                          and nobody has scanned, moved or changed its step
- *                          for 14+ days;
+ *                          and nothing has happened to it (slot move, step
+ *                          change) for 14+ days;
  *   (d) a bag is past its due date with cards not done (bagPastDue).
- * The menu badge counts the cards of (a) and (b). Refunded cards and cards
- * still awaiting arrival are never forgotten; neither are the old cards of a
- * Historical Order Setup bag on a finished order (they were never ticked done
- * on purpose: keepsHistoricalCompletion in lib/intake/stage-plan.ts).
+ * A card is listed once, under the first of a, b, e, c it trips. The menu
+ * badge counts (a) and (b). Refunded cards and cards still awaiting arrival
+ * are never forgotten; neither are the old cards of a Historical Order Setup
+ * bag on a finished order (never ticked done on purpose:
+ * keepsHistoricalCompletion in lib/intake/stage-plan.ts).
  */
 
 export const FINAL_DRY_STAGE = "Final Dry";
 /** Days at Final Dry (or on the Done shelf) before a card that isn't marked done is flagged. */
 export const FINAL_DRY_DAYS = 3;
-/** Days without a scan, move or step change before a card of an open order is flagged. */
+/** Default days in one slot with no move before a card is flagged; the report can change it. */
+export const SLOT_DAYS = 3;
+export const SLOT_DAY_CHOICES: readonly number[] = [2, 3, 5, 7, 14];
+/** Days without a slot move or step change before a card of an open order is flagged. */
 export const STALE_DAYS = 14;
 /** Order statuses that mean the work is finished. */
 export const FINISHED_ORDER_STATUSES: readonly string[] = ["completed", "shipped_back", "delivered"];
@@ -40,13 +51,14 @@ const time = (iso: string | null | undefined): number | null => {
   const t = Date.parse(iso);
   return Number.isFinite(t) ? t : null;
 };
+
 /** Whole days from `iso` to `now` (0 for the future or a missing time). */
 export function daysSince(iso: string | null | undefined, now: number): number {
   const t = time(iso);
   return t === null ? 0 : Math.max(0, Math.floor((now - t) / DAY_MS));
 }
 
-/** "just now", "5 min ago", "3 hours ago", "1 day ago", "12 days ago". */
+/** "just now", "5 min ago", "3 h ago", "1 day ago", "12 days ago". */
 export function ago(iso: string | null | undefined, now: number): string {
   const t = time(iso);
   if (t === null) return "";
@@ -55,94 +67,104 @@ export function ago(iso: string | null | undefined, now: number): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m} min ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  if (h < 24) return `${h} h ago`;
   const d = Math.floor(h / 24);
   return `${d} day${d === 1 ? "" : "s"} ago`;
 }
 
-/** "Humidor, 2 days ago"; "Never scanned" when the card has no place yet. */
-export function lastSeenText(location: { name: string } | null, at: string | null, now: number): string {
-  if (!location) return "Never scanned";
-  const when = ago(at, now);
-  return when ? `${location.name}, ${when}` : location.name;
+/** Latest of the times given (ISO), or null. */
+export function latest(...isos: (string | null | undefined)[]): string | null {
+  let best: string | null = null;
+  let bestT = -Infinity;
+  for (const iso of isos) {
+    const t = time(iso);
+    if (t !== null && t > bestT) {
+      best = iso!;
+      bestT = t;
+    }
+  }
+  return best;
+}
+
+/** A place as these rules see it (locations: kind and the step a slot sets). */
+export type PlaceFacts = { name: string; kind: string; stage: string | null };
+
+/** A slot: a serial-numbered holder of a station type (kind "station"), not Done, Shipping or a shelf. */
+export function isSlot(place: { kind: string } | null | undefined): boolean {
+  return place?.kind === "station";
+}
+
+/**
+ * "Last seen" for a card: the place it's in and how long ago it went there
+ * ("CLAMP 07, 2 h ago"); else the slot it last came out of ("Out of CLAMP 07,
+ * 3 days ago"); else "Not in a slot".
+ */
+export function lastSeenText(
+  place: { name: string } | null,
+  placedAt: string | null,
+  lastOut: { from: string | null; at: string } | null,
+  now: number,
+): string {
+  if (place) {
+    const when = ago(placedAt, now);
+    return when ? `${place.name}, ${when}` : place.name;
+  }
+  if (lastOut?.from) return `Out of ${lastOut.from}, ${ago(lastOut.at, now)}`;
+  return "Not in a slot";
 }
 
 // ── Ship check ─────────────────────────────────────────────────────────────
 
 /**
- * One card at the ship check. The contract's statuses (ShipCheckStatus:
- * refunded > not_done > not_here > ok) plus `not_received`: a card flagged
- * awaiting arrival never came in, so it can't be left behind (shown, never
- * blocks shipping). Without the places tables (`trackPlaces` false) a done
- * card is ok wherever it is.
+ * One card at the ship check: refunded > not_received (flagged awaiting
+ * arrival: it never came in, so it can't be left behind; shown, never blocks)
+ * > not_done (not marked done) > in_slot (done but still in a slot: "still
+ * in CLAMP 07") > ok (done and not in any slot).
  */
-export type ShipRowStatus = ShipCheckStatus | "not_received";
+export type ShipRowStatus = "ok" | "not_done" | "in_slot" | "refunded" | "not_received";
 
-export function shipCheckStatus(
-  card: { refunded: boolean; done: boolean; awaiting: boolean; locationKind: LocationKind | null },
-  trackPlaces = true,
-): ShipRowStatus {
+export function shipCheckStatus(card: { refunded: boolean; done: boolean; awaiting: boolean; inSlot: boolean }): ShipRowStatus {
   if (card.refunded) return "refunded";
   if (card.awaiting && !card.done) return "not_received";
   if (!card.done) return "not_done";
-  if (trackPlaces && card.locationKind !== "shipping") return "not_here";
+  if (card.inSlot) return "in_slot";
   return "ok";
 }
 
-export type ShipCounts = { ok: number; notDone: number; notHere: number; refunded: number; notReceived: number };
+export type ShipCounts = { ok: number; notDone: number; inSlot: number; refunded: number; notReceived: number };
 
 export function shipCounts(statuses: readonly ShipRowStatus[]): ShipCounts {
-  const c: ShipCounts = { ok: 0, notDone: 0, notHere: 0, refunded: 0, notReceived: 0 };
+  const c: ShipCounts = { ok: 0, notDone: 0, inSlot: 0, refunded: 0, notReceived: 0 };
   for (const s of statuses) {
     if (s === "ok") c.ok++;
     else if (s === "not_done") c.notDone++;
-    else if (s === "not_here") c.notHere++;
+    else if (s === "in_slot") c.inSlot++;
     else if (s === "refunded") c.refunded++;
     else c.notReceived++;
   }
   return c;
 }
 
-/** Ready to ship: at least one card ok and none not done or not here. */
-export function readyToShip(statuses: readonly ShipRowStatus[]): boolean {
+/** Every card that goes back is done and out of its slot (and there is one). */
+export function allCardsOk(statuses: readonly ShipRowStatus[]): boolean {
   const c = shipCounts(statuses);
-  return c.ok > 0 && c.notDone === 0 && c.notHere === 0;
+  return c.ok > 0 && c.notDone === 0 && c.inSlot === 0;
 }
 
 /**
- * What a code scanned on the ship check page means for this order, before
- * anything is sent: a card of this order (move it to Shipping), a bag of this
- * order (ask before moving all its cards), this order's own code, a place
- * sign, another order's card or bag, or not a code. `code` is normalized
- * (normalizeCode) and `kind` is codeKind(code).
+ * Ready to ship: every card is ok and every ok card has been ticked as
+ * physically in the box (`present`: card id -> ticked).
  */
-export type ShipScanIntent =
-  | { kind: "card"; code: string }
-  | { kind: "bag"; code: string }
-  | { kind: "this_order" }
-  | { kind: "place"; code: string }
-  | { kind: "other_order"; code: string }
-  | { kind: "not_a_code" };
-
-export function shipScanIntent(
-  code: string,
-  kind: string | null,
-  order: { orderNumber: string; cardCodes: readonly string[]; bagCodes: readonly string[] },
-): ShipScanIntent {
-  if (!code || !kind) return { kind: "not_a_code" };
-  const up = code.toUpperCase();
-  if (kind === "location") return { kind: "place", code: up };
-  if (kind === "order") return up === order.orderNumber.toUpperCase() ? { kind: "this_order" } : { kind: "other_order", code: up };
-  if (kind === "card") return order.cardCodes.some((c) => c.toUpperCase() === up) ? { kind: "card", code: up } : { kind: "other_order", code: up };
-  if (kind === "bag") return order.bagCodes.some((c) => c.toUpperCase() === up) ? { kind: "bag", code: up } : { kind: "other_order", code: up };
-  return { kind: "not_a_code" };
+export function readyToShip(rows: readonly { id: string; status: ShipRowStatus }[], present: Readonly<Record<string, boolean>>): boolean {
+  if (!allCardsOk(rows.map((r) => r.status))) return false;
+  return rows.every((r) => r.status !== "ok" || present[r.id] === true);
 }
 
 // ── Forgotten cards ────────────────────────────────────────────────────────
 
-export type ForgottenRule = "finished_not_done" | "final_dry" | "stale";
+export type ForgottenRule = "finished_not_done" | "final_dry" | "slot_idle" | "stale";
 /** Report order: the most certain first. A card is listed once, under its first rule. */
-export const FORGOTTEN_RULES: readonly ForgottenRule[] = ["finished_not_done", "final_dry", "stale"];
+export const FORGOTTEN_RULES: readonly ForgottenRule[] = ["finished_not_done", "final_dry", "slot_idle", "stale"];
 
 /** What the rules need to know about one card. Times are ISO strings. */
 export type ForgottenCardFacts = {
@@ -161,16 +183,18 @@ export type ForgottenCardFacts = {
   stageSince: string | null;
   /** Its latest stage event or round start (any round), or when it was received. */
   lastStageActivityAt: string | null;
-  /** Where it is now (cards.location_id), null when never placed or before the places tables exist. */
-  location: { kind: LocationKind | string; stage: string | null } | null;
+  /** Its latest card_moves row (into, out of or between slots). */
+  lastMoveAt: string | null;
+  /** Where it is now (cards.location_id), null when in no slot or before the places tables exist. */
+  location: { kind: string; stage: string | null } | null;
   locatedAt: string | null;
 };
 
 export type ForgottenReason = {
   rule: ForgottenRule;
-  /** Whole days: at Final Dry (final_dry), without any activity (stale); 0 for finished_not_done. */
+  /** Whole days: at Final Dry, in the slot, without any change; 0 for finished_not_done. */
   days: number;
-  /** Since when: the Final Dry or shelf time (final_dry), the last activity (stale), null otherwise. */
+  /** Since when (null for finished_not_done). */
   since: string | null;
 };
 
@@ -186,61 +210,52 @@ export function inNewSystem(f: { inBag: boolean; orderCreatedAt: string | null }
   return created !== null && from !== null && created >= from;
 }
 
-/** Live: not refunded, not done, actually arrived. Only live cards can be forgotten. */
-const live = (f: ForgottenCardFacts) => !f.refunded && !f.done && !f.awaiting;
-
-/** Latest of the times given (ISO), or null. */
-export function latest(...isos: (string | null | undefined)[]): string | null {
-  let best: string | null = null;
-  let bestT = -Infinity;
-  for (const iso of isos) {
-    const t = time(iso);
-    if (t !== null && t > bestT) {
-      best = iso!;
-      bestT = t;
-    }
-  }
-  return best;
-}
-
 /**
  * (b) on its own: since when the card has sat finished-looking without being
- * marked done, or null. Its step is Final Dry, or its place is the Done shelf
- * or a Final Dry station, for FINAL_DRY_DAYS or more (the earlier of the two).
+ * marked done, or null. Its step is Final Dry, or it is in a Final Dry slot
+ * or on the Done shelf, for FINAL_DRY_DAYS or more (the earlier time wins).
  */
-export function finalDrySince(f: ForgottenCardFacts, now: number): string | null {
+export function finalDrySince(f: Pick<ForgottenCardFacts, "stage" | "stageSince" | "location" | "locatedAt">, now: number): string | null {
   const cutoff = now - FINAL_DRY_DAYS * DAY_MS;
-  const candidates: string[] = [];
+  const hits: string[] = [];
   const st = time(f.stageSince);
-  if (f.stage === FINAL_DRY_STAGE && st !== null && st <= cutoff) candidates.push(f.stageSince!);
+  if (f.stage === FINAL_DRY_STAGE && st !== null && st <= cutoff) hits.push(f.stageSince!);
   const lt = time(f.locatedAt);
-  if (f.location && (f.location.kind === "done" || f.location.stage === FINAL_DRY_STAGE) && lt !== null && lt <= cutoff) {
-    candidates.push(f.locatedAt!);
+  if (f.location && (f.location.kind === "done" || (isSlot(f.location) && f.location.stage === FINAL_DRY_STAGE)) && lt !== null && lt <= cutoff) {
+    hits.push(f.locatedAt!);
   }
-  if (!candidates.length) return null;
-  return candidates.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b));
+  if (!hits.length) return null;
+  return hits.reduce((a, b) => (Date.parse(a) <= Date.parse(b) ? a : b));
 }
 
-/** Every rule the card trips, most certain first ([] when it looks fine). */
-export function forgottenReasons(f: ForgottenCardFacts, now: number): ForgottenReason[] {
-  if (!live(f)) return [];
+/** Every rule the card trips, in report order ([] when it looks fine). */
+export function forgottenReasons(f: ForgottenCardFacts, now: number, slotDays = SLOT_DAYS): ForgottenReason[] {
+  if (f.refunded || f.orderStatus === "cancelled") return [];
+  if (f.awaiting && !f.done) return [];
   const out: ForgottenReason[] = [];
   const finished = FINISHED_ORDER_STATUSES.includes(f.orderStatus);
-  if (f.orderStatus === "cancelled") return out;
 
-  // (a) the order is finished but this card was never ticked done; old
-  // Historical Order Setup bags of finished orders are complete on purpose
-  if (finished && f.bagSource !== "migration") out.push({ rule: "finished_not_done", days: 0, since: null });
-
-  // (b) at Final Dry / on the Done shelf for days (a finished order is (a) already)
-  if (!finished) {
-    const since = finalDrySince(f, now);
-    if (since) out.push({ rule: "final_dry", days: daysSince(since, now), since });
+  if (!f.done) {
+    // (a) the order is finished but this card was never ticked done; old
+    // Historical Order Setup bags of finished orders are complete on purpose
+    if (finished && f.bagSource !== "migration") out.push({ rule: "finished_not_done", days: 0, since: null });
+    // (b) at Final Dry / on the Done shelf for days (a finished order is (a) already)
+    if (!finished) {
+      const since = finalDrySince(f, now);
+      if (since) out.push({ rule: "final_dry", days: daysSince(since, now), since });
+    }
   }
 
-  // (c) an open order's card nobody has touched for two weeks
-  if (OPEN_ORDER_STATUSES.includes(f.orderStatus)) {
-    const last = latest(f.lastStageActivityAt, f.locatedAt) ?? f.orderCreatedAt;
+  // (e) the same slot for days with no move (done or not)
+  if (isSlot(f.location) && f.locatedAt) {
+    const since = latest(f.locatedAt, f.lastMoveAt);
+    const days = daysSince(since, now);
+    if (since && days >= slotDays) out.push({ rule: "slot_idle", days, since });
+  }
+
+  // (c) an open order's card nothing has happened to for two weeks
+  if (!f.done && OPEN_ORDER_STATUSES.includes(f.orderStatus)) {
+    const last = latest(f.lastStageActivityAt, f.locatedAt, f.lastMoveAt) ?? f.orderCreatedAt;
     const days = daysSince(last, now);
     if (last && days >= STALE_DAYS) out.push({ rule: "stale", days, since: last });
   }
@@ -248,8 +263,8 @@ export function forgottenReasons(f: ForgottenCardFacts, now: number): ForgottenR
 }
 
 /** The rule a card is listed under (its first), or null. */
-export function primaryRule(f: ForgottenCardFacts, now: number): ForgottenRule | null {
-  return forgottenReasons(f, now)[0]?.rule ?? null;
+export function primaryRule(f: ForgottenCardFacts, now: number, slotDays = SLOT_DAYS): ForgottenRule | null {
+  return forgottenReasons(f, now, slotDays)[0]?.rule ?? null;
 }
 
 /** Counted by the "Check" menu badge: (a) and (b). */
@@ -264,8 +279,9 @@ function dayDiff(a: string, b: string): number {
 
 /**
  * (d) A tier bag past its due date ("YYYY-MM-DD", New York) that still has
- * live cards not done, on an order that isn't finished or cancelled (a
- * finished order's cards are (a) already). Returns the days overdue, or null.
+ * cards not done (`openCards`: live, not done), on an order that isn't
+ * finished or cancelled (a finished order's cards are (a) already). Returns
+ * the days overdue, or null.
  */
 export function bagPastDue(
   bag: { dueDate: string | null; orderStatus: string; openCards: number },
@@ -278,10 +294,15 @@ export function bagPastDue(
   return late > 0 ? late : null;
 }
 
-/** Short text for a reason: "Order is Completed, card not marked done", "At Final Dry for 5 days", "Not touched for 16 days". */
-export function reasonText(r: ForgottenReason, orderStatusLabel: string): string {
-  const days = `${r.days} day${r.days === 1 ? "" : "s"}`;
-  if (r.rule === "finished_not_done") return `Order is ${orderStatusLabel}, card not marked done`;
-  if (r.rule === "final_dry") return `Finished-looking for ${days} (Final Dry or Done shelf), not marked done`;
-  return `No scan, move or step change for ${days}`;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Why a card is listed, in a few words ("At Final Dry for 5 days, not marked done"). */
+export function reasonText(r: ForgottenReason, ctx: { orderStatusLabel: string; placeName?: string | null; done?: boolean }): string {
+  if (r.rule === "finished_not_done") return `Order is ${ctx.orderStatusLabel}, card not marked done`;
+  if (r.rule === "final_dry") return `At Final Dry (or on the Done shelf) for ${plural(r.days, "day")}, not marked done`;
+  if (r.rule === "slot_idle") {
+    const where = ctx.placeName ? `In ${ctx.placeName}` : "In the same slot";
+    return `${where} for ${plural(r.days, "day")} with no move${ctx.done ? " (marked done, still in the slot)" : ""}`;
+  }
+  return `No slot move or step change for ${plural(r.days, "day")}`;
 }

@@ -1,7 +1,8 @@
 /** The Scan page's code parser and repeat gate (components/intake/scan/parse.ts). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel } from "@/components/intake/scan/parse";
+import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess } from "@/components/intake/scan/parse";
+import { cardsLabel, fillText, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
 
 test("QR links: the code after /Q/, any host, any case", () => {
   assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/CD-2549-03"), { code: "CD-2549-03", kind: "card" });
@@ -25,6 +26,9 @@ test("bare codes: cards, bags, orders and places", () => {
   assert.deepEqual(parseScan("LOC-DONE"), { code: "LOC-DONE", kind: "location" });
   assert.deepEqual(parseScan("LOC-SHIP"), { code: "LOC-SHIP", kind: "location" });
   assert.deepEqual(parseScan("LOC-BOOK-WEIGHTS"), { code: "LOC-BOOK-WEIGHTS", kind: "location" });
+  // Serial-numbered slots
+  assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/LOC-CLAMP-07"), { code: "LOC-CLAMP-07", kind: "location" });
+  assert.deepEqual(parseScan("loc-heat-press-03"), { code: "LOC-HEAT-PRESS-03", kind: "location" });
   // A place whose slug is a number is still a place, never an order
   assert.deepEqual(parseScan("LOC-2"), { code: "LOC-2", kind: "location" });
 });
@@ -75,4 +79,46 @@ test("the gate's key: the code when it parses, the text otherwise", () => {
   assert.equal(scanKey("https://thecarddoc1.com/q/cd-2549-03"), "CD-2549-03");
   assert.equal(scanKey("CD-2549-03"), "CD-2549-03");
   assert.equal(scanKey(" hello "), "HELLO");
+});
+
+test("a slot typed by its name", () => {
+  assert.equal(slotCodeGuess("clamp 7"), "LOC-CLAMP-07");
+  assert.equal(slotCodeGuess("CLAMP 07"), "LOC-CLAMP-07");
+  assert.equal(slotCodeGuess("Heat Press 3"), "LOC-HEAT-PRESS-03");
+  assert.equal(slotCodeGuess("heat-press-12"), "LOC-HEAT-PRESS-12");
+  assert.equal(slotCodeGuess("humidor 104"), "LOC-HUMIDOR-104");
+  assert.equal(slotCodeGuess(" done "), "LOC-DONE");
+  assert.equal(slotCodeGuess("Ship"), "LOC-SHIP");
+  for (const text of ["smith", "2549", "cd 2549", "charizard base set", "", "loc 3"]) assert.equal(slotCodeGuess(text), null, text);
+});
+
+test("wording: how long ago, where a card is, a slot's line", () => {
+  const now = Date.parse("2026-11-24T18:00:00Z");
+  assert.equal(sinceText(null, now), null);
+  assert.equal(sinceText("2026-11-24T17:59:40Z", now), "just now");
+  assert.equal(sinceText("2026-11-24T17:48:00Z", now), "12 min");
+  assert.equal(sinceText("2026-11-24T16:00:00Z", now), "2 h");
+  assert.equal(sinceText("2026-11-21T18:00:00Z", now), "3 d");
+  const slot = { id: "l1", code: "LOC-CLAMP-07", name: "CLAMP 07", kind: "station" as const, station: "clamp", serial: 7, stage: "Clamp Work" };
+  assert.equal(whereLine({ location: slot, locatedAt: "2026-11-24T16:00:00Z", stageLabel: "Clamp Work" }, now), "CLAMP 07 · Clamp Work · 2 h");
+  assert.equal(whereLine({ location: null, locatedAt: null, stageLabel: "Humidor" }, now), "Not in a slot");
+  assert.equal(placeSubtitle({ kind: "station", stationName: "Clamp", stageLabel: "Clamp Work", dueDate: null }), "Clamp · step: Clamp Work");
+  assert.equal(placeSubtitle({ kind: "shelf", stationName: null, stageLabel: null, dueDate: "2026-12-07" }), "Shelf for cards due Mon, Dec 7, 2026");
+  assert.equal(placeSubtitle({ kind: "done", stationName: null, stageLabel: null, dueDate: null }), "Finished cards");
+});
+
+test("wording: how full a slot is", () => {
+  assert.equal(roomLeft(1, 0), 1);
+  assert.equal(roomLeft(1, 1), 0);
+  assert.equal(roomLeft(1, 3), 0);
+  assert.equal(roomLeft(null, 50), Infinity);
+  assert.equal(fillText(1, 0), "Empty");
+  assert.equal(fillText(1, 1), "Full (1 of 1)");
+  assert.equal(fillText(1, 2), "Over full (2 of 1)");
+  assert.equal(fillText(3, 2), "2 of 3 cards");
+  assert.equal(fillText(null, 1), "1 card");
+  assert.equal(fillText(null, 4), "4 cards");
+  assert.equal(cardsLabel([{ code: "CD-2549-03", name: "Charizard" }]), "CD-2549-03");
+  assert.equal(cardsLabel([{ code: null, name: "Charizard" }]), "Charizard");
+  assert.equal(cardsLabel([{ code: "A", name: null }, { code: "B", name: null }]), "2 cards");
 });

@@ -2,11 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cardCode, qrUrl, tierDisplayName, tierRank } from "@/lib/intake/codes";
 import type { BagSummary } from "@/lib/intake/types";
 import { CONTENT_WIDTH_CONFIG_KEY, STOCK_CONFIG_KEY, normalizeLabelSettings, type LabelStockId } from "./stock";
+import type { LabelPlace } from "./place";
 import type { LabelBag } from "./types";
 
-// What the label routes print (one label per tier bag), read with a few plain
-// queries (server only: pass the service-role client from
-// lib/supabase/admin.ts).
+// What the label routes print (one label per tier bag; one label per slot or
+// place), read with a few plain queries (server only: pass the service-role
+// client from lib/supabase/admin.ts).
 
 export type LabelBagWithId = LabelBag & { id: string; orderId: string; labelPrintedAt: string | null };
 
@@ -153,4 +154,71 @@ export async function getLabelSettings(admin: SupabaseClient): Promise<{ stock: 
   } catch {
     return normalizeLabelSettings(undefined, undefined);
   }
+}
+
+// ── Place labels (slots and signs) ───────────────────────────────────────────
+
+/** A place label with its locations row's id, station type and whether it is in use. */
+export type LabelPlaceWithId = LabelPlace & { id: string; station: string | null; active: boolean };
+
+type PlaceRow = {
+  id: string;
+  code: string;
+  name: string;
+  kind: string;
+  stage: string | null;
+  due_date: string | null;
+  station?: string | null;
+  serial?: number | null;
+  active?: boolean | null;
+};
+
+const PLACE_COLUMNS = "id, code, name, kind, stage, due_date, station, serial, active";
+/** Without the slot columns (station, serial): a database where the slot migration isn't applied yet still prints signs. */
+const PLACE_COLUMNS_BASE = "id, code, name, kind, stage, due_date, active";
+
+function placeFromRow(r: PlaceRow): LabelPlaceWithId {
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    kind: r.kind,
+    stage: r.stage,
+    dueDate: r.due_date,
+    serial: r.serial ?? null,
+    station: r.station ?? null,
+    active: r.active !== false,
+    qrUrl: qrUrl(r.code),
+  };
+}
+
+/**
+ * Places to print labels for (server only: the service-role client):
+ *   { ids }                    those places, in the order asked (inactive ones too: asked for by id)
+ *   { station, from?, to? }    the station type's active slots, by serial number
+ *                              (from..to inclusive: "Clamps 01 to 20")
+ */
+export async function loadLabelPlaces(
+  admin: SupabaseClient,
+  where: { ids: string[] } | { station: string; from?: number | null; to?: number | null },
+): Promise<{ places: LabelPlaceWithId[]; error: string | null }> {
+  const read = async (columns: string) => {
+    const q = admin.from("locations").select(columns);
+    return "ids" in where ? await q.in("id", where.ids) : await q.eq("station", where.station);
+  };
+  let res = await read(PLACE_COLUMNS);
+  // Before the slot columns exist, places asked for by id still print (as signs)
+  if (res.error && "ids" in where && /column|schema cache/i.test(res.error.message)) res = await read(PLACE_COLUMNS_BASE);
+  if (res.error) return { places: [], error: res.error.message };
+  const rows = ((res.data ?? []) as unknown as PlaceRow[]).map(placeFromRow);
+  if ("ids" in where) {
+    const at = new Map(where.ids.map((id, i) => [id, i]));
+    return { places: rows.sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0)), error: null };
+  }
+  const from = where.from ?? -Infinity;
+  const to = where.to ?? Infinity;
+  const places = rows
+    .filter((p) => p.active && p.serial != null && p.serial >= from && p.serial <= to)
+    .sort((a, b) => (a.serial ?? 0) - (b.serial ?? 0) || a.code.localeCompare(b.code));
+  return { places, error: null };
 }

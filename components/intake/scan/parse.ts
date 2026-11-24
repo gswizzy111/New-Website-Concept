@@ -56,3 +56,20 @@ export function createScanGate(windowMs = 2000) {
 export function scanKey(raw: string): string {
   return parseScan(raw)?.code ?? raw.trim().toUpperCase().slice(0, 200);
 }
+
+/**
+ * A slot typed by its name: "clamp 7", "CLAMP 07", "heat press 3" ->
+ * LOC-CLAMP-07, LOC-HEAT-PRESS-03; "done" -> LOC-DONE, "ship" -> LOC-SHIP.
+ * Null when the text doesn't look like a slot name (it is then searched).
+ */
+export function slotCodeGuess(text: string): string | null {
+  const t = text.trim().toUpperCase().replace(/\s+/g, " ");
+  if (t === "DONE") return "LOC-DONE";
+  if (t === "SHIP" || t === "SHIPPING") return "LOC-SHIP";
+  const m = /^([A-Z][A-Z -]*?)[ -]*(\d{1,4})$/.exec(t);
+  if (!m) return null;
+  const words = m[1].replace(/[ -]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!words || words === "CD" || words === "LOC") return null;
+  const code = `LOC-${words}-${m[2].padStart(2, "0")}`;
+  return isLocationCode(code) ? code : null;
+}

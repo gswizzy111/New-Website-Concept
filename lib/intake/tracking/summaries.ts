@@ -154,11 +154,14 @@ export function bagSummary(bag: TrackBagRow, cards: readonly TrackCardRow[], ctx
   };
 }
 
-/** refunded > not done > not at a Shipping place > ok. */
-export function shipCheckStatus(card: { refunded: boolean; done: boolean; location: LocationRef | null }): ShipCheckStatus {
+/**
+ * refunded > not done > still in a work-station slot > ok. Done and out of
+ * the slots (at Done, Shipping, a shelf, or nowhere) is ready to ship.
+ */
+export function shipCheckStatus(card: { refunded: boolean; done: boolean; location: Pick<LocationRef, "kind"> | null }): ShipCheckStatus {
   if (card.refunded) return "refunded";
   if (!card.done) return "not_done";
-  if (card.location?.kind !== "shipping") return "not_here";
+  if (card.location?.kind === "station") return "in_slot";
   return "ok";
 }
 
@@ -178,11 +181,11 @@ export function buildShipCheck(input: {
       location: s.location, lastSeen: s.locatedAt, status: shipCheckStatus(s),
     };
   });
-  const counts = { ok: 0, notDone: 0, notHere: 0, refunded: 0 };
+  const counts = { ok: 0, notDone: 0, inSlot: 0, refunded: 0 };
   for (const c of cards) {
     if (c.status === "ok") counts.ok++;
     else if (c.status === "not_done") counts.notDone++;
-    else if (c.status === "not_here") counts.notHere++;
+    else if (c.status === "in_slot") counts.inSlot++;
     else counts.refunded++;
   }
   const bags = [...input.bags].sort(byBag).map((b) => {

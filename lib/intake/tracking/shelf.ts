@@ -48,3 +48,36 @@ export async function ensureShelfSlotRow(
   }
   return { location: locationView(row), created: false };
 }
+
+/**
+ * Put bags on their due-date shelf slot ("Put in shelf: DUE MON DEC 7"):
+ * makes the slot if needed and sets tier_bags.location_id / located_at. Bags
+ * without a due date are left alone (listed in `skipped`). Cards keep their
+ * own place (they wait in their bag). Throws on a database error.
+ */
+export async function shelveBags(
+  admin: SupabaseClient,
+  input: { bagIds: readonly string[]; by: string | null },
+): Promise<{ shelved: { bagId: string; bagCode: string; location: TrackLocation }[]; skipped: { bagId: string; bagCode: string | null; reason: "no_due_date" | "not_found" }[] }> {
+  const ids = [...new Set(input.bagIds)];
+  const out = { shelved: [] as { bagId: string; bagCode: string; location: TrackLocation }[], skipped: [] as { bagId: string; bagCode: string | null; reason: "no_due_date" | "not_found" }[] };
+  if (!ids.length) return out;
+  const { data, error } = await admin.from("tier_bags").select("id, bag_code, due_date, location_id").in("id", ids);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { id: string; bag_code: string; due_date: string | null; location_id: string | null }[];
+  const slots = new Map<string, TrackLocation>();
+  const now = new Date().toISOString();
+  for (const id of ids) {
+    const bag = rows.find((r) => r.id === id);
+    if (!bag) { out.skipped.push({ bagId: id, bagCode: null, reason: "not_found" }); continue; }
+    if (!bag.due_date) { out.skipped.push({ bagId: id, bagCode: bag.bag_code, reason: "no_due_date" }); continue; }
+    const slot = slots.get(bag.due_date) ?? await ensureShelfSlot(admin, bag.due_date, input.by);
+    slots.set(bag.due_date, slot);
+    if (bag.location_id !== slot.id) {
+      const { error: upErr } = await admin.from("tier_bags").update({ location_id: slot.id, located_at: now }).eq("id", bag.id);
+      if (upErr) throw new Error(upErr.message);
+    }
+    out.shelved.push({ bagId: bag.id, bagCode: bag.bag_code, location: slot });
+  }
+  return out;
+}

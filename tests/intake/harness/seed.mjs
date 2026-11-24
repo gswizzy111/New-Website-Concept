@@ -33,28 +33,19 @@ export const IDS = {
   // one-label-per-bag tests (a bag's label must stay ONE page at 4, 16, 32 and 40 cards)
   bigOrder: id("0f000000", 1),
   bigCards: Array.from({ length: 40 }, (_, i) => id("0f00000c", i + 1)),
-  // the default places (20261124_card_tracking.sql seeds them with random ids; fixed here)
-  places: Array.from({ length: 10 }, (_, i) => id("10c00000", i + 1)),
+  // the two places 20261124_card_tracking.sql seeds (random ids there; fixed here)
+  places: [id("10c00000", 1), id("10c00000", 2)],
 };
 
 /**
- * The places 20261124_card_tracking.sql seeds (on conflict do nothing): one station per step
- * (STAGES order; "Book" shows as "Drying"), the Done shelf and Shipping. Shelf slots
- * (LOC-SHELF-YYYYMMDD) are made on demand, so none are seeded. Codes are the brief's; names
- * and sort are what the migration is expected to use (adjust here if it differs).
+ * The places 20261124_card_tracking.sql seeds (on conflict do nothing): LOC-DONE and LOC-SHIP
+ * only. Slots (CLAMP 01..N, HEAT PRESS 01..N, ...) are made by staff in Places (the bulk API),
+ * and due-date shelf slots (LOC-SHELF-YYYYMMDD) when a bag first needs one, so none are seeded.
  */
 export const DEFAULT_PLACES = [
-  { code: "LOC-SLAB-CRACK", name: "Slab Crack", kind: "station", stage: "Ready for Slab Crack" },
-  { code: "LOC-HUMIDOR", name: "Humidor", kind: "station", stage: "Humidor" },
-  { code: "LOC-HUMIDITY-PRESS", name: "Humidity Press", kind: "station", stage: "Humidity Press" },
-  { code: "LOC-DRYING", name: "Drying", kind: "station", stage: "Book" },
-  { code: "LOC-HEAT-PRESS", name: "Heat Press", kind: "station", stage: "Heat Press" },
-  { code: "LOC-CLAMP", name: "Clamp Work", kind: "station", stage: "Clamp Work" },
-  { code: "LOC-BOOK-WEIGHTS", name: "Book with Weights", kind: "station", stage: "Book with Weights" },
-  { code: "LOC-FINAL-DRY", name: "Final Dry", kind: "station", stage: "Final Dry" },
-  { code: "LOC-DONE", name: "Done", kind: "done", stage: null },
-  { code: "LOC-SHIP", name: "Shipping", kind: "shipping", stage: null },
-].map((p, i) => ({ ...p, sort: (i + 1) * 10 }));
+  { code: "LOC-DONE", name: "Done", kind: "done", sort: 900 },
+  { code: "LOC-SHIP", name: "Shipping", kind: "shipping", sort: 1000 },
+];
 
 export const ORDER_NUMBERS = {
   mailOrder: "CD-2549",
@@ -341,10 +332,10 @@ export function buildSeed({ baseUrl }) {
       order_events: events,
       tier_bags: [],
       tier_bag_due_changes: [],
-      // card tracking (20261124_card_tracking.sql): the default places, no moves yet
+      // card tracking (20261124_card_tracking.sql): LOC-DONE and LOC-SHIP, no slots, no moves yet
       locations: DEFAULT_PLACES.map((p, i) => ({
-        id: IDS.places[i], code: p.code, name: p.name, kind: p.kind, stage: p.stage, due_date: null,
-        sort: p.sort, active: true, created_at: created, created_by: null,
+        id: IDS.places[i], code: p.code, name: p.name, kind: p.kind, station: null, serial: null, capacity: null,
+        stage: null, due_date: null, sort: p.sort, active: true, created_at: created, created_by: "setup",
       })),
       card_moves: [],
       show_dropoffs: [

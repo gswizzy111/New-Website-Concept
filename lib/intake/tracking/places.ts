@@ -4,6 +4,7 @@ import { isLocationCode, qrUrl } from "@/lib/intake/codes";
 import { DONE_LABEL, NOT_STARTED_LABEL } from "@/lib/intake/stage-plan";
 import type { LocationKind, LocationRef, LocationRow, TrackLocation } from "@/lib/intake/tracking/types";
 import { LOCATION_KINDS } from "@/lib/intake/tracking/types";
+import { STATION_TYPES, stationName } from "@/lib/intake/tracking/stations";
 
 /**
  * Places (locations) without the database: codes, names, shelf slots, views
@@ -11,25 +12,15 @@ import { LOCATION_KINDS } from "@/lib/intake/tracking/types";
  */
 
 /** The columns lib/intake/tracking reads from `locations`. */
-export const LOCATION_COLUMNS = "id, code, name, kind, stage, due_date, sort, active, created_at, created_by";
+export const LOCATION_COLUMNS = "id, code, name, kind, station, serial, capacity, stage, due_date, sort, active, created_at, created_by";
+/** The columns of a LocationRef. */
+export const LOCATION_REF_COLUMNS = "id, code, name, kind, station, serial, stage";
 
 /** The Done shelf and Shipping, as seeded (supabase/migrations/20261124_card_tracking.sql). */
 export const DONE_LOCATION_CODE = "LOC-DONE";
 export const SHIP_LOCATION_CODE = "LOC-SHIP";
 
-/** The seeded station of each step (stored stage name -> place code). */
-export const STATION_CODES: Readonly<Record<string, string>> = {
-  "Ready for Slab Crack": "LOC-SLAB-CRACK",
-  "Humidor": "LOC-HUMIDOR",
-  "Humidity Press": "LOC-HUMIDITY-PRESS",
-  "Book": "LOC-DRYING",
-  "Heat Press": "LOC-HEAT-PRESS",
-  "Clamp Work": "LOC-CLAMP",
-  "Book with Weights": "LOC-BOOK-WEIGHTS",
-  "Final Dry": "LOC-FINAL-DRY",
-};
-
-/** "card" stage key in card_moves for a finished card. */
+/** The stage key card_moves stores for a finished card. */
 export const DONE_STAGE_KEY = "done";
 
 export function isLocationKind(v: unknown): v is LocationKind {
@@ -101,6 +92,10 @@ export function locationView(row: LocationRow): TrackLocation {
     code: row.code,
     name: row.name,
     kind: row.kind,
+    station: row.station ?? null,
+    stationName: row.kind === "station" ? stationName(row.station) : null,
+    serial: row.serial ?? null,
+    capacity: row.capacity ?? null,
     stage: row.stage,
     stageLabel: row.stage ? adminStageLabel(row.stage) : null,
     dueDate: row.due_date,
@@ -112,25 +107,45 @@ export function locationView(row: LocationRow): TrackLocation {
   };
 }
 
-export function locationRef(row: Pick<LocationRow, "id" | "code" | "name" | "kind">): LocationRef {
-  return { id: row.id, code: row.code, name: row.name, kind: row.kind };
+export function locationRef(row: Pick<LocationRow, "id" | "code" | "name" | "kind"> & Partial<Pick<LocationRow, "station" | "serial" | "stage">>): LocationRef {
+  return { id: row.id, code: row.code, name: row.name, kind: row.kind, station: row.station ?? null, serial: row.serial ?? null, stage: row.stage ?? null };
+}
+
+/** A work-station slot (holds cards at a step), as opposed to a shelf, Done, Shipping or other place. */
+export function isSlot(loc: Pick<LocationRow, "kind"> | null | undefined): boolean {
+  return loc?.kind === "station";
+}
+
+/** Room for `adding` more cards next to `holding` (capacity null = no limit). */
+export function hasRoom(capacity: number | null | undefined, holding: number, adding = 1): boolean {
+  return capacity == null || holding + adding <= capacity;
 }
 
 const KIND_RANK: Record<LocationKind, number> = { station: 0, shelf: 1, done: 2, shipping: 3, other: 4 };
 
+const stationRank = (key: string | null | undefined) => {
+  const i = STATION_TYPES.findIndex((t) => t.key === key);
+  return i === -1 ? STATION_TYPES.length : i;
+};
+
 /**
- * Place order for lists: stations by step, shelf slots by due date, the Done
- * shelf, Shipping, then other places; within a kind by sort, then name.
+ * Place order for lists: slots by station type (in step order) then number,
+ * shelf slots by due date, Done, Shipping, then other places; within a kind
+ * by sort, then name.
  */
 export function compareLocations(
-  a: Pick<LocationRow, "kind" | "stage" | "due_date" | "sort" | "name">,
-  b: Pick<LocationRow, "kind" | "stage" | "due_date" | "sort" | "name">,
+  a: Pick<LocationRow, "kind" | "stage" | "due_date" | "sort" | "name"> & Partial<Pick<LocationRow, "station" | "serial">>,
+  b: Pick<LocationRow, "kind" | "stage" | "due_date" | "sort" | "name"> & Partial<Pick<LocationRow, "station" | "serial">>,
 ): number {
   const k = (KIND_RANK[a.kind] ?? 9) - (KIND_RANK[b.kind] ?? 9);
   if (k) return k;
   if (a.kind === "station") {
+    const t = stationRank(a.station) - stationRank(b.station);
+    if (t) return t;
+    if ((a.station ?? "") !== (b.station ?? "")) return (a.station ?? "") < (b.station ?? "") ? -1 : 1;
     const s = (STAGES as readonly string[]).indexOf(a.stage ?? "") - (STAGES as readonly string[]).indexOf(b.stage ?? "");
     if (s) return s;
+    if ((a.serial ?? 0) !== (b.serial ?? 0)) return (a.serial ?? 0) - (b.serial ?? 0);
   }
   if (a.kind === "shelf" && (a.due_date ?? "") !== (b.due_date ?? "")) return (a.due_date ?? "9999") < (b.due_date ?? "9999") ? -1 : 1;
   if ((a.sort ?? 0) !== (b.sort ?? 0)) return (a.sort ?? 0) - (b.sort ?? 0);

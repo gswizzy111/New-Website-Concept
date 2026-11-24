@@ -2,12 +2,13 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ensureShelfSlot } from "@/lib/intake/tracking/shelf";
 import type { OrderIntake } from "@/lib/intake/types";
-import { PLACE_COLUMNS, shelfSlotCode, shelfSlotName, type PlaceRow } from "./places";
+import { shelfSlotCode, shelfSlotName } from "./places";
 
 /**
  * The receiving workspace's "Put in shelf" box: for each open bag of the
  * order, its received cards that haven't started a step and have no place
- * yet (cards.location_id null) go on the shelf slot of the bag's due date
+ * yet (cards.location_id null, the bag not scanned onto its shelf either) go on
+ * the shelf slot of the bag's due date
  * (LOC-SHELF-YYYYMMDD, "DUE MON DEC 7"). Cards already scanned somewhere, or
  * already at a step (they're at a station), are left out, so the box goes
  * away once the cards are scanned onto the shelf. A missing slot is made with
@@ -52,9 +53,14 @@ function asPlace(value: unknown): { id: string; code: string; name: string } | n
 }
 
 export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntake): Promise<OrderShelves> {
-  const { data: rows, error } = await admin.from("cards").select("id, location_id").eq("order_id", intake.order.id).limit(2000);
+  const [{ data: rows, error }, bagRows] = await Promise.all([
+    admin.from("cards").select("id, location_id").eq("order_id", intake.order.id).limit(2000),
+    // Where each bag itself was put (best effort: a bag scanned onto its shelf counts its waiting cards as there)
+    admin.from("tier_bags").select("id, location_id").eq("order_id", intake.order.id).limit(200),
+  ]);
   if (error) return { ok: false, error: error.message };
   const placeOf = new Map(((rows ?? []) as { id: string; location_id: string | null }[]).map((r) => [r.id, r.location_id]));
+  const bagPlace = new Map(((bagRows.error ? [] : bagRows.data ?? []) as { id: string; location_id: string | null }[]).map((r) => [r.id, r.location_id]));
 
   // Open bags with cards waiting at the start (in the bag, not refunded, not done, no step this round)
   const bags = intake.bags.filter((b) => !b.complete && b.cardCount > 0);
@@ -65,9 +71,9 @@ export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntak
   // The shelf slots of those dates (made if missing)
   const slots = new Map<string, ShelfPlace>();
   if (dates.length) {
-    const { data: found, error: slotErr } = await admin.from("locations").select(PLACE_COLUMNS).eq("kind", "shelf").in("due_date", dates);
+    const { data: found, error: slotErr } = await admin.from("locations").select("id, code, name, due_date, active").eq("kind", "shelf").in("due_date", dates);
     if (slotErr) return { ok: false, error: slotErr.message };
-    for (const p of (found ?? []) as PlaceRow[]) {
+    for (const p of (found ?? []) as { id: string; code: string; name: string; due_date: string | null; active: boolean }[]) {
       if (p.due_date && (!slots.has(p.due_date) || p.active)) slots.set(p.due_date, { id: p.id, code: p.code, name: p.name });
     }
     for (const day of dates) {
@@ -90,8 +96,9 @@ export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntak
     const cards = waiting.get(b.id) ?? [];
     if (!cards.length) continue;
     const place = b.dueDate ? slots.get(b.dueDate) ?? null : null;
-    const onShelf = place?.id ? cards.filter((c) => placeOf.get(c.id) === place.id).length : 0;
-    const toShelve = cards.filter((c) => !placeOf.get(c.id)).length;
+    const bagOnShelf = !!place?.id && bagPlace.get(b.id) === place.id;
+    const onShelf = place?.id ? cards.filter((c) => placeOf.get(c.id) === place.id || (bagOnShelf && !placeOf.get(c.id))).length : 0;
+    const toShelve = bagOnShelf ? 0 : cards.filter((c) => !placeOf.get(c.id)).length;
     // Cards scanned somewhere else (a station, another shelf) aren't this box's business
     if (!toShelve && !onShelf) continue;
     const key = b.dueDate ?? "none";

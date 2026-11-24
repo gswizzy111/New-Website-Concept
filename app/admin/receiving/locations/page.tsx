@@ -4,15 +4,21 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { nyToday } from "@/lib/intake/business-days";
-import { stationRank } from "../shelf/_lib/places";
-import { loadPlaces, type PlaceWithCount } from "./load-places";
-import { AddPlaceForm, NextShelfSignsPrint, PlaceItem, StationSignsPrint, type PlaceItemData } from "./places-client";
+import { stationName } from "@/lib/intake/tracking/stations";
+import { shortDay } from "../bags/_components/bag-bits";
+import { STATION_TYPES, stageRank, stepText, type StationType } from "../shelf/_lib/places";
+import { loadPlaces, type PlaceWithCards } from "./load-places";
+import {
+  AddPlaceForm, AddSlotsForm, NextShelfSignsPrint, PlaceItem, SlotTile, StationRangePrint,
+  type PlaceItemData, type SlotTileData,
+} from "./places-client";
 
 /**
- * Places: every spot a card can be (one station per step, a shelf slot per
- * due date, the Done shelf, Shipping, anything else), with how many cards
- * are there, each place's sign to print once, and the batch sign prints.
- * Scanning a place's sign and then cards (the Scan page) moves them there.
+ * Places: every serial-numbered slot (CLAMP 07, HEAT PRESS 03...) grouped by
+ * station type with who's in it, the due-date shelf slots, the Done shelf,
+ * Shipping and anything else. Add slots in bulk, print their QR labels (one,
+ * or a serial range), rename and turn off. On the Scan page, scanning a slot
+ * then a bag's label puts a card in it (the card's step follows the slot).
  */
 
 export const dynamic = "force-dynamic";
@@ -24,6 +30,11 @@ const TRACKING_NOTICE =
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 const linkButton = `inline-flex items-center gap-1.5 min-h-11 px-4 rounded-lg border border-border bg-white text-sm font-bold hover:border-primary/40 ${focusRing}`;
 
+/** The station type a slot belongs to (its key; a place made before slot types by its step). */
+function typeKey(p: PlaceWithCards): string {
+  return p.station ?? STATION_TYPES.find((t) => t.stage === p.stage)?.key ?? `step:${p.stage ?? "none"}`;
+}
+
 function shelfNote(day: string | null, today: string): string | null {
   if (!day) return null;
   if (day < today) return "Past due date";
@@ -31,32 +42,52 @@ function shelfNote(day: string | null, today: string): string | null {
   return null;
 }
 
-function toItem(p: PlaceWithCount, today: string): PlaceItemData {
+function toItem(p: PlaceWithCards, today: string): PlaceItemData {
   return {
     id: p.id,
     code: p.code,
     name: p.name,
     kind: p.kind,
     stage: p.stage,
-    dueDate: p.due_date,
     active: p.active,
-    cardCount: p.cardCount,
+    cardCount: p.cards.length,
     note: p.kind === "shelf" ? shelfNote(p.due_date, today) : null,
     shelfHref: p.kind === "shelf" && p.due_date ? `/admin/receiving/shelf#due-${p.due_date}` : null,
   };
 }
 
-function Section({ id, title, hint, places, today, empty }: { id: string; title: string; hint: string; places: PlaceWithCount[]; today: string; empty?: string }) {
-  const cards = places.reduce((n, p) => n + p.cardCount, 0);
+function toTile(p: PlaceWithCards, today: string): SlotTileData {
+  return {
+    id: p.id,
+    code: p.code,
+    name: p.name,
+    active: p.active,
+    capacity: p.capacity,
+    cards: p.cards.map((c) => ({
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      customer: c.customer,
+      dueText: c.dueDate ? `Due ${shortDay(c.dueDate, today)}` : null,
+    })),
+  };
+}
+
+function PlaceList({ id, title, hint, places, today, empty, action }: {
+  id: string; title: string; hint: string; places: PlaceWithCards[]; today: string; empty?: string; action?: React.ReactNode;
+}) {
+  const cards = places.reduce((n, p) => n + p.cards.length, 0);
   return (
     <section aria-labelledby={id}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-1">
-        <h2 id={id} className="font-heading font-black text-lg text-foreground">
-          {title} <span className="text-muted-foreground font-medium text-sm">({places.length})</span>
-        </h2>
-        {cards > 0 && <p className="text-sm text-muted-foreground">{cards} card{cards === 1 ? "" : "s"} here</p>}
+      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 mb-2">
+        <div>
+          <h2 id={id} className="font-heading font-black text-lg text-foreground">
+            {title} <span className="text-muted-foreground font-medium text-sm">({places.length}{cards ? ` · ${cards} card${cards === 1 ? "" : "s"}` : ""})</span>
+          </h2>
+          <p className="text-xs text-muted-foreground">{hint}</p>
+        </div>
+        {action}
       </div>
-      <p className="text-xs text-muted-foreground mb-2">{hint}</p>
       {places.length === 0 ? (
         <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">{empty ?? "None yet."}</p>
       ) : (
@@ -74,13 +105,38 @@ export default async function PlacesPage() {
   const result = await loadPlaces(createAdminClient());
   const all = result.ok ? result.places : [];
   const active = all.filter((p) => p.active);
-  const byName = (a: PlaceWithCount, b: PlaceWithCount) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name);
+  const byName = (a: PlaceWithCards, b: PlaceWithCards) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name);
 
-  const stations = active.filter((p) => p.kind === "station").sort((a, b) => stationRank(a) - stationRank(b) || byName(a, b));
+  // Station slots by type, types in step order (the known ones first), slots by serial
+  const slots = active.filter((p) => p.kind === "station");
+  const types: StationType[] = [...STATION_TYPES];
+  for (const p of slots) {
+    const key = typeKey(p);
+    if (!types.some((t) => t.key === key)) {
+      types.push({ key, name: stationName(p.station) ?? (stepText(p.stage) || "Station"), stage: p.stage ?? "", defaultCapacity: p.capacity });
+    }
+  }
+  types.sort((a, b) => stageRank(a.stage) - stageRank(b.stage));
+  const groups = types.map((t) => ({
+    type: t,
+    slots: slots.filter((p) => typeKey(p) === t.key)
+      .sort((a, b) => (a.serial ?? Number.MAX_SAFE_INTEGER) - (b.serial ?? Number.MAX_SAFE_INTEGER) || byName(a, b)),
+  }));
+  const withSlots = groups.filter((g) => g.slots.length);
+  const noSlots = groups.filter((g) => !g.slots.length && STATION_TYPES.some((t) => t.key === g.type.key));
+  // Serials continue after the highest one used (turned-off slots keep theirs)
+  const nextSerial: Record<string, number> = {};
+  for (const p of all.filter((x) => x.kind === "station" && x.serial != null)) {
+    const key = typeKey(p);
+    nextSerial[key] = Math.max(nextSerial[key] ?? 1, (p.serial as number) + 1);
+  }
+  const slotCount = slots.length;
+  const inUse = slots.filter((p) => p.cards.length).length;
+
   const shelves = active.filter((p) => p.kind === "shelf")
     .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") || byName(a, b));
   // Past slots with nothing on them fold away (one is made per due date, so they pile up)
-  const currentShelves = shelves.filter((p) => p.cardCount > 0 || !p.due_date || p.due_date >= today);
+  const currentShelves = shelves.filter((p) => p.cards.length > 0 || !p.due_date || p.due_date >= today);
   const oldShelves = shelves.filter((p) => !currentShelves.includes(p));
   const done = active.filter((p) => p.kind === "done").sort(byName);
   const shipping = active.filter((p) => p.kind === "shipping").sort(byName);
@@ -89,7 +145,7 @@ export default async function PlacesPage() {
 
   return (
     <div className="min-h-screen bg-secondary/30">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <AdminLink href="/admin/receiving" className={`inline-flex items-center min-h-11 text-sm font-semibold text-primary hover:underline rounded ${focusRing}`}>
           ← Receiving
         </AdminLink>
@@ -97,7 +153,7 @@ export default async function PlacesPage() {
           <div className="max-w-3xl">
             <h1 className="font-heading font-black text-3xl text-foreground">Places</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Every place a card can be: a station for each step, a shelf slot for each due date, the Done shelf and Shipping. Print each sign once and stick it up. On the Scan page, scan a sign, then the cards: they move there (a station also sets their step).
+              Every clamp, press spot and humidor spot is a numbered slot with its own QR label. On the Scan page, scan a slot, then the bag&apos;s label, and tap the card: it&apos;s in that slot and at that step. Bags wait on the shelf of their due date.
             </p>
           </div>
           <nav className="flex flex-wrap gap-2" aria-label="Tracking">
@@ -117,42 +173,77 @@ export default async function PlacesPage() {
 
         {result.ok && (
           <div className="flex flex-col gap-8">
-            <section aria-labelledby="signs-h" className="bg-white rounded-xl border border-border p-4 sm:p-5">
-              <h2 id="signs-h" className="font-heading font-black text-lg text-foreground">Print signs</h2>
-              <p className="text-sm text-muted-foreground mt-0.5 mb-3">
-                50 × 80 mm, one sign per label. A tap gets them ready, a second tap prints.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <StationSignsPrint placeIds={stations.map((p) => p.id)} />
-                <NextShelfSignsPrint />
-              </div>
+            <section aria-labelledby="add-h" className="bg-white rounded-xl border border-border p-4 sm:p-5">
+              <h2 id="add-h" className="font-heading font-black text-lg text-foreground mb-3">Add slots</h2>
+              <AddSlotsForm types={STATION_TYPES} nextSerial={nextSerial} />
+              <details className="group mt-4 border-t border-border pt-3">
+                <summary className={`cursor-pointer list-none min-h-11 inline-flex items-center gap-2 text-sm font-bold text-primary rounded ${focusRing}`}>
+                  <span className="group-open:hidden">Add another kind of place</span>
+                  <span className="hidden group-open:inline">Close</span>
+                </summary>
+                <div className="mt-3">
+                  <AddPlaceForm />
+                </div>
+              </details>
             </section>
 
-            <details className="group bg-white rounded-xl border border-border p-4 sm:p-5">
-              <summary className={`cursor-pointer list-none min-h-11 flex items-center justify-between gap-2 font-heading font-black text-lg text-foreground rounded ${focusRing}`}>
-                Add a place
-                <span aria-hidden className="text-sm font-bold text-primary group-open:hidden">Open</span>
-                <span aria-hidden className="text-sm font-bold text-primary hidden group-open:inline">Close</span>
-              </summary>
-              <div className="mt-3">
-                <AddPlaceForm />
+            <section aria-labelledby="slots-h" className="flex flex-col gap-5">
+              <div>
+                <h2 id="slots-h" className="font-heading font-black text-xl text-foreground">
+                  Station slots <span className="text-muted-foreground font-medium text-sm">({slotCount} · {inUse} in use)</span>
+                </h2>
+                <p className="text-xs text-muted-foreground">By station, in step order. Print each slot&apos;s label once and stick it on the slot.</p>
               </div>
-            </details>
+              {withSlots.length === 0 && (
+                <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">No slots yet. Add them above, for example 20 clamps.</p>
+              )}
+              {withSlots.map(({ type, slots: list }) => {
+                const used = list.filter((p) => p.cards.length).length;
+                const serials = list.map((p) => p.serial).filter((s): s is number => s != null);
+                return (
+                  <section key={type.key} aria-labelledby={`type-${type.key}`} className="rounded-xl bg-white/60 border border-border p-3 sm:p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
+                      <div>
+                        <h3 id={`type-${type.key}`} className="font-heading font-black text-lg text-foreground">{type.name}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {[stepText(type.stage), `${list.length} slot${list.length === 1 ? "" : "s"}`, `${used} in use`, `${list.length - used} empty`].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                      <StationRangePrint
+                        station={type.key}
+                        name={type.name.toLowerCase()}
+                        min={serials.length === list.length ? Math.min(...serials) : null}
+                        max={serials.length === list.length ? Math.max(...serials) : null}
+                        ids={list.map((p) => p.id)}
+                      />
+                    </div>
+                    <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                      {list.map((p) => <SlotTile key={p.id} slot={toTile(p, today)} />)}
+                    </ul>
+                  </section>
+                );
+              })}
+              {noSlots.length > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No slots yet: {noSlots.map((g) => g.type.name).join(", ")}.
+                </p>
+              )}
+            </section>
 
-            <Section id="stations-h" title="Stations" hint="One per step, in step order. Scanning cards into a station also sets their step." places={stations} today={today} />
             <div>
-              <Section
+              <PlaceList
                 id="shelves-h"
                 title="Shelf slots by due date"
-                hint="Each due date gets its own slot when cards are received; bags wait there between steps."
+                hint="Each due date gets its own shelf when cards are received; bags wait there between steps."
                 places={currentShelves}
                 today={today}
-                empty="No shelf slots yet. Receiving cards makes the slot for their due date."
+                empty="No shelf slots yet. Receiving cards makes the shelf for their due date."
+                action={<NextShelfSignsPrint />}
               />
               {oldShelves.length > 0 && (
                 <details className="mt-2">
                   <summary className={`cursor-pointer min-h-11 inline-flex items-center text-sm font-bold text-primary rounded ${focusRing}`}>
-                    Past empty slots ({oldShelves.length})
+                    Past empty shelf slots ({oldShelves.length})
                   </summary>
                   <ul className="mt-2 flex flex-col gap-2">
                     {oldShelves.map((p) => <PlaceItem key={p.id} place={toItem(p, today)} />)}
@@ -160,9 +251,9 @@ export default async function PlacesPage() {
                 </details>
               )}
             </div>
-            <Section id="done-h" title="Done" hint="Finished cards wait here. Scanning cards here marks them done." places={done} today={today} />
-            <Section id="shipping-h" title="Shipping" hint="Where orders are checked before they ship." places={shipping} today={today} />
-            {other.length > 0 && <Section id="other-h" title="Other places" hint="Anywhere else a card can be." places={other} today={today} />}
+            <PlaceList id="done-h" title="Done" hint="Finished cards wait here." places={done} today={today} />
+            <PlaceList id="shipping-h" title="Shipping" hint="Where orders are checked before they ship." places={shipping} today={today} />
+            {other.length > 0 && <PlaceList id="other-h" title="Other places" hint="Anywhere else a card can be." places={other} today={today} />}
             {off.length > 0 && (
               <details>
                 <summary className={`cursor-pointer min-h-11 inline-flex items-center font-heading font-black text-lg text-foreground rounded ${focusRing}`}>

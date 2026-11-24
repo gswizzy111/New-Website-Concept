@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
 import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows, RUN_DIR } from "../harness/start.mjs";
-import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS, BIG_CARD_TIERS, BIG_CUSTOMER_NAME } from "../harness/seed.mjs";
+import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS, BIG_CARD_TIERS, BIG_CUSTOMER_NAME, DEFAULT_PLACES } from "../harness/seed.mjs";
 import { placeholderPng } from "../harness/mock-supabase.mjs";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
@@ -56,28 +56,30 @@ export const ROUTES = {
   orderLabel: (orderId, query = "") => `/api/admin/intake/labels/order/${orderId}${query}`,
   bagLabel: (bagId, query = "") => `/api/admin/intake/labels/bag/${bagId}${query}`,
 
-  // ── Card tracking (scan-anywhere, brief of Nov 24; types in lib/intake/tracking/types.ts) ──
-  // The Scan page (phone-first): ?loc=<LOC code> = MOVE with that place picked (where /q/<LOC> leads)
+  // ── Card tracking: serial-numbered slots (owner's model of Nov 24; lib/intake/tracking/types.ts) ──
+  // Cards carry no sticker: every holder is a slot with a QR label (CLAMP 07 = LOC-CLAMP-07).
+  // The Scan page (phone-first): ?loc=<LOC code> = that slot or place already scanned (where /q/<LOC> leads)
   scan: "/admin/scan",
   scanAt: (locCode) => `/admin/scan?loc=${encodeURIComponent(locCode)}`,
-  // Shelf view (slots by due date), Places (+ print signs), the ship check page
-  shelf: "/admin/receiving/shelf",
+  // Places (slots: bulk add, print labels), Shelf view (bags by due date), ship check, forgotten cards
   places: "/admin/receiving/locations",
+  shelf: "/admin/receiving/shelf",
   ship: (orderId) => `/admin/receiving/ship/${orderId}`,
-  // The forgotten-cards report (completed orders with a card not done). NOT in the brief: a guess,
-  // fix here once the ship-check agent's page and route exist
   forgotten: "/admin/receiving/forgotten",
-  forgottenApi: "/api/admin/track/forgotten",
-  // APIs: ResolveResponse, MoveResponse, HistoryResponse, LocationsResponse, ShipCheckResponse
+  // APIs (types: ResolveResponse, SearchResponse, TrackActionResponse, CapacityConflict (409),
+  // HistoryResponse, LocationsResponse, CreateSlotsResponse, LocationResponse, ShipCheckResponse)
   trackResolve: (code) => `/api/admin/track/resolve?code=${encodeURIComponent(code)}`,
-  trackMove: "/api/admin/track/move",
+  trackSearch: (q) => `/api/admin/track/search?q=${encodeURIComponent(q)}`,
+  trackAssign: "/api/admin/track/assign",     // { locationCode, cardIds, force? }
+  trackMove: "/api/admin/track/move",         // { fromCode, toCode, cardIds?, force? }
+  trackRelease: "/api/admin/track/release",   // { cardIds }
+  trackDone: "/api/admin/track/done",         // { cardIds }
   trackHistory: (code) => `/api/admin/track/history?code=${encodeURIComponent(code)}`,
+  // GET ?all=1 / ?station=clamp; POST { station, count, startAt? } (slots) or { name, kind, dueDate? }; PATCH { id, name?, active?, capacity? }
   trackLocations: (query = "") => `/api/admin/track/locations${query}`,
-  placeSign: (locationId, query = "") => `/api/admin/track/locations/${locationId}/sign${query}`,
   shipCheck: (code) => `/api/admin/track/ship-check?code=${encodeURIComponent(code)}`,
-  // Card stickers (50 x 80 mm, one page per received card): ?order= | ?bag= | ?ids=a,b; &format=json
-  // -> { settings, pages: [{ cardId, code, page: LabelPage }] }
-  cardStickers: (query) => `/api/admin/intake/labels/cards${query}`,
+  // Slot and place QR labels, one 50 x 80 mm page each: ?ids=a,b | ?station=clamp&from=1&to=5; &format=json
+  slotLabels: (query) => `/api/admin/track/locations/labels${query}`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -145,24 +147,29 @@ export const UI = {
   // "Open bag <Bag ID>" link (a row also names the order's other bags, so text alone can't tell)
   boardRow: (page, bagCode) => page.locator("tr, li, article, [role='row']").filter({ has: page.getByRole("link", { name: `Open bag ${bagCode}`, exact: true }) }),
 
-  // ── Card tracking (guesses from the brief; the pages were being built while these were written) ──
-  // The Scan page's text box for a Bluetooth/USB handheld scanner (it types the code or URL, then Enter)
+  // ── Card tracking (from the brief; the pages were being built while these were written) ──
+  // The Scan page's text box for a Bluetooth/USB handheld scanner (it types the code or link, then Enter)
   scanInput: (page) => page.getByRole("textbox", { name: /scan|code/i }).or(page.locator("input[data-scan-input], input[name='code']")).first(),
-  // The three big mode buttons (tabs, radios or buttons): "Move", "Find", "Ship check"
-  scanMode: (page, mode) => {
-    const name = new RegExp(`^\\s*${esc(mode)}( mode| cards?)?\\s*$`, "i");
-    return page.getByRole("tab", { name }).or(page.getByRole("radio", { name })).or(page.getByRole("button", { name })).first();
-  },
+  // Scanning an EMPTY slot: "Put a card in CLAMP 01"
+  putCardIn: (slotName) => new RegExp(`put a card in\\s+${esc(slotName)}(?!\\d)`, "i"),
+  // A FULL slot shows its card(s) with these buttons
+  slotMove: (page) => page.getByRole("button", { name: /^move\b/i }).first(),
+  slotDone: (page) => page.getByRole("button", { name: /^(mark )?done\b/i }).first(),
+  slotTakeOut: (page) => page.getByRole("button", { name: /^take (it |them )?out\b/i }).first(),
+  // After a bag scan, tapping a card to put it in the slot (and a confirm button, if the page has one)
+  pickCard: (page, cardCode) => page.getByRole("button", { name: new RegExp(esc(cardCode)) }).or(page.getByRole("checkbox", { name: new RegExp(esc(cardCode)) })).first(),
+  confirmPut: (page) => page.getByRole("button", { name: /^(put|assign|add)\b/i }).first(),
   // The menu item at the top of the intake group
   scanNavLink: (page) => page.getByRole("link", { name: /^scan$/i }).first(),
   // After Receive, the workspace says where the bags go: "Put in shelf: DUE MON DEC 7"
   putInShelf: /put in shelf/i,
-  printStickers: (page) => page.getByRole("button", { name: /print (\d+ )?card stickers?/i }).or(page.getByRole("link", { name: /print (\d+ )?card stickers?/i })).first(),
-  printShelfSign: (page) => page.getByRole("button", { name: /print (the )?shelf sign/i }).or(page.getByRole("link", { name: /print (the )?shelf sign/i })).first(),
-  // Ship check page rows: a flagged card (not done / not at Shipping) and a card that's ready
+  printShelfSign: (page) => page.getByRole("button", { name: /print (the )?shelf (sign|label)/i }).or(page.getByRole("link", { name: /print (the )?shelf (sign|label)/i })).first(),
+  // Ship check page rows: OK (done, out of the slots), flagged (⚠ "still in CLAMP 07", or not done + Mark done)
   shipRow: (page, cardCode) => page.locator("li, tr, article, [role='row']").filter({ hasText: cardCode }).last(),
-  shipFlag: /⚠|not done|not here|not at shipping/i,
+  shipFlag: /⚠|not done|still in/i,
   shipOk: /✅|\bready\b|\bok\b/i,
+  stillIn: (slotName) => new RegExp(`still in\\s+${esc(slotName)}(?!\\d)`, "i"),
+  markDone: (scope) => scope.getByRole("button", { name: /^mark( as)? done\b/i }).first(),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -476,28 +483,46 @@ async function previewNames(page, settings, want) {
   return read();
 }
 
-// ─── Card tracking helpers (scan-anywhere) ──────────────────────────────────
+// ─── Card tracking helpers (serial-numbered slots) ──────────────────────────
 const MM = PT / 25.4;
-/** The Katasymbol sticker, portrait: 50 mm wide, 80 mm tall (141.7 x 226.8 pt). */
+/** The Katasymbol label, portrait: 50 mm wide, 80 mm tall (141.7 x 226.8 pt). Slot labels print on it. */
 const STICKER = { w: 50 * MM, h: 80 * MM };
 const STOCK_4X6 = { w: 4 * PT, h: 6 * PT };
-/** store_config key and values of the label stock setting (lib/intake/labels/stock.ts). */
+/** store_config key and value of the bag-label stock setting (lib/intake/labels/stock.ts). */
 const LABEL_STOCK_KEY = "intake_label_stock";
 const STOCK_50X80 = "50x80mm";
 const CUSTOMER_A = "test.customer.a@example.com";
 const CUSTOMER_G = "test.customer.g@example.com";
+/** Station types (lib/intake/tracking/stations.ts STATION_TYPES): key -> slot name prefix, step. */
+const STATIONS = {
+  "slab-crack": { name: "SLAB CRACK", stage: "Ready for Slab Crack" },
+  humidor: { name: "HUMIDOR", stage: "Humidor" },
+  "humidity-press": { name: "HUMIDITY PRESS", stage: "Humidity Press" },
+  drying: { name: "DRYING", stage: "Book" },
+  "heat-press": { name: "HEAT PRESS", stage: "Heat Press" },
+  clamp: { name: "CLAMP", stage: "Clamp Work" },
+  "book-weights": { name: "BOOK WEIGHTS", stage: "Book with Weights" },
+  "final-dry": { name: "FINAL DRY", stage: "Final Dry" },
+};
+const nn = (n) => String(n).padStart(2, "0");
+/** LOC-CLAMP-07 and "CLAMP 07" for a station type and number. */
+const slotCode = (station, n) => `LOC-${station.toUpperCase()}-${nn(n)}`;
+const slotName = (station, n) => `${STATIONS[station].name} ${nn(n)}`;
+const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
 const sameSize = (a, b) => Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1;
 const pageSize = (p) => ({ w: p.width, h: p.height });
-const ptText = (s) => `${s.w.toFixed(1)}x${s.h.toFixed(1)} pt`;
-/** What any code's QR holds (place, card or bag): the site's /Q/<CODE> in upper case. */
+const ptText = (sz) => `${sz.w.toFixed(1)}x${sz.h.toFixed(1)} pt`;
+/** What any code's QR holds (slot, place or bag): the site's /Q/<CODE> in upper case. */
 const codeQrData = bagQrData;
 const placeOf = (t, code) => t.locations.find((l) => l.code === code);
-const placeId = (code) => IDS.places[DEFAULT_PLACES.findIndex((p) => p.code === code)];
 const cardByCode = (t, code) => t.cards.find((c) => c.card_code === code);
 const bagByCode = (t, code) => t.tier_bags.find((b) => b.bag_code === code);
+/** Card IDs of the cards in a slot now (cards.location_id), sorted. */
+const cardsIn = (t, locCode) => { const l = placeOf(t, locCode); return l ? t.cards.filter((c) => c.location_id === l.id).map((c) => c.card_code).sort() : []; };
 const movesOf = (t, cardId) => t.card_moves.filter((m) => m.card_id === cardId);
 const stageEventCount = (t) => t.order_events.filter((e) => e.event_type === "stage_update").length;
 const mailsTo = (list, email) => list.filter((m) => JSON.stringify(m.to ?? "").includes(email));
+const todayNy = () => nyDay(new Date().toISOString());
 /** Independent of the app: a shelf slot's code and name for a due date ("LOC-SHELF-20261207", "DUE MON DEC 7"). */
 const shelfCode = (day) => `LOC-SHELF-${day.replaceAll("-", "")}`;
 function shelfName(day) {
@@ -506,21 +531,46 @@ function shelfName(day) {
   const mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][d.getUTCMonth()];
   return `DUE ${wd} ${mon} ${d.getUTCDate()}`;
 }
-/** A slot name as a regex that doesn't match a longer date ("DUE MON DEC 7" vs "... DEC 14"). */
-const slotRe = (name, flags = "") => new RegExp(`${esc(name)}(?!\\d)`, flags);
+/** A name as a regex that doesn't match a longer number ("DUE MON DEC 7" vs "... DEC 14", "CLAMP 01" vs "CLAMP 010"). */
+const nameRe = (name, flags = "") => new RegExp(`${esc(name)}(?!\\d)`, flags);
 
-/** The label stock setting, written straight into the mock's store_config (as the Settings page saves it). */
+/** The bag-label stock setting, written straight into the mock's store_config (as the Settings page saves it). */
 async function setLabelStock(mockUrl, stock) {
   const { error } = await mockDb(mockUrl).from("store_config").upsert({ key: LABEL_STOCK_KEY, value: stock, updated_at: new Date().toISOString() });
   assert(!error, `label stock setting: ${error?.message}`);
 }
-/** POST /api/admin/track/move; fails unless 200 with a results array (MoveResponse). */
-async function moveVia(ctx, locationCode, codes) {
-  const r = await api(ctx, "POST", ROUTES.trackMove, { locationCode, codes });
-  assert(r.status === 200 && Array.isArray(r.body?.results), `move to ${locationCode} (${codes.join(", ")}): HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+/** Change cards or places directly in the mock (test setup: a refund, an old placement, a capacity). */
+async function mockUpdate(mockUrl, table, patch, column, value) {
+  const { data, error } = await mockDb(mockUrl).from(table).update(patch).eq(column, value).select("*");
+  assert(!error && data?.length, `${table} ${column}=${value}: ${error?.message ?? "no such row"}`);
+  return data;
+}
+/** POST { station, count, startAt? } to the locations API: numbered slots (CreateSlotsResponse). */
+async function bulkSlots(ctx, station, count, startAt) {
+  const r = await api(ctx, "POST", ROUTES.trackLocations(), { station, count, ...(startAt ? { startAt } : {}) });
+  assert([200, 201].includes(r.status) && Array.isArray(r.body?.created), `make ${count} ${station} slots: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
   return r.body;
 }
-const resultFor = (body, code) => body.results.find((r) => r.code === code) ?? null;
+/** A tracking action (assign, move, release, done): the raw answer. */
+const trackPost = (ctx, route, data) => api(ctx, "POST", route, data);
+/** A tracking action that must succeed: 200 with results (TrackActionResponse). */
+async function trackOk(ctx, route, data) {
+  const r = await trackPost(ctx, route, data);
+  assert(r.status === 200 && Array.isArray(r.body?.results), `${route} ${JSON.stringify(data).slice(0, 120)}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return r.body;
+}
+const assignOk = (ctx, locationCode, cardIds, force) => trackOk(ctx, ROUTES.trackAssign, { locationCode, cardIds, ...(force ? { force: true } : {}) });
+const resultOf = (body, cardId) => body.results.find((r) => r.cardId === cardId) ?? null;
+const freedCodes = (body) => (body.freed ?? []).map((l) => l.code).sort();
+/** A refusal for being over capacity: 409 { overCapacity: true, capacity, occupants } (CapacityConflict). */
+function checkCapacityConflict(r, capacity, occupantCodes) {
+  eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+  eq(r.body?.overCapacity, true, "overCapacity");
+  eq(r.body.capacity, capacity, "capacity");
+  eq((r.body.occupants ?? []).map((c) => c.code).sort(), [...occupantCodes].sort(), "occupants");
+  assert(typeof r.body.error === "string" && r.body.error, "no error message");
+  return r.body.error;
+}
 /** GET /api/admin/track/resolve; fails unless 200 and the expected kind (ResolveResponse). */
 async function resolveVia(ctx, code, kind) {
   const r = await api(ctx, "GET", ROUTES.trackResolve(code));
@@ -528,6 +578,11 @@ async function resolveVia(ctx, code, kind) {
   eq(r.body?.kind, kind, `resolve "${code}" kind`);
   assert(r.body[kind] && typeof r.body[kind] === "object", `resolve "${code}": no "${kind}" object in ${JSON.stringify(r.body).slice(0, 160)}`);
   return r.body[kind];
+}
+async function searchVia(ctx, q) {
+  const r = await api(ctx, "GET", ROUTES.trackSearch(q));
+  assert(r.status === 200 && Array.isArray(r.body?.cards), `search "${q}": HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  return r.body;
 }
 async function shipCheckVia(ctx, code) {
   const r = await api(ctx, "GET", ROUTES.shipCheck(code));
@@ -547,7 +602,7 @@ function shelvesIn(body) {
   walk(body);
   return [...out.values()];
 }
-/** Every LabelPage-shaped object in a JSON answer (sign or sticker routes). */
+/** Every LabelPage-shaped object in a JSON answer (the slot label route), in order. */
 function labelPagesIn(body) {
   const out = [];
   const walk = (v) => {
@@ -564,27 +619,23 @@ async function pdfSizes(ctx, url) {
   const doc = await labelPdf(ctx, url);
   return doc.getPages().map((p) => { const { width, height } = p.getSize(); return { w: width, h: height }; });
 }
-/** stage_update events up to `upTo` for each card, in the past (so a move made now is newer). */
-async function putAtStage(orderId, cardIds, upTo) {
-  const start = new Date(Date.now() - 10 * 3600e3).toISOString();
-  await insertRows("order_events", cardIds.flatMap((cid) => stageRows(orderId, cid, upTo, start)));
-}
 /**
- * A place sign: one QR (the place's /Q/<LOC code>, at least 0.9 in), the code printed, and the
- * name in big type (the biggest on the sign; a long name may wrap).
+ * A slot or place QR label: one QR (its /Q/<LOC code>, at least 0.9 in), the code printed, and the
+ * name ("CLAMP 07", "DUE MON DEC 7") the biggest type on it (a long name may wrap over lines).
  */
-function checkSign(p, appUrl, code, name) {
+function checkPlaceLabel(p, appUrl, code, name) {
   const q = qrs(p);
-  eq(q.length, 1, `${code}: QR codes on the sign`);
+  eq(q.length, 1, `${code}: QR codes on the label`);
   assert(codeQrData(appUrl, code).includes(q[0].data), `${code}: QR holds "${q[0].data}", expected ${codeQrData(appUrl, code).join(" or ")}`);
   assert(q[0].size >= 0.9 * PT - 0.5, `${code}: QR ${(q[0].size / PT).toFixed(2)} in, want at least 0.9 in`);
   const all = texts(p);
   const joined = norm(all.map((e) => e.text).join(" "));
-  assert(joined.includes(norm(code)), `${code}: the code isn't printed on the sign`);
+  assert(joined.includes(norm(code)), `${code}: the code isn't printed on the label`);
   const full = norm(name);
-  const isName = (e) => { const x = norm(e.text); return x === full || (x.length >= 3 && full.includes(x) && !norm(code).includes(x)); };
+  // the name, or a line of it ("CLAMP" / "07"); the printed code itself is not the name
+  const isName = (e) => { const x = norm(e.text); return x !== norm(code) && (x === full || (x.length >= 2 && full.includes(x))); };
   const named = all.filter(isName);
-  assert(named.length && joined.includes(full), `${code}: name "${name}" not on the sign (texts: ${all.map((e) => e.text).join(" | ").slice(0, 160)})`);
+  assert(named.length && joined.includes(full), `${code}: name "${name}" not on the label (texts: ${all.map((e) => e.text).join(" | ").slice(0, 160)})`);
   const nameSize = Math.max(...named.map((e) => e.size));
   const top = all.filter((e) => !isName(e)).reduce((a, e) => (e.size > (a?.size ?? 0) ? e : a), null);
   assert(!top || nameSize >= top.size, `${code}: name ${nameSize} pt is smaller than "${top.text}" ${top.size} pt`);
@@ -602,6 +653,33 @@ async function phoneContext(browser, appUrl) {
   return { ctx, page, errors };
 }
 const sidewaysScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+/** Type a code (or a scanned link) into the Scan page's handheld-scanner box and press Enter, as a scanner does. */
+async function scanType(page, text) {
+  const box = UI.scanInput(page);
+  await box.waitFor({ timeout: 30_000 });
+  await box.fill(text);
+  await box.press("Enter");
+}
+/**
+ * The usual tracking setup: CD-2549 Gold 01-04 + Platinum 07-08 received on 2026-11-15 (bags
+ * CD-2549-G, CD-2549-P) and CD-2600-01 on 2026-11-20 (bag CD-2600-G); then the slots asked for
+ * ({ clamp: 5, "heat-press": 3 }) made through the bulk API. Returns the tables.
+ */
+async function trackSetup(ctx, slots = {}) {
+  await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7].map(mailCard), "2026-11-15");
+  await receiveViaApi(ctx, IDS.bigOrder, [IDS.bigCards[0]], "2026-11-20");
+  for (const [station, count] of Object.entries(slots)) await bulkSlots(ctx, station, count);
+  const t = await tables();
+  eq(cardByCode(t, "CD-2549-01")?.id, mailCard(0), "CD-2549-01 is Gold One");
+  eq(cardByCode(t, "CD-2549-07")?.id, mailCard(6), "CD-2549-07 is Platinum One");
+  eq(cardByCode(t, "CD-2600-01")?.id, IDS.bigCards[0], "CD-2600-01");
+  for (const [station, count] of Object.entries(slots)) {
+    const missing = range(1, count).map((n) => slotCode(station, n)).filter((c) => !placeOf(t, c));
+    assert(!missing.length, `slots not made: ${missing.join(", ")}`);
+  }
+  return t;
+}
+const cardIdOf = (t, code) => { const c = cardByCode(t, code); assert(c, `no card ${code}`); return c.id; };
 
 // ─── Runner ─────────────────────────────────────────────────────────────────
 class Scenario {

@@ -115,7 +115,8 @@ function writePref(v: "on" | "off") {
 /** What the camera can do; torch and focusMode aren't in every browser's types. */
 type CameraCaps = MediaTrackCapabilities & { torch?: boolean; focusMode?: string[] };
 
-export function ScanCamera({ onRead, label }: { onRead: (text: string) => void; label?: string }) {
+/** `compact`: a shorter view on a phone while a slot or bag is on screen (the view stays the same on a computer). */
+export function ScanCamera({ onRead, label, compact = false }: { onRead: (text: string) => void; label?: string; compact?: boolean }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -302,7 +303,7 @@ export function ScanCamera({ onRead, label }: { onRead: (text: string) => void; 
     <div className="flex flex-col gap-2">
       <div
         ref={boxRef}
-        className="relative w-full h-[min(40vh,340px)] lg:h-[min(52vh,440px)] overflow-hidden rounded-2xl bg-gray-900"
+        className={`relative w-full overflow-hidden rounded-2xl bg-gray-900 lg:h-[min(52vh,440px)] ${compact ? "h-[min(26vh,220px)]" : "h-[min(40vh,340px)]"}`}
       >
         <video
           ref={videoRef}

@@ -4,8 +4,8 @@ import type { LabelStock } from "./types";
 // labels for the Labelife D520 (the owner uses 4x6 for bags; the printed
 // content is narrower than the label, since bags are about 4in wide, and
 // centered). 50 x 80 mm (portrait: 50 wide, 80 tall) is the Katasymbol
-// (Supvan T50M Pro family) printed from its phone app: card stickers, place
-// signs, and bag labels when the owner picks it. Both printers are 203 dpi
+// (Supvan T50M Pro family) printed from its phone app: slot labels (CLAMP 07),
+// shelf and place signs, and bag labels when the owner picks it. Both printers are 203 dpi
 // direct thermal (black only); the Katasymbol's head prints 48 mm of the 50.
 
 export const LABEL_STOCKS = {
@@ -18,8 +18,8 @@ export const LABEL_STOCKS = {
 export type LabelStockId = keyof typeof LABEL_STOCKS;
 
 export const DEFAULT_STOCK: LabelStockId = "4x6";
-/** Card stickers and place signs print on the Katasymbol's 50 x 80 mm labels unless a route is asked for another stock. */
-export const STICKER_STOCK: LabelStockId = "50x80mm";
+/** Slot labels and place signs print on the Katasymbol's 50 x 80 mm labels unless a route is asked for another stock. */
+export const PLACE_LABEL_STOCK: LabelStockId = "50x80mm";
 export const DEFAULT_CONTENT_WIDTH_IN = 3.2;
 /**
  * The narrowest print width any stock accepts (the 50 x 80 mm label; the inch
@@ -67,13 +67,17 @@ export function stockPoints(stock: LabelStockId, contentWidthIn: number): LabelS
   return { pageW: s.widthIn * 72, pageH: s.heightIn * 72, contentW: Math.min(s.widthIn, contentWidthIn) * 72 };
 }
 
-/** A stock at its whole width (card stickers and place signs: nothing to center them on). */
+/** A stock at its whole width (slot labels and place signs: nothing to center them on). */
 export function fullWidthPoints(stock: LabelStockId): LabelStock {
   return stockPoints(stock, LABEL_STOCKS[stock].widthIn);
 }
 
-/** A label page's size in printer dots (for a PNG the Katasymbol app imports): 50 x 80 mm at 203 dpi is 400 x 640. */
+/**
+ * A label page's size in printer dots (for a PNG the Katasymbol app imports).
+ * A "203 dpi" head is 8 dots per mm (203.2 dpi), so 50 x 80 mm is 400 x 640.
+ */
 export function stockPixels(stock: LabelStockId, dpi: number = LABEL_STOCKS[stock].dpi): { width: number; height: number; dpi: number } {
   const s = LABEL_STOCKS[stock];
-  return { width: Math.round(s.widthIn * dpi), height: Math.round(s.heightIn * dpi), dpi };
+  const perIn = dpi === 203 ? 8 * 25.4 : dpi;
+  return { width: Math.round(s.widthIn * perIn), height: Math.round(s.heightIn * perIn), dpi };
 }

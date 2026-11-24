@@ -40,6 +40,9 @@ import { pathToFileURL } from "node:url";
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
+/** The 8 steps (lib/restoration-stages.ts STAGES), for the locations.stage check. */
+const TRACK_STAGES = ["Ready for Slab Crack", "Humidor", "Humidity Press", "Book", "Heat Press", "Clamp Work", "Book with Weights", "Final Dry"];
+
 /** Per table: primary key, unique sets, NOT NULL columns, CHECKs, FKs, defaults. */
 export const SCHEMA = {
   orders: {
@@ -108,25 +111,43 @@ export const SCHEMA = {
     },
     defaults: () => ({ batch: 1, due_status: "pending", source: "receiving" }),
   },
-  // ─── Card tracking (20261124_card_tracking.sql) ───
-  // Places a card or bag can be: a station per step, due-date shelf slots, Done, Shipping, others.
+  // ─── Card tracking (20261124_card_tracking.sql): serial-numbered slots ───
+  // Slots and places: numbered slots of a station type (kind 'station': station + serial + stage +
+  // capacity, CLAMP 07 = LOC-CLAMP-07), due-date shelf slots, LOC-DONE, LOC-SHIP, other places.
   locations: {
     pk: ["id"],
-    unique: [{ name: "locations_code_key", cols: ["code"] }],
+    unique: [
+      { name: "locations_code_key", cols: ["code"] },
+      // partial unique index (station is not null): NULLs never clash here either
+      { name: "locations_station_serial_key", cols: ["station", "serial"] },
+    ],
     notNull: ["code", "name", "kind", "sort", "active"],
     checks: {
+      locations_code_check: (r) => typeof r.code === "string" && /^LOC-[A-Z0-9]+(-[A-Z0-9]+)*$/.test(r.code) && r.code.length <= 40,
+      locations_name_check: (r) => typeof r.name === "string" && r.name.trim() !== "" && r.name.length <= 60,
       locations_kind_check: (r) => ["station", "shelf", "done", "shipping", "other"].includes(r.kind),
+      locations_station_check: (r) => r.station == null || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(r.station),
+      locations_serial_check: (r) => r.serial == null || (Number.isInteger(r.serial) && r.serial >= 1 && r.serial <= 9999),
+      locations_capacity_check: (r) => r.capacity == null || (Number.isInteger(r.capacity) && r.capacity >= 1),
+      locations_stage_check: (r) => r.stage == null || TRACK_STAGES.includes(r.stage),
+      // a slot (kind 'station') has its type, number and step; nothing else has a step
+      locations_slot_shape: (r) => (r.kind === "station") === (r.stage != null) && (r.kind !== "station" || (r.station != null && r.serial != null)),
     },
     defaults: () => ({ sort: 0, active: true }),
   },
-  // Every move of a card (insert-only: a trigger refuses updates; rows go only with their card)
+  // Every card move (insert-only: a trigger refuses updates; deleting a card deletes its moves).
+  // A place with history can't be deleted (NO ACTION); bag_id and order_id are plain uuids.
   card_moves: {
     pk: ["id"],
     notNull: ["card_id", "action"],
     checks: {
-      card_moves_action_check: (r) => ["move", "receive", "ship_check", "done"].includes(r.action),
+      card_moves_action_check: (r) => ["assign", "move", "release", "done", "receive", "ship_check"].includes(r.action),
     },
-    fks: { card_id: { table: "cards", onDelete: "cascade" } },
+    fks: {
+      card_id: { table: "cards", onDelete: "cascade" },
+      from_location_id: { table: "locations", onDelete: "no action" },
+      to_location_id: { table: "locations", onDelete: "no action" },
+    },
     immutable: true,
   },
   tier_bag_due_changes: {
@@ -176,17 +197,8 @@ export const SCHEMA = {
   partner_sessions: { pk: ["token_hash"], fks: { partner_id: { table: "partners" } } },
 };
 
-// FK columns used only to embed (many-to-one): table -> column -> target. card_moves' other ids
-// aren't enforced here (the brief names no constraint on them); two point at locations, so an
-// embed of locations from card_moves needs a hint (locations!to_location_id), as in PostgREST.
-const EXTRA_RELATIONS = {
-  card_moves: {
-    order_id: { table: "orders" },
-    bag_id: { table: "tier_bags" },
-    from_location_id: { table: "locations" },
-    to_location_id: { table: "locations" },
-  },
-};
+// FK columns used only to embed (many-to-one): table -> column -> target
+const EXTRA_RELATIONS = {};
 
 function fksOf(table) {
   return { ...(SCHEMA[table]?.fks ?? {}), ...(EXTRA_RELATIONS[table] ?? {}) };

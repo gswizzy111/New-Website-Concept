@@ -1,169 +1,67 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { codeKind, normalizeCode } from "@/lib/intake/codes";
-import { resolveCode } from "@/lib/intake/data";
+import { normalizeCode } from "@/lib/intake/codes";
 import { cardStageState } from "@/lib/intake/stage-plan";
 import { refreshBagCompletion } from "@/lib/intake/stages";
-import type { IntakeResult } from "@/lib/intake/types";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
-import { getLocationById, getLocationByCode } from "@/lib/intake/tracking/locations";
-import { planMove, type PlanCard, type PlanCode, type PlannedMove } from "@/lib/intake/tracking/move-plan";
-import { locationRef } from "@/lib/intake/tracking/places";
+import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
+import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
+import { DONE_LOCATION_CODE, isSlot, locationRef } from "@/lib/intake/tracking/places";
+import { loadCardSummaries } from "@/lib/intake/tracking/resolve";
 import { sendStageUpdateEmail } from "@/lib/intake/tracking/stage-email";
-import { bySeq, isReceived, isRefunded, type TrackCardRow } from "@/lib/intake/tracking/summaries";
-import type { LocationRow, MoveAction, MoveResponse } from "@/lib/intake/tracking/types";
+import { isReceived, isRefunded, type TrackCardRow } from "@/lib/intake/tracking/summaries";
+import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActionResponse, TrackCardResult } from "@/lib/intake/tracking/types";
 
 /**
- * Moving cards and bags to a place (the Scan page's MOVE), server only. Admin
- * access is checked by the calling route. The rules are in move-plan.ts
- * (planMove); this file reads, then writes in this order:
- *   1. stage_update events for station moves: exactly what the stage buttons
- *      and advanceCards() write ("Stage: <stage> [card:<id>]", metadata
- *      { card_id, stage, round, by, bulk }, customer visible);
- *   2. cards marked done at a Done place (as POST /api/admin/cards/[id]/complete);
+ * Putting cards in slots and taking them out (the Scan page's assign, move,
+ * take out and done), server only. Admin access is checked by the calling
+ * route. The rules are in move-plan.ts (planCards); this file reads, checks
+ * the slot's capacity, then writes in this order:
+ *   1. stage_update events for cards going into a slot at a later step:
+ *      exactly what the stage buttons and advanceCards() write ("Stage:
+ *      <stage> [card:<id>]", metadata { card_id, stage, round, by, bulk },
+ *      customer visible);
+ *   2. cards marked done (as POST /api/admin/cards/[id]/complete);
  *   3. card_moves rows (history);
- *   4. cards.location_id / located_at;
- *   5. tier_bags.location_id / located_at;
- *   6. at most ONE customer email per order (stage moves only, none for done);
- *   7. bag completion refresh for cards marked done.
- * A failed write stops there and answers 500; scanning again is safe (cards
+ *   4. cards.location_id / located_at (the old slot frees up);
+ *   5. at most ONE customer email per order (step changes only, none for done);
+ *   6. bag completion refresh for cards marked done.
+ * A failed write stops there and answers 500; doing it again is safe (cards
  * already there at that step are left alone).
  */
 
-export const MAX_CODES = 200;
+export const MAX_CARDS = 200;
 
-type MoveInput = { by: string | null; sessionId?: string | null; action?: MoveAction };
+export type TrackResult =
+  | ({ ok: true } & TrackActionResponse)
+  | { ok: false; status: number; error: string; conflict?: CapacityConflict };
+
+type Common = { by: string | null; sessionId?: string | null };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function placeProblem(loc: LocationRow | null, raw: string): { status: number; error: string } | null {
-  if (!loc) return { status: 404, error: `No place has the code ${normalizeCode(raw) || raw.trim().slice(0, 60) || "(blank)"}.` };
-  if (loc.active === false) return { status: 409, error: `${loc.name} is switched off. Turn it back on in Places first.` };
+function cardIdsProblem(cardIds: readonly string[] | undefined): string | null {
+  if (!cardIds?.length) return "Pick at least one card.";
+  if (cardIds.length > MAX_CARDS) return `Pick at most ${MAX_CARDS} cards at a time.`;
+  if (cardIds.some((id) => typeof id !== "string" || !UUID.test(id))) return "Invalid card.";
   return null;
 }
 
-/**
- * POST /api/admin/track/move: move every card of the scanned codes (Card IDs,
- * Bag IDs, order codes or their QR links) to the place `locationCode`.
- */
-export async function moveToLocation(
-  admin: SupabaseClient,
-  input: MoveInput & { locationCode: string; codes: readonly string[] },
-): Promise<IntakeResult<MoveResponse>> {
-  if (!input.codes.length) return { ok: false, status: 400, error: "Scan at least one card or bag." };
-  if (input.codes.length > MAX_CODES) return { ok: false, status: 400, error: `Scan at most ${MAX_CODES} codes at a time.` };
-  const placeCode = normalizeCode(input.locationCode);
-  if (!placeCode || codeKind(placeCode) !== "location") return { ok: false, status: 400, error: "Scan a place first (its sign starts with LOC-)." };
+async function placeByCode(admin: SupabaseClient, raw: string): Promise<{ loc: LocationRow } | { ok: false; status: number; error: string }> {
+  const code = normalizeCode(raw);
   let loc: LocationRow | null;
   try {
-    loc = await getLocationByCode(admin, placeCode);
+    loc = await getLocationByCode(admin, raw);
   } catch (e) {
-    return { ok: false, status: 500, error: `Couldn't read the place. Nothing was changed. (${e instanceof Error ? e.message : String(e)})` };
+    return { ok: false, status: 500, error: `Couldn't read the slot. Nothing was changed. (${errText(e)})` };
   }
-  const bad = placeProblem(loc, placeCode);
-  if (bad) return { ok: false, ...bad };
-
-  // Resolve the codes (each kind only where it lives)
-  const parsed = input.codes.map((raw) => {
-    const code = normalizeCode(raw);
-    return { raw, code, kind: code ? codeKind(code) : null };
-  });
-  const cardCodes = [...new Set(parsed.filter((p) => p.kind === "card").map((p) => p.code))];
-  const bagCodes = [...new Set(parsed.filter((p) => p.kind === "bag").map((p) => p.code))];
-  const orderCodes = [...new Set(parsed.filter((p) => p.kind === "order").map((p) => p.code))];
-  let cardByCode: Map<string, { id: string; order_id: string }>;
-  let bagByCode: Map<string, { id: string; order_id: string }>;
-  const orderByCode = new Map<string, string>();
-  try {
-    const [cardRows, bagRows] = await Promise.all([
-      Promise.all(chunks(cardCodes).map(async (part) => {
-        const { data, error } = await admin.from("cards").select("id, order_id, card_code").in("card_code", part);
-        if (error) throw new Error(error.message);
-        return (data ?? []) as { id: string; order_id: string; card_code: string }[];
-      })).then((p) => p.flat()),
-      Promise.all(chunks(bagCodes).map(async (part) => {
-        const { data, error } = await admin.from("tier_bags").select("id, order_id, bag_code").in("bag_code", part);
-        if (error) throw new Error(error.message);
-        return (data ?? []) as { id: string; order_id: string; bag_code: string }[];
-      })).then((p) => p.flat()),
-      ...orderCodes.map(async (code) => {
-        const found = await resolveCode(admin, code);
-        if (found?.kind === "order") orderByCode.set(code, found.id);
-      }),
-    ]);
-    cardByCode = new Map(cardRows.map((r) => [r.card_code, r]));
-    bagByCode = new Map(bagRows.map((r) => [r.bag_code, r]));
-  } catch (e) {
-    return { ok: false, status: 500, error: `Couldn't look up the codes. Nothing was changed. (${e instanceof Error ? e.message : String(e)})` };
-  }
-
-  const orderIds = new Set<string>();
-  for (const r of cardByCode.values()) orderIds.add(r.order_id);
-  for (const r of bagByCode.values()) orderIds.add(r.order_id);
-  for (const id of orderByCode.values()) orderIds.add(id);
-  let ctx: OrdersContext;
-  try {
-    ctx = await loadOrdersContext(admin, [...orderIds]);
-  } catch (e) {
-    return { ok: false, status: 500, error: `Couldn't read the cards. Nothing was changed. (${e instanceof Error ? e.message : String(e)})` };
-  }
-
-  const codes: PlanCode[] = parsed.map(({ raw, code, kind }): PlanCode => {
-    const shown = code || String(raw ?? "").trim().slice(0, 60);
-    if (!code || !kind) return { code: shown, kind: null, error: `${shown || "That"} isn't a card, bag or order code.` };
-    if (kind === "location") return { code, kind, error: "That's a place. Scan the place first, then the cards or bags." };
-    if (kind === "card") {
-      const c = cardByCode.get(code);
-      return c ? { code, kind, id: c.id, cardIds: [c.id] } : { code, kind, error: `No card has the code ${code}.` };
-    }
-    if (kind === "bag") {
-      const b = bagByCode.get(code);
-      if (!b) return { code, kind, error: `No bag has the code ${code}.` };
-      return { code, kind, id: b.id, cardIds: ctx.cards.filter((c) => c.bag_id === b.id).sort(bySeq).map((c) => c.id) };
-    }
-    const orderId = orderByCode.get(code);
-    if (!orderId) return { code, kind, error: `No order has the number ${code}.` };
-    return { code, kind, id: orderId, cardIds: ctx.cards.filter((c) => c.order_id === orderId).sort(bySeq).map((c) => c.id) };
-  });
-
-  return executeMove(admin, loc!, codes, ctx, input);
+  if (!loc) return { ok: false, status: 404, error: `No slot or place has the code ${code || String(raw ?? "").trim().slice(0, 60) || "(blank)"}.` };
+  if (loc.active === false) return { ok: false, status: 409, error: `${loc.name} is switched off. Turn it back on in Places first.` };
+  return { loc };
 }
 
-/**
- * Move cards by id to a place by id (for Receiving's "Put in shelf": pass
- * action "receive"). Same rules and writes as moveToLocation; one result per
- * card, keyed by its Card ID (or id when it has none).
- */
-export async function moveCardsToLocation(
-  admin: SupabaseClient,
-  input: MoveInput & { locationId: string; cardIds: readonly string[] },
-): Promise<IntakeResult<MoveResponse>> {
-  const ids = [...new Set(input.cardIds)].filter((id) => UUID.test(id));
-  if (!ids.length) return { ok: false, status: 400, error: "Pick at least one card." };
-  if (ids.length > 1000) return { ok: false, status: 400, error: "Move at most 1,000 cards at a time." };
-  let loc: LocationRow | null;
-  let ctx: OrdersContext;
-  try {
-    loc = await getLocationById(admin, input.locationId);
-    const bad = placeProblem(loc, input.locationId);
-    if (bad) return { ok: false, ...bad };
-    const orderIds = new Set<string>();
-    for (const part of chunks(ids)) {
-      const { data, error } = await admin.from("cards").select("id, order_id").in("id", part);
-      if (error) throw new Error(error.message);
-      for (const r of data ?? []) orderIds.add(r.order_id as string);
-    }
-    ctx = await loadOrdersContext(admin, [...orderIds]);
-  } catch (e) {
-    return { ok: false, status: 500, error: `Couldn't read the cards. Nothing was changed. (${e instanceof Error ? e.message : String(e)})` };
-  }
-  const byId = new Map(ctx.cards.map((c) => [c.id, c]));
-  const codes: PlanCode[] = ids.map((id) => {
-    const c = byId.get(id);
-    return c ? { code: c.card_code ?? id, kind: "card", id, cardIds: [id] } : { code: id, kind: "card", error: "Card not found." };
-  });
-  return executeMove(admin, loc!, codes, ctx, input);
-}
+const planLocation = (l: LocationRow): PlanLocation => ({ id: l.id, code: l.code, name: l.name, kind: l.kind, stage: l.stage });
 
 /** A card as the planner sees it (its step from the order's stage events). */
 export function planCardOf(c: TrackCardRow, ctx: Pick<OrdersContext, "events">): PlanCard {
@@ -171,6 +69,7 @@ export function planCardOf(c: TrackCardRow, ctx: Pick<OrdersContext, "events">):
   return {
     id: c.id,
     code: c.card_code,
+    name: c.card_name,
     orderId: c.order_id,
     bagId: c.bag_id,
     locationId: c.location_id,
@@ -182,29 +81,195 @@ export function planCardOf(c: TrackCardRow, ctx: Pick<OrdersContext, "events">):
   };
 }
 
-async function executeMove(
+/** The requested cards' orders, all their cards and stage events. */
+async function loadForCards(admin: SupabaseClient, cardIds: readonly string[]): Promise<OrdersContext> {
+  const orderIds = new Set<string>();
+  for (const part of chunks([...new Set(cardIds)])) {
+    const { data, error } = await admin.from("cards").select("id, order_id").in("id", part);
+    if (error) throw new Error(error.message);
+    for (const r of data ?? []) if (r.order_id) orderIds.add(r.order_id as string);
+  }
+  return loadOrdersContext(admin, [...orderIds]);
+}
+
+async function occupantIds(admin: SupabaseClient, locationId: string): Promise<string[]> {
+  const { data, error } = await admin.from("cards").select("id").eq("location_id", locationId).limit(1000);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => r.id as string);
+}
+
+/** The 409 for a full slot, or null when there's room (or `force`). */
+async function capacityCheck(admin: SupabaseClient, loc: LocationRow, plan: CardPlan, force: boolean | undefined): Promise<CapacityConflict | null> {
+  if (force || loc.capacity == null) return null;
+  const going = plan.results.filter((r) => r.ok).map((r) => r.cardId);
+  if (!going.length) return null;
+  const inside = await occupantIds(admin, loc.id);
+  if (!overCapacity(loc.capacity, inside, going)) return null;
+  const others = inside.filter((id) => !going.includes(id));
+  return {
+    error: `${loc.name} holds ${loc.capacity === 1 ? "1 card" : `${loc.capacity} cards`} and ${others.length === 1 ? "has 1" : `has ${others.length}`} in it. Add anyway?`,
+    overCapacity: true,
+    capacity: loc.capacity,
+    occupants: await loadCardSummaries(admin, others),
+  };
+}
+
+/**
+ * POST /api/admin/track/assign: put cards (by id) in the slot or place
+ * `locationCode`. Each card leaves its old slot; in a slot its step becomes
+ * the slot's step (forward only). Over the slot's capacity it answers 409
+ * with the cards already in it, unless `force`.
+ */
+export async function assignCards(
   admin: SupabaseClient,
-  loc: LocationRow,
-  codes: PlanCode[],
-  ctx: OrdersContext,
-  input: MoveInput,
-): Promise<IntakeResult<MoveResponse>> {
-  const plan = planMove({
-    location: { id: loc.id, code: loc.code, name: loc.name, kind: loc.kind, stage: loc.stage },
-    codes,
+  input: Common & { locationCode: string; cardIds: readonly string[]; force?: boolean; action?: MoveAction },
+): Promise<TrackResult> {
+  const bad = cardIdsProblem(input.cardIds);
+  if (bad) return { ok: false, status: 400, error: bad };
+  const place = await placeByCode(admin, input.locationCode);
+  if (!("loc" in place)) return place;
+  return planAndRun(admin, "assign", place.loc, input.cardIds, input, [], input.force);
+}
+
+/**
+ * POST /api/admin/track/move: move the cards in the slot `fromCode` (all, or
+ * only `cardIds`) to the slot `toCode`. Their step follows the new slot.
+ */
+export async function moveSlot(
+  admin: SupabaseClient,
+  input: Common & { fromCode: string; toCode: string; cardIds?: readonly string[]; force?: boolean },
+): Promise<TrackResult> {
+  if (input.cardIds !== undefined) {
+    const bad = cardIdsProblem(input.cardIds);
+    if (bad) return { ok: false, status: 400, error: bad };
+  }
+  const from = await placeByCode(admin, input.fromCode);
+  if (!("loc" in from)) return from;
+  const to = await placeByCode(admin, input.toCode);
+  if (!("loc" in to)) return to;
+  if (from.loc.id === to.loc.id) return { ok: false, status: 400, error: `That's ${to.loc.name} again. Scan the slot the cards go to.` };
+  let inside: string[];
+  try {
+    inside = await occupantIds(admin, from.loc.id);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read ${from.loc.name}. Nothing was changed. (${errText(e)})` };
+  }
+  const wanted = input.cardIds ? [...new Set(input.cardIds)] : inside;
+  const moving = wanted.filter((id) => inside.includes(id));
+  if (!moving.length) {
+    return { ok: false, status: 409, error: input.cardIds ? `Those cards aren't in ${from.loc.name} any more.` : `${from.loc.name} is empty.` };
+  }
+  const notInside: TrackCardResult[] = wanted.filter((id) => !inside.includes(id))
+    .map((id) => ({ cardId: id, code: null, name: null, ok: false, changed: false, message: `Not in ${from.loc.name} any more.` }));
+  return planAndRun(admin, "move", to.loc, moving, input, notInside, input.force);
+}
+
+/** POST /api/admin/track/release: take cards out of their slots (no place; the step stays). */
+export async function releaseCards(admin: SupabaseClient, input: Common & { cardIds: readonly string[] }): Promise<TrackResult> {
+  const bad = cardIdsProblem(input.cardIds);
+  if (bad) return { ok: false, status: 400, error: bad };
+  return planAndRun(admin, "release", null, input.cardIds, input, []);
+}
+
+/**
+ * POST /api/admin/track/done: mark cards done (as the card's Done toggle);
+ * they leave their slot and go to the Done place (LOC-DONE; nowhere if it is
+ * missing or switched off). Bags whose last card this was become complete.
+ */
+export async function markCardsDone(admin: SupabaseClient, input: Common & { cardIds: readonly string[] }): Promise<TrackResult> {
+  const bad = cardIdsProblem(input.cardIds);
+  if (bad) return { ok: false, status: 400, error: bad };
+  let done: LocationRow | null;
+  try {
+    done = await getLocationByCode(admin, DONE_LOCATION_CODE);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the Done place. Nothing was changed. (${errText(e)})` };
+  }
+  return planAndRun(admin, "done", done?.active === false ? null : done, input.cardIds, input, []);
+}
+
+/**
+ * Put cards (by id) in a place by id, e.g. Receiving placing cards on their
+ * due-date shelf slot with action "receive". Same rules and writes as
+ * assignCards; no capacity check (shelves have none).
+ */
+export async function placeCards(
+  admin: SupabaseClient,
+  input: Common & { locationId: string; cardIds: readonly string[]; action?: MoveAction; force?: boolean },
+): Promise<TrackResult> {
+  if (!input.cardIds.length) return { ok: false, status: 400, error: "Pick at least one card." };
+  if (input.cardIds.some((id) => !UUID.test(id))) return { ok: false, status: 400, error: "Invalid card." };
+  let loc: LocationRow | null;
+  try {
+    loc = await getLocationById(admin, input.locationId);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the place. Nothing was changed. (${errText(e)})` };
+  }
+  if (!loc) return { ok: false, status: 404, error: "Place not found" };
+  return planAndRun(admin, "assign", loc, input.cardIds, input, [], input.force ?? true);
+}
+
+async function planAndRun(
+  admin: SupabaseClient,
+  action: PlanAction,
+  target: LocationRow | null,
+  cardIds: readonly string[],
+  input: Common & { action?: MoveAction },
+  extraResults: TrackCardResult[],
+  force?: boolean,
+): Promise<TrackResult> {
+  let ctx: OrdersContext;
+  try {
+    ctx = await loadForCards(admin, cardIds);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the cards. Nothing was changed. (${errText(e)})` };
+  }
+  const plan = planCards({
+    action,
+    target: target ? planLocation(target) : null,
+    cardIds,
     cards: ctx.cards.map((c) => planCardOf(c, ctx)),
-    bags: [...ctx.bags.values()].map((b) => ({ id: b.id, code: b.bag_code, locationId: b.location_id })),
-    action: input.action,
+    actionName: input.action,
   });
+  if (target && (action === "assign" || action === "move")) {
+    try {
+      const conflict = await capacityCheck(admin, target, plan, force);
+      if (conflict) return { ok: false, status: 409, error: conflict.error, conflict };
+    } catch (e) {
+      return { ok: false, status: 500, error: `Couldn't read ${target.name}. Nothing was changed. (${errText(e)})` };
+    }
+  }
+  const run = await writePlan(admin, plan, ctx, target, input);
+  if (!run.ok) return run;
+  return {
+    ok: true,
+    location: target ? locationRef(target) : null,
+    results: [...plan.results, ...extraResults],
+    message: plan.message,
+    changed: plan.moves.length,
+    emailedOrders: run.emailedOrders,
+    bagsCompleted: run.bagsCompleted,
+    freed: run.freed,
+  };
+}
+
+async function writePlan(
+  admin: SupabaseClient,
+  plan: CardPlan,
+  ctx: OrdersContext,
+  target: LocationRow | null,
+  input: Common,
+): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[] } | { ok: false; status: number; error: string }> {
+  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[] };
+  if (!plan.moves.length) return out;
   const by = input.by;
   const sessionId = input.sessionId && UUID.test(input.sessionId) ? input.sessionId : null;
   const now = new Date().toISOString();
-  const response: MoveResponse = { location: locationRef(loc), results: plan.results, emailedOrders: [], bagsCompleted: [] };
-  if (!plan.moves.length && !plan.bagIds.length) return { ok: true, ...response };
 
   // 1. Steps (one stage_update per card, as the stage buttons write them)
-  const staged = plan.moves.filter((m): m is PlannedMove & { stageEvent: NonNullable<PlannedMove["stageEvent"]> } => !!m.stageEvent);
-  const stagedPerOrder = new Map<string, typeof staged>();
+  type Staged = PlannedMove & { stageEvent: NonNullable<PlannedMove["stageEvent"]> };
+  const staged = plan.moves.filter((m): m is Staged => !!m.stageEvent);
+  const stagedPerOrder = new Map<string, Staged[]>();
   for (const m of staged) stagedPerOrder.set(m.orderId, [...(stagedPerOrder.get(m.orderId) ?? []), m]);
   if (staged.length) {
     const { error } = await admin.from("order_events").insert(staged.map((m) => ({
@@ -217,10 +282,9 @@ async function executeMove(
     if (error) return { ok: false, status: 500, error: `Couldn't save the step. Nothing was changed. (${error.message})` };
   }
 
-  // 2. Done (as the card Done toggle: completed + completed_at)
-  const completes = plan.moves.filter((m) => m.complete).map((m) => m.cardId);
+  // 2. Done (as the card's Done toggle: completed + completed_at)
   const completed: string[] = [];
-  for (const part of chunks(completes)) {
+  for (const part of chunks(plan.moves.filter((m) => m.complete).map((m) => m.cardId))) {
     const { data, error } = await admin.from("cards").update({ completed: true, completed_at: now })
       .in("id", part).not("completed", "is", true).select("id");
     if (error) return { ok: false, status: 500, error: `Couldn't mark the cards done. (${error.message})` };
@@ -228,38 +292,32 @@ async function executeMove(
   }
 
   // 3. History
-  if (plan.moves.length) {
-    for (const part of chunks(plan.moves, 500)) {
-      const { error } = await admin.from("card_moves").insert(part.map((m) => ({
-        card_id: m.cardId,
-        order_id: m.orderId,
-        bag_id: m.bagId,
-        from_location_id: m.fromLocationId,
-        to_location_id: m.toLocationId,
-        stage_before: m.stageBefore,
-        stage_after: m.stageAfter,
-        action: m.action,
-        by,
-        session_id: sessionId,
-      })));
-      if (error) return { ok: false, status: 500, error: `Couldn't save the move. (${error.message})` };
-    }
+  for (const part of chunks(plan.moves, 500)) {
+    const { error } = await admin.from("card_moves").insert(part.map((m) => ({
+      card_id: m.cardId,
+      order_id: m.orderId,
+      bag_id: m.bagId,
+      from_location_id: m.fromLocationId,
+      to_location_id: m.toLocationId,
+      stage_before: m.stageBefore,
+      stage_after: m.stageAfter,
+      action: m.action,
+      by,
+      session_id: sessionId,
+    })));
+    if (error) return { ok: false, status: 500, error: `Couldn't save the move. (${error.message})` };
   }
 
-  // 4. Where the cards are
-  const relocated = plan.moves.filter((m) => m.locationChanges).map((m) => m.cardId);
-  for (const part of chunks(relocated)) {
-    const { error } = await admin.from("cards").update({ location_id: loc.id, located_at: now }).in("id", part);
+  // 4. Where the cards are (the old slot frees up)
+  const relocated = plan.moves.filter((m) => m.locationChanges);
+  for (const part of chunks(relocated.map((m) => m.cardId))) {
+    const { error } = await admin.from("cards")
+      .update({ location_id: target?.id ?? null, located_at: target ? now : null })
+      .in("id", part);
     if (error) return { ok: false, status: 500, error: `Couldn't save where the cards are. (${error.message})` };
   }
 
-  // 5. Where the bags are
-  for (const part of chunks(plan.bagIds)) {
-    const { error } = await admin.from("tier_bags").update({ location_id: loc.id, located_at: now }).in("id", part);
-    if (error) return { ok: false, status: 500, error: `Couldn't save where the bag is. (${error.message})` };
-  }
-
-  // 6. One email per order for the steps
+  // 5. One email per order for the steps
   const names = new Map(ctx.cards.map((c) => [c.id, c.card_name]));
   for (const [orderId, moves] of stagedPerOrder) {
     const order = ctx.orders.get(orderId);
@@ -268,13 +326,29 @@ async function executeMove(
       { customer_email: order.customer_email, customer_name: order.customer_name, order_number: order.order_number },
       moves.map((m) => ({ name: names.get(m.cardId) ?? null, stage: m.stageEvent.stage, round: m.stageEvent.round })),
     );
-    if (sent) response.emailedOrders.push(orderId);
+    if (sent) out.emailedOrders.push(orderId);
   }
 
-  // 7. Bags whose last card was just marked done
+  // 6. Bags whose last card was just marked done
   if (completed.length) {
     const bagIds = [...new Set(ctx.cards.filter((c) => completed.includes(c.id) && c.bag_id).map((c) => c.bag_id as string))];
-    response.bagsCompleted = (await refreshBagCompletion(admin, bagIds)).completed;
+    out.bagsCompleted = (await refreshBagCompletion(admin, bagIds)).completed;
   }
-  return { ok: true, ...response };
+
+  // Slots left empty (best effort: the move itself is saved)
+  const left = [...new Set(relocated.map((m) => m.fromLocationId).filter((id): id is string => !!id && id !== target?.id))];
+  if (left.length) {
+    try {
+      const still = new Set<string>();
+      for (const part of chunks(left)) {
+        const { data, error } = await admin.from("cards").select("location_id").in("location_id", part);
+        if (error) throw new Error(error.message);
+        for (const r of data ?? []) still.add(r.location_id as string);
+      }
+      out.freed = left.filter((id) => !still.has(id)).map((id) => ctx.locations.get(id)).filter((l): l is LocationRef => !!l && isSlot(l));
+    } catch (e) {
+      console.warn("[tracking] freed slots not read:", errText(e));
+    }
+  }
+  return out;
 }

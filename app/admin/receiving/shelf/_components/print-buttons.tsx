@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Printer } from "lucide-react";
 import { LabelPrintButton } from "@/components/intake/label-print-button";
-import { STICKER_PAPER } from "../_lib/places";
+import { LABEL_PAPER, placeLabelsUrl } from "../_lib/places";
 
 /**
- * Print buttons for 50 x 80 mm card stickers and place signs (Katasymbol).
- * The one place the receiving workspace, the Places page and the Shelf view
- * print from, so the printing path can change here alone. Nothing here marks
- * a bag label printed (stickers and signs aren't bag labels).
+ * Print buttons for 50 x 80 mm slot labels and shelf signs: the one place the
+ * receiving workspace, the Places page and the Shelf view print from. They go
+ * through LabelPrintButton, which sends 50 x 80 mm labels to the Katasymbol as
+ * pictures (or the PDF path, per device). Nothing here marks a bag label
+ * printed (slot labels and signs aren't bag labels).
  */
 
-/** One PDF (card stickers of an order or bag, or one place's sign). */
-export function StickerPrintButton({
+/** Prints one label PDF route at once (on a phone the file is fetched ahead of the tap). */
+export function PlaceLabelButton({
   pdfUrl,
   fileName,
   children,
@@ -25,105 +26,106 @@ export function StickerPrintButton({
   variant?: "primary" | "secondary";
 }) {
   return (
-    <LabelPrintButton pdfUrl={pdfUrl} fileName={fileName} bagIds={[]} paper={STICKER_PAPER} markPrinted={false} variant={variant}>
+    <LabelPrintButton pdfUrl={pdfUrl} fileName={fileName} bagIds={[]} paper={LABEL_PAPER} markPrinted={false} variant={variant}>
       {children}
     </LabelPrintButton>
   );
 }
 
-type Ready = { url: string; count: number; key: string };
-
 /**
- * Several PDFs printed as one (all station signs, a run of shelf signs): a
- * first tap gets them ready (`load` returns the PDF routes, after any set-up
- * such as making shelf slots), merged into one file in the browser; a second
- * tap prints it like any label (the phone's share sheet needs the file ready
- * before the tap).
+ * A print button for long lists (a slot per tile, a range per station): the
+ * file is made only when asked. The first tap gets it ready (`load` may first
+ * make places, e.g. shelf slots, and returns the label route), the second
+ * prints it (a phone's share sheet needs the file ready before the tap).
  */
-export function MergedPrintButton({
+export function LazyPrintButton({
+  url,
   load,
   fileName,
   prepareLabel,
   printLabel,
-  variant = "secondary",
+  compact = false,
+  ariaLabel,
 }: {
-  load: () => Promise<{ urls: string[] } | { error: string }>;
+  /** The label route, when it's known already. */
+  url?: string;
+  /** Otherwise: make what's needed, then return the label route. */
+  load?: () => Promise<{ url: string; count: number } | { error: string }>;
   fileName: string;
-  /** "Print all station signs" */
-  prepareLabel: string;
-  /** "Print 8 signs" */
-  printLabel: (count: number) => string;
-  variant?: "primary" | "secondary";
+  prepareLabel: ReactNode;
+  printLabel: (count: number | null) => ReactNode;
+  /** A small button (slot tiles). */
+  compact?: boolean;
+  ariaLabel?: string;
 }) {
+  const [ready, setReady] = useState<{ url: string; count: number | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [ready, setReady] = useState<Ready | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // The merged file lives until it's replaced or the page closes
-  useEffect(() => () => {
-    if (ready) URL.revokeObjectURL(ready.url);
-  }, [ready]);
-
   async function prepare() {
-    setBusy(true);
     setError(null);
+    if (url) return setReady({ url, count: null });
+    if (!load) return;
+    setBusy(true);
     try {
       const got = await load();
-      if ("error" in got) throw new Error(got.error);
-      if (!got.urls.length) throw new Error("Nothing to print.");
-      const [{ PDFDocument }, files] = await Promise.all([
-        import("pdf-lib"),
-        Promise.all(got.urls.map(async (u) => {
-          const res = await fetch(u, { cache: "no-store" });
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.error ?? `A sign couldn't be made (${res.status}).`);
-          }
-          return res.arrayBuffer();
-        })),
-      ]);
-      const out = await PDFDocument.create();
-      for (const bytes of files) {
-        const src = await PDFDocument.load(bytes);
-        for (const page of await out.copyPages(src, src.getPageIndices())) out.addPage(page);
-      }
-      const blob = new Blob([(await out.save()) as unknown as BlobPart], { type: "application/pdf" });
-      setReady({ url: URL.createObjectURL(blob), count: got.urls.length, key: got.urls.join("|") });
+      if ("error" in got) setError(got.error);
+      else setReady({ url: got.url, count: got.count });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't get the signs ready.");
+      setError(e instanceof Error ? e.message : "Couldn't get the labels ready.");
     } finally {
       setBusy(false);
     }
   }
 
-  const cls =
-    variant === "primary"
-      ? "bg-foreground text-background hover:opacity-90"
-      : "border border-border bg-white text-foreground hover:bg-muted";
-
+  if (ready) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1">
+        <LabelPrintButton
+          key={ready.url}
+          pdfUrl={ready.url}
+          fileName={fileName}
+          bagIds={[]}
+          paper={LABEL_PAPER}
+          markPrinted={false}
+          variant="primary"
+          // Slot tiles stay small: the printer is picked on the bigger print buttons
+          showPrinterChoice={compact ? false : undefined}
+        >
+          {printLabel(ready.count)}
+        </LabelPrintButton>
+        <button type="button" onClick={() => setReady(null)} className="min-h-11 px-2 rounded-lg text-sm font-bold text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex flex-col gap-1">
-      {ready ? (
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <LabelPrintButton key={ready.key} pdfUrl={ready.url} fileName={fileName} bagIds={[]} paper={STICKER_PAPER} markPrinted={false} variant="primary">
-            {printLabel(ready.count)}
-          </LabelPrintButton>
-          <button type="button" onClick={() => setReady(null)} className="min-h-11 px-3 rounded-lg text-sm font-bold text-muted-foreground hover:text-foreground">
-            Cancel
-          </button>
-        </span>
-      ) : (
-        <button
-          type="button"
-          onClick={prepare}
-          disabled={busy}
-          className={`${cls} inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition-opacity disabled:opacity-50`}
-        >
-          <Printer className="size-4" strokeWidth={1.75} aria-hidden />
-          {busy ? "Getting ready…" : prepareLabel}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={prepare}
+        disabled={busy}
+        aria-label={ariaLabel}
+        className={`border border-border bg-white text-foreground hover:bg-muted inline-flex min-h-11 items-center justify-center gap-2 rounded-lg ${compact ? "px-2.5" : "px-4"} text-sm font-bold transition-opacity disabled:opacity-50`}
+      >
+        <Printer className="size-4" strokeWidth={1.75} aria-hidden />
+        {busy ? "Getting ready…" : prepareLabel}
+      </button>
       {error && <span role="alert" className="text-xs font-semibold text-red-600">{error}</span>}
     </span>
+  );
+}
+
+/** A shelf slot's sign, made only when asked (the Shelf view lists many). */
+export function ShelfSignButton({ placeId, code, name }: { placeId: string; code: string; name: string }) {
+  return (
+    <LazyPrintButton
+      url={placeLabelsUrl({ ids: [placeId] })}
+      fileName={`${code}-sign.pdf`}
+      prepareLabel="Sign"
+      printLabel={() => "Print sign"}
+      ariaLabel={`Print the ${name} sign`}
+    />
   );
 }

@@ -22,7 +22,6 @@ import { paymentState } from "../_components/payment";
 import { loadOrderShelves, type ShelfGroup } from "../shelf/_lib/order-shelves";
 import { missingTracking } from "../shelf/_lib/places";
 import { PutInShelf } from "../shelf/_components/put-in-shelf";
-import { CardStickers } from "../shelf/_components/card-stickers";
 
 export const dynamic = "force-dynamic";
 
@@ -267,7 +266,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               payment={payment}
             />
           )}
-          <PutInShelf groups={shelfGroups} orderId={order.id} orderNumber={order.orderNumber} stickerCount={received.length} />
+          <PutInShelf groups={shelfGroups} />
           <OrderLabelPrint orderId={order.id} orderNumber={order.orderNumber} bags={labelBags} paper={paper} needPhoto={[]} />
           {payment !== "refunded" && order.status !== "cancelled" && (
             <div className="mt-4">
@@ -291,7 +290,6 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               <BagLabelPanel orderId={order.id} bags={labelBags} needPhoto={{}} />
             </div>
           )}
-          <CardStickers orderId={order.id} orderNumber={order.orderNumber} bags={labelBags.map((b) => ({ id: b.id, code: b.code, cardCount: b.cardCount }))} />
         </section>
       </div>
     </div>

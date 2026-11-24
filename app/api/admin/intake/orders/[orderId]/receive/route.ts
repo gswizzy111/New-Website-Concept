@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     });
     if (logError) console.error("[intake receive] unpaid receipt not logged:", logError.message);
   }
-  return Response.json({ ...result, summary: result.eventText, shelves: await shelvesFor(admin, result.bags) });
+  return Response.json({ ...result, summary: result.eventText, shelves: await shelvesFor(admin, result.bags, who.by) });
 }
 
 /**
@@ -72,12 +72,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
  * missing). Best effort: a failure never fails the receipt, its bag just gets
  * location null (the receiving page shows the shelf box again on load).
  */
-async function shelvesFor(admin: ReturnType<typeof createAdminClient>, bags: { code: string; dueDate: string | null }[]) {
+async function shelvesFor(admin: ReturnType<typeof createAdminClient>, bags: { code: string; dueDate: string | null }[], by: string) {
   const slots = new Map<string, Promise<{ code: string; name: string } | null>>();
   const slot = (day: string) => {
     let p = slots.get(day);
     if (!p) {
-      p = ensureShelfSlot(admin, day)
+      p = ensureShelfSlot(admin, day, by)
         .then((loc) => (loc ? { code: loc.code, name: loc.name } : null))
         .catch((e: unknown) => {
           console.error("[intake receive] shelf slot not made:", e instanceof Error ? e.message : e);

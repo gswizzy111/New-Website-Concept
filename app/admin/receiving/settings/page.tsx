@@ -6,7 +6,7 @@ import { tierDisplayName, tierRank } from "@/lib/intake/codes";
 import { PREP_TURNAROUND_KEY } from "@/lib/intake/due-dates";
 import { getLabelSettings } from "@/lib/intake/labels/data";
 import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
-import { HolidaysEditor, LabelSettingsForm } from "./settings-forms";
+import { HolidaysEditor, LabelSettingsForm, PlaceLabelSamples } from "./settings-forms";
 
 export const dynamic = "force-dynamic";
 
@@ -32,15 +32,24 @@ export default async function ReceivingSettingsPage() {
         Back to Receiving
       </AdminLink>
       <h1 className="font-heading font-black text-3xl text-foreground mt-1">Receiving Settings</h1>
-      <p className="text-sm text-muted-foreground mt-1">Bag labels, the business days due dates count, and the steps and turnarounds they use.</p>
+      <p className="text-sm text-muted-foreground mt-1">Bag labels, slot labels and signs, the business days due dates count, and the steps and turnarounds they use.</p>
 
       <div className="mt-6 flex flex-col gap-6">
         <section aria-labelledby="labels-h" className={panel}>
           <h2 id="labels-h" className="font-heading font-black text-lg text-foreground">Bag labels</h2>
           <p className="text-sm text-muted-foreground mt-1 mb-5">
-            Size of the die-cut labels in the Labelife printer and how wide the label prints on them. Every bag label is made at this size: one label per tier bag.
+            Size of the labels bag labels print on (die-cut 4 × 6 in the Labelife printer, or 50 × 80 mm from the Katasymbol app) and how wide the label prints on them. Every bag label is made at this size: one label per tier bag.
           </p>
           <LabelSettingsForm initial={labels} />
+        </section>
+
+        <section aria-labelledby="place-labels-h" className={panel}>
+          <h2 id="place-labels-h" className="font-heading font-black text-lg text-foreground">Slot labels and signs</h2>
+          <p className="text-sm text-muted-foreground mt-1 mb-5">
+            The QR labels on each slot (CLAMP 07, HEAT PRESS 03) and the signs for the due-date shelves, Done and Shipping print on 50 × 80 mm labels from the Katasymbol app. Print them from{" "}
+            <AdminLink href="/admin/receiving/locations" className="font-bold text-primary hover:underline">Places</AdminLink>.
+          </p>
+          <PlaceLabelSamples />
         </section>
 
         <section aria-labelledby="holidays-h" className={panel}>
