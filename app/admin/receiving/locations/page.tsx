@@ -164,6 +164,7 @@ export default async function PlacesPage() {
               Scan
             </AdminLink>
             <AdminLink href="/admin/receiving/shelf" className={linkButton}>Shelf</AdminLink>
+            <AdminLink href="/admin/receiving/printing" className={linkButton}>How to print</AdminLink>
           </nav>
         </div>
 

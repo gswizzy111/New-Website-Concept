@@ -289,6 +289,7 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
             <AdminLink href="/admin/receiving/shelf" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Shelf</AdminLink>
             <AdminLink href="/admin/receiving/bags" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Bags</AdminLink>
             <AdminLink href="/admin/receiving/locations" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Places</AdminLink>
+            <AdminLink href="/admin/receiving/printing" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">How to print</AdminLink>
             <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>
             <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>
           </nav>
