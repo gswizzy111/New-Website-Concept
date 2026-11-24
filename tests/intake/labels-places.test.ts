@@ -17,7 +17,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { qrUrl } from "@/lib/intake/codes";
 import { loadLabelPlaces } from "@/lib/intake/labels/data";
 import { LABEL_LIMITS, PT, planBagLabel, printedWidth } from "@/lib/intake/labels/layout";
-import { PLACE_LIMITS, layoutPlaceLabel, placeSubLine, planPlaceLabel, slotNameParts, type LabelPlace } from "@/lib/intake/labels/place";
+import { PLACE_LIMITS, codeLines, layoutPlaceLabel, placeSubLine, planPlaceLabel, slotNameParts, type LabelPlace } from "@/lib/intake/labels/place";
 import { renderLabelPdf } from "@/lib/intake/labels/pdf";
 import { qrMatrix } from "@/lib/intake/labels/qr";
 import { labelResponse, placeLabelsResponse, placeSignResponse, type LabelPreviewResponse, type PlaceLabelsResponse, type PlaceSignResponse } from "@/lib/intake/labels/respond";
@@ -273,17 +273,33 @@ test("slot names: the serial splits off only when the name ends with it", () => 
 // ── The loader and the routes' responses ───────────────────────────────────
 
 type Row = Record<string, unknown>;
-/** A tiny stand-in for the Supabase client; `missing` columns make a select that names them fail. */
+/**
+ * A tiny stand-in for the Supabase client; `missing` columns make a select
+ * that names them fail. Like PostgREST, a read returns at most 1,000 rows.
+ */
 function fakeAdmin(tables: Record<string, Row[]>, missing: string[] = []): SupabaseClient {
   const query = (rows: Row[], columns: string) => {
     let out = rows;
+    let max = 1000;
+    const orders: [string, boolean][] = [];
     const bad = missing.find((c) => columns.split(",").map((s) => s.trim()).includes(c));
+    const cmp = (a: unknown, b: unknown) => (a === b ? 0 : (a as number) < (b as number) ? -1 : 1);
     const q = {
       select: (cols: string) => query(rows, cols),
       eq: (col: string, v: unknown) => ((out = out.filter((r) => r[col] === v)), q),
       in: (col: string, vs: unknown[]) => ((out = out.filter((r) => vs.includes(r[col]))), q),
-      then: (resolve: (v: { data: Row[] | null; error: { message: string } | null }) => unknown) =>
-        resolve(bad ? { data: null, error: { message: `column locations.${bad} does not exist` } } : { data: out, error: null }),
+      not: (col: string, op: string, v: unknown) => (assert.deepEqual([op, v], ["is", null]), (out = out.filter((r) => r[col] != null)), q),
+      gte: (col: string, v: number) => ((out = out.filter((r) => (r[col] as number) >= v)), q),
+      lte: (col: string, v: number) => ((out = out.filter((r) => (r[col] as number) <= v)), q),
+      order: (col: string, o?: { ascending?: boolean }) => (orders.push([col, o?.ascending !== false]), q),
+      limit: (n: number) => ((max = Math.min(max, n)), q),
+      then: (resolve: (v: { data: Row[] | null; error: { message: string } | null }) => unknown) => {
+        const sorted = [...out].sort((a, b) => {
+          for (const [col, asc] of orders) if (cmp(a[col], b[col])) return asc ? cmp(a[col], b[col]) : -cmp(a[col], b[col]);
+          return 0;
+        });
+        return resolve(bad ? { data: null, error: { message: `column locations.${bad} does not exist` } } : { data: sorted.slice(0, max), error: null });
+      },
     };
     return q;
   };
@@ -314,6 +330,12 @@ test("loader: places by id in the order asked; a station's active slots by seria
   assert.deepEqual(range.places.map((p) => p.code), ["LOC-CLAMP-01", "LOC-CLAMP-02", "LOC-CLAMP-03"], "active clamps 1-20 by serial");
   assert.deepEqual((await loadLabelPlaces(admin, { station: "clamp" })).places.map((p) => p.serial), [1, 2, 3, 21]);
   assert.deepEqual((await loadLabelPlaces(admin, { station: "heat-press", from: 2 })).places, []);
+
+  // The range is read from the database, so a station past 1,000 slots still prints any range (here the
+  // first 1,000 rows stored are slots 1200 down to 201); `limit` caps it
+  const many = fakeAdmin({ locations: Array.from({ length: 1200 }, (_, i) => slot(1000 + i, 1200 - i)) });
+  assert.deepEqual((await loadLabelPlaces(many, { station: "clamp", from: 101, to: 103 })).places.map((p) => p.serial), [101, 102, 103]);
+  assert.deepEqual((await loadLabelPlaces(many, { station: "clamp", limit: 201 })).places.map((p) => p.serial), Array.from({ length: 201 }, (_, i) => i + 1));
 
   const old = fakeAdmin({ locations: LOCATIONS }, ["station", "serial"]);
   const signs = await loadLabelPlaces(old, { ids: [id(60)] });
@@ -393,6 +415,36 @@ test("bag label routes: ?stock=50x80mm lays the label out on 50 x 80 mm (JSON an
   assert.equal(same.settings.contentWidthIn, 2.5);
   const back = (await (await labelResponse(new Request("http://x/api?format=json&stock=4x6"), [b], { stock: "50x80mm", contentWidthIn: 1.96 }, "x")).json()) as LabelPreviewResponse;
   assert.deepEqual([back.settings.stock, back.settings.contentWidthIn], ["4x6", 3.2]);
+});
+
+test("the code under the QR is never cut: a long one breaks after a hyphen onto two lines", () => {
+  // About 30 mono characters fit across 50 x 80 mm at the 6.5 pt minimum; place codes run to 40
+  for (const code of ["LOC-BACK-ROOM-CABINET-WITH-THE-PHOTO-LI", "LOC-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", "LOC-HUMIDITY-PRESS-9999", "LOC-DONE"]) {
+    const place: LabelPlace = { code, name: "Back room cabinet", kind: "other" };
+    for (const id of STOCKS) {
+      const stock = fullWidthPoints(id);
+      const label = `${code} on ${id}`;
+      const page = layoutPlaceLabel(place, stock);
+      checkPage(page, stock, qrUrl(code), PLACE_LIMITS.minQrIn, label);
+      const lines = texts(page).filter((t) => t.font === "mono600");
+      assert.equal(lines.map((t) => t.text).join(""), code, `${label}: the whole code, uncut`);
+      assert.ok(lines.length <= 2, `${label}: at most two lines`);
+      const q = qrs(page)[0];
+      for (const t of lines) assert.ok(t.y - t.size > q.y + q.size && Math.abs(t.x + t.width / 2 - (q.x + q.size / 2)) < 0.5, `${label}: "${t.text}" centered under the QR`);
+    }
+  }
+  assert.deepEqual(codeLines("LOC-BACK-ROOM-CABINET-WITH-THE-PHOTO-LI", 11, 117, 6.5).lines, ["LOC-BACK-ROOM-CABINET-", "WITH-THE-PHOTO-LI"]);
+  assert.deepEqual(codeLines("LOC-CLAMP-07", 11, 117, 6.5), { lines: ["LOC-CLAMP-07"], size: 11 });
+});
+
+test("bag label on 50 x 80 mm: a set and number aren't cut while a smaller row size shows them whole", () => {
+  const one = planBagLabel(bag(1), BAG_STOCK);
+  assert.ok(words(one.page).includes("1986 Fleer Basketball #57"), `1 card: the set whole (${words(one.page).join(" | ")})`);
+  assert.ok(one.fit.bodyPt >= 8, `1 card: rows at ${one.fit.bodyPt} pt`);
+  // A set too long for any row size: still the largest rows that hold the card, the number kept
+  const long = planBagLabel(bag(1, { cards: [{ seq: 1, code: "CD-10482-01", name: "Pikachu", year: "1999", set: "Pokemon Base Set 1st Edition Shadowless Holo Rare Thick Stamp", number: "58/102" }] }), BAG_STOCK);
+  assert.equal(long.fit.style, 0);
+  assert.ok(words(long.page).some((w) => w.endsWith("… #58/102")), "the number kept");
 });
 
 test("place labels: every mark inside the middle 48 mm of the 50 mm label", () => {

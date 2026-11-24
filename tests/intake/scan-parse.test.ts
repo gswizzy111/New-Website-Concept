@@ -1,7 +1,7 @@
 /** The Scan page's code parser and repeat gate (components/intake/scan/parse.ts). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess } from "@/components/intake/scan/parse";
+import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess, typedSlotGuess } from "@/components/intake/scan/parse";
 import { cardsLabel, fillText, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
 
 test("QR links: the code after /Q/, any host, any case", () => {
@@ -90,6 +90,40 @@ test("a slot typed by its name", () => {
   assert.equal(slotCodeGuess(" done "), "LOC-DONE");
   assert.equal(slotCodeGuess("Ship"), "LOC-SHIP");
   for (const text of ["smith", "2549", "cd 2549", "charizard base set", "", "loc 3"]) assert.equal(slotCodeGuess(text), null, text);
+  // A typed place code: the "LOC" in front is dropped, the number padded
+  assert.equal(slotCodeGuess("loc-clamp-7"), "LOC-CLAMP-07");
+  assert.equal(slotCodeGuess("LOC CLAMP 07"), "LOC-CLAMP-07");
+  assert.equal(slotCodeGuess("LOC-DONE"), "LOC-DONE");
+  assert.equal(slotCodeGuess("lock 3"), "LOC-LOCK-03", "only a separate LOC word is dropped");
+  // Never a Card ID, Bag ID or order code
+  for (const text of ["CD-2549-03", "CD 2549 03", "CD-2549-P2", "cd2549", "CD-2549"]) assert.equal(slotCodeGuess(text), null, text);
+});
+
+test("typed slot names win over the order-code shape (the code box)", () => {
+  // "clamp 7" also parses as an order code CLAMP-7: typed, it is the slot CLAMP 07
+  assert.deepEqual(parseScan("clamp 7"), { code: "CLAMP-7", kind: "order" });
+  assert.equal(typedSlotGuess("clamp 7"), "LOC-CLAMP-07");
+  assert.equal(typedSlotGuess("CLAMP 07"), "LOC-CLAMP-07");
+  assert.equal(typedSlotGuess("Humidor 12"), "LOC-HUMIDOR-12");
+  assert.equal(typedSlotGuess("heat press 3"), "LOC-HEAT-PRESS-03");
+  assert.equal(typedSlotGuess("loc-clamp-7"), "LOC-CLAMP-07", "a place code without the zero");
+  assert.equal(typedSlotGuess("done"), "LOC-DONE");
+  // Already the right code, or not a slot: parseScan (or a search) decides
+  for (const text of [
+    "LOC-CLAMP-07", "loc-heat-press-03", "LOC-DONE", "HTTPS://THECARDDOC1.COM/Q/LOC-CLAMP-07", "https://thecarddoc1.com/q/clamp-7",
+    "CD-2549", "cd 2549", "CD-2549-03", "CD-2549-P", "CD-2549-P2", "smith", "charizard base set", "",
+  ]) {
+    assert.equal(typedSlotGuess(text), null, text);
+  }
+});
+
+test("QR links: lower-case percent-encoding and odd scanner endings", () => {
+  assert.deepEqual(parseScan("https://thecarddoc1.com/q/loc%2dclamp%2d07"), { code: "LOC-CLAMP-07", kind: "location" });
+  assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/LOC-HEAT-PRESS-03\r"), { code: "LOC-HEAT-PRESS-03", kind: "location" });
+  assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/CD-2549-P2"), { code: "CD-2549-P2", kind: "bag" });
+  assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/LOC-SHELF-20261207"), { code: "LOC-SHELF-20261207", kind: "location" });
+  // A scanned order label, any host
+  assert.deepEqual(parseScan("http://192.168.1.20:3000/Q/CD-2549"), { code: "CD-2549", kind: "order" });
 });
 
 test("wording: how long ago, where a card is, a slot's line", () => {

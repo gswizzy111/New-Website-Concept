@@ -527,20 +527,13 @@ function moreLine(n: number, xi: number, Wi: number, st: ListStyle): Block {
 }
 
 /** "Also in this order: …", small, up to two lines, breaking between bags. */
-function alsoBlock(s: S, xi: number, Wi: number, bag: LabelBag, narrow = false): Block | null {
+function alsoBlock(s: S, xi: number, Wi: number, bag: LabelBag): Block | null {
   const parts = alsoParts(bag).map((p) => printable(p, "body700"));
   if (!parts.length) return null;
   const size = s.fs(10);
   const fits = (t: string) => textWidth(t, "body700", size) <= Wi;
   const lines: string[] = [];
   let i = 0;
-  // On the narrow label "Also in this order:" takes a line of its own when the first bag
-  // won't fit beside it, so the other bag's ID isn't cut
-  const head = "Also in this order: ";
-  if (narrow && !fits(parts[0]) && parts[0].startsWith(head)) {
-    lines.push(head.trim());
-    parts[0] = parts[0].slice(head.length);
-  }
   while (i < parts.length && lines.length < 2) {
     let line = parts[i++];
     while (i < parts.length && fits(`${line} · ${parts[i]}`)) line += ` · ${parts[i++]}`;
@@ -752,7 +745,7 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
     const cap = top.nameSize * 0.9;
     const tier = tierRow(s, xi, Wi, bag, cap);
     const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);
-    const also = withAlso ? alsoBlock(s, xi, Wi, bag, narrow) : null;
+    const also = withAlso ? alsoBlock(s, xi, Wi, bag) : null;
     const tierY = padY + top.h + s.sp(10);
     const listTop = tierY + tier.h;
     const bottomY = stock.pageH - padY - bottom.h;

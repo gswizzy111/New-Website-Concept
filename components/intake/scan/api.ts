@@ -20,26 +20,46 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; status: number; conflict?: CapacityConflict };
 
+/**
+ * How long a call may take. Scans run one after another, so a request that
+ * never answers (a phone on bad Wi-Fi) would hold up every scan after it.
+ * Saves are safe to repeat: a card already in the slot stays as it is.
+ */
+const TIMEOUT_MS = 20_000;
+
 async function call<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
   let res: Response;
+  let body: (Record<string, unknown> & { error?: unknown }) | null;
   try {
-    res = await fetch(url, { cache: "no-store", ...init });
+    res = await fetch(url, { cache: "no-store", ...init, signal: abort.signal });
+    body = (await res.json().catch(() => {
+      if (abort.signal.aborted) throw new Error("timed out");
+      return null;
+    })) as typeof body;
   } catch {
-    return { ok: false, status: 0, error: "No connection. Nothing was saved: scan again." };
+    return abort.signal.aborted
+      ? { ok: false, status: 0, error: "No answer from the server. Check the connection, then scan again." }
+      : { ok: false, status: 0, error: "No connection. Nothing was saved: scan again." };
+  } finally {
+    clearTimeout(timer);
   }
-  const body = (await res.json().catch(() => null)) as (Record<string, unknown> & { error?: unknown }) | null;
   if (res.ok && body) return { ok: true, data: body as T };
   if (res.status === 409 && body?.overCapacity) {
     return { ok: false, status: 409, error: String(body.error ?? "That slot is full."), conflict: body as unknown as CapacityConflict };
   }
+  // The routes answer a signed-out phone (sessions end after 12 hours) with a bare "Unauthorized"
   const error =
-    typeof body?.error === "string" && body.error
-      ? body.error
-      : res.status === 401 || res.status === 403
-        ? "You're signed out. Sign in again, then scan again."
-        : res.status === 404
-          ? "Not found."
-          : `Something went wrong (${res.status}). Nothing was saved.`;
+    res.status === 401
+      ? "You're signed out. Sign in again, then scan again."
+      : typeof body?.error === "string" && body.error
+        ? body.error
+        : res.status === 403
+          ? "Only admins can scan."
+          : res.status === 404
+            ? "Not found."
+            : `Something went wrong (${res.status}). Nothing was saved.`;
   return { ok: false, status: res.status, error };
 }
 

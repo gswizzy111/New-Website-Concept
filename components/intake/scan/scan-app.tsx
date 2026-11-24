@@ -687,7 +687,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             type="button"
             onClick={toggleSound}
             aria-pressed={sound}
-            aria-label={sound ? "Sound on" : "Sound off"}
+            aria-label="Sound"
             className="h-11 w-11 rounded-full border border-border bg-white inline-flex items-center justify-center text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           >
             {sound ? <Volume2 className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" /> : <VolumeX className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />}
@@ -736,7 +736,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                 </p>
               )}
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={addAnyway} className={`${bigButton} bg-amber-500 text-gray-950 hover:bg-amber-400`}>
+                <button type="button" onClick={addAnyway} disabled={!!busy} className={`${bigButton} bg-amber-500 text-gray-950 hover:bg-amber-400`}>
                   Add anyway
                 </button>
                 <button type="button" onClick={() => { setConflict(null); cancelWaiting(); }} className={`${bigButton} border border-amber-300 bg-white text-amber-950`}>
@@ -787,7 +787,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
               )}
               {/* A full slot's actions, in thumb reach on a phone */}
               {showActions && (
-                <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none">
+                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none">
                   {slotCards.length > 1 && (
                     <p className="mb-2 text-xs font-semibold text-muted-foreground">
                       {chosen.length === slotCards.length ? `All ${slotCards.length} cards` : `${chosen.length} of ${slotCards.length} cards picked`}
