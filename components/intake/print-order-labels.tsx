@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Printer, X } from "lucide-react";
 import type { PrepareConflict, PreparePlan, PrepareRequest, PrepareResponse, TierQuestion } from "@/lib/intake/prepare-labels";
 import { DEFAULT_STOCK, LABEL_STOCKS, isStockId } from "@/lib/intake/labels/stock";
+import { UNPAID_CONFIRM } from "@/app/admin/receiving/_components/payment";
 import { LabelPrintButton } from "./label-print-button";
 
 /**
@@ -17,11 +18,16 @@ import { LabelPrintButton } from "./label-print-button";
  *    - `bag_in_shop`: POST at once when every missing tier is known for sure;
  *      otherwise one small dialog asks per group of cards ("Tier for
  *      Charizard, Blastoise: [Gold]", the best guess preselected, no
- *      preselection when nothing fits) → Save & print.
+ *      preselection when nothing fits; "Set each card" picks a tier per
+ *      card) → Save & print.
  *    - `receive_first` (Awaiting Cards): "Cards arrived? Receive all and
  *      print" (the customer gets the usual cards-received email) → POST
- *      { confirmReceive: true }.
- *    - `not_allowed`: the button turns disabled with the server's reason.
+ *      { confirmReceive: true }; an unpaid order also asks the Receive
+ *      button's UNPAID_CONFIRM (a tick) and sends allowUnpaid: true.
+ *    - `ready` with bags to date (`dueDatesToFill`): POST first, so the
+ *      label shows the due date.
+ *    - `not_allowed`: the server's reason shows under the button; a tap
+ *      asks again (a card may have been added since).
  * 2. The labels are then got ready (the PDF, or the Katasymbol pictures, are
  *    fetched before the next tap: an iPhone only opens the share sheet
  *    straight from a tap) and the button reads "Print 3 labels": the second
@@ -195,6 +201,8 @@ type Props = {
   layout?: "inline" | "panel";
   hint?: ReactNode;
   hidden?: boolean;
+  /** Where the keyboard goes when the button itself is gone after closing (a hidden panel): an element id. */
+  returnFocusTo?: string;
   className?: string;
 };
 
@@ -213,6 +221,7 @@ export function PrintOrderLabels({
   layout = "inline",
   hint,
   hidden = false,
+  returnFocusTo,
   className = "",
 }: Props) {
   const router = useRouter();
@@ -224,24 +233,46 @@ export function PrintOrderLabels({
   const planNoteRef = useRef<string | null>(null);
   // Something changed on the server (cards bagged, order received) and the page hasn't reloaded since
   const changedRef = useRef(false);
+  // The open question, read after a request (it may have been closed meanwhile: then its answer shows by the button)
+  const askRef = useRef<Ask | null>(null);
   const [busy, setBusy] = useState<null | "checking" | "bagging">(null);
-  const [ask, setAsk] = useState<Ask | null>(null);
+  const [ask, setAskState] = useState<Ask | null>(null);
   const [ready, setReady] = useState<Ready | null>(null);
-  const [blocked, setBlocked] = useState<string | null>(null);
+  // The server said no (no cards yet, a card still on the way…): shown by the button; a tap asks again.
+  // Kept with the order's status it was said for: once the status or payment changes it no longer holds.
+  const orderKey = `${status ?? ""}|${paymentStatus ?? ""}`;
+  const [refused, setRefused] = useState<{ text: string; key: string } | null>(null);
+  const refusal = refused && refused.key === orderKey ? refused.text : null;
+  const setRefusal = (text: string | null) => setRefused(text ? { text, key: orderKey } : null);
   const [error, setError] = useState<string | null>(null);
   // Where the keyboard goes after the next render (the button it was on may be gone)
   const focusNext = useRef<null | "ready" | "trigger">(null);
 
   const single = !!onlyBags && onlyBags.length === 1;
   const buttonText = children ?? (single ? "Print label" : "Print labels");
-  const preBlocked = onlyBags ? null : knownBlock(status, paymentStatus);
-  const reason = blocked ?? preBlocked;
+  // Known from the order itself: the button is disabled with this reason
+  const reason = onlyBags ? null : knownBlock(status, paymentStatus);
+
+  function setAsk(next: Ask | null) {
+    askRef.current = next;
+    setAskState(next);
+  }
 
   useEffect(() => {
     const to = focusNext.current;
     if (!to) return;
     focusNext.current = null;
-    (to === "ready" ? readyRef : triggerRef).current?.focus();
+    const el = (to === "ready" ? readyRef : triggerRef).current;
+    if (el) {
+      el.focus();
+      return;
+    }
+    // The button went away with the panel: somewhere sensible instead of the page's top
+    const fallback = returnFocusTo ? document.getElementById(returnFocusTo) : null;
+    if (fallback) {
+      if (!fallback.hasAttribute("tabindex")) fallback.setAttribute("tabindex", "-1");
+      fallback.focus();
+    }
   });
 
   function showJob(list: BagRef[], note: string | null) {
@@ -254,24 +285,21 @@ export function PrintOrderLabels({
     focusNext.current = "ready";
   }
 
-  function openAsk(plan: PreparePlan, problem: string | null) {
-    setAsk({ plan, problem });
-  }
-
   /** Where the plan sends us (also after a 409 that sent a fresh plan: then never straight back to the server). */
   function follow(plan: PreparePlan, problem: string | null = null, fromConflict = false) {
     planNoteRef.current = plan.mode === "not_allowed" ? null : plan.reason || null;
     if (plan.mode === "not_allowed") {
       setAsk(null);
-      setBlocked(plan.reason || "Labels can't be printed for this order.");
+      setRefusal(plan.reason || "Labels can't be printed for this order.");
       focusNext.current = "trigger";
       return;
     }
     if (plan.mode === "receive_first" || (plan.toBag > 0 && (plan.needsAnswers || fromConflict))) {
-      openAsk(plan, problem);
+      setAsk({ plan, problem });
       return;
     }
-    if (plan.toBag > 0) {
+    // Cards to bag, or bags to date (their tier's turnaround is set now): the server first
+    if (plan.toBag > 0 || (!fromConflict && (plan.dueDatesToFill ?? 0) > 0)) {
       void bag({}, false);
       return;
     }
@@ -293,6 +321,7 @@ export function PrintOrderLabels({
   async function start() {
     if (busy || reason) return;
     setError(null);
+    setRefusal(null);
     setReady(null);
     setBusy("checking");
     if (onlyBags) {
@@ -316,7 +345,7 @@ export function PrintOrderLabels({
 
   async function bag(body: PrepareRequest, fromDialog: boolean) {
     setBusy("bagging");
-    if (fromDialog) setAsk((a) => a && { ...a, problem: null });
+    if (fromDialog && askRef.current) setAsk({ ...askRef.current, problem: null });
     const res = await call<PrepareResponse>(
       `/api/admin/intake/orders/${orderId}/prepare-labels`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
@@ -326,7 +355,7 @@ export function PrintOrderLabels({
     setBusy(null);
     if (res.ok) {
       setAsk(null);
-      if (res.body.newlyBagged > 0 || res.body.orderStatusChanged) {
+      if (res.body.newlyBagged > 0 || res.body.orderStatusChanged || (res.body.dueDatesFilled?.length ?? 0) > 0) {
         changedRef.current = true;
         if (refreshAfterBagging) {
           changedRef.current = false;
@@ -347,8 +376,12 @@ export function PrintOrderLabels({
       follow(res.body, res.body.error, true);
       return;
     }
-    if (fromDialog) setAsk((a) => a && { ...a, problem: res.error });
-    else setError(res.error);
+    // In the question if it is still open, else by the button (it was closed while saving)
+    if (fromDialog && askRef.current) setAsk({ ...askRef.current, problem: res.error });
+    else {
+      setError(res.error);
+      focusNext.current = "trigger";
+    }
   }
 
   function closeReady() {
@@ -367,8 +400,8 @@ export function PrintOrderLabels({
     router.refresh();
   }
 
-  if (reason && whenBlocked === "hide" && !blocked) return null;
-  const active = !!(busy || ask || ready || error || blocked);
+  if (reason && whenBlocked === "hide") return null;
+  const active = !!(busy || ask || ready || error || refusal);
   if (hidden && !active) return null;
 
   const btn =
@@ -378,6 +411,7 @@ export function PrintOrderLabels({
   const sizing = size === "sm" ? "px-3 text-xs font-bold" : "px-4 text-sm font-bold";
   const reasonId = `${uid}-reason`;
   const errorId = `${uid}-error`;
+  const note = reason ?? refusal;
 
   const controls = ready ? (
     <div
@@ -421,7 +455,7 @@ export function PrintOrderLabels({
         type="button"
         onClick={start}
         aria-disabled={busy || reason ? true : undefined}
-        aria-describedby={reason ? reasonId : error ? errorId : undefined}
+        aria-describedby={note ? reasonId : error ? errorId : undefined}
         className={`${btn} ${sizing} inline-flex min-h-11 items-center justify-center gap-2 self-start whitespace-nowrap rounded-lg transition-opacity ${focusRing} ${
           reason ? "cursor-not-allowed opacity-40" : busy ? "cursor-wait opacity-60" : ""
         }`}
@@ -429,12 +463,12 @@ export function PrintOrderLabels({
         <Printer className="size-4" strokeWidth={1.75} aria-hidden />
         {busy === "checking" ? (onlyBags ? "Preparing…" : "Checking…") : busy === "bagging" && !ask ? "Getting labels ready…" : buttonText}
       </button>
-      {reason && (
-        <span id={reasonId} className="max-w-xs text-xs font-semibold text-muted-foreground">
-          {reason}
+      {note && (
+        <span id={reasonId} role={refusal && !reason ? "status" : undefined} className="max-w-xs text-xs font-semibold text-muted-foreground">
+          {note}
         </span>
       )}
-      {error && !reason && (
+      {error && !note && (
         <span id={errorId} role="alert" className="max-w-sm text-xs font-semibold text-red-700">
           {error}
         </span>
@@ -447,7 +481,7 @@ export function PrintOrderLabels({
 
   const dialog = ask && (
     <TierDialog
-      key={`${ask.plan.orderId}|${ask.plan.mode}|${ask.plan.tierQuestions.map((q) => q.cardIds.join(".")).join("|")}`}
+      key={`${ask.plan.orderId}|${ask.plan.mode}|${ask.plan.payment}|${ask.plan.tierQuestions.map((q) => q.cardIds.join(".")).join("|")}`}
       ask={ask}
       orderNumber={orderNumber}
       busy={busy === "bagging"}
@@ -485,6 +519,12 @@ export function PrintOrderLabels({
 
 // ── The dialog: tier questions and "Cards arrived?" ─────────────────────────
 
+/** Every card of the question has the same answer: that one; else "" (none yet, or different per card). */
+function groupValue(q: TierQuestion, answers: Record<string, string>): string {
+  const first = answers[q.cardIds[0]] ?? "";
+  return q.cardIds.every((id) => (answers[id] ?? "") === first) ? first : "";
+}
+
 function TierDialog({
   ask,
   orderNumber,
@@ -502,15 +542,21 @@ function TierDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const uid = useId();
   const receive = plan.mode === "receive_first";
+  // Not paid: the Receive button's own question, answered with a tick (sent as allowUnpaid)
+  const unpaid = receive && plan.payment === "unpaid";
   // Staff answer the unsure ones; the sure ones (signed at checkout) are only listed
   const questions = plan.tierQuestions;
   const toAnswer = questions.map((q, i) => ({ q, i })).filter(({ q }) => q.needsAnswer);
   const known = questions.filter((q) => !q.needsAnswer);
-  // Preselected with the best guess; nothing for an unknown one (required)
-  const [answers, setAnswers] = useState<Record<number, string>>(() =>
-    Object.fromEntries(toAnswer.map(({ q, i }) => [i, q.guess ?? ""])),
+  // One answer per card, preselected with its question's best guess (none for an unknown one: required)
+  const [answers, setAnswers] = useState<Record<string, string>>(() =>
+    Object.fromEntries(toAnswer.flatMap(({ q }) => q.cardIds.map((id) => [id, q.guess ?? ""]))),
   );
-  const [missing, setMissing] = useState<number[]>([]);
+  // Questions whose cards are listed one by one ("Set each card")
+  const [eachCard, setEachCard] = useState<Record<number, boolean>>({});
+  const [missing, setMissing] = useState<Set<string>>(() => new Set());
+  const [unpaidOk, setUnpaidOk] = useState(false);
+  const [unpaidMissing, setUnpaidMissing] = useState(false);
 
   useEffect(() => {
     const d = ref.current;
@@ -524,21 +570,44 @@ function TierDialog({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
-    const empty = toAnswer.filter(({ i }) => !answers[i]).map(({ i }) => i);
-    setMissing(empty);
+    const empty = toAnswer.flatMap(({ q }) => q.cardIds.filter((id) => !answers[id]));
+    setMissing(new Set(empty));
     if (empty.length) {
-      document.getElementById(`${uid}-q${empty[0]}`)?.focus();
+      // Some cards of a question picked and some not: list them one by one so the gaps show
+      const open = toAnswer.filter(({ q }) => q.cardIds.some((id) => answers[id]) && q.cardIds.some((id) => !answers[id]));
+      if (open.length) setEachCard((m) => ({ ...m, ...Object.fromEntries(open.map(({ i }) => [i, true])) }));
+      requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>("select[aria-invalid='true']")?.focus());
+      return;
+    }
+    if (unpaid && !unpaidOk) {
+      setUnpaidMissing(true);
+      document.getElementById(`${uid}-unpaid`)?.focus();
       return;
     }
     const tiers: Record<string, string> = {};
-    for (const { q, i } of toAnswer) for (const id of q.cardIds) tiers[id] = answers[i];
-    onSubmit({ ...(Object.keys(tiers).length ? { tiers } : {}), ...(receive ? { confirmReceive: true } : {}) });
+    for (const { q } of toAnswer) for (const id of q.cardIds) tiers[id] = answers[id];
+    onSubmit({
+      ...(Object.keys(tiers).length ? { tiers } : {}),
+      ...(receive ? { confirmReceive: true } : {}),
+      ...(unpaid ? { allowUnpaid: true } : {}),
+    });
   }
 
   const toBag = plan.toBag;
   const unsureCards = toAnswer.reduce((n, { q }) => n + q.cardIds.length, 0);
+  const guessed = toAnswer.filter(({ q }) => q.guess).length;
+  const pickHint =
+    guessed === toAnswer.length
+      ? "The best guess is picked: check it, then print."
+      : guessed === 0
+        ? "Pick a tier, then print."
+        : "The best guess is picked where there is one: check it, pick the rest, then print.";
   const title = receive ? "Cards arrived?" : toAnswer.length === 1 ? "Check the tier" : "Check the tiers";
   const primary = busy ? (receive ? "Receiving…" : "Saving…") : receive ? "Receive all and print" : "Save & print";
+  const selectCls = (bad: boolean) =>
+    `h-11 rounded-lg border bg-white px-2 text-base font-semibold text-foreground disabled:opacity-50 sm:text-sm ${
+      bad ? "border-red-500 ring-1 ring-red-200" : "border-border"
+    } ${focusRing}`;
 
   return (
     <dialog
@@ -579,24 +648,50 @@ function TierDialog({
                   {toBag > 0 ? `all ${toBag} ${plural(toBag, "card", "cards")}` : "the order's cards"}, puts them in their tier bags and prints the labels.
                 </p>
                 <p className="font-semibold">The order moves to Cards Received and the customer gets the usual cards-received email, just like the Receive button.</p>
+                {toAnswer.length > 0 && <p>{`${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint}`}</p>}
               </>
             ) : (
               <p>
-                {toAnswer.length > 0 &&
-                  `${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. The best guess is picked: check it, then print. `}
+                {toAnswer.length > 0 && `${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint} `}
                 {toBag} {plural(toBag, "card goes", "cards go")} into tier bags; the order&apos;s status stays the same and the customer isn&apos;t emailed.
               </p>
             )}
             {plan.reason && <p className="text-xs text-muted-foreground">{plan.reason}</p>}
           </div>
 
+          {unpaid && (
+            <div className="rounded-lg border-2 border-red-600 bg-red-50 px-3 py-2">
+              <label htmlFor={`${uid}-unpaid`} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-bold text-red-800">
+                <input
+                  id={`${uid}-unpaid`}
+                  type="checkbox"
+                  checked={unpaidOk}
+                  disabled={busy}
+                  aria-invalid={(unpaidMissing && !unpaidOk) || undefined}
+                  aria-describedby={unpaidMissing && !unpaidOk ? `${uid}-unpaid-err` : undefined}
+                  onChange={(e) => setUnpaidOk(e.target.checked)}
+                  className={`size-5 shrink-0 accent-red-700 ${focusRing}`}
+                />
+                <span>{UNPAID_CONFIRM} Tick to receive it anyway.</span>
+              </label>
+              {unpaidMissing && !unpaidOk && (
+                <p id={`${uid}-unpaid-err`} className="pb-1 text-xs font-semibold text-red-700">
+                  Tick the box to receive an order that hasn&apos;t been paid.
+                </p>
+              )}
+            </div>
+          )}
+
           {toAnswer.length > 0 && (
             <fieldset className="flex flex-col gap-3">
               <legend className="sr-only">Tiers</legend>
               {toAnswer.map(({ q, i }) => {
                 const id = `${uid}-q${i}`;
-                const value = answers[i] ?? "";
-                const isMissing = missing.includes(i) && !value;
+                const value = groupValue(q, answers);
+                const mixed = !value && q.cardIds.some((c) => answers[c]);
+                const open = !!eachCard[i];
+                const isMissing = !open && q.cardIds.some((c) => missing.has(c) && !answers[c]);
+                const listId = `${id}-each`;
                 return (
                   <div key={i} className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -607,21 +702,20 @@ function TierDialog({
                         id={id}
                         value={value}
                         required
-                        data-unanswered={value ? undefined : "true"}
+                        data-unanswered={value || mixed ? undefined : "true"}
                         aria-invalid={isMissing || undefined}
                         aria-describedby={`${id}-why${isMissing ? ` ${id}-err` : ""}`}
                         disabled={busy}
                         onChange={(e) => {
                           const v = e.target.value;
-                          setAnswers((a) => ({ ...a, [i]: v }));
+                          // The question's select sets every card of it
+                          setAnswers((a) => ({ ...a, ...Object.fromEntries(q.cardIds.map((c) => [c, v])) }));
                         }}
-                        className={`h-11 w-full shrink-0 rounded-lg border bg-white px-2 text-base font-semibold text-foreground disabled:opacity-50 sm:w-44 sm:text-sm ${
-                          isMissing ? "border-red-500 ring-1 ring-red-200" : "border-border"
-                        } ${focusRing}`}
+                        className={`${selectCls(isMissing)} w-full shrink-0 sm:w-44`}
                       >
-                        {!q.guess && (
+                        {(!q.guess || !value) && (
                           <option value="" disabled>
-                            Pick a tier…
+                            {mixed ? "Different per card" : "Pick a tier…"}
                           </option>
                         )}
                         {q.choices.map((c) => (
@@ -631,7 +725,7 @@ function TierDialog({
                         ))}
                       </select>
                     </div>
-                    {q.cardNames.length > 3 && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{longNames(q.cardNames)}</p>}
+                    {q.cardNames.length > 3 && !open && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{longNames(q.cardNames)}</p>}
                     <p id={`${id}-why`} className="text-xs text-muted-foreground">
                       {q.why}
                     </p>
@@ -639,6 +733,59 @@ function TierDialog({
                       <p id={`${id}-err`} className="text-xs font-semibold text-red-700">
                         Pick a tier for {plural(q.cardIds.length, "this card", "these cards")}.
                       </p>
+                    )}
+                    {q.cardIds.length > 1 && (
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={listId}
+                        disabled={busy}
+                        onClick={() => setEachCard((m) => ({ ...m, [i]: !open }))}
+                        className={`-ml-1 inline-flex min-h-11 items-center self-start rounded-lg px-1 text-xs font-bold text-primary underline-offset-2 hover:underline disabled:opacity-50 ${focusRing}`}
+                      >
+                        {open ? "Same tier for all" : "Set each card"}
+                      </button>
+                    )}
+                    {open && (
+                      <ul id={listId} aria-label={`Tier for each card: ${questionSubject(q)}`} className="flex flex-col gap-1.5 border-t border-border pt-2">
+                        {q.cardIds.map((cardId, k) => {
+                          const cid = `${id}-c${k}`;
+                          const v = answers[cardId] ?? "";
+                          const bad = missing.has(cardId) && !v;
+                          return (
+                            <li key={cardId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                              <label htmlFor={cid} className="text-xs font-semibold text-foreground [overflow-wrap:anywhere]">
+                                {q.cardNames[k]?.trim() || "Unnamed card"}
+                              </label>
+                              <select
+                                id={cid}
+                                value={v}
+                                required
+                                data-unanswered={v ? undefined : "true"}
+                                aria-invalid={bad || undefined}
+                                aria-describedby={`${id}-why`}
+                                disabled={busy}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setAnswers((a) => ({ ...a, [cardId]: next }));
+                                }}
+                                className={`${selectCls(bad)} w-36 sm:w-44`}
+                              >
+                                {!v && (
+                                  <option value="" disabled>
+                                    Pick a tier…
+                                  </option>
+                                )}
+                                {q.choices.map((c) => (
+                                  <option key={c.key} value={c.key}>
+                                    {c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     )}
                   </div>
                 );

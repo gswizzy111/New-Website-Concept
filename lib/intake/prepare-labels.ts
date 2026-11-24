@@ -26,14 +26,16 @@ import {
 import { TIER_NAMES, TIER_ORDER, effectiveTier, normalizeTier, tierDisplayName, tierRank } from "@/lib/intake/codes";
 import { isDay, nyToday } from "@/lib/intake/business-days";
 import { fetchAll } from "@/lib/fetch-all";
-import { receiptTimeFor } from "@/lib/intake/due-dates";
+import { fillMissingDueDates, lacksDueDate, loadTurnarounds, receiptTimeFor } from "@/lib/intake/due-dates";
 import { SETUP_STATUSES, applyOrderSetup, planOrderSetup, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
 import { loadOrderIntake, loadTierNames } from "@/lib/intake/data";
 import { receiveCards } from "@/lib/intake/receiving";
+import { shelvesFor, type BagShelf } from "@/lib/intake/tracking/shelf";
+import type { OrderIntake } from "@/lib/intake/types";
 import { loadSetupData, supabaseSetupStore } from "@/app/api/admin/intake/setup/_lib/store";
-import { paymentState } from "@/app/admin/receiving/_components/payment";
+import { UNPAID_ERROR, paymentState, type PaymentState } from "@/app/admin/receiving/_components/payment";
 
-export type { TierConfidence, TierGuessSource };
+export type { TierConfidence, TierGuessSource, BagShelf, PaymentState };
 
 /**
  * What the button does for this order:
@@ -84,6 +86,11 @@ export type PreparePlan = {
   orderNumber: string;
   /** orders.status (awaiting_payment, awaiting_cards, received, in_progress, completed, shipped_back, delivered, cancelled...). */
   status: string;
+  /**
+   * The order's payment as receiving treats it (orders.payment_status 'paid', 'refunded', anything else 'unpaid').
+   * An unpaid Awaiting Cards order needs `allowUnpaid: true` after staff confirm UNPAID_CONFIRM, as the Receive button does.
+   */
+  payment: PaymentState;
   mode: PrepareMode;
   /** Why the button is disabled (not_allowed), or a note for staff. */
   reason?: string;
@@ -95,6 +102,12 @@ export type PreparePlan = {
   tierQuestions: TierQuestion[];
   /** True when at least one question still needs staff's answer (POST without it answers 409). */
   needsAnswers: boolean;
+  /**
+   * Bags saved without a due date (their tier had no turnaround then, e.g. Prep) that the POST dates now that
+   * the tier has one (lib/intake/due-dates.ts fillMissingDueDates). When > 0 a `ready` order is POSTed too,
+   * so the label shows the date.
+   */
+  dueDatesToFill: number;
   /** The NY day ("YYYY-MM-DD") the new bags will use as their received date. */
   receivedOn: string;
   /** Where receivedOn comes from: the order's first "Cards Received" status event, its drop-off day, a received day already on the order's bags, or today. */
@@ -109,6 +122,8 @@ export type PrepareRequest = {
   tiers?: Record<string, string>;
   /** Required for an Awaiting Cards order: "Cards arrived? Receive all and print". */
   confirmReceive?: boolean;
+  /** Required to receive an Awaiting Cards order that isn't paid, sent only after staff confirm (as the Receive button's allowUnpaid). */
+  allowUnpaid?: boolean;
   /** Override the received day the new bags use (not in the future). Default: PreparePlan.receivedOn. */
   receivedOn?: string;
 };
@@ -126,6 +141,10 @@ export type PrepareResponse = {
   emailed: boolean;
   /** The order moved Awaiting Cards -> Cards Received. */
   orderStatusChanged: boolean;
+  /** Awaiting Cards only: each received bag's due-date shelf slot, as the receive route answers them (shelvesFor). */
+  shelves: BagShelf[];
+  /** Bags that got their due date now (fillMissingDueDates): the labels show it. */
+  dueDatesFilled: { bagCode: string; dueDate: string }[];
   /** One sentence for staff, e.g. "Bagged 3 cards: Gold bag CD-2549-G (3). Printing 2 labels." */
   message: string;
 };
@@ -133,9 +152,17 @@ export type PrepareResponse = {
 /**
  * POST 409 when staff must answer first: the PreparePlan itself plus `error`.
  * `needsConfirmReceive`: an Awaiting Cards order sent without confirmReceive.
+ * `needsAllowUnpaid`: an unpaid Awaiting Cards order sent without allowUnpaid (then `error` is the
+ * receive route's UNPAID_ERROR and `unpaid: true`, as its 409).
  * `unanswered`: card ids whose tier question needs an answer in `tiers`.
  */
-export type PrepareConflict = PreparePlan & { error: string; needsConfirmReceive: boolean; unanswered: string[] };
+export type PrepareConflict = PreparePlan & {
+  error: string;
+  needsConfirmReceive: boolean;
+  needsAllowUnpaid: boolean;
+  unpaid?: true;
+  unanswered: string[];
+};
 
 /** Any other refusal: { error } with the HTTP status (400 bad body or tier, 401, 404, 409 cancelled/refunded/unpaid, 500). */
 export type PrepareRefusal = { error: string };
@@ -187,6 +214,8 @@ export function buildPreparePlan(input: {
   tierNames?: Readonly<Record<string, string>>;
   today: string;
   setupInput?: PlanInput | null;
+  /** Dateless bags the POST would date (fillMissingDueDates); 0 when not worked out. */
+  dueDatesToFill?: number;
 }): BuiltPlan {
   const { order, cards, guesses, tierNames, today } = input;
   const refunded = cards.filter((c) => c.status === "refunded").length;
@@ -195,16 +224,18 @@ export function buildPreparePlan(input: {
     orderId: order.id,
     orderNumber: order.order_number,
     status: order.status,
+    payment: paymentState(order.payment_status),
     mode: "not_allowed",
     bags: input.bags,
     toBag: 0,
     tierQuestions: [],
     needsAnswers: false,
+    dueDatesToFill: input.dueDatesToFill ?? 0,
     receivedOn: today,
     receivedOnSource: "today",
     skipped: { refunded, awaitingArrival: awaiting },
   };
-  const refuse = (reason: string): BuiltPlan => ({ plan: { ...base, reason }, toBagIds: [] });
+  const refuse = (reason: string): BuiltPlan => ({ plan: { ...base, reason, dueDatesToFill: 0 }, toBagIds: [] });
   const payment = paymentState(order.payment_status);
   if (order.status === "cancelled") return refuse("This order is cancelled.");
   if (payment === "refunded") return refuse("This order was refunded.");
@@ -217,8 +248,8 @@ export function buildPreparePlan(input: {
   const tierOf = (c: { id: string; tier: string | null }) => effectiveTier(c.tier, order.restoration_tier);
 
   if (order.status === "awaiting_cards") {
+    // Not paid: the dialog asks UNPAID_CONFIRM (plan.payment), as the Receive button does
     toBagIds = cards.filter((c) => c.status !== "refunded" && !c.bag_id && !c.received_at && !c.awaiting_arrival).map((c) => c.id);
-    if (payment === "unpaid") notes.push("This order hasn't been paid. Receiving it anyway is noted on the order.");
   } else if (IN_SHOP_STATUSES.includes(order.status)) {
     const setup = input.setupInput;
     if (!setup) return refuse("The order's records couldn't be read.");
@@ -365,13 +396,26 @@ const readOrder = async (admin: SupabaseClient, orderId: string) =>
 
 type Context = { order: OrderRow; cards: CardRow[]; built: BuiltPlan; guesses: Record<string, TierGuess>; names: Record<string, string> };
 
-async function loadContext(admin: SupabaseClient, orderId: string): Promise<({ ok: true } & Context) | Fail> {
+/** How many of the bags would get a due date now (lacksDueDate, and the tier has a turnaround today). Best effort: 0 on a failed read. */
+async function countDueDatesToFill(admin: SupabaseClient, bags: BagSummary[]): Promise<number> {
+  const dateless = bags.filter(lacksDueDate);
+  if (!dateless.length) return 0;
+  try {
+    const turnarounds = await loadTurnarounds(admin);
+    return dateless.filter((b) => (b.turnaroundDays ?? turnarounds[normalizeTier(b.tier) ?? ""] ?? null) != null).length;
+  } catch (e) {
+    console.warn("[prepare labels] turnarounds not read:", e instanceof Error ? e.message : e);
+    return 0;
+  }
+}
+
+async function loadContext(admin: SupabaseClient, orderId: string, preloaded?: OrderIntake): Promise<({ ok: true } & Context) | Fail> {
   let rows: [Awaited<ReturnType<typeof readOrder>>, CardRow[], Awaited<ReturnType<typeof loadOrderIntake>>, Record<string, string>];
   try {
     rows = await Promise.all([
       readOrder(admin, orderId),
       fetchAll<CardRow>((from, to) => admin.from("cards").select(CARD_COLUMNS).eq("order_id", orderId).order("created_at").order("id").range(from, to)),
-      loadOrderIntake(admin, orderId, { heal: false }),
+      preloaded && preloaded.order.id === orderId ? { ok: true as const, intake: preloaded } : loadOrderIntake(admin, orderId, { heal: false }),
       loadTierNames(admin),
     ]);
   } catch (e) {
@@ -392,16 +436,23 @@ async function loadContext(admin: SupabaseClient, orderId: string): Promise<({ o
       return { ok: false, status: 500, error: `Couldn't read the order's records: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
-  const guesses = await loadGuesses(admin, order as OrderRow, cards, names);
+  const [guesses, dueDatesToFill] = await Promise.all([
+    loadGuesses(admin, order as OrderRow, cards, names),
+    countDueDatesToFill(admin, intake.intake.bags),
+  ]);
   const built = buildPreparePlan({
-    order: order as OrderRow, cards, bags: intake.intake.bags, guesses, tierNames: names, today: nyToday(), setupInput,
+    order: order as OrderRow, cards, bags: intake.intake.bags, guesses, tierNames: names, today: nyToday(), setupInput, dueDatesToFill,
   });
   return { ok: true, order: order as OrderRow, cards, built, guesses, names };
 }
 
-/** GET: what "Print labels" will do for the order. */
-export async function loadPreparePlan(admin: SupabaseClient, orderId: string): Promise<({ ok: true; plan: PreparePlan }) | Fail> {
-  const ctx = await loadContext(admin, orderId);
+/**
+ * GET: what "Print labels" will do for the order. `opts.intake`: the order's
+ * intake when the caller has just loaded it (the receiving workspace), so it
+ * isn't read twice.
+ */
+export async function loadPreparePlan(admin: SupabaseClient, orderId: string, opts: { intake?: OrderIntake } = {}): Promise<({ ok: true; plan: PreparePlan }) | Fail> {
+  const ctx = await loadContext(admin, orderId, opts.intake);
   return ctx.ok ? { ok: true, plan: ctx.built.plan } : ctx;
 }
 
@@ -456,7 +507,7 @@ function labelStore(admin: SupabaseClient, source: string): SetupStore {
  */
 export async function prepareLabels(
   admin: SupabaseClient,
-  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; receivedOn?: string; by: string | null },
+  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; allowUnpaid?: boolean; receivedOn?: string; by: string | null },
 ): Promise<PrepareOutcome> {
   const today = nyToday();
   if (input.receivedOn !== undefined) {
@@ -485,11 +536,18 @@ export async function prepareLabels(
     }
   }
   const needsConfirm = plan.mode === "receive_first" && input.confirmReceive !== true;
-  if (needsConfirm || unanswered.length) {
-    const error = unanswered.length
-      ? `Pick a tier for ${plural(unanswered.length, "card")} first.`
-      : "Cards arrived? Confirm to receive all of them and print the labels.";
-    return { ok: false, status: 409, error, conflict: { ...plan, error, needsConfirmReceive: needsConfirm, unanswered } };
+  // As the receive route's paymentBlock: an unpaid order is received only with allowUnpaid (staff confirmed)
+  const needsAllowUnpaid = plan.mode === "receive_first" && plan.payment === "unpaid" && input.allowUnpaid !== true;
+  if (needsConfirm || needsAllowUnpaid || unanswered.length) {
+    const error = needsAllowUnpaid
+      ? UNPAID_ERROR
+      : unanswered.length
+        ? `Pick a tier for ${plural(unanswered.length, "card")} first.`
+        : "Cards arrived? Confirm to receive all of them and print the labels.";
+    return {
+      ok: false, status: 409, error,
+      conflict: { ...plan, error, needsConfirmReceive: needsConfirm, needsAllowUnpaid, ...(needsAllowUnpaid ? { unpaid: true as const } : {}), unanswered },
+    };
   }
 
   const tierFail = await writeTiers(admin, input.orderId, answers, ctx, input.by);
@@ -499,6 +557,7 @@ export async function prepareLabels(
   let emailed = false;
   let orderStatusChanged = false;
   let extra = "";
+  let shelves: BagShelf[] = [];
   if (plan.mode === "receive_first") {
     // Exactly the Receive button: Card IDs, bags with due dates, Cards Received + the customer email
     const r = await receiveCards(admin, { orderId: input.orderId, cardIds: ctx.built.toBagIds, receivedOn: input.receivedOn, by: input.by });
@@ -508,6 +567,8 @@ export async function prepareLabels(
     emailed = r.orderStatusChanged && !r.emailFailed;
     if (r.statusError) extra = ` ${r.statusError}`;
     else if (r.orderStatusChanged && r.emailFailed) extra = " The customer email didn't go out.";
+    // As the receive route: each received bag's due-date shelf slot, made where missing
+    shelves = await shelvesFor(admin, r.bags, input.by);
     if (paymentState(ctx.order.payment_status) !== "paid" && r.receivedCardIds.length) {
       // As the receive route logs it
       const { error } = await admin.from("order_events").insert({
@@ -537,6 +598,9 @@ export async function prepareLabels(
     }
   }
 
+  // Bags saved without a due date whose tier has a turnaround now (Prep once it is set): dated, so the label shows it
+  const { filled } = await fillMissingDueDates(admin, { orderId: input.orderId, by: input.by });
+
   // Every bag of the order with live cards: the labels to print
   const after = await loadOrderIntake(admin, input.orderId);
   if (!after.ok) return after;
@@ -547,5 +611,28 @@ export async function prepareLabels(
   const head = plan.mode === "receive_first"
     ? `Received ${plural(newlyBagged, "card")}${orderStatusChanged ? `; the order is now Cards Received${emailed ? " and the customer was emailed" : ""}` : ""}.`
     : newlyBagged ? `Bagged ${plural(newlyBagged, "card")}.` : "Nothing new to bag.";
-  return { ok: true, response: { ok: true, bags, newlyBagged, emailed, orderStatusChanged, message: `${head}${extra} ${labels}` } };
+  const dated = filled.length ? ` Due date set for ${filled.map((f) => `${f.bagCode} (${shortDay(f.dueDate)})`).join(", ")}.` : "";
+  return {
+    ok: true,
+    response: {
+      ok: true, bags, newlyBagged, emailed, orderStatusChanged, shelves,
+      dueDatesFilled: filled.map((f) => ({ bagCode: f.bagCode, dueDate: f.dueDate })),
+      message: `${head}${extra}${dated} ${labels}${shelfText(shelves)}`,
+    },
+  };
+}
+
+/** "Dec 7" for a stored day. */
+function shortDay(day: string): string {
+  const d = new Date(`${day}T12:00:00Z`);
+  return Number.isNaN(d.getTime()) ? day : d.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" });
+}
+
+/** " Put in shelf: DUE MON DEC 7." (the receiving page's wording); each bag named when they go to different shelves. */
+function shelfText(shelves: readonly BagShelf[]): string {
+  const list = shelves.filter((s) => s.location).map((s) => ({ bag: s.bagCode, shelf: s.location!.name }));
+  const names = [...new Set(list.map((s) => s.shelf))];
+  if (!names.length) return "";
+  if (names.length === 1) return ` Put in shelf: ${names[0]}.`;
+  return ` Put ${list.map((s) => `${s.bag} in shelf ${s.shelf}`).join("; ")}.`;
 }

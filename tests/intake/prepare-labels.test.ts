@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { nyToday } from "@/lib/intake/business-days";
+import { addBusinessDays, nyToday } from "@/lib/intake/business-days";
 import type { PlanInput, SetupCard } from "@/lib/intake/migration";
 import type { BagSummary } from "@/lib/intake/types";
 import type { PrepareCard, PrepareConflict, PrepareOrder } from "@/lib/intake/prepare-labels";
@@ -125,7 +125,7 @@ test("in-shop setup plan: a chosen day wins; with nothing on record, today is us
 // ── End to end (in-memory Supabase) ─────────────────────────────────────────
 
 const id = (n: number) => `00000000-0000-4000-8000-0000000a${String(n).padStart(4, "0")}`;
-const O = { A: id(1), B: id(2), C: id(3), D: id(4), E: id(5), F: id(6), G: id(7) };
+const O = { A: id(1), B: id(2), C: id(3), D: id(4), E: id(5), F: id(6), G: id(7), H: id(8) };
 const order = (oid: string, number: string, status: string, over: Row = {}): Row => ({
   id: oid, order_number: number, customer_name: "Pat Collector", customer_email: "pat@example.com", customer_phone: "555", status,
   payment_status: "paid", restoration_tier: null, inbound_method: "self_ship", customer_notes: null,
@@ -152,6 +152,7 @@ const D = [card(O.D, "Snorlax", { tier: "regular" }), card(O.D, "Ditto", { tier:
 const E = [card(O.E, "Onix")];
 const F = [card(O.F, "Gyarados")];
 const G = [card(O.G, "Blastoise Shadowless")];
+const H = [card(O.H, "Psyduck", { tier: "prep" }), card(O.H, "Slowpoke", { tier: "prep" })];
 const cardRow = (cid: unknown) => mock.store.table("cards").find((c) => c.id === cid)!;
 const bagsOf = (oid: string) => mock.store.table("tier_bags").filter((b) => b.order_id === oid);
 const eventsOf = (oid: string) => mock.store.table("order_events").filter((e) => e.order_id === oid);
@@ -172,8 +173,9 @@ before(async () => {
         order(O.E, "CD-4005", "cancelled", { payment_status: "refunded" }),
         order(O.F, "CD-4006", "in_progress", { restoration_tier: "premium" }),
         order(O.G, "CD-4007", "received"),
+        order(O.H, "CD-4008", "awaiting_cards", { payment_status: "pending" }),
       ],
-      cards: [...A, ...B, ...C, ...D, ...E, ...F, ...G],
+      cards: [...A, ...B, ...C, ...D, ...E, ...F, ...G, ...H],
       order_services: [{ id: id(900), order_id: O.A, service_id: "", service_name: "Platinum + Gold - Full Restoration & PSA Prep", price_cents: 41999, quantity: 1 }],
       signatures: [{
         id: id(901), order_id: O.C, type: "master_terms", document_text: "terms",
@@ -311,7 +313,11 @@ test("Awaiting Cards: asks first, then receives all exactly like the Receive but
   if (!r.ok) return;
   assert.deepEqual([r.response.newlyBagged, r.response.orderStatusChanged, r.response.emailed], [3, true, true]);
   assert.deepEqual(r.response.bags.map((b) => [b.code, b.cardCount]), [["CD-4003-S", 3]]);
-  assert.equal(r.response.message, "Received 3 cards; the order is now Cards Received and the customer was emailed. 1 label to print.");
+  assert.match(r.response.message, /^Received 3 cards; the order is now Cards Received and the customer was emailed\. 1 label to print\. Put in shelf: DUE [A-Z]{3} [A-Z]{3} \d{1,2}\.$/);
+  // The receive route's shelf slot too (shelvesFor): one per due date, made here
+  const due = bagsOf(O.C)[0]?.due_date as string;
+  assert.deepEqual(r.response.shelves.map((x) => [x.bagCode, x.dueDate, x.location?.code]), [["CD-4003-S", due, `LOC-SHELF-${due.replaceAll("-", "")}`]]);
+  assert.equal(mock.store.table("locations").filter((l) => l.kind === "shelf" && l.due_date === due).length, 1);
   assert.equal(orderRow(O.C).status, "received");
   assert.equal(cardRow(C[2].id).tier, "expedited");
   assert.deepEqual(bagsOf(O.C).map((b) => [b.source, b.received_on, b.due_status]), [["receiving", nyToday(), "calculated"]]);
@@ -358,4 +364,71 @@ test("a hand-made order with nothing on record: asked with no guess; the answer 
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (r.ok) assert.deepEqual(r.response.bags.map((b) => [b.code, b.tierName]), [["CD-4007-R", "Prep"]]);
   assert.equal(cardRow(G[0].id).tier, "prep");
+});
+
+test("Awaiting Cards, not paid: refused like the Receive button until staff confirm (allowUnpaid); then received and noted", async () => {
+  const p = await plan(O.H);
+  assert.deepEqual([p.mode, p.payment, p.toBag], ["receive_first", "unpaid", 2]);
+  const ask = await pure.prepareLabels(admin, { orderId: O.H, confirmReceive: true, by: "gavin" });
+  assert.ok(!ask.ok && ask.status === 409);
+  const conflict = (ask as { conflict: PrepareConflict }).conflict;
+  assert.deepEqual([conflict.needsAllowUnpaid, conflict.unpaid, conflict.needsConfirmReceive, conflict.error],
+    [true, true, false, "This order hasn't been paid. Confirm to receive anyway."]);
+  assert.deepEqual([orderRow(O.H).status, bagsOf(O.H).length], ["awaiting_cards", 0], "nothing written");
+
+  const r = await pure.prepareLabels(admin, { orderId: O.H, confirmReceive: true, allowUnpaid: true, by: "gavin" });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  if (r.ok) assert.deepEqual([r.response.newlyBagged, r.response.orderStatusChanged, r.response.shelves], [2, true, []], "a Prep bag has no due date, so no shelf");
+  assert.equal(orderRow(O.H).status, "received");
+  assert.equal(eventsOf(O.H).filter((e) => e.event_type === "received_unpaid").length, 1);
+  // No Prep turnaround yet: the bag has no due date (the label prints a dash)
+  assert.deepEqual(bagsOf(O.H).map((b) => [b.bag_code, b.due_date, b.due_status]), [["CD-4008-R", null, "needs_review"]]);
+});
+
+test("a bag saved without a due date gets one once its tier has a turnaround (Prep), logged once; manual bags and repeats untouched", async () => {
+  // Before the setting: nothing to date
+  assert.equal((await plan(O.G)).dueDatesToFill, 0);
+  const none = await pure.prepareLabels(admin, { orderId: O.G, by: "gavin" });
+  assert.ok(none.ok);
+  if (none.ok) assert.deepEqual(none.response.dueDatesFilled, []);
+  assert.equal(bagsOf(O.G)[0].due_date, null);
+
+  // A dateless bag set by hand (made up: manual bags always have a date) is never touched
+  mock.store.table("tier_bags").push({
+    id: id(950), order_id: O.H, tier: "prep", batch: 2, bag_code: "CD-4008-R2", received_on: "2026-11-20", due_date: null, due_status: "manual",
+    turnaround_days: null, due_note: "kept", completed_at: null, completion_seen_at: null, label_printed_at: null, source: "receiving",
+    created_at: "2026-11-20T17:00:00.000Z", created_by: "gavin", location_id: null, located_at: null,
+  });
+  mock.store.table("store_config").push({ key: "prep_turnaround_max_days", value: "10" });
+  const holidays = new Set(["2026-11-26", "2026-12-25"]);
+
+  // Historical Setup bag (CD-4007-R, received 2026-11-12): dated, still for review
+  const g = await plan(O.G);
+  assert.deepEqual([g.mode, g.dueDatesToFill], ["ready", 1]);
+  const r = await pure.prepareLabels(admin, { orderId: O.G, by: "gavin" });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  const gDue = addBusinessDays("2026-11-12", 10, holidays);
+  if (r.ok) {
+    assert.deepEqual(r.response.dueDatesFilled, [{ bagCode: "CD-4007-R", dueDate: gDue }]);
+    assert.match(r.response.message, /Due date set for CD-4007-R \(\w{3} \d{1,2}\)\./);
+  }
+  const [gBag] = bagsOf(O.G);
+  assert.deepEqual([gBag.due_date, gBag.due_status, gBag.turnaround_days], [gDue, "needs_review", 10]);
+  const changes = () => mock.store.table("tier_bag_due_changes");
+  assert.deepEqual(changes().filter((c) => c.bag_id === gBag.id).map((c) => [c.old_due, c.new_due, c.changed_by]), [[null, gDue, "gavin"]]);
+
+  // Receiving bag (CD-4008-R, received today): calculated; the manual one stays dateless
+  assert.equal((await plan(O.H)).dueDatesToFill, 1);
+  const h = await pure.prepareLabels(admin, { orderId: O.H, by: "gavin" });
+  assert.ok(h.ok, h.ok ? "" : h.error);
+  const hBags = Object.fromEntries(bagsOf(O.H).map((b) => [b.bag_code, [b.due_date, b.due_status]]));
+  assert.deepEqual(hBags, { "CD-4008-R": [addBusinessDays(nyToday(), 10, holidays), "calculated"], "CD-4008-R2": [null, "manual"] });
+
+  // Again: nothing to date, no second log line
+  const before = changes().length;
+  const again = await pure.prepareLabels(admin, { orderId: O.G, by: "gavin" });
+  assert.ok(again.ok);
+  if (again.ok) assert.deepEqual(again.response.dueDatesFilled, []);
+  assert.equal((await plan(O.G)).dueDatesToFill, 0);
+  assert.equal(changes().length, before);
 });

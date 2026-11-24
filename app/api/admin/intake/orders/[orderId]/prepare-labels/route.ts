@@ -7,18 +7,22 @@ import { DAY, UUID, adminName, fail, smallJson } from "../../guard";
  * "Print labels" for any order in one tap (lib/intake/prepare-labels.ts).
  * Full admins only, like the other receiving routes.
  *
- * GET  → 200 PreparePlan { orderId, orderNumber, status, mode: ready | bag_in_shop | receive_first | not_allowed,
- *        reason?, bags, toBag, tierQuestions, needsAnswers, receivedOn, receivedOnSource, skipped } | 401 / 404 / 500 { error }
- * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, receivedOn?: "YYYY-MM-DD" }
- *      → 200 PrepareResponse { ok, bags: { id, code, tier, tierName, cardCount }[], newlyBagged, emailed, orderStatusChanged, message }
- *      | 409 PrepareConflict (the PreparePlan + error, needsConfirmReceive, unanswered) when a tier question is
- *        unanswered or an Awaiting Cards order needs confirmReceive
+ * GET  → 200 PreparePlan { orderId, orderNumber, status, payment, mode: ready | bag_in_shop | receive_first | not_allowed,
+ *        reason?, bags, toBag, tierQuestions, needsAnswers, dueDatesToFill, receivedOn, receivedOnSource, skipped }
+ *        | 401 / 404 / 500 { error }. Read-only.
+ * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, allowUnpaid?: boolean, receivedOn?: "YYYY-MM-DD" }
+ *      → 200 PrepareResponse { ok, bags: { id, code, tier, tierName, cardCount }[], newlyBagged, emailed, orderStatusChanged,
+ *        shelves, dueDatesFilled, message }
+ *      | 409 PrepareConflict (the PreparePlan + error, needsConfirmReceive, needsAllowUnpaid, unpaid?, unanswered) when a tier
+ *        question is unanswered, an Awaiting Cards order needs confirmReceive, or an unpaid one needs allowUnpaid
+ *        (the Receive button's confirm: error UNPAID_ERROR, unpaid: true)
  *      | 400 / 401 / 404 / 409 (not allowed: cancelled, refunded, awaiting payment) / 500 { error }
  * Then print: GET /api/admin/intake/labels/order/<orderId>.
  */
 const Body = z.object({
   tiers: z.record(z.string().regex(UUID, "Card not found"), z.string().trim().min(1).max(40)).optional(),
   confirmReceive: z.boolean().optional(),
+  allowUnpaid: z.boolean().optional(),
   receivedOn: z.string().regex(DAY, "Pick a valid received date.").optional(),
 });
 

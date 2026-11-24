@@ -394,9 +394,12 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
                             {b.due_date && <span className="text-xs font-bold text-foreground">Due {etDay(b.due_date)}</span>}
                             <span className="text-xs text-muted-foreground">{b.received_on ? `Received ${etDay(b.received_on)}` : "No received date"}</span>
                           </AdminLink>
-                          <div className="px-4 pb-3 sm:px-5 sm:py-2">
-                            <PrintOrderLabels orderId={b.order_id} orderNumber={b.orders?.order_number ?? ""} bags={[{ id: b.id, code: b.bag_code }]} size="sm" />
-                          </div>
+                          {/* No label for a bag whose cards were all refunded */}
+                          {(bagSize.get(b.id) ?? 0) > 0 && (
+                            <div className="px-4 pb-3 sm:px-5 sm:py-2">
+                              <PrintOrderLabels orderId={b.order_id} orderNumber={b.orders?.order_number ?? ""} bags={[{ id: b.id, code: b.bag_code }]} size="sm" />
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
