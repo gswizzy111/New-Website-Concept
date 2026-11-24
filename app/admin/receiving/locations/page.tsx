@@ -3,22 +3,26 @@ import { ScanLine } from "lucide-react";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { deskPageHref, isDeskCode } from "@/components/intake/scan/format";
 import { nyToday } from "@/lib/intake/business-days";
 import { stationName } from "@/lib/intake/tracking/stations";
 import { shortDay } from "../bags/_components/bag-bits";
 import { STATION_TYPES, stageRank, stepText, type StationType } from "../shelf/_lib/places";
 import { loadPlaces, type PlaceWithCards } from "./load-places";
 import {
-  AddPlaceForm, AddSlotsForm, NextShelfSignsPrint, PlaceItem, SlotTile, StationRangePrint,
+  AddDeskForm, AddPlaceForm, AddSlotsForm, NextShelfSignsPrint, PlaceItem, SlotTile, StationCapacity, StationRangePrint,
   type PlaceItemData, type SlotTileData,
 } from "./places-client";
 
 /**
  * Places: every serial-numbered slot (CLAMP 07, HEAT PRESS 03...) grouped by
- * station type with who's in it, the due-date shelf slots, the Done shelf,
- * Shipping and anything else. Add slots in bulk, print their QR labels (one,
+ * station type with who's in it, the desks, the due-date shelf slots, the
+ * Done shelf, Shipping and anything else. Add slots in bulk, set a station
+ * type's capacity for all its slots, add a desk, print their QR labels (one,
  * or a serial range), rename and turn off. On the Scan page, scanning a slot
- * then a bag's label puts a card in it (the card's step follows the slot).
+ * then a bag's label puts a card in it (the card's step follows the slot); a
+ * desk (LOC-DESK, LOC-DESK-<NAME>) only changes where cards are, and the Desk
+ * page shows them.
  */
 
 export const dynamic = "force-dynamic";
@@ -42,6 +46,9 @@ function shelfNote(day: string | null, today: string): string | null {
   return null;
 }
 
+/** A desk: a place whose code is LOC-DESK or LOC-DESK-<NAME>. */
+const isDesk = (p: PlaceWithCards) => p.kind === "other" && isDeskCode(p.code);
+
 function toItem(p: PlaceWithCards, today: string): PlaceItemData {
   return {
     id: p.id,
@@ -54,6 +61,7 @@ function toItem(p: PlaceWithCards, today: string): PlaceItemData {
     bagCount: p.bagCount,
     note: p.kind === "shelf" ? shelfNote(p.due_date, today) : null,
     shelfHref: p.kind === "shelf" && p.due_date ? `/admin/receiving/shelf#due-${p.due_date}` : null,
+    deskHref: isDesk(p) ? deskPageHref(p.code) : null,
   };
 }
 
@@ -75,8 +83,10 @@ function toTile(p: PlaceWithCards, today: string): SlotTileData {
   };
 }
 
-function PlaceList({ id, title, hint, places, today, empty, action }: {
+function PlaceList({ id, title, hint, places, today, empty, action, form }: {
   id: string; title: string; hint: string; places: PlaceWithCards[]; today: string; empty?: string; action?: React.ReactNode;
+  /** A form between the heading and the list (Add a desk). */
+  form?: React.ReactNode;
 }) {
   const cards = places.reduce((n, p) => n + p.cards.length, 0);
   return (
@@ -90,6 +100,7 @@ function PlaceList({ id, title, hint, places, today, empty, action }: {
         </div>
         {action}
       </div>
+      {form && <div className="mb-3 bg-white rounded-xl border border-border p-4">{form}</div>}
       {places.length === 0 ? (
         <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">{empty ?? "None yet."}</p>
       ) : (
@@ -142,7 +153,8 @@ export default async function PlacesPage() {
   const oldShelves = shelves.filter((p) => !currentShelves.includes(p));
   const done = active.filter((p) => p.kind === "done").sort(byName);
   const shipping = active.filter((p) => p.kind === "shipping").sort(byName);
-  const other = active.filter((p) => !["station", "shelf", "done", "shipping"].includes(p.kind)).sort(byName);
+  const desks = active.filter(isDesk).sort(byName);
+  const other = active.filter((p) => !["station", "shelf", "done", "shipping"].includes(p.kind) && !isDesk(p)).sort(byName);
   const off = all.filter((p) => !p.active).sort((a, b) => a.kind.localeCompare(b.kind) || byName(a, b));
 
   return (
@@ -203,6 +215,9 @@ export default async function PlacesPage() {
               {withSlots.map(({ type, slots: list }) => {
                 const used = list.filter((p) => p.cards.length).length;
                 const serials = list.map((p) => p.serial).filter((s): s is number => s != null);
+                // Capacity is set for every slot of the type, turned-off ones too
+                const ofType = all.filter((p) => p.kind === "station" && typeKey(p) === type.key);
+                const known = STATION_TYPES.find((t) => t.key === type.key);
                 return (
                   <section key={type.key} aria-labelledby={`type-${type.key}`} className="rounded-xl bg-white/60 border border-border p-3 sm:p-4">
                     <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
@@ -211,6 +226,11 @@ export default async function PlacesPage() {
                         <p className="text-xs text-muted-foreground">
                           {[stepText(type.stage), `${list.length} slot${list.length === 1 ? "" : "s"}`, `${used} in use`, `${list.length - used} empty`].filter(Boolean).join(" · ")}
                         </p>
+                        <StationCapacity
+                          typeName={type.name}
+                          defaultCapacity={known ? known.defaultCapacity : undefined}
+                          slots={ofType.map((p) => ({ id: p.id, name: p.name, capacity: p.capacity, cardCount: p.cards.length, active: p.active }))}
+                        />
                       </div>
                       <StationRangePrint
                         station={type.key}
@@ -233,6 +253,16 @@ export default async function PlacesPage() {
                 </p>
               )}
             </section>
+
+            <PlaceList
+              id="desks-h"
+              title="Desks"
+              hint="Where you work on cards. Scan a holder, tap Move, then scan the desk: the Desk page shows each card with its photos and the customer's notes. Cards on a desk keep their step."
+              places={desks}
+              today={today}
+              empty="No desk yet. Add one, print its sign and stick it on the desk."
+              form={<AddDeskForm takenCodes={all.map((p) => p.code)} />}
+            />
 
             <div>
               <PlaceList

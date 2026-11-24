@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, CircleCheckBig, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowRightLeft, CircleCheckBig, LayoutGrid, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import type {
   CapacityConflict,
@@ -16,7 +16,7 @@ import type {
 import * as api from "./api";
 import { ScanCamera } from "./camera";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
-import { cardsLabel, roomLeft } from "./format";
+import { cardsLabel, deskPageHref, isDeskCode, roomLeft } from "./format";
 import { createScanGate, parseScan, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
@@ -47,6 +47,10 @@ import {
  *                           POST /move), Done (POST /done), Take out (POST /release)
  *   Scan a bag or order  -> its cards and where each one is; "Assign to a slot"
  *                           per card, then scan the slot
+ *   Scan a desk          -> its cards like any place, plus "Open desk page"
+ *                           (/admin/receiving/desk?desk=<code>); a stack moved
+ *                           or put on a desk leaves a link to that page
+ *                           (a holder's cards are all picked for Move by default)
  *   Ship check (on)      -> a bag or order scan opens /admin/receiving/ship/<orderId>
  *
  * Input: the camera (camera.tsx), a handheld scanner anywhere on the page or
@@ -183,6 +187,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const sound = useSound();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDone, setConfirmDone] = useState(false);
+  /** The desk cards were last put on (a link to its page stays until the next save elsewhere). */
+  const [deskNote, setDeskNote] = useState<{ code: string; text: string } | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = useRef(0);
   const gate = useRef(createScanGate(2000));
@@ -271,6 +277,13 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     [fail, show],
   );
 
+  /** After a save: cards put on a desk leave a link to the Desk page; a save anywhere else clears it. */
+  const noteDesk = useCallback((res: TrackActionResponse | null) => {
+    const to = res?.location ?? null;
+    const onDesk = !!res && !!to && isDeskCode(to.code) && res.results.some((r) => r.ok);
+    setDeskNote(onDesk ? { code: to.code, text: res.message || `Cards on ${to.name}.` } : null);
+  }, []);
+
   /** Runs one step after the ones before it (scans and taps alike). */
   const enqueue = useCallback((task: () => Promise<void>) => {
     pending.current += 1;
@@ -341,6 +354,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       }
       setWaiting(null);
       saved(res.data, `${cardsLabel(cards)} in ${slot.name}.`);
+      noteDesk(res.data);
       const to = res.data.location;
       if (picksRef.current) setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, to) });
       const current = viewRef.current;
@@ -360,7 +374,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         }
       }
     },
-    [fail, picksRef, refreshSlot, saved, setPicks, setTarget, setView, setWaiting, targetRef, viewRef],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setTarget, setView, setWaiting, targetRef, viewRef],
   );
 
   const doMove = useCallback(
@@ -387,10 +401,11 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       }
       setWaiting(null);
       saved(res.data, `${cardsLabel(cards)} moved to ${to.name}.`);
+      noteDesk(res.data);
       if (picksRef.current) setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location) });
       await refreshSlot(to.code);
     },
-    [fail, picksRef, refreshSlot, saved, setPicks, setWaiting],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setWaiting],
   );
 
   /** Done or Take out, for cards in `slot` (shown again after) or picked from a bag or search (null: the list stays). */
@@ -407,13 +422,14 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       }
       setWaiting(null);
       saved(res.data, kind === "done" ? `${cardsLabel(cards)} done.` : `${cardsLabel(cards)} taken out${slot ? ` of ${slot.name}` : ""}.`);
+      noteDesk(null);
       if (picksRef.current) {
         setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location, kind === "done") });
       }
       if (slot) await refreshSlot(slot.code);
       else setView(patchView(viewRef.current, res.data, res.data.location, kind === "done"));
     },
-    [fail, picksRef, refreshSlot, saved, setPicks, setView, setWaiting, viewRef],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setView, setWaiting, viewRef],
   );
 
   // ----- what a scan does -----
@@ -569,6 +585,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const slotView = view.type === "slot" ? view.slot : null;
   const slotCards = slotView ? slotView.cards : [];
   const chosen = slotCards.filter((c) => selected.has(c.id));
+  const allChosen = slotCards.length > 0 && chosen.length === slotCards.length;
+  const slotIsDesk = !!slotView && slotView.kind === "other" && isDeskCode(slotView.code);
   const activeTarget = target && now - target.at <= TARGET_TTL_MS ? target.slot : null;
   const showActions = !!slotView && slotCards.length > 0 && !waiting;
 
@@ -644,20 +662,24 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   // The line that says what the next scan does
   let cue: { title: string; sub?: string; tone: string; cancel?: () => void; cancelLabel?: string };
   if (waiting?.type === "move") {
-    cue = { title: `Scan the next slot for ${cardsLabel(waiting.cards)}`, sub: `Moving from ${waiting.from.name}.`, tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
+    cue = { title: `Scan the next slot for ${cardsLabel(waiting.cards)}`, sub: `Moving from ${waiting.from.name}. Or type its name (desk, clamp 7) below.`, tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (waiting?.type === "assign") {
-    cue = { title: `Scan the slot for ${cardsLabel(waiting.cards)}`, sub: "Or type its name (clamp 7) below.", tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
+    cue = { title: `Scan the slot for ${cardsLabel(waiting.cards)}`, sub: "Or type its name (desk, clamp 7) below.", tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (ship) {
     cue = { title: "Ship check: scan the bag or order", sub: "Opens its ship check page.", tone: "bg-cyan-700 text-white", cancel: toggleShip, cancelLabel: "Stop" };
   } else if (activeTarget) {
+    // A holder or desk with cards in it already, on screen: its own cards' buttons are below
+    const holding = slotView?.code === activeTarget.code && slotCards.length > 0;
     cue = {
-      title: `Put a card in ${activeTarget.name}`,
-      sub: "Scan the bag’s QR, or search below, then tap the card.",
+      title: `${holding ? "Add a card to" : "Put a card in"} ${activeTarget.name}`,
+      sub: holding
+        ? "Scan a bag’s QR or search, then tap the card. Or pick its cards below to Move."
+        : "Scan the bag’s QR, or search below, then tap the card.",
       tone: "bg-amber-300 text-gray-950",
       cancel: () => setTarget(null),
     };
   } else {
-    cue = { title: "Scan a slot or a bag", sub: "Or type a code, a slot (clamp 7), a name or an order.", tone: "bg-white text-foreground border border-border" };
+    cue = { title: "Scan a slot or a bag", sub: "Or type a code, a slot (clamp 7), desk, a name or an order.", tone: "bg-white text-foreground border border-border" };
   }
 
   const pickList = activeTarget && slotView && activeTarget.code === slotView.code && picks
@@ -721,11 +743,30 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         {/* Camera and code box */}
         <div className="flex flex-col gap-3 lg:sticky lg:top-28">
           <ScanCamera onRead={onCamera} compact={view.type !== "start"} />
-          <ScanInput onScan={onInput} placeholder="Code, slot (clamp 7), name or order" />
+          <ScanInput onScan={onInput} placeholder="Code, slot (clamp 7), desk, name or order" />
         </div>
 
         {/* The flow */}
         <div className="flex min-w-0 flex-col gap-3">
+          {deskNote && slotView?.code !== deskNote.code && (
+            <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-950">
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-bold break-words">{deskNote.text}</p>
+                <AdminLink href={deskPageHref(deskNote.code)} className={`${smallButton.replace("border-border", "border-green-300")} mt-2`}>
+                  <LayoutGrid className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                  Open the desk page
+                </AdminLink>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeskNote(null)}
+                aria-label="Hide"
+                className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-700"
+              >
+                <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {conflict && (
             <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
               <p className="text-lg font-black">{conflict.text}</p>
@@ -753,10 +794,12 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                 <li>Scan an <span className="font-semibold text-foreground">empty slot</span>, then scan the bag and tap the card to put in it.</li>
                 <li>Scan a <span className="font-semibold text-foreground">full slot</span> to see its card: Move it (then scan the next slot), Done, or Take out.</li>
                 <li>Scan a <span className="font-semibold text-foreground">bag</span> to see where each of its cards is.</li>
+                <li>A stack coming out (a heat press of 8): scan the holder, tap Move, then scan the <span className="font-semibold text-foreground">desk</span>. All its cards go.</li>
               </ul>
               <div className="mt-3 flex flex-wrap gap-2">
                 <AdminLink href="/admin/receiving/locations" className={smallButton}>Slots and labels</AdminLink>
                 <AdminLink href="/admin/receiving/shelf" className={smallButton}>Shelf by due date</AdminLink>
+                <AdminLink href="/admin/receiving/desk" className={smallButton}>Desk</AdminLink>
               </div>
             </div>
           )}
@@ -764,6 +807,17 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           {slotView && (
             <div className="flex flex-col gap-3">
               <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
+              {slotIsDesk && (
+                <AdminLink href={deskPageHref(slotView.code)} className={`${bigButton} w-full border border-border bg-white text-foreground hover:border-primary/40`}>
+                  <LayoutGrid className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                  Open desk page
+                </AdminLink>
+              )}
+              {slotCards.length > 1 && (
+                <p className="px-1 text-sm text-muted-foreground">
+                  Move, Done and Take out act on the ticked cards. Untick any that stay in {slotView.name}.
+                </p>
+              )}
               {slotCards.length > 0 && (
                 <ul className={panel}>
                   {slotCards.map((card) => (
@@ -771,16 +825,18 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                       key={card.id}
                       card={card}
                       now={now}
+                      dense={slotCards.length > 3}
                       selectable={slotCards.length > 1}
                       selected={selected.has(card.id)}
-                      onToggle={() =>
+                      onToggle={() => {
+                        setConfirmDone(false);
                         setSelected((s) => {
                           const next = new Set(s);
                           if (next.has(card.id)) next.delete(card.id);
                           else next.add(card.id);
                           return next;
-                        })
-                      }
+                        });
+                      }}
                     />
                   ))}
                 </ul>
@@ -789,9 +845,21 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
               {showActions && (
                 <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none">
                   {slotCards.length > 1 && (
-                    <p className="mb-2 text-xs font-semibold text-muted-foreground">
-                      {chosen.length === slotCards.length ? `All ${slotCards.length} cards` : `${chosen.length} of ${slotCards.length} cards picked`}
-                    </p>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-foreground">
+                        {allChosen ? `All ${slotCards.length} cards picked` : chosen.length === 0 ? "No cards picked" : `${chosen.length} of ${slotCards.length} cards picked`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmDone(false);
+                          setSelected(allChosen ? new Set() : new Set(slotCards.map((c) => c.id)));
+                        }}
+                        className="min-h-11 shrink-0 rounded-full px-3 text-sm font-bold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      >
+                        {allChosen ? "Pick none" : "Pick all"}
+                      </button>
+                    </div>
                   )}
                   {/* On a phone the card can sit below the fold, under this bar: say which card the buttons act on */}
                   {slotCards.length === 1 && (
@@ -815,7 +883,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                       className={`${actionButton} bg-primary text-primary-foreground hover:bg-primary/90`}
                     >
                       <ArrowRightLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                      Move
+                      {chosen.length > 1 ? (allChosen ? `Move all ${chosen.length}` : `Move ${chosen.length}`) : "Move"}
                     </button>
                     <button
                       type="button"

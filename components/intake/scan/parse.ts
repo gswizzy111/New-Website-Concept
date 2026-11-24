@@ -60,13 +60,20 @@ export function scanKey(raw: string): string {
 /**
  * A slot typed by its name: "clamp 7", "CLAMP 07", "heat press 3" ->
  * LOC-CLAMP-07, LOC-HEAT-PRESS-03 ("loc-clamp-7" too); "done" -> LOC-DONE,
- * "ship" -> LOC-SHIP. Null when the text doesn't look like a slot name (it
- * is then searched).
+ * "ship" -> LOC-SHIP; "desk" -> LOC-DESK, "desk gavin" -> LOC-DESK-GAVIN,
+ * "desk 2" -> LOC-DESK-2 (a desk's code comes from its name, so its number
+ * is never padded). Null when the text doesn't look like a slot name (it is
+ * then searched; a desk or slot that isn't found is searched too).
  */
 export function slotCodeGuess(text: string): string | null {
   const t = text.trim().toUpperCase().replace(/\s+/g, " ").replace(/^LOC[ -]+/, "");
   if (t === "DONE") return "LOC-DONE";
   if (t === "SHIP" || t === "SHIPPING") return "LOC-SHIP";
+  if (t === "DESK" || /^DESK[^A-Z0-9]/.test(t)) {
+    // As the place's code is made from its name (locationSlug): A-Z, 0-9, single dashes
+    const code = `LOC-${t.replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+    return isLocationCode(code) ? code : null;
+  }
   const m = /^([A-Z][A-Z -]*?)[ -]*(\d{1,4})$/.exec(t);
   if (!m) return null;
   const words = m[1].replace(/[ -]+/g, "-").replace(/^-+|-+$/g, "");

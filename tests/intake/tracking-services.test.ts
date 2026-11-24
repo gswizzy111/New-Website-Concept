@@ -135,6 +135,11 @@ test("slots are made in numbered runs: CLAMP 01..03, then 04..05; numbers in use
   if (c.ok) assert.deepEqual([c.created.map((l) => l.code), c.skipped], [["LOC-CLAMP-06"], ["LOC-CLAMP-05"]]);
   const h = await svc.locations.createSlots(admin, { station: "heat-press", count: 2, by: "gavin" });
   assert.ok(h.ok && h.created.map((l) => l.name).join() === "HEAT PRESS 01,HEAT PRESS 02");
+  // A heat press takes a stack (no limit); a clamp holds one
+  assert.ok(h.ok && h.created.every((l) => l.capacity === null), "new heat press slots have no limit");
+  // HEAT PRESS 01 holds one card, as the owner's slots made before that change do (Places: "Set for all")
+  const one = await svc.locations.updateLocation(admin, { id: loc("LOC-HEAT-PRESS-01").id as string, capacity: 1 });
+  assert.ok(one.ok && one.location.capacity === 1);
   const bad = await svc.locations.createSlots(admin, { station: "toaster", count: 2, by: "gavin" });
   assert.ok(!bad.ok && bad.status === 400);
   const tooMany = await svc.locations.createSlots(admin, { station: "clamp", count: 201, by: "gavin" });
@@ -143,6 +148,9 @@ test("slots are made in numbered runs: CLAMP 01..03, then 04..05; numbers in use
   const t1 = await svc.locations.createLocation(admin, { name: "Back table", kind: "other", by: "gavin" });
   const t2 = await svc.locations.createLocation(admin, { name: "Back  table", kind: "other", by: "gavin" });
   assert.ok(t1.ok && t2.ok && t1.location.code === "LOC-BACK-TABLE" && t2.location.code === "LOC-BACK-TABLE-2");
+  // A desk (Places: "Add a desk" sends { name: "DESK <NAME>", kind: "other" })
+  const d1 = await svc.locations.createLocation(admin, { name: "DESK GAVIN", kind: "other", by: "gavin" });
+  assert.ok(d1.ok && d1.location.code === "LOC-DESK-GAVIN" && d1.location.kind === "other" && d1.location.capacity === null);
   const st = await svc.locations.createLocation(admin, { name: "x", kind: "station", by: "gavin" });
   assert.ok(!st.ok && st.status === 400);
 });

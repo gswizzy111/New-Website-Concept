@@ -151,28 +151,35 @@ export function CardRow({
   );
 }
 
-/** A slot's own card, big: what's in CLAMP 07. */
+/**
+ * A slot's own card, big: what's in CLAMP 07. `dense` for a stack (a heat
+ * press or desk holding several cards): smaller type, so eight cards don't
+ * fill three screens.
+ */
 export function SlotCard({
   card,
   now,
   selectable,
   selected,
   onToggle,
+  dense = false,
 }: {
   card: TrackCardSummary;
   now: number;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
+  dense?: boolean;
 }) {
   const body = (
     <>
       <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-2xl font-black text-foreground sm:text-3xl">{card.code ?? "No Card ID"}</span>
+        <span className={`font-mono font-black text-foreground ${dense ? "text-xl" : "text-2xl sm:text-3xl"}`}>{card.code ?? "No Card ID"}</span>
         {card.done && <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">Done</span>}
+        {selectable && !selected && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-gray-700">Not picked</span>}
       </p>
-      <p className="text-lg font-black leading-tight text-foreground">{card.customer ?? "No name"}</p>
-      <p className="text-base font-semibold text-foreground">{cardTitle(card)}</p>
+      <p className={`font-black leading-tight text-foreground ${dense ? "text-base" : "text-lg"}`}>{card.customer ?? "No name"}</p>
+      <p className={`font-semibold text-foreground ${dense ? "text-sm" : "text-base"}`}>{cardTitle(card)}</p>
       <p className="text-sm text-muted-foreground">
         {card.tierName} · <Due day={card.dueDate} />
       </p>
@@ -186,7 +193,7 @@ export function SlotCard({
   return (
     <li className="border-b border-border last:border-b-0">
       <label className="flex cursor-pointer items-start gap-3 px-4 py-3">
-        <input type="checkbox" checked={selected} onChange={onToggle} className="mt-2 h-6 w-6 shrink-0 accent-primary" />
+        <input type="checkbox" checked={selected} onChange={onToggle} className={`${dense ? "mt-1" : "mt-2"} h-6 w-6 shrink-0 accent-primary`} />
         <span className="flex min-w-0 flex-col gap-0.5">{body}</span>
       </label>
     </li>

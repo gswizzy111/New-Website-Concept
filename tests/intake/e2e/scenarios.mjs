@@ -6,6 +6,7 @@
 //   node tests/intake/e2e/scenarios.mjs                 start harness, run all, stop
 //   node tests/intake/e2e/scenarios.mjs --only qr,labels,photos-page,print-step
 //   node tests/intake/e2e/scenarios.mjs --only 'track-*'  card tracking with serial-numbered slots
+//   node tests/intake/e2e/scenarios.mjs --only 'desk-*'   the Desk: a heat press stack to the desk, the Desk page
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -81,6 +82,14 @@ export const ROUTES = {
   shipCheck: (code) => `/api/admin/track/ship-check?code=${encodeURIComponent(code)}`,
   // Slot and place QR labels, one 50 x 80 mm page each: ?ids=a,b | ?station=clamp&from=1&to=5; &format=json
   slotLabels: (query) => `/api/admin/track/locations/labels${query}`,
+
+  // ── Desk (owner, Nov 24): a desk is a place (kind 'other') LOC-DESK, or LOC-DESK-<NAME> ("DESK
+  // GAVIN"); cards moved there keep their step. The Desk page (menu "Desk") shows every card on one
+  // desk, a panel per card; ?desk=<code> picks the desk when there are several.
+  desk: "/admin/receiving/desk",
+  deskAt: (code) => `/admin/receiving/desk?desk=${encodeURIComponent(code)}`,
+  // Where a desk panel's "Open order" goes: the full order page
+  order: (orderId) => `/admin/orders/${orderId}`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -175,6 +184,62 @@ export const UI = {
   stillIn: (slotName) => new RegExp(`still in\\s+${esc(slotName)}(?!\\d)`, "i"),
   shipMarkDone: (scope) => scope.getByRole("button", { name: /^mark( as)? done\b/i }).first(),
   shipConfirmDone: (scope) => scope.getByRole("button", { name: /^yes,? mark( it)? done\b/i }).first(),
+
+  // ── Desk (/admin/receiving/desk; being built while these were written: wording from the brief) ──
+  // The menu item "Desk" (the menu's emoji icon is part of the link's name)
+  deskNavLink: (page) => page.getByRole("link", { name: /^[^\p{L}\p{N}]*desk$/iu }),
+  /**
+   * One card's panel: the OUTERMOST block in <main> holding its Card ID and a link to an order
+   * (/admin/orders/...) and no other Card ID of `codes` (so not the grid around all panels, and
+   * not a message that names the card). `codes`: every Card ID the test may see on the page.
+   */
+  deskPanel: (page, code, codes) => {
+    const others = codes.filter((c) => c !== code);
+    let loc = page.locator("main").first()
+      .locator("article, li, section, div, [role='group'], [role='listitem']")
+      .filter({ hasText: code })
+      .filter({ has: page.locator('a[href*="/admin/orders/"]') });
+    if (others.length) loc = loc.filter({ hasNotText: new RegExp(others.map(esc).join("|")) });
+    return loc.first();
+  },
+  // "Open order" (named so; it goes to /admin/orders/<id>)
+  deskOpenOrder: (scope) => scope.getByRole("link", { name: /\bopen\b.*\border\b|\bfull order\b/i }),
+  // The empty desk: says there are no cards, and how to get them here (scan a holder, Move, scan the desk)
+  deskEmpty: /no cards|nothing (is )?(on|at|here)|is empty|desk is clear|0 cards/i,
+  deskEmptyHow: /scan|move/i,
+  // A card's buttons, in its panel: "Put in holder", "Done", "Take out"
+  deskPutIn: (scope) => scope.getByRole("button", { name: /^put\b(?!.*\bselected\b)/i }).first(),
+  deskDone: (scope) => scope.getByRole("button", { name: /^(mark( it| as)? )?done\b(?!.*\bselected\b)/i }).first(),
+  deskTakeOut: (scope) => scope.getByRole("button", { name: /^take (it |this card )?out\b/i }).first(),
+  // What a button asks before it saves, if it does: "Tap again", "Yes, mark done", "Confirm"
+  deskConfirm: (scope) => scope.getByRole("button", { name: /^(yes\b|tap again\b|confirm\b|mark (it |as )?done\b|done\b|take (it )?out\b)/i }).first(),
+  // Ticking a card for the multi-select actions: a checkbox in its panel, or a "Select" toggle
+  deskSelect: (scope) => scope.getByRole("checkbox").or(scope.getByRole("button", { name: /^(select|pick)\b/i })).first(),
+  // "Put selected in…", "Put 2 selected in…", "Put 2 cards in…"
+  deskPutSelected: (page) => page.getByRole("button", { name: /^put\b.*\bselected\b|^put (these |the )?\d+ (selected )?cards? in\b/i }).first(),
+  // The holder picker's text box ("clamp 7", or a scanned holder label): in a dialog, in the panel, or named so
+  holderBoxes: (page, scope) => [
+    page.getByRole("dialog").getByRole("textbox"),
+    page.getByRole("dialog").getByRole("combobox"),
+    scope?.getByRole("textbox"),
+    scope?.getByRole("combobox"),
+    page.getByRole("textbox", { name: /holder|slot|clamp|scan|type/i }),
+    page.getByPlaceholder(/clamp|holder|slot/i),
+    page.locator("main").first().getByRole("textbox"),
+  ].filter(Boolean),
+  // A holder offered by the picker ("CLAMP 01", "Put in CLAMP 01")
+  holderOption: (page, name) => {
+    const re = new RegExp(`${esc(name)}(?!\\d)`, "i");
+    return page.getByRole("option", { name: re }).or(page.getByRole("radio", { name: re })).or(page.getByRole("button", { name: re })).first();
+  },
+  // A photo opens the full-screen viewer (the photos page's: a <dialog> with the photo and Close)
+  deskPhotoButton: (panel) => panel.locator("button:has(img), [role='button']:has(img)").first(),
+  photoViewer: (page) => page.getByRole("dialog").filter({ has: page.locator("img") }).first(),
+  viewerClose: (scope) => scope.getByRole("button", { name: /^close\b/i }).first(),
+  // The Scan page on a desk: "Open desk page"; after a move to a desk: "Open the desk page"
+  openDeskPage: (page) => page.getByRole("link", { name: /^open (the )?desk( page)?\b/i }).first(),
+  // Where the pages say what a save did: status / alert / live regions and toasts
+  liveRegions: (page) => page.locator('[role="status"], [role="alert"], [aria-live="polite"], [aria-live="assertive"], [data-sonner-toast]'),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

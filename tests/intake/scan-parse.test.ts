@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess, typedSlotGuess } from "@/components/intake/scan/parse";
-import { cardsLabel, fillText, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
+import { cardsLabel, deskPageHref, fillText, isDeskCode, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
 
 test("QR links: the code after /Q/, any host, any case", () => {
   assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/CD-2549-03"), { code: "CD-2549-03", kind: "card" });
@@ -155,4 +155,35 @@ test("wording: how full a slot is", () => {
   assert.equal(cardsLabel([{ code: "CD-2549-03", name: "Charizard" }]), "CD-2549-03");
   assert.equal(cardsLabel([{ code: null, name: "Charizard" }]), "Charizard");
   assert.equal(cardsLabel([{ code: "A", name: null }, { code: "B", name: null }]), "2 cards");
+});
+
+test("desks: typed \"desk\" is LOC-DESK; a named desk by its name; the Desk page link", () => {
+  assert.equal(slotCodeGuess("desk"), "LOC-DESK");
+  assert.equal(slotCodeGuess(" Desk "), "LOC-DESK");
+  assert.equal(slotCodeGuess("desk gavin"), "LOC-DESK-GAVIN");
+  assert.equal(slotCodeGuess("DESK-GAVIN"), "LOC-DESK-GAVIN");
+  assert.equal(slotCodeGuess("desk gavin's"), "LOC-DESK-GAVIN-S", "as the code is made from the name");
+  assert.equal(slotCodeGuess("desk 2"), "LOC-DESK-2", "a desk's number is never padded");
+  assert.equal(slotCodeGuess("loc desk"), "LOC-DESK");
+  for (const text of ["desks", "desktop", "my desk"]) assert.notEqual(slotCodeGuess(text)?.startsWith("LOC-DESK"), true, text);
+  // In the code box: "desk" and "desk 2" (an order code's shape) go to the desk; a typed LOC code is read as it is
+  assert.equal(parseScan("desk"), null);
+  assert.equal(typedSlotGuess("desk"), "LOC-DESK");
+  assert.equal(typedSlotGuess("desk gavin"), "LOC-DESK-GAVIN");
+  assert.deepEqual(parseScan("desk 2"), { code: "DESK-2", kind: "order" });
+  assert.equal(typedSlotGuess("desk 2"), "LOC-DESK-2");
+  assert.equal(typedSlotGuess("LOC-DESK"), null);
+  assert.equal(typedSlotGuess("LOC-DESK-GAVIN"), null);
+  assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/LOC-DESK-GAVIN"), { code: "LOC-DESK-GAVIN", kind: "location" });
+
+  assert.equal(isDeskCode("LOC-DESK"), true);
+  assert.equal(isDeskCode("LOC-DESK-GAVIN"), true);
+  assert.equal(isDeskCode("LOC-DESK-2"), true);
+  for (const code of ["LOC-DESKS", "LOC-DESKTOP", "LOC-PHOTO-DESK", "LOC-DONE", "", null, undefined]) assert.equal(isDeskCode(code), false, String(code));
+  assert.equal(deskPageHref("LOC-DESK-GAVIN"), "/admin/receiving/desk?desk=LOC-DESK-GAVIN");
+  assert.equal(placeSubtitle({ kind: "other", code: "LOC-DESK", stationName: null, stageLabel: null, dueDate: null }), "Desk · cards keep their step");
+  assert.equal(placeSubtitle({ kind: "other", code: "LOC-BACK-TABLE", stationName: null, stageLabel: null, dueDate: null }), "Place");
+  // A stack holder with no limit always has room
+  assert.equal(fillText(null, 8), "8 cards");
+  assert.equal(roomLeft(null, 8) >= 8, true);
 });
