@@ -17,6 +17,11 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 // (6.5 pt). Space left over goes to the sets and card numbers first: a set
 // and number that don't fit beside the name go on a second line under it.
 // Past that the label lists what fits and ends with "+N more: scan the QR".
+//
+// On the 50 x 80 mm Katasymbol label (printed width under 2 in) the QR keeps
+// its 1 in and the words go beside it in a narrow column (card count,
+// received date, "SCAN FOR EVERY CARD'S PHOTOS"; the Bag ID is on the tier
+// row), and "Also in this order" gives way when it would hide cards.
 
 export const PT = 72;
 export const LABEL_LIMITS = {
@@ -90,18 +95,19 @@ type S = ReturnType<typeof sizes>;
 /** A block measured first and drawn once its place is known. */
 type Block = { h: number; draw: (y: number) => LabelElement[] };
 
-function text(t: string, x: number, y: number, size: number, font: FontRole, color: LabelColor, tracking = 0): LabelText {
+/** A text element, its width measured from the font's metrics. */
+export function text(t: string, x: number, y: number, size: number, font: FontRole, color: LabelColor, tracking = 0): LabelText {
   return { kind: "text", text: t, x, y, size, font, color, width: textWidth(t, font, size, tracking), tracking };
 }
 
-const floor2 = (n: number) => Math.floor(n * 100) / 100;
+export const floor2 = (n: number) => Math.floor(n * 100) / 100;
 
 // ── Dates and words ──────────────────────────────────────────────────────────
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function parseDay(day: string | null | undefined): { y: number; m: number; d: number; wd: number } | null {
+export function parseDay(day: string | null | undefined): { y: number; m: number; d: number; wd: number } | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day ?? "");
   if (!match) return null;
   const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
@@ -168,7 +174,7 @@ function rowId(c: LabelCard): string {
 }
 
 /** The card's year and set ("1999 Base Set") and its number ("#4/102"). */
-function setParts(c: LabelCard): { set: string; num: string } {
+export function setParts(c: Pick<LabelCard, "year" | "set" | "number">): { set: string; num: string } {
   const set = [c.year, c.set].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const num = (c.number ?? "").trim().replace(/^#\s*/, "");
   return { set, num: num ? `#${num}` : "" };
@@ -255,7 +261,8 @@ function bestBreaks(parts: { t: string; sep: string }[], font: FontRole, maxW: n
   return pick ?? fits[0];
 }
 
-function qrSide(data: string, minIn: number): { size: number; module: number } {
+/** A QR of at least `minIn` inches whose modules are never under LABEL_LIMITS.moduleIn. */
+export function qrSide(data: string, minIn: number): { size: number; module: number } {
   const n = qrMatrix(data).size;
   const size = Math.max(minIn * PT, n * LABEL_LIMITS.moduleIn * PT);
   return { size, module: size / n };
@@ -264,7 +271,7 @@ function qrSide(data: string, minIn: number): { size: number; module: number } {
 // ── Label blocks ─────────────────────────────────────────────────────────────
 
 /** What the banner's due block says: the weekday, the date, and the year when it isn't the bag's year. */
-function dueParts(bag: LabelBag): { weekday: string; date: string; year: string } {
+export function dueParts(bag: Pick<LabelBag, "dueDate" | "dueStatus" | "receivedOn">): { weekday: string; date: string; year: string } {
   const p = parseDay(bag.dueDate);
   if (!p) return { weekday: "", date: bag.dueStatus === "missing_received_date" ? "SET DATE" : "—", year: "" };
   // "This year": the year the bag's cards arrived (else the printing year), so a reprint never changes it
@@ -400,7 +407,7 @@ function tierRow(s: S, xi: number, Wi: number, bag: LabelBag, cap: number): Bloc
 }
 
 /** The set and number in `maxW`: whole, else the set cut with "…" and the card number kept ("1999 Pokemon Base Set 1st Ed… #4/102"). */
-function setFitted(set: string, num: string, size: number, maxW: number): string {
+export function setFitted(set: string, num: string, size: number, maxW: number): string {
   const whole = [set, num].filter(Boolean).join(" ");
   if (textWidth(whole, "body400", size) <= maxW) return whole;
   const room = maxW - textWidth(` ${num}`, "body400", size);
@@ -541,13 +548,14 @@ function alsoBlock(s: S, xi: number, Wi: number, bag: LabelBag): Block | null {
  * mono, the order number and card count, the received date and what the QR
  * opens. On a narrow print the words go under the QR.
  */
-function bottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number): Block {
+function bottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number, narrow = false): Block {
   const data = bagQrData(bag);
   const qr = qrSide(data, Math.max(LABEL_LIMITS.minBagQrIn, s.px(100) / PT));
   const rule = s.rule(2);
   const padTop = Math.max(s.sp(10), 3 * qr.module);
   const colGap = Math.max(s.px(12), 3 * qr.module);
   const beside = Wi - qr.size - colGap >= 84;
+  if (!beside && narrow) return narrowBottomBlock(s, xi, Wi, bag, cap, data, qr, rule, colGap);
   const colW = beside ? Wi - qr.size - colGap : Wi;
   const lineGap = s.px(3);
   const id = fitLine(printable(bag.bagCode, "mono600") || "NO BAG ID", "mono600", Math.min(cap, s.fs(20)), colW, 8);
@@ -591,6 +599,54 @@ function bottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number): 
   };
 }
 
+/**
+ * The bottom of a label printed under 2 in wide (50 x 80 mm): the bag QR (1 in)
+ * at the left, and in the narrow column at its right the card count, the
+ * received date and "SCAN FOR EVERY CARD'S PHOTOS", each wrapped to the
+ * column; the received date goes first when the column would stand taller
+ * than the QR. The Bag ID is on the tier row above.
+ */
+function narrowBottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number, data: string, qr: { size: number; module: number }, rule: number, colGap: number): Block {
+  const padTop = Math.max(s.sp(10), 2 * qr.module);
+  const colW = Wi - qr.size - colGap;
+  const min = LABEL_LIMITS.minTextPt;
+  const count = fitLine(cardCountText(bag.cards.length), "display900", Math.min(cap, 13), colW, min, 0.2);
+  const recvDay = parseDay(bag.receivedOn);
+  const small = min;
+  const recvLines = recvDay ? wrapLines(`Received ${MONTHS[recvDay.m - 1]} ${recvDay.d}`, "body800", small, colW, 2) : [];
+  const scanTrack = 0.3;
+  const scan = wrapLines("SCAN FOR EVERY CARD'S PHOTOS", "body800", small, colW, 5, scanTrack);
+  const gap = 2.5;
+  type Line = [string, FontRole, number, number, number];
+  const head: Line[] = [[count.text, "display900", count.size, 1.05, 0.2]];
+  const recv: Line[] = recvLines.map((l): Line => [l, "body800", small, 1.2, 0]);
+  const scans: Line[] = scan.map((l): Line => [l, "body800", small, 1.25, scanTrack]);
+  const height = (groups: Line[][]) => groups.reduce((sum, g) => sum + g.reduce((a, l) => a + l[2] * l[3], 0), 0) + gap * (groups.filter((g) => g.length).length - 1);
+  const groups = height([head, recv, scans]) <= qr.size ? [head, recv, scans] : [head, scans];
+  const colH = height(groups);
+  const bodyH = Math.max(qr.size, colH);
+  return {
+    h: rule + padTop + bodyH,
+    draw: (y) => {
+      const top = y + rule + padTop;
+      const out: LabelElement[] = [
+        { kind: "rect", x: xi, y, w: Wi, h: rule, fill: "ink" },
+        { kind: "qr", data, x: xi, y: top + (bodyH - qr.size) / 2, size: qr.size, alt: `QR code for bag ${bag.bagCode}` },
+      ];
+      const tx = xi + qr.size + colGap;
+      let ty = top + (bodyH - colH) / 2;
+      groups.filter((g) => g.length).forEach((g, gi) => {
+        if (gi) ty += gap;
+        for (const [t, font, size, lh, tracking] of g) {
+          out.push(text(t, tx, baselineIn(ty, font, size, lh), size, font, "ink", tracking));
+          ty += size * lh;
+        }
+      });
+      return out;
+    },
+  };
+}
+
 // ── The bag label ────────────────────────────────────────────────────────────
 
 /** The width the label content actually prints at: the setting, less a printer margin at each side. */
@@ -604,7 +660,49 @@ function frame(stock: LabelStock) {
   // The words sit a little inside the banner's edges, as in the mock
   const inset = Math.min(0.1 * PT, W * 0.04);
   const density: Density = stock.pageH < COMPACT_BELOW ? "compact" : "regular";
-  return { W, x0, xi: x0 + inset, Wi: W - 2 * inset, s: sizes(W - 2 * inset, density) };
+  return { W, x0, xi: x0 + inset, Wi: W - 2 * inset, s: sizes(W - 2 * inset, density), narrow: W < NARROW_BELOW };
+}
+
+/** Labels printed narrower than this (the 50 x 80 mm label: 1.77 in) put the QR's words in a narrow column beside it. */
+const NARROW_BELOW = 2 * PT - 0.5;
+
+/**
+ * The card rows in `room`: the first style that holds every card, else the
+ * last usable one, with the whole rows that fit above "+N more"; then, where
+ * that style would cut or leave out a set and number, the same style or a
+ * smaller one (never more columns, which would cut the names) with the set
+ * and number on a second line under the name.
+ */
+function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGap: number) {
+  const twoColsFit = LIST_STYLES.some((st) => st.cols === 2 && usable(st, cards, Wi, colGap, true));
+  let style = -1;
+  let shown = cards;
+  for (let i = 0; i < LIST_STYLES.length; i++) {
+    const st = LIST_STYLES[i];
+    if (!usable(st, cards, Wi, colGap, twoColsFit)) continue;
+    style = i;
+    const perCol = st.cols === 2 ? Math.ceil(cards.length / 2) : cards.length;
+    if (perCol * rowHeight(st) <= room) break;
+    if (i === LIST_STYLES.length - 1 || !LIST_STYLES.slice(i + 1).some((n) => usable(n, cards, Wi, colGap, twoColsFit))) {
+      // Out of room: whole rows that fit above the "+N more" line
+      const more = moreLine(cards.length, xi, Wi, st);
+      const rows = Math.max(0, Math.floor((room - more.h) / rowHeight(st)));
+      shown = cards.slice(0, Math.min(cards.length, rows * st.cols));
+    }
+  }
+  let list = rowsBlock(shown, LIST_STYLES[style], xi, Wi, colGap, false);
+  if (shown.length === cards.length && list.h <= room) {
+    for (let i = style; i < LIST_STYLES.length; i++) {
+      const st = LIST_STYLES[i];
+      if (st.cols > LIST_STYLES[style].cols || !usable(st, cards, Wi, colGap, twoColsFit)) continue;
+      const full = rowsBlock(cards, st, xi, Wi, colGap, true);
+      if (full.h <= room) {
+        [style, list] = [i, full];
+        break;
+      }
+    }
+  }
+  return { style, shown, list };
 }
 
 /** How a bag's cards were fitted on its label. */
@@ -625,7 +723,7 @@ export type LabelFit = {
 
 /** The bag's label and how its cards were fitted. */
 export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPage; fit: LabelFit } {
-  const { W, x0, xi, Wi, s } = frame(stock);
+  const { W, x0, xi, Wi, s, narrow } = frame(stock);
   const cards = [...bag.cards].sort((a, b) => a.seq - b.seq);
   const padY = Math.max(0.08 * PT, s.sp(12) * 0.6);
 
@@ -634,7 +732,7 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
     const top = banner(s, x0, W, xi, Wi, bag, nameScale);
     const cap = top.nameSize * 0.9;
     const tier = tierRow(s, xi, Wi, bag, cap);
-    const bottom = bottomBlock(s, xi, Wi, bag, cap);
+    const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);
     const also = withAlso ? alsoBlock(s, xi, Wi, bag) : null;
     const tierY = padY + top.h + s.sp(10);
     const listTop = tierY + tier.h;
@@ -648,47 +746,23 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPag
   let at = place(1, true);
   if (at.room < need && at.also) at = place(1, false);
   for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false);
-  const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY, room } = at;
+  const colGap = Math.max(6, s.px(14));
+  let fitted = fitList(cards, at.room, xi, Wi, colGap);
+  // On the narrow label every card listed beats "Also in this order" (the QR shows the whole order)
+  if (narrow && at.also && fitted.shown.length < cards.length) {
+    const without = place(1, false);
+    const refit = fitList(cards, without.room, xi, Wi, colGap);
+    if (refit.shown.length > fitted.shown.length) [at, fitted] = [without, refit];
+  }
+  const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY } = at;
+  const { shown, list } = fitted;
+  const style = fitted.style;
 
   const els: LabelElement[] = [...top.draw(padY)];
   els.push(...tier.draw(tierY));
   els.push(...bottom.draw(bottomY));
   if (also) els.push(...also.draw(alsoY));
 
-  // The rows, one line each: the first style that holds every card, else the last usable one and "+N more"
-  const colGap = Math.max(6, s.px(14));
-  const twoColsFit = LIST_STYLES.some((st) => st.cols === 2 && usable(st, cards, Wi, colGap, true));
-  let style = -1;
-  let shown = cards;
-  for (let i = 0; i < LIST_STYLES.length; i++) {
-    const st = LIST_STYLES[i];
-    if (!usable(st, cards, Wi, colGap, twoColsFit)) continue;
-    style = i;
-    const perCol = st.cols === 2 ? Math.ceil(cards.length / 2) : cards.length;
-    if (perCol * rowHeight(st) <= room) break;
-    if (i === LIST_STYLES.length - 1 || !LIST_STYLES.slice(i + 1).some((n) => usable(n, cards, Wi, colGap, twoColsFit))) {
-      // Out of room: whole rows that fit above the "+N more" line
-      const more = moreLine(cards.length, xi, Wi, st);
-      const rows = Math.max(0, Math.floor((room - more.h) / rowHeight(st)));
-      shown = cards.slice(0, Math.min(cards.length, rows * st.cols));
-    }
-  }
-  let list = rowsBlock(shown, LIST_STYLES[style], xi, Wi, colGap, false);
-  // Where that style would cut or leave out a set and number, the free space
-  // goes to them first: the same style, or a smaller one (never more
-  // columns, which would cut the names), with a set and number that don't
-  // fit beside the name on a second line under it
-  if (shown.length === cards.length && list.h <= room) {
-    for (let i = style; i < LIST_STYLES.length; i++) {
-      const st = LIST_STYLES[i];
-      if (st.cols > LIST_STYLES[style].cols || !usable(st, cards, Wi, colGap, twoColsFit)) continue;
-      const full = rowsBlock(cards, st, xi, Wi, colGap, true);
-      if (full.h <= room) {
-        [style, list] = [i, full];
-        break;
-      }
-    }
-  }
   const st = LIST_STYLES[style];
   const cardCodes = shown.map((c) => c.code);
   if (shown.length) els.push(...list.draw(listTop));

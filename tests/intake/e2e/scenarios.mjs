@@ -55,6 +55,29 @@ export const ROUTES = {
   // same for that one bag.
   orderLabel: (orderId, query = "") => `/api/admin/intake/labels/order/${orderId}${query}`,
   bagLabel: (bagId, query = "") => `/api/admin/intake/labels/bag/${bagId}${query}`,
+
+  // ── Card tracking (scan-anywhere, brief of Nov 24; types in lib/intake/tracking/types.ts) ──
+  // The Scan page (phone-first): ?loc=<LOC code> = MOVE with that place picked (where /q/<LOC> leads)
+  scan: "/admin/scan",
+  scanAt: (locCode) => `/admin/scan?loc=${encodeURIComponent(locCode)}`,
+  // Shelf view (slots by due date), Places (+ print signs), the ship check page
+  shelf: "/admin/receiving/shelf",
+  places: "/admin/receiving/locations",
+  ship: (orderId) => `/admin/receiving/ship/${orderId}`,
+  // The forgotten-cards report (completed orders with a card not done). NOT in the brief: a guess,
+  // fix here once the ship-check agent's page and route exist
+  forgotten: "/admin/receiving/forgotten",
+  forgottenApi: "/api/admin/track/forgotten",
+  // APIs: ResolveResponse, MoveResponse, HistoryResponse, LocationsResponse, ShipCheckResponse
+  trackResolve: (code) => `/api/admin/track/resolve?code=${encodeURIComponent(code)}`,
+  trackMove: "/api/admin/track/move",
+  trackHistory: (code) => `/api/admin/track/history?code=${encodeURIComponent(code)}`,
+  trackLocations: (query = "") => `/api/admin/track/locations${query}`,
+  placeSign: (locationId, query = "") => `/api/admin/track/locations/${locationId}/sign${query}`,
+  shipCheck: (code) => `/api/admin/track/ship-check?code=${encodeURIComponent(code)}`,
+  // Card stickers (50 x 80 mm, one page per received card): ?order= | ?bag= | ?ids=a,b; &format=json
+  // -> { settings, pages: [{ cardId, code, page: LabelPage }] }
+  cardStickers: (query) => `/api/admin/intake/labels/cards${query}`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -121,6 +144,25 @@ export const UI = {
   // The Bags work board: one row per open bag (table row, list item or card), found by its own
   // "Open bag <Bag ID>" link (a row also names the order's other bags, so text alone can't tell)
   boardRow: (page, bagCode) => page.locator("tr, li, article, [role='row']").filter({ has: page.getByRole("link", { name: `Open bag ${bagCode}`, exact: true }) }),
+
+  // ── Card tracking (guesses from the brief; the pages were being built while these were written) ──
+  // The Scan page's text box for a Bluetooth/USB handheld scanner (it types the code or URL, then Enter)
+  scanInput: (page) => page.getByRole("textbox", { name: /scan|code/i }).or(page.locator("input[data-scan-input], input[name='code']")).first(),
+  // The three big mode buttons (tabs, radios or buttons): "Move", "Find", "Ship check"
+  scanMode: (page, mode) => {
+    const name = new RegExp(`^\\s*${esc(mode)}( mode| cards?)?\\s*$`, "i");
+    return page.getByRole("tab", { name }).or(page.getByRole("radio", { name })).or(page.getByRole("button", { name })).first();
+  },
+  // The menu item at the top of the intake group
+  scanNavLink: (page) => page.getByRole("link", { name: /^scan$/i }).first(),
+  // After Receive, the workspace says where the bags go: "Put in shelf: DUE MON DEC 7"
+  putInShelf: /put in shelf/i,
+  printStickers: (page) => page.getByRole("button", { name: /print (\d+ )?card stickers?/i }).or(page.getByRole("link", { name: /print (\d+ )?card stickers?/i })).first(),
+  printShelfSign: (page) => page.getByRole("button", { name: /print (the )?shelf sign/i }).or(page.getByRole("link", { name: /print (the )?shelf sign/i })).first(),
+  // Ship check page rows: a flagged card (not done / not at Shipping) and a card that's ready
+  shipRow: (page, cardCode) => page.locator("li, tr, article, [role='row']").filter({ hasText: cardCode }).last(),
+  shipFlag: /⚠|not done|not here|not at shipping/i,
+  shipOk: /✅|\bready\b|\bok\b/i,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -433,6 +475,133 @@ async function previewNames(page, settings, want) {
   await page.waitForTimeout(500);
   return read();
 }
+
+// ─── Card tracking helpers (scan-anywhere) ──────────────────────────────────
+const MM = PT / 25.4;
+/** The Katasymbol sticker, portrait: 50 mm wide, 80 mm tall (141.7 x 226.8 pt). */
+const STICKER = { w: 50 * MM, h: 80 * MM };
+const STOCK_4X6 = { w: 4 * PT, h: 6 * PT };
+/** store_config key and values of the label stock setting (lib/intake/labels/stock.ts). */
+const LABEL_STOCK_KEY = "intake_label_stock";
+const STOCK_50X80 = "50x80mm";
+const CUSTOMER_A = "test.customer.a@example.com";
+const CUSTOMER_G = "test.customer.g@example.com";
+const sameSize = (a, b) => Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1;
+const pageSize = (p) => ({ w: p.width, h: p.height });
+const ptText = (s) => `${s.w.toFixed(1)}x${s.h.toFixed(1)} pt`;
+/** What any code's QR holds (place, card or bag): the site's /Q/<CODE> in upper case. */
+const codeQrData = bagQrData;
+const placeOf = (t, code) => t.locations.find((l) => l.code === code);
+const placeId = (code) => IDS.places[DEFAULT_PLACES.findIndex((p) => p.code === code)];
+const cardByCode = (t, code) => t.cards.find((c) => c.card_code === code);
+const bagByCode = (t, code) => t.tier_bags.find((b) => b.bag_code === code);
+const movesOf = (t, cardId) => t.card_moves.filter((m) => m.card_id === cardId);
+const stageEventCount = (t) => t.order_events.filter((e) => e.event_type === "stage_update").length;
+const mailsTo = (list, email) => list.filter((m) => JSON.stringify(m.to ?? "").includes(email));
+/** Independent of the app: a shelf slot's code and name for a due date ("LOC-SHELF-20261207", "DUE MON DEC 7"). */
+const shelfCode = (day) => `LOC-SHELF-${day.replaceAll("-", "")}`;
+function shelfName(day) {
+  const d = new Date(`${day}T12:00:00Z`);
+  const wd = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getUTCDay()];
+  const mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"][d.getUTCMonth()];
+  return `DUE ${wd} ${mon} ${d.getUTCDate()}`;
+}
+/** A slot name as a regex that doesn't match a longer date ("DUE MON DEC 7" vs "... DEC 14"). */
+const slotRe = (name, flags = "") => new RegExp(`${esc(name)}(?!\\d)`, flags);
+
+/** The label stock setting, written straight into the mock's store_config (as the Settings page saves it). */
+async function setLabelStock(mockUrl, stock) {
+  const { error } = await mockDb(mockUrl).from("store_config").upsert({ key: LABEL_STOCK_KEY, value: stock, updated_at: new Date().toISOString() });
+  assert(!error, `label stock setting: ${error?.message}`);
+}
+/** POST /api/admin/track/move; fails unless 200 with a results array (MoveResponse). */
+async function moveVia(ctx, locationCode, codes) {
+  const r = await api(ctx, "POST", ROUTES.trackMove, { locationCode, codes });
+  assert(r.status === 200 && Array.isArray(r.body?.results), `move to ${locationCode} (${codes.join(", ")}): HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  return r.body;
+}
+const resultFor = (body, code) => body.results.find((r) => r.code === code) ?? null;
+/** GET /api/admin/track/resolve; fails unless 200 and the expected kind (ResolveResponse). */
+async function resolveVia(ctx, code, kind) {
+  const r = await api(ctx, "GET", ROUTES.trackResolve(code));
+  assert(r.status === 200, `resolve "${code}": HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  eq(r.body?.kind, kind, `resolve "${code}" kind`);
+  assert(r.body[kind] && typeof r.body[kind] === "object", `resolve "${code}": no "${kind}" object in ${JSON.stringify(r.body).slice(0, 160)}`);
+  return r.body[kind];
+}
+async function shipCheckVia(ctx, code) {
+  const r = await api(ctx, "GET", ROUTES.shipCheck(code));
+  assert(r.status === 200 && Array.isArray(r.body?.cards), `ship check "${code}": HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  return r.body;
+}
+const statusOf = (body, code) => body.cards.find((c) => c.code === code)?.status ?? "(not listed)";
+/** Every object in a JSON answer whose `code` is a shelf slot code (the receive answer's "put in shelf" slots). */
+function shelvesIn(body) {
+  const out = new Map();
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (!v || typeof v !== "object") return;
+    if (typeof v.code === "string" && /^LOC-SHELF-\d{8}$/.test(v.code) && !out.has(v.code)) out.set(v.code, v);
+    Object.values(v).forEach(walk);
+  };
+  walk(body);
+  return [...out.values()];
+}
+/** Every LabelPage-shaped object in a JSON answer (sign or sticker routes). */
+function labelPagesIn(body) {
+  const out = [];
+  const walk = (v) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (!v || typeof v !== "object") return;
+    if (typeof v.width === "number" && typeof v.height === "number" && Array.isArray(v.elements)) { out.push(v); return; }
+    Object.values(v).forEach(walk);
+  };
+  walk(body);
+  return out;
+}
+/** PDF page sizes of a label route. */
+async function pdfSizes(ctx, url) {
+  const doc = await labelPdf(ctx, url);
+  return doc.getPages().map((p) => { const { width, height } = p.getSize(); return { w: width, h: height }; });
+}
+/** stage_update events up to `upTo` for each card, in the past (so a move made now is newer). */
+async function putAtStage(orderId, cardIds, upTo) {
+  const start = new Date(Date.now() - 10 * 3600e3).toISOString();
+  await insertRows("order_events", cardIds.flatMap((cid) => stageRows(orderId, cid, upTo, start)));
+}
+/**
+ * A place sign: one QR (the place's /Q/<LOC code>, at least 0.9 in), the code printed, and the
+ * name in big type (the biggest on the sign; a long name may wrap).
+ */
+function checkSign(p, appUrl, code, name) {
+  const q = qrs(p);
+  eq(q.length, 1, `${code}: QR codes on the sign`);
+  assert(codeQrData(appUrl, code).includes(q[0].data), `${code}: QR holds "${q[0].data}", expected ${codeQrData(appUrl, code).join(" or ")}`);
+  assert(q[0].size >= 0.9 * PT - 0.5, `${code}: QR ${(q[0].size / PT).toFixed(2)} in, want at least 0.9 in`);
+  const all = texts(p);
+  const joined = norm(all.map((e) => e.text).join(" "));
+  assert(joined.includes(norm(code)), `${code}: the code isn't printed on the sign`);
+  const full = norm(name);
+  const isName = (e) => { const x = norm(e.text); return x === full || (x.length >= 3 && full.includes(x) && !norm(code).includes(x)); };
+  const named = all.filter(isName);
+  assert(named.length && joined.includes(full), `${code}: name "${name}" not on the sign (texts: ${all.map((e) => e.text).join(" | ").slice(0, 160)})`);
+  const nameSize = Math.max(...named.map((e) => e.size));
+  const top = all.filter((e) => !isName(e)).reduce((a, e) => (e.size > (a?.size ?? 0) ? e : a), null);
+  assert(!top || nameSize >= top.size, `${code}: name ${nameSize} pt is smaller than "${top.text}" ${top.size} pt`);
+  return `name ${nameSize.toFixed(0)} pt, QR ${(q[0].size / PT).toFixed(2)} in`;
+}
+/** A phone (iPhone 13, 390 px) context that records browser errors. */
+async function phoneContext(browser, appUrl) {
+  const ctx = await newAdminContext(browser, { phone: true, appUrl });
+  ctx.setDefaultTimeout(30_000);
+  ctx.setDefaultNavigationTimeout(240_000);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("dialog", (d) => d.accept().catch(() => {}));
+  return { ctx, page, errors };
+}
+const sidewaysScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 // ─── Runner ─────────────────────────────────────────────────────────────────
 class Scenario {

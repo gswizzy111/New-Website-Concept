@@ -19,6 +19,10 @@ import { getLabelSettings } from "@/lib/intake/labels/data";
 import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import type { WorkspaceCard } from "./types";
 import { paymentState } from "../_components/payment";
+import { loadOrderShelves, type ShelfGroup } from "../shelf/_lib/order-shelves";
+import { missingTracking } from "../shelf/_lib/places";
+import { PutInShelf } from "../shelf/_components/put-in-shelf";
+import { CardStickers } from "../shelf/_components/card-stickers";
 
 export const dynamic = "force-dynamic";
 
@@ -168,6 +172,14 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const labelBags = bags.filter((b) => b.cardCount > 0);
   const stock = LABEL_STOCKS[(await getLabelSettings(admin)).stock];
   const paper = { widthIn: stock.widthIn, heightIn: stock.heightIn };
+  // Where each newly received bag goes: its due date's shelf slot (none before the card tracking update)
+  const received = cards.filter((c) => !c.refunded && c.bagId);
+  let shelfGroups: ShelfGroup[] = [];
+  if (received.length) {
+    const shelves = await loadOrderShelves(admin, intake).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+    if (shelves.ok) shelfGroups = shelves.groups;
+    else if (!missingTracking(shelves.error)) console.warn("[receiving] shelf box not shown:", shelves.error);
+  }
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -255,6 +267,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               payment={payment}
             />
           )}
+          <PutInShelf groups={shelfGroups} orderId={order.id} orderNumber={order.orderNumber} stickerCount={received.length} />
           <OrderLabelPrint orderId={order.id} orderNumber={order.orderNumber} bags={labelBags} paper={paper} needPhoto={[]} />
           {payment !== "refunded" && order.status !== "cancelled" && (
             <div className="mt-4">
@@ -278,6 +291,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               <BagLabelPanel orderId={order.id} bags={labelBags} needPhoto={{}} />
             </div>
           )}
+          <CardStickers orderId={order.id} orderNumber={order.orderNumber} bags={labelBags.map((b) => ({ id: b.id, code: b.code, cardCount: b.cardCount }))} />
         </section>
       </div>
     </div>

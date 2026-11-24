@@ -7,10 +7,12 @@ import { siteUrl } from "@/lib/site-url";
  *   Order    <order_number>                   CD-2549 (orders.order_number: 'CD-' || a sequence)
  *   Card ID  <order_number>-<seq>             CD-2549-03 (2 digits, 3+ from 100)
  *   Bag ID   <order_number>-<letter><batch>   CD-2549-P, second Platinum batch CD-2549-P2
+ *   Place    LOC-<SLUG>                       LOC-HUMIDOR, LOC-SHELF-20261207, LOC-DONE, LOC-SHIP
  *   QR       HTTPS://<SITE>/Q/<CODE>          all upper case (QR alphanumeric mode keeps it small)
  *
- * The three never overlap: an order code has two parts, Card and Bag IDs three
- * (the last part all digits for a card, a letter for a bag).
+ * They never overlap: a place code starts with "LOC-" (order numbers are
+ * always "CD-" and a number), an order code has two parts, Card and Bag IDs
+ * three (the last part all digits for a card, a letter for a bag).
  */
 
 /** One letter per tier for Bag IDs; anything else is "U". */
@@ -112,14 +114,25 @@ export function normalizeCode(raw: string | null | undefined): string {
   return /^[A-Z0-9]+(?:-[A-Z0-9]+)+$/.test(s) && s.length <= 40 ? s : "";
 }
 
-export type CodeKind = "order" | "card" | "bag";
+export type CodeKind = "order" | "card" | "bag" | "location";
+
+/** Place codes: "LOC-" and an upper-case slug, at most 40 characters in all (LOC-HUMIDOR). */
+export const LOCATION_CODE_PREFIX = "LOC-";
+const LOCATION_CODE = /^LOC-[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
+
+/** A normalized place code (LOC-HUMIDOR, LOC-SHELF-20261207)? */
+export function isLocationCode(code: string): boolean {
+  return LOCATION_CODE.test(code) && code.length <= 40;
+}
 
 /**
- * What a normalized code looks like: an order code (the order number,
- * CD-2549), a Card ID (CD-2549-03), a Bag ID (CD-2549-P, CD-2549-P2), or
- * none of them (null).
+ * What a normalized code looks like: a place (LOC-HUMIDOR), an order code
+ * (the order number, CD-2549), a Card ID (CD-2549-03), a Bag ID (CD-2549-P,
+ * CD-2549-P2), or none of them (null). A place is checked first: "LOC-2026-12"
+ * would otherwise read as a Card ID.
  */
 export function codeKind(code: string): CodeKind | null {
+  if (isLocationCode(code)) return "location";
   if (/^[A-Z]+-\d+$/.test(code)) return "order";
   if (/^[A-Z]+-\d+-\d{2,}$/.test(code)) return "card";
   if (/^[A-Z]+-\d+-[A-Z]\d*$/.test(code)) return "bag";
@@ -143,11 +156,19 @@ export function orderPhotosPath(orderId: string, bagId?: string | null): string 
  *   Bag ID      CD-2549-P   -> that bag's photos       /admin/receiving/<orderId>/photos?bag=<bagId>
  *                              (the bag page, /admin/receiving/bag/<bagId>, if its order is unknown)
  *   Card ID     CD-2549-03  -> the card page           /admin/receiving/card/<cardId>
+ *   Place       LOC-HUMIDOR -> the Scan page, at that place  /admin/scan?loc=LOC-HUMIDOR
+ *                              (`code` is the place code; `id` is used when it's missing)
  */
-export function codeTargetPath(kind: CodeKind, id: string, orderId?: string | null): string {
+export function codeTargetPath(kind: CodeKind, id: string, orderId?: string | null, code?: string | null): string {
+  if (kind === "location") return scanPathForLocation(code || id);
   if (kind === "order") return orderPhotosPath(orderId || id);
   if (kind === "bag") return orderId ? orderPhotosPath(orderId, id) : `/admin/receiving/bag/${encodeURIComponent(id)}`;
   return `/admin/receiving/card/${encodeURIComponent(id)}`;
+}
+
+/** The Scan page ready to move things to a place: /admin/scan?loc=LOC-HUMIDOR. */
+export function scanPathForLocation(code: string): string {
+  return `/admin/scan?loc=${encodeURIComponent(normalizeCode(code) || code.trim().toUpperCase())}`;
 }
 
 /** The path a QR opens on this site (lower-case /q; the /Q mirror also works). */
@@ -156,7 +177,7 @@ export function qrPath(code: string): string {
 }
 
 /**
- * What an order, card or bag QR encodes: the site's /q/<CODE> link, all upper
+ * What an order, card, bag or place QR encodes: the site's /q/<CODE> link, all upper
  * case, so the QR uses alphanumeric mode. qrUrl(order.order_number) is the
  * order label's QR ("HTTPS://THECARDDOC1.COM/Q/CD-2549"); qrUrl(card_code)
  * ".../Q/CD-2549-03". Stable: it never contains an image or other temporary URL.

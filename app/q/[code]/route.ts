@@ -16,9 +16,10 @@ function redirect(request: Request, to: string) {
 
 /**
  * Where a scanned QR code goes (`/q/<CODE>`): the bag QR on each tier bag's
- * label and tag (CD-2549-P), an order code (CD-2549) and the card QRs on
- * labels printed before (CD-2549-03). Public on purpose, so the phone camera
- * can open it, but it shows nothing itself and tells a signed-out visitor
+ * label and tag (CD-2549-P), an order code (CD-2549), the card QRs on card
+ * stickers (CD-2549-03) and the place signs (LOC-HUMIDOR: the Scan page,
+ * ready to move things there, /admin/scan?loc=LOC-HUMIDOR). Public on
+ * purpose, so the phone camera can open it, but it shows nothing itself and tells a signed-out visitor
  * nothing: without a full admin session it never looks the code up, it sends
  * them to sign in and back here (`/admin/login?next=/q/<CODE>`). Signed in, a known code
  * redirects to its admin page (codeTargetPath: an order to its photos, a bag
@@ -28,8 +29,8 @@ function redirect(request: Request, to: string) {
 export async function GET(request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code: raw } = await params;
   const code = normalizeCode(raw);
-  // Only the shape of an order code, Card ID or Bag ID gets further (no lookup
-  // yet): anything else, a bare number included, is "not found" for everyone
+  // Only the shape of an order code, Card ID, Bag ID or place code gets further
+  // (no lookup yet): anything else, a bare number included, is "not found" for everyone
   if (!code || !codeKind(code)) return notFound();
 
   // Signed out (or not a full admin): sign in first, then back to this scan
@@ -44,7 +45,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ code
     console.error("[qr] code lookup failed:", e instanceof Error ? e.message : e);
   }
   if (!found) return notFound();
-  return redirect(request, codeTargetPath(found.kind, found.id, found.orderId));
+  return redirect(request, codeTargetPath(found.kind, found.id, found.orderId, found.code));
 }
 
 function notFound() {
@@ -70,7 +71,7 @@ function notFound() {
 <body>
 <main>
   <h1>Code not found</h1>
-  <p>This QR code doesn't match an order, a card or a bag. The label may be from a deleted bag, or the code was mistyped.</p>
+  <p>This QR code doesn't match an order, a card, a bag or a place. The label may be from a deleted bag, or the code was mistyped.</p>
   <a href="/admin/receiving">Open Receiving</a>
 </main>
 </body>

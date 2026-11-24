@@ -75,6 +75,8 @@ export const SCHEMA = {
       order_id: { table: "orders", onDelete: "cascade" },
       // NO ACTION: a bag still holding cards can't be deleted (an order's delete takes both)
       bag_id: { table: "tier_bags", onDelete: "no action" },
+      // 20261124_card_tracking.sql: where the card is now (located_at: since when)
+      location_id: { table: "locations", onDelete: "set null" },
     },
     defaults: () => ({
       photo_urls: [], service_ids: [], completed: false, slab_removal_selected: false, pregrade_selected: false,
@@ -99,8 +101,33 @@ export const SCHEMA = {
       tier_bags_due_status_check: (r) => ["calculated", "manual", "needs_review", "missing_received_date", "pending"].includes(r.due_status),
       tier_bags_source_check: (r) => ["receiving", "migration"].includes(r.source),
     },
-    fks: { order_id: { table: "orders", onDelete: "cascade" } },
+    fks: {
+      order_id: { table: "orders", onDelete: "cascade" },
+      // 20261124_card_tracking.sql: where the bag is now (located_at: since when)
+      location_id: { table: "locations", onDelete: "set null" },
+    },
     defaults: () => ({ batch: 1, due_status: "pending", source: "receiving" }),
+  },
+  // ─── Card tracking (20261124_card_tracking.sql) ───
+  // Places a card or bag can be: a station per step, due-date shelf slots, Done, Shipping, others.
+  locations: {
+    pk: ["id"],
+    unique: [{ name: "locations_code_key", cols: ["code"] }],
+    notNull: ["code", "name", "kind", "sort", "active"],
+    checks: {
+      locations_kind_check: (r) => ["station", "shelf", "done", "shipping", "other"].includes(r.kind),
+    },
+    defaults: () => ({ sort: 0, active: true }),
+  },
+  // Every move of a card (insert-only: a trigger refuses updates; rows go only with their card)
+  card_moves: {
+    pk: ["id"],
+    notNull: ["card_id", "action"],
+    checks: {
+      card_moves_action_check: (r) => ["move", "receive", "ship_check", "done"].includes(r.action),
+    },
+    fks: { card_id: { table: "cards", onDelete: "cascade" } },
+    immutable: true,
   },
   tier_bag_due_changes: {
     pk: ["id"],
@@ -149,8 +176,17 @@ export const SCHEMA = {
   partner_sessions: { pk: ["token_hash"], fks: { partner_id: { table: "partners" } } },
 };
 
-// FK columns used only to embed (many-to-one): table -> column -> target
-const EXTRA_RELATIONS = {};
+// FK columns used only to embed (many-to-one): table -> column -> target. card_moves' other ids
+// aren't enforced here (the brief names no constraint on them); two point at locations, so an
+// embed of locations from card_moves needs a hint (locations!to_location_id), as in PostgREST.
+const EXTRA_RELATIONS = {
+  card_moves: {
+    order_id: { table: "orders" },
+    bag_id: { table: "tier_bags" },
+    from_location_id: { table: "locations" },
+    to_location_id: { table: "locations" },
+  },
+};
 
 function fksOf(table) {
   return { ...(SCHEMA[table]?.fks ?? {}), ...(EXTRA_RELATIONS[table] ?? {}) };
@@ -435,6 +471,15 @@ export class MockStore {
   // Relationship from a parent table to an embedded name
   relation(parent, rel, hint) {
     const pf = fksOf(parent);
+    // Two FKs between the same tables with no hint: PostgREST refuses (PGRST201), so do we
+    // (card_moves.from_location_id / to_location_id -> locations)
+    if (!hint) {
+      const m2o = Object.values(pf).filter((fk) => fk.table === rel).length;
+      const o2m = Object.values(fksOf(rel)).filter((fk) => fk.table === parent).length;
+      if (m2o > 1 || (!m2o && o2m > 1)) {
+        throw new MockError(300, { code: "PGRST201", message: `Could not embed because more than one relationship was found for '${parent}' and '${rel}'`, details: null, hint: `Try changing '${rel}' to one of the FK columns, e.g. '${rel}!<column>'` });
+      }
+    }
     // many-to-one: parent column points at rel table
     for (const [col, fk] of Object.entries(pf)) {
       if (fk.table === rel && (!hint || hint === col || hint.includes(col))) return { type: "m2o", col, target: rel };

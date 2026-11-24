@@ -3,6 +3,7 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
+import { fetchAll } from "@/lib/fetch-all";
 import { cleanSearch, etDate, orderNumberFrom, statusLabel, tierLabel } from "@/lib/support-view";
 import { codeKind, normalizeCode } from "@/lib/intake/codes";
 import { RECEIVED_EVENT } from "@/lib/intake/migration";
@@ -30,6 +31,8 @@ const PAGE = 50; // rows per page of one queue
 type OrderRow = {
   id: string; order_number: string; customer_name: string | null; customer_email: string | null;
   status: string; payment_status: string | null; restoration_tier: string | null; inbound_method: string | null; created_at: string;
+  /** Soonest due date of the order's open bags (queues sorted by it); undefined when not loaded. */
+  due_date?: string | null;
 };
 type BagRow = {
   id: string; bag_code: string; tier: string; received_on: string | null; due_date: string | null; created_at: string;
@@ -61,29 +64,65 @@ async function loadQueue(admin: SupabaseClient, key: QueueKey, from: number, to:
       .eq("event_type", "status_updated").eq("description", RECEIVED_EVENT).gte("created_at", INTAKE_START).limit(1000);
     if (eventsError) return { orders: [] as OrderRow[], bags: [] as BagRow[], count: 0, error: eventsError };
     const receivedSince = [...new Set(((events ?? []) as { order_id: string | null }[]).map((e) => e.order_id).filter((id): id is string => !!id))];
-    let q = admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`, { count: "exact" })
-      .in("status", ["received", "in_progress"])
-      .is("cards.received_at", null).is("cards.bag_id", null).eq("cards.awaiting_arrival", false)
-      .eq("cards.completed", false).neq("cards.status", "refunded");
-    q = receivedSince.length
-      ? q.or(`created_at.gte.${INTAKE_START},id.in.(${receivedSince.join(",")})`)
-      : q.gte("created_at", INTAKE_START);
-    const { data, count, error } = await q.order("created_at", { ascending: false }).range(from, to);
-    return { orders: (data ?? []) as OrderRow[], bags: [] as BagRow[], count: count ?? 0, error };
+    // A fresh query per page (query builders can't be reused)
+    const query = () => {
+      const q = admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`)
+        .in("status", ["received", "in_progress"])
+        .is("cards.received_at", null).is("cards.bag_id", null).eq("cards.awaiting_arrival", false)
+        .eq("cards.completed", false).neq("cards.status", "refunded");
+      return receivedSince.length
+        ? q.or(`created_at.gte.${INTAKE_START},id.in.(${receivedSince.join(",")})`)
+        : q.gte("created_at", INTAKE_START);
+    };
+    return byDueDate(admin, (f, t) => query().order("created_at", { ascending: false }).order("id").range(f, t), from, to);
   }
   if (key === "partial") {
-    const { data, count, error } = await admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`, { count: "exact" })
+    return byDueDate(admin, (f, t) => admin.from("orders").select(`${ORDER_COLUMNS}, cards!inner(id)`)
       .eq("cards.awaiting_arrival", true).neq("cards.status", "refunded").eq("cards.completed", false)
       .not("status", "in", CLOSED_STATUSES)
-      .order("created_at", { ascending: false }).range(from, to);
-    return { orders: (data ?? []) as OrderRow[], bags: [] as BagRow[], count: count ?? 0, error };
+      .order("created_at", { ascending: false }).order("id").range(f, t), from, to);
   }
   const { data, count, error } = await admin.from("tier_bags")
     .select("id, bag_code, tier, received_on, due_date, created_at, order_id, orders!inner(order_number, customer_name, status)", { count: "exact" })
     // Completed bags (historical ones included) and bags of finished orders don't need a label any more
     .is("label_printed_at", null).is("completed_at", null).not("orders.status", "in", CLOSED_STATUSES)
-    .order("created_at", { ascending: false }).range(from, to);
+    // Soonest due first, no due date last
+    .order("due_date", { ascending: true, nullsFirst: false }).order("created_at", { ascending: false }).range(from, to);
   return { orders: [] as OrderRow[], bags: (data ?? []) as unknown as BagRow[], count: count ?? 0, error };
+}
+
+/**
+ * An order queue sorted by due date: every matching order (paged reads; these
+ * queues are short), each with the soonest due date of its open bags, soonest
+ * first, orders without one (nothing received yet) last, newest first within
+ * the same date. Returns the rows `from`..`to` of that order.
+ */
+async function byDueDate(
+  admin: SupabaseClient,
+  page: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  from: number,
+  to: number,
+) {
+  let all: OrderRow[];
+  try {
+    all = (await fetchAll(page)) as OrderRow[];
+  } catch (e) {
+    return { orders: [] as OrderRow[], bags: [] as BagRow[], count: 0, error: { message: e instanceof Error ? e.message : String(e) } };
+  }
+  const due = new Map<string, string>();
+  const ids = all.map((o) => o.id);
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await admin.from("tier_bags").select("order_id, due_date").in("order_id", ids.slice(i, i + 100))
+      .is("completed_at", null).not("due_date", "is", null).limit(5000);
+    if (error) break; // sorted newest first, as before
+    for (const b of (data ?? []) as { order_id: string; due_date: string }[]) {
+      const seen = due.get(b.order_id);
+      if (!seen || b.due_date < seen) due.set(b.order_id, b.due_date);
+    }
+  }
+  const sorted = all.map((o) => ({ ...o, due_date: due.get(o.id) ?? null })).sort((a, b) =>
+    a.due_date === b.due_date ? b.created_at.localeCompare(a.created_at) : !a.due_date ? 1 : !b.due_date ? -1 : a.due_date < b.due_date ? -1 : 1);
+  return { orders: sorted.slice(from, to + 1), bags: [] as BagRow[], count: sorted.length, error: null };
 }
 
 /** "3 of 5 received" for each order listed (one bounded read). */
@@ -212,6 +251,7 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
             {note && <span className="block text-xs font-semibold text-primary">{note}</span>}
           </span>
           <span className="text-xs font-semibold text-muted-foreground">{tierLabel(o.restoration_tier)}{o.inbound_method === "dropoff" ? " · Drop-off" : ""}</span>
+          {o.due_date && <span className="text-xs font-bold text-foreground">Due {etDay(o.due_date)}</span>}
           {c && c.total > 0 && (
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${c.received === c.total ? "bg-green-100 text-green-700" : c.received > 0 ? "bg-yellow-100 text-yellow-700" : "bg-gray-100 text-gray-600"}`}>
               {c.received} of {c.total} received
@@ -240,7 +280,10 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
             <p className="text-sm text-muted-foreground mt-1">Find the order, tick the cards that arrived, photograph them and receive. Bags and due dates appear right after.</p>
           </div>
           <nav className="flex flex-wrap gap-2 text-sm font-bold" aria-label="Receiving sections">
+            <AdminLink href="/admin/scan" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-primary bg-primary text-primary-foreground hover:bg-primary/90">Scan</AdminLink>
+            <AdminLink href="/admin/receiving/shelf" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Shelf</AdminLink>
             <AdminLink href="/admin/receiving/bags" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Bags</AdminLink>
+            <AdminLink href="/admin/receiving/locations" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Places</AdminLink>
             <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>
             <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>
           </nav>
@@ -337,6 +380,7 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
                               <span className="text-muted-foreground"> · {b.orders?.order_number}</span>
                             </span>
                             <span className="text-xs font-semibold text-muted-foreground">{tierLabel(b.tier)} · {bagSize.get(b.id) ?? 0} card{bagSize.get(b.id) === 1 ? "" : "s"}</span>
+                            {b.due_date && <span className="text-xs font-bold text-foreground">Due {etDay(b.due_date)}</span>}
                             <span className="text-xs text-muted-foreground">{b.received_on ? `Received ${etDay(b.received_on)}` : "No received date"}</span>
                           </AdminLink>
                         </li>

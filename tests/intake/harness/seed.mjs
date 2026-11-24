@@ -33,7 +33,28 @@ export const IDS = {
   // one-label-per-bag tests (a bag's label must stay ONE page at 4, 16, 32 and 40 cards)
   bigOrder: id("0f000000", 1),
   bigCards: Array.from({ length: 40 }, (_, i) => id("0f00000c", i + 1)),
+  // the default places (20261124_card_tracking.sql seeds them with random ids; fixed here)
+  places: Array.from({ length: 10 }, (_, i) => id("10c00000", i + 1)),
 };
+
+/**
+ * The places 20261124_card_tracking.sql seeds (on conflict do nothing): one station per step
+ * (STAGES order; "Book" shows as "Drying"), the Done shelf and Shipping. Shelf slots
+ * (LOC-SHELF-YYYYMMDD) are made on demand, so none are seeded. Codes are the brief's; names
+ * and sort are what the migration is expected to use (adjust here if it differs).
+ */
+export const DEFAULT_PLACES = [
+  { code: "LOC-SLAB-CRACK", name: "Slab Crack", kind: "station", stage: "Ready for Slab Crack" },
+  { code: "LOC-HUMIDOR", name: "Humidor", kind: "station", stage: "Humidor" },
+  { code: "LOC-HUMIDITY-PRESS", name: "Humidity Press", kind: "station", stage: "Humidity Press" },
+  { code: "LOC-DRYING", name: "Drying", kind: "station", stage: "Book" },
+  { code: "LOC-HEAT-PRESS", name: "Heat Press", kind: "station", stage: "Heat Press" },
+  { code: "LOC-CLAMP", name: "Clamp Work", kind: "station", stage: "Clamp Work" },
+  { code: "LOC-BOOK-WEIGHTS", name: "Book with Weights", kind: "station", stage: "Book with Weights" },
+  { code: "LOC-FINAL-DRY", name: "Final Dry", kind: "station", stage: "Final Dry" },
+  { code: "LOC-DONE", name: "Done", kind: "done", stage: null },
+  { code: "LOC-SHIP", name: "Shipping", kind: "shipping", stage: null },
+].map((p, i) => ({ ...p, sort: (i + 1) * 10 }));
 
 export const ORDER_NUMBERS = {
   mailOrder: "CD-2549",
@@ -142,6 +163,9 @@ function card(over) {
     received_by: null,
     awaiting_arrival: false,
     receiving_photo_urls: [],
+    // tracking columns (20261124_card_tracking.sql): nowhere yet
+    location_id: null,
+    located_at: null,
     ...over,
   };
 }
@@ -317,6 +341,12 @@ export function buildSeed({ baseUrl }) {
       order_events: events,
       tier_bags: [],
       tier_bag_due_changes: [],
+      // card tracking (20261124_card_tracking.sql): the default places, no moves yet
+      locations: DEFAULT_PLACES.map((p, i) => ({
+        id: IDS.places[i], code: p.code, name: p.name, kind: p.kind, stage: p.stage, due_date: null,
+        sort: p.sort, active: true, created_at: created, created_by: null,
+      })),
+      card_moves: [],
       show_dropoffs: [
         showDropoff({ id: IDS.dropoffForm, dropoff_number: 1001, customer_name: "Test Customer B", customer_email: "test.customer.b@example.com", tiers: ["premium"], card_count: 2, cards: [{ name: "Test Drop-off Card 1" }, { name: "Test Drop-off Card 2" }], status: "entered", order_id: IDS.dropoffOrder, processed_at: dropCreated }),
         showDropoff({ id: IDS.newDropoffForm, dropoff_number: 1002, customer_name: "Test Customer F", customer_email: "test.customer.f@example.com", tiers: ["ultra_premium"], card_count: 1, cards: [{ name: "Test New Drop-off Card" }], status: "new", order_id: null }),

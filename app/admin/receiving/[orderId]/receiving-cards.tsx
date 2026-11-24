@@ -31,6 +31,22 @@ function dayText(day: string | null) {
 }
 
 /**
+ * " Put in shelf: DUE MON DEC 7." from the receive response's shelves (one per
+ * received bag with a due date); each bag named when they go to different shelves.
+ */
+function shelfText(shelves: unknown): string {
+  if (!Array.isArray(shelves)) return "";
+  const list = shelves
+    .map((s) => s as { bagCode?: unknown; location?: { name?: unknown } | null })
+    .filter((s) => typeof s?.location?.name === "string")
+    .map((s) => ({ bag: String(s.bagCode ?? ""), shelf: String(s.location!.name) }));
+  const names = [...new Set(list.map((s) => s.shelf))];
+  if (!names.length) return "";
+  if (names.length === 1) return ` Put in shelf: ${names[0]}.`;
+  return ` Put ${list.map((s) => `${s.bag} in shelf ${s.shelf}`).join("; ")}.`;
+}
+
+/**
  * The order's cards on the receiving workspace: tick the ones that arrived,
  * photograph them, then "Receive selected cards" (with the date they arrived,
  * today by default, earlier for historical entries). Each card also has its
@@ -116,7 +132,7 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
       : orderStatus === "awaiting_payment"
         ? " The order's status wasn't changed (it is still Awaiting Payment)."
         : "";
-    setMessage({ kind: "ok", text: `${summary}.${status}`.replace(/\.\.(\s|$)/, ".$1") });
+    setMessage({ kind: "ok", text: `${summary}.${status}${shelfText(data.shelves)}`.replace(/\.\.(\s|$)/, ".$1") });
     // Bags, Card IDs and due dates appear at once
     router.refresh();
   }
