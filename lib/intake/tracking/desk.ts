@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
-import { isLocationCode, normalizeCode } from "@/lib/intake/codes";
+import { normalizeCode } from "@/lib/intake/codes";
 import type { StageEventRow } from "@/lib/intake/types";
+import { DESK_CODE, DESK_NAME, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { LOCATION_COLUMNS, LOCATION_REF_COLUMNS, locationRef, locationView } from "@/lib/intake/tracking/places";
 import {
   TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS, cardSummary,
@@ -17,31 +18,14 @@ import type { LocationRef, LocationRow, MoveAction, TrackCardSummary, TrackLocat
  * its photos, its order's details and notes. Moving cards to a desk changes
  * where they are only, never their step (the rule for 'other' places).
  *
- * This file imports nothing server-only, so the pure helpers (isDeskCode,
- * deskPagePath, pickDesk ...) are safe in client components such as the
- * Scan page. The loaders take the service-role client and run on the server
- * only; admin access is checked by the caller.
+ * The code helpers (isDeskCode, deskPagePath ...) live in desk-codes.ts,
+ * which client components import (it needs only lib/intake/codes.ts); they
+ * are re-exported here. This file imports nothing server-only either, but
+ * its loaders take the service-role client and run on the server only;
+ * admin access is checked by the caller.
  */
 
-/** The first desk's code and name (made by ensureDesk when there is no desk). */
-export const DESK_CODE = "LOC-DESK";
-export const DESK_NAME = "DESK";
-/** The Desk page. */
-export const DESK_PAGE = "/admin/receiving/desk";
-
-const DESK_CODE_RE = /^LOC-DESK(?:-[A-Z0-9]+)*$/;
-
-/** A desk's code (LOC-DESK, LOC-DESK-GAVIN), typed, normalized or as its QR link. LOC-DESKTOP is not a desk. */
-export function isDeskCode(code: string | null | undefined): boolean {
-  const c = normalizeCode(code);
-  return !!c && isLocationCode(c) && DESK_CODE_RE.test(c);
-}
-
-/** The Desk page, on one desk: /admin/receiving/desk?desk=LOC-DESK-GAVIN (no code: the first desk). */
-export function deskPagePath(code?: string | null): string {
-  const c = normalizeCode(code);
-  return c && isDeskCode(c) ? `${DESK_PAGE}?desk=${encodeURIComponent(c)}` : DESK_PAGE;
-}
+export { DESK_CODE, DESK_NAME, DESK_PAGE, deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 
 /** A desk with how many cards are on it. */
 export type DeskPlace = TrackLocation & { cardCount: number };
@@ -70,11 +54,14 @@ export function pickDesk<T extends Pick<TrackLocation, "code" | "active">>(desks
 
 /**
  * Every desk (switched-off ones too), in compareDesks order, with its card
- * count. Throws on a failed read (the tracking update not applied included).
+ * count. Only 'other' places count, as on the Scan and Places pages (a Done
+ * or Shipping place someone named "Desk" isn't one: putting cards back on it
+ * would change them). Throws on a failed read (the tracking update not
+ * applied included).
  */
 export async function deskPlaces(admin: SupabaseClient): Promise<DeskPlace[]> {
   const rows = (await fetchAll<LocationRow>((from, to) =>
-    admin.from("locations").select(LOCATION_COLUMNS).like("code", `${DESK_CODE}%`).order("id").range(from, to)))
+    admin.from("locations").select(LOCATION_COLUMNS).eq("kind", "other").like("code", `${DESK_CODE}%`).order("id").range(from, to)))
     .filter((r) => isDeskCode(r.code));
   if (!rows.length) return [];
   const held = await fetchAll<{ id: string; location_id: string | null }>((from, to) =>

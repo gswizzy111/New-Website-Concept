@@ -17,6 +17,7 @@ node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
+node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -336,13 +337,86 @@ mock (`mockUpdate()`), not left to the station type's default.
   shows its card with Move, Done, Take out; `/admin/scan?loc=LOC-CLAMP-03`;
   no browser errors (no camera in headless); the desktop menu's "Scan" link.
 
+### Desk (`desk-*`, the owner's request of Nov 24)
+
+A desk is a place (kind `other`) with a QR sign: `LOC-DESK`, or `LOC-DESK-<NAME>`
+("DESK GAVIN" = `LOC-DESK-GAVIN`). A heat press stack of 8 comes out, staff scan
+the holder, Move, scan the desk: all 8 go, location only (the step stays). The
+Desk page (`/admin/receiving/desk`, menu "Desk", `?desk=<code>`) shows a panel
+per card on the desk. Stack holders (humidor, humidity press, drying, heat
+press, book weights, final dry) now default to no capacity limit; clamp and
+slab crack stay at 1.
+
+The setup (`deskReceive()` / `deskStack()`): CD-2549 Gold 01-04 + Platinum
+07-08 (2026-11-15) and CD-2600-01..03 (2026-11-20) received; CD-2600 gets a
+customer note, CD-2549-07 a known defect, CD-2600-02 a card note and a known
+defect (CD-2549's order note and CD-2549-04's card note are in the seed); one
+receiving photo per desk card (CD-2549-01 and -07 also have customer photos).
+The desk stack is the 8 (`DESK_CARDS`: CD-2549-01..04, -07, -08, CD-2600-01,
+-02); CD-2600-03 (`DESK_DECOY`) is received too but kept off the desk.
+`LOC-DESK` comes from the Desk page (`ensureDesk`, by loading it once), else
+from `POST /api/admin/track/locations { name: "Desk", kind: "other" }`; no seed
+change.
+
+- `desk-stack`: HEAT PRESS 01 made in bulk has capacity null (and the type's
+  `defaultCapacity` is null); the 8 go in with ONE assign (200, no 409; step
+  Heat Press; one email per order); the empty Desk page says so and how to fill
+  it; `LOC-DESK` is kind other; `POST move { fromCode: LOC-HEAT-PRESS-01,
+  toCode: LOC-DESK, cardIds }` moves all 8 (HEAT PRESS 01 freed, `emailedOrders`
+  empty); the 8 are at the desk with `located_at`, still at Heat Press, no new
+  step events; one `move` row each (Heat Press -> Heat Press, order and bag);
+  no customer email; `resolve?code=LOC-DESK` lists the 8.
+- `desk-page`: the Desk page lists exactly the 8 (one panel each; CD-2600-03,
+  in CLAMP 01, is not there, nor any other Card ID); each panel has the Card ID,
+  card name, customer, order number, the order's customer note, the card's own
+  notes and defects (and no other card's); at least one `<img>` each;
+  CD-2549-01 shows its receiving and customer photos and one loads; "Open
+  order" -> `/admin/orders/<id>`; tier, step Heat Press and "HEAT PRESS 01"
+  (where it came from); a photo tap opens the full-screen viewer (a dialog over
+  90%+ of the screen) and Close closes it; 1440 px panels side by side, no
+  sideways scroll (`desk-page-1440.png`); 390 px the 8 panels, no sideways
+  scroll, the viewer (`desk-page-390.png`, `desk-page-viewer-*.png`); the menu's
+  "Desk" link; a second desk "DESK GAVIN" (`LOC-DESK-GAVIN`, as Places names
+  it) holding CD-2600-03: `?desk=LOC-DESK-GAVIN` lists only it,
+  `?desk=LOC-DESK` the 8 and a picker naming DESK GAVIN.
+- `desk-actions` (CLAMP 01..02 hold 1, CD-2600-03 fills CLAMP 02, HUMIDOR 01 no
+  limit, set in the mock): on the Desk page, CD-2549-01 "Put in holder", type
+  `clamp 1` + Enter -> CLAMP 01, step Clamp Work (if Enter saves nothing, the
+  holder is tapped in the list and the step fails saying so); the picker showed
+  CLAMP 01 and HUMIDOR 01, not the full CLAMP 02 (folded away counts as not
+  offered); CD-2549-02 Done (its "Mark done" question, or a second tap, is
+  answered) -> done at LOC-DONE, no email; CD-2549-03 Take out -> no place, step
+  kept, a `release` row; without a reload 5 panels are left and a
+  message (status, alert or toast) followed each action; tick CD-2600-01 and
+  -02, "Put selected in…", type `humidor 1` -> both in HUMIDOR 01 (no 409), step
+  stays Heat Press (Humidor is earlier), no email; 3 panels and a message naming
+  HUMIDOR 01; reloaded, still those 3; 390 px. A failed UI action is redone
+  through the API ("(fallback)") so the later steps still run.
+- `desk-scan` (iPhone 13, 390 px): `/q/LOC-DESK`, `/Q/LOC-DESK`, `/q/loc-desk`
+  -> `/admin/scan?loc=LOC-DESK`; the scanner reads HEAT PRESS 01's link: its 8
+  cards with Move; Move, then the desk's link: `POST move` (from HEAT PRESS 01,
+  to LOC-DESK, 8 cards), all 8 at the desk at Heat Press, an "Open (the) desk
+  page" link; on a fresh Scan page, typing `desk` + Enter, the desk's link, and
+  `/admin/scan?loc=LOC-DESK` each show the desk's 8 cards and "Open desk page"
+  (-> `/admin/receiving/desk`, `?desk=LOC-DESK` if given); that link opens the
+  Desk page with the 8; no browser errors.
+- `desk-capacity`: the station list's defaults (clamp, slab-crack 1; the other
+  six null); new CLAMP/SLAB CRACK slots store 1, HEAT PRESS/HUMIDOR null; a
+  second card into CLAMP 01 or SLAB CRACK 01 -> 409 `overCapacity` (nothing
+  written); HEAT PRESS 01 takes 3 then 2 more, HUMIDOR 01 takes 3 and then HEAT
+  PRESS 01's 5 by `move` (all 200); HEAT PRESS 02 set to capacity 1 in the mock
+  (a slot made under the old default keeps it): 2 cards -> 409.
+
 Steps time out after 30 s (navigation 240 s for first compiles) instead of
 waiting forever for a missing button.
 
 The intake UI was being built while these were written: the wording they rely
 on (`UI`) and the routes (`ROUTES`) are guesses where a page didn't exist yet
 (bag, card, completed and setup pages, the label PDF route; for tracking, the
-`&stock=4x6` slot-label parameter). Fix them there.
+`&stock=4x6` slot-label parameter; for the Desk page, every button and message:
+`deskPanel`, "Open order", "Put in holder", the holder picker's box, "Done",
+"Take out", "Put selected in…", the photo viewer, the empty-desk wording, the
+picker of desks). Fix them there.
 
 ## Known limits
 

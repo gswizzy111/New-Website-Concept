@@ -231,10 +231,35 @@ QR content is `qrUrl(code)`. Codes never change once printed: places are
 renamed or switched off, never deleted.
 
 **Station types** (`tracking/stations.ts` `STATION_TYPES`, editable list): key,
-name, stage, default capacity (1): slab-crack, humidor, humidity-press, drying
-(stage `Book`), heat-press, clamp, book-weights, final-dry. A new slot copies
-its type's stage and capacity; capacity is per slot after that (null = no
-limit). Over capacity answers 409 `overCapacity`; `force: true` adds anyway.
+name, stage, default capacity: slab-crack, humidor, humidity-press, drying
+(stage `Book`), heat-press, clamp, book-weights, final-dry. Holders that take a
+stack have no limit by default (null: humidor, humidity-press, drying,
+heat-press, book-weights, final-dry); clamp and slab-crack hold 1 (owner, Nov
+24 2026). A new slot copies its type's stage and capacity; capacity is stored
+per slot after that, so changing a default never changes slots already made
+(Places: "Set for all N <type> slots" PATCHes each slot of the type, turned-off
+ones too, 4 at a time, at most 200 per tap). Over capacity answers 409
+`overCapacity`; `force: true` adds anyway.
+
+**Desks** (`tracking/desk-codes.ts`, pure: `DESK_CODE`, `isDeskCode`,
+`deskPagePath`; `tracking/desk.ts`: `deskPlaces`, `ensureDesk`,
+`loadDeskCards`, `pickDesk`, re-exports the codes): a desk is a place of kind
+`other` whose code is `LOC-DESK` or `LOC-DESK-<NAME>` (`LOC-DESK-GAVIN`, made
+from its name "DESK GAVIN"; `LOC-DESKTOP` is not one). Like any `other` place
+it changes where cards are, never their step, and has no capacity. A stack
+goes on it with `POST move` (scan HEAT PRESS 01, Move, scan the desk). The
+Desk page `/admin/receiving/desk[?desk=<code>]` (menu "Desk", full admins)
+shows each card on one desk (photos, card and order details, the order's
+customer notes, the card's notes and known defects, time on the desk, the
+holder it came from) with Put in holder (`assign`), Done (`done`), Take out
+(`release`, Undo = `assign` back to the desk with `force`) and Open order.
+When no desk exists at all, the page makes `LOC-DESK` "DESK" (`ensureDesk`:
+insert on conflict do nothing; a switched-off desk stays off) and shows the
+place `ensureDesk` answers: a second `deskPlaces()` read in the same render
+would get Next.js's memoized answer to the identical GET from before the
+insert. Places lists
+desks and adds them ("Add a desk"); the Scan page links a scanned desk to its
+page.
 
 **Rules** (`tracking/move-plan.ts`, pure): a card is in one place at a time
 (putting it somewhere else frees the old slot); in a slot its step becomes the
@@ -262,8 +287,9 @@ rerunnable; apply before deploying the code):
 `moves.ts` (`assignCards`, `moveSlot`, `releaseCards`, `markCardsDone`,
 `placeCards`), `locations.ts` (list with occupancy, `createSlots`,
 `createLocation`, `updateLocation`), `shelf.ts` (`ensureShelfSlot`,
-`shelveBags`), `resolve.ts`, `ship-check.ts`, `history.ts`; pure: `stations.ts`,
-`places.ts`, `move-plan.ts`, `summaries.ts`; response shapes in `types.ts`.
+`shelveBags`), `resolve.ts`, `ship-check.ts`, `history.ts`, `desk.ts` (loaders;
+no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
+`summaries.ts`, `desk-codes.ts`; response shapes in `types.ts`.
 
 **Routes** (`app/api/admin/track/**`, full admin only):
 
@@ -284,8 +310,9 @@ rerunnable; apply before deploying the code):
 `POST /api/admin/intake/orders/[orderId]/receive` also answers `shelves` (each
 received bag's due-date shelf slot, made with `ensureShelfSlot`).
 
-**Pages**: `/admin/scan` (menu "Scan"), `/admin/receiving/locations` (Places:
-add slots, print labels), `/admin/receiving/shelf` (by due date),
+**Pages**: `/admin/scan` (menu "Scan"), `/admin/receiving/desk` (menu "Desk"),
+`/admin/receiving/locations` (Places: add slots and desks, capacity per type,
+print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).

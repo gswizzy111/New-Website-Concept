@@ -70,7 +70,7 @@ export function DeskCardPanel({ card, now, selected, busy, confirmingDone, eager
   return (
     <li
       aria-labelledby={headingId}
-      className={`flex min-w-0 flex-col rounded-2xl border bg-white p-3 sm:p-4 transition-shadow ${selected ? "border-primary ring-2 ring-primary/40" : "border-border"} ${card.refunded ? "bg-gray-50" : ""}`}
+      className={`flex min-w-0 flex-col rounded-2xl border p-3 sm:p-4 transition-shadow ${selected ? "border-primary ring-2 ring-primary/40" : "border-border"} ${card.refunded ? "bg-gray-50" : "bg-white"}`}
     >
       {/* Name first: what the card is */}
       <div className="flex items-start gap-2">
@@ -156,7 +156,7 @@ export function DeskCardPanel({ card, now, selected, busy, confirmingDone, eager
           <span className="font-semibold">{since ?? "—"}</span>
           {card.onDeskSinceText && <span className="block text-xs text-muted-foreground">since {card.onDeskSinceText}</span>}
         </Fact>
-        <Fact term="Came from" wide={!card.declaredValue}>
+        <Fact term="Came from" wide={!!card.declaredValue}>
           {card.arrival ? (
             <>
               <span className="font-semibold">{card.arrival.fromName ?? "No holder"}</span>

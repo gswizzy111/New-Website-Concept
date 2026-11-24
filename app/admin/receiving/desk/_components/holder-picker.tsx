@@ -236,7 +236,7 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
               <section key={g.key} aria-labelledby={`holders-${g.key}`} className="pt-3 first:pt-0">
                 <h3 id={`holders-${g.key}`} className="flex flex-wrap items-baseline gap-x-2 text-sm font-black text-foreground">
                   {g.title}
-                  {g.step && <span className="font-semibold text-muted-foreground">· {g.step}</span>}
+                  {g.step && g.step.toLowerCase() !== g.title.toLowerCase() && <span className="font-semibold text-muted-foreground">· {g.step}</span>}
                   <span className="text-xs font-semibold text-muted-foreground">{g.free.length ? `${g.free.length} with room` : "all full"}</span>
                 </h3>
                 {g.free.length > 0 && <HolderList holders={g.free} busy={!!busy} onPick={(h) => void pick(h)} />}

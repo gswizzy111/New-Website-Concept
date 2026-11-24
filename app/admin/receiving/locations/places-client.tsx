@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LayoutGrid, Pencil, Plus, Power, ScanLine } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
-import { deskPageHref } from "@/components/intake/scan/format";
+import { deskPagePath } from "@/lib/intake/tracking/desk-codes";
 import { locationCodeCandidates } from "@/lib/intake/tracking/places";
 import { capacityText } from "@/lib/intake/tracking/stations";
 import { LazyPrintButton } from "../shelf/_components/print-buttons";
@@ -705,7 +705,7 @@ export function AddDeskForm({ takenCodes }: { takenCodes: string[] }) {
                 prepareLabel="Sign"
                 printLabel={() => "Print sign"}
               />
-              <AdminLink href={deskPageHref(message.made.code)} className={quiet}>
+              <AdminLink href={deskPagePath(message.made.code)} className={quiet}>
                 <LayoutGrid aria-hidden className="size-4" strokeWidth={1.75} />
                 Open desk
               </AdminLink>

@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess, typedSlotGuess } from "@/components/intake/scan/parse";
-import { cardsLabel, deskPageHref, fillText, isDeskCode, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
+import { cardsLabel, fillText, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
+import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 
 test("QR links: the code after /Q/, any host, any case", () => {
   assert.deepEqual(parseScan("HTTPS://THECARDDOC1.COM/Q/CD-2549-03"), { code: "CD-2549-03", kind: "card" });
@@ -180,7 +181,11 @@ test("desks: typed \"desk\" is LOC-DESK; a named desk by its name; the Desk page
   assert.equal(isDeskCode("LOC-DESK-GAVIN"), true);
   assert.equal(isDeskCode("LOC-DESK-2"), true);
   for (const code of ["LOC-DESKS", "LOC-DESKTOP", "LOC-PHOTO-DESK", "LOC-DONE", "", null, undefined]) assert.equal(isDeskCode(code), false, String(code));
-  assert.equal(deskPageHref("LOC-DESK-GAVIN"), "/admin/receiving/desk?desk=LOC-DESK-GAVIN");
+  assert.equal(deskPagePath("LOC-DESK-GAVIN"), "/admin/receiving/desk?desk=LOC-DESK-GAVIN");
+  // The Scan page, Places and the Desk page share one rule (desk-codes.ts): a code read from a QR link or typed in lower case too
+  assert.equal(isDeskCode("https://thecarddoc1.com/q/loc-desk-gavin"), true);
+  assert.equal(isDeskCode("LOC-DESK-"), false);
+  assert.equal(placeSubtitle({ kind: "done", code: "LOC-DESK", stationName: null, stageLabel: null, dueDate: null }), "Finished cards", "only an 'other' place is a desk");
   assert.equal(placeSubtitle({ kind: "other", code: "LOC-DESK", stationName: null, stageLabel: null, dueDate: null }), "Desk · cards keep their step");
   assert.equal(placeSubtitle({ kind: "other", code: "LOC-BACK-TABLE", stationName: null, stageLabel: null, dueDate: null }), "Place");
   // A stack holder with no limit always has room

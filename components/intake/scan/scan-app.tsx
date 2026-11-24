@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRightLeft, CircleCheckBig, LayoutGrid, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type {
   CapacityConflict,
   LocationRef,
@@ -16,7 +17,7 @@ import type {
 import * as api from "./api";
 import { ScanCamera } from "./camera";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
-import { cardsLabel, deskPageHref, isDeskCode, roomLeft } from "./format";
+import { cardsLabel, roomLeft } from "./format";
 import { createScanGate, parseScan, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
@@ -660,7 +661,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const onCardAction = (card: TrackCardSummary) => startAssign([card]);
 
   // The line that says what the next scan does
-  let cue: { title: string; sub?: string; tone: string; cancel?: () => void; cancelLabel?: string };
+  let cue: { title: string; sub?: string; tone: string; cancel?: () => void; cancelLabel?: string; link?: { href: string; label: string } };
   if (waiting?.type === "move") {
     cue = { title: `Scan the next slot for ${cardsLabel(waiting.cards)}`, sub: `Moving from ${waiting.from.name}. Or type its name (desk, clamp 7) below.`, tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (waiting?.type === "assign") {
@@ -681,6 +682,9 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   } else {
     cue = { title: "Scan a slot or a bag", sub: "Or type a code, a slot (clamp 7), desk, a name or an order.", tone: "bg-white text-foreground border border-border" };
   }
+  // A desk on screen: on a phone its page is one tap away in the cue, which stays in view (the
+  // "Open desk page" button under the desk's name sits below the camera and the action bar there)
+  if (slotView && slotIsDesk && !waiting && !ship && (!activeTarget || activeTarget.code === slotView.code)) cue.link = { href: deskPagePath(slotView.code), label: "Open desk page" };
 
   const pickList = activeTarget && slotView && activeTarget.code === slotView.code && picks
     ? picks.cards.filter((c) => c.location?.code !== slotView.code && !c.done)
@@ -723,6 +727,15 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           <div className="min-w-0 flex-1">
             <p className="text-xl font-black leading-tight break-words sm:text-2xl">{busy ?? cue.title}</p>
             {!busy && cue.sub && <p className="mt-0.5 text-sm font-semibold opacity-80">{cue.sub}</p>}
+            {!busy && cue.link && (
+              <AdminLink
+                href={cue.link.href}
+                className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-full border border-current/30 bg-white/70 px-4 text-sm font-bold hover:bg-white lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              >
+                <LayoutGrid className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                {cue.link.label}
+              </AdminLink>
+            )}
           </div>
           {busy ? (
             <LoaderCircle className="mt-1 h-6 w-6 shrink-0 animate-spin motion-reduce:animate-none" strokeWidth={1.75} aria-hidden="true" />
@@ -752,7 +765,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-950">
               <div className="min-w-0 flex-1">
                 <p className="text-base font-bold break-words">{deskNote.text}</p>
-                <AdminLink href={deskPageHref(deskNote.code)} className={`${smallButton.replace("border-border", "border-green-300")} mt-2`}>
+                <AdminLink href={deskPagePath(deskNote.code)} className={`${smallButton.replace("border-border", "border-green-300")} mt-2`}>
                   <LayoutGrid className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
                   Open the desk page
                 </AdminLink>
@@ -808,7 +821,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             <div className="flex flex-col gap-3">
               <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
               {slotIsDesk && (
-                <AdminLink href={deskPageHref(slotView.code)} className={`${bigButton} w-full border border-border bg-white text-foreground hover:border-primary/40`}>
+                <AdminLink href={deskPagePath(slotView.code)} className={`${bigButton} w-full border border-border bg-white text-foreground hover:border-primary/40`}>
                   <LayoutGrid className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
                   Open desk page
                 </AdminLink>

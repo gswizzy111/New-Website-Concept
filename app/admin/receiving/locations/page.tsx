@@ -3,7 +3,7 @@ import { ScanLine } from "lucide-react";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
-import { deskPageHref, isDeskCode } from "@/components/intake/scan/format";
+import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { nyToday } from "@/lib/intake/business-days";
 import { stationName } from "@/lib/intake/tracking/stations";
 import { shortDay } from "../bags/_components/bag-bits";
@@ -61,7 +61,7 @@ function toItem(p: PlaceWithCards, today: string): PlaceItemData {
     bagCount: p.bagCount,
     note: p.kind === "shelf" ? shelfNote(p.due_date, today) : null,
     shelfHref: p.kind === "shelf" && p.due_date ? `/admin/receiving/shelf#due-${p.due_date}` : null,
-    deskHref: isDesk(p) ? deskPageHref(p.code) : null,
+    deskHref: isDesk(p) ? deskPagePath(p.code) : null,
   };
 }
 

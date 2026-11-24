@@ -1,5 +1,6 @@
 import type { TrackCardSummary, TrackLocation } from "@/lib/intake/tracking/types";
 import { dayText } from "@/lib/intake/tracking-format";
+import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 
 /**
  * Short wording for the Scan page. Pure (safe in client components and tests).
@@ -25,21 +26,10 @@ export function whereLine(card: Pick<TrackCardSummary, "location" | "locatedAt" 
 }
 
 /**
- * A desk: a place (kind 'other') whose code is LOC-DESK or LOC-DESK-<NAME>
- * (LOC-DESK-GAVIN). Cards put on a desk keep their step. The same rule as
- * isDeskCode in lib/intake/tracking/desk.ts (kept here so this pure file
- * needs nothing server side).
+ * Under a slot's big name: "Clamp · step: Clamp Work", "Shelf for cards due Mon, Dec 7, 2026", "Finished cards",
+ * "Desk · cards keep their step" (a desk: an 'other' place coded LOC-DESK or LOC-DESK-<NAME>, isDeskCode in
+ * lib/intake/tracking/desk-codes.ts).
  */
-export function isDeskCode(code: string | null | undefined): boolean {
-  return code === "LOC-DESK" || (typeof code === "string" && code.startsWith("LOC-DESK-"));
-}
-
-/** The Desk page for one desk: /admin/receiving/desk?desk=LOC-DESK-GAVIN. */
-export function deskPageHref(code: string): string {
-  return `/admin/receiving/desk?desk=${encodeURIComponent(code)}`;
-}
-
-/** Under a slot's big name: "Clamp · step: Clamp Work", "Shelf for cards due Mon, Dec 7, 2026", "Finished cards", "Desk". */
 export function placeSubtitle(place: Pick<TrackLocation, "kind" | "stationName" | "stageLabel" | "dueDate"> & { code?: string | null }): string {
   if (place.kind === "other" && isDeskCode(place.code)) return "Desk · cards keep their step";
   if (place.kind === "station") {

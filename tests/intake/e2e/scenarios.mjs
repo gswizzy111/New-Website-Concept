@@ -751,6 +751,252 @@ async function trackSetup(ctx, slots = {}) {
 }
 const cardIdOf = (t, code) => { const c = cardByCode(t, code); assert(c, `no card ${code}`); return c.id; };
 
+// ─── Desk helpers (a desk = a place of kind 'other', LOC-DESK or LOC-DESK-<NAME>) ─────
+const DESK = "LOC-DESK";
+/** The heat press stack that comes out and goes to the desk: CD-2549 Gold 01-04 + Platinum 07-08, CD-2600-01 and -02. */
+const DESK_CARDS = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04", "CD-2549-07", "CD-2549-08", "CD-2600-01", "CD-2600-02"];
+/** Received with them but never put on the desk (it waits in a clamp): "exactly the 8" means it isn't listed. */
+const DESK_DECOY = "CD-2600-03";
+const DESK_ALL = [...DESK_CARDS, DESK_DECOY];
+const sorted = (list) => [...list].sort();
+/**
+ * Notes the desk tests add (the seed already has CD-2549's order note "…soft corners…" and
+ * CD-2549-04's card note "…crease near the bottom edge."): CD-2600's customer note, and card
+ * notes / known defects on CD-2549-07 and CD-2600-02.
+ */
+const DESK_NOTES = {
+  orders: { [IDS.bigOrder]: "Test note: keep the big order cards in their sleeves." },
+  cards: {
+    "CD-2549-07": { known_defects: "Test defect: light scratch on the holo." },
+    "CD-2600-02": { notes: "Test instruction: keep this one flat.", known_defects: "Test defect: whitening on the back corner." },
+  },
+};
+const TIER_NAMES = { regular: "Bronze", expedited: "Silver", premium: "Gold", ultra_premium: "Platinum", elite: "Diamond", fast_pass: "Fast Pass" };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Poll `fn` until it returns something truthy (returned), or `ms` pass (the last value is returned). */
+async function until(fn, ms = 15_000, every = 250) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = await fn();
+    if (v || Date.now() >= end) return v;
+    await sleep(every);
+  }
+}
+/**
+ * Desk setup, part 1: receive CD-2549 Gold 01-04 + Platinum 07-08 (2026-11-15) and CD-2600-01..03
+ * (2026-11-20); add DESK_NOTES; one receiving photo per desk card (CD-2549-01 and -07 also have
+ * customer photos from the seed). Returns the tables.
+ */
+async function deskReceive(ctx, mockUrl) {
+  await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7].map(mailCard), "2026-11-15");
+  await receiveViaApi(ctx, IDS.bigOrder, IDS.bigCards.slice(0, 3), "2026-11-20");
+  const t = await tables();
+  eq(cardByCode(t, "CD-2549-01")?.id, mailCard(0), "CD-2549-01 is Gold One");
+  eq(cardByCode(t, "CD-2549-07")?.id, mailCard(6), "CD-2549-07 is Platinum One");
+  for (const code of DESK_ALL) assert(cardByCode(t, code)?.bag_id, `${code} not received (no card or no bag)`);
+  for (const [orderId, note] of Object.entries(DESK_NOTES.orders)) await mockUpdate(mockUrl, "orders", { customer_notes: note }, "id", orderId);
+  for (const [code, patch] of Object.entries(DESK_NOTES.cards)) await mockUpdate(mockUrl, "cards", patch, "card_code", code);
+  await setReceivingPhotos(mockUrl, DESK_CARDS.map((c) => cardIdOf(t, c)));
+  return tables();
+}
+/**
+ * LOC-DESK as the Desk page makes it when first opened (ensureDesk); if the page doesn't, it is
+ * added as a place through the API ({ name: "Desk", kind: "other" } -> LOC-DESK, as Places would).
+ */
+async function ensureDesk(ctx) {
+  let desk = placeOf(await tables(), DESK);
+  if (desk) return { desk, how: "already there" };
+  const res = await ctx.request.get(ROUTES.desk, { failOnStatusCode: false, timeout: 240_000, maxRedirects: 0 });
+  desk = placeOf(await tables(), DESK);
+  if (desk) return { desk, how: `made by the Desk page (HTTP ${res.status()})` };
+  const r = await api(ctx, "POST", ROUTES.trackLocations(), { name: "Desk", kind: "other" });
+  desk = placeOf(await tables(), DESK);
+  assert(desk, `no ${DESK}: the Desk page answered ${res.status()} without making it; POST locations { name: "Desk", kind: "other" } answered ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+  return { desk, how: `added through the API (the Desk page answered ${res.status()} without making it)` };
+}
+/**
+ * Desk setup: deskReceive, HEAT PRESS 01 plus the slots asked for ({ clamp: 2 }), the 8 put in
+ * HEAT PRESS 01 (force: setup doesn't depend on the capacity default), LOC-DESK, and (unless
+ * toDesk is false) the stack moved to the desk through the API. Returns the tables.
+ */
+async function deskStack(ctx, mockUrl, slots = {}, { toDesk = true } = {}) {
+  let t = await deskReceive(ctx, mockUrl);
+  for (const [station, count] of Object.entries({ "heat-press": 1, ...slots })) await bulkSlots(ctx, station, count);
+  const ids = DESK_CARDS.map((c) => cardIdOf(t, c));
+  await assignOk(ctx, "LOC-HEAT-PRESS-01", ids, true);
+  await ensureDesk(ctx);
+  if (toDesk) await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-01", toCode: DESK, cardIds: ids });
+  t = await tables();
+  eq(cardsIn(t, toDesk ? DESK : "LOC-HEAT-PRESS-01"), sorted(DESK_CARDS), toDesk ? "cards on the desk" : "cards in HEAT PRESS 01");
+  return t;
+}
+/** What a card's desk panel must show, from the database. */
+function deskInfo(t, code) {
+  const c = cardByCode(t, code);
+  assert(c, `no card ${code}`);
+  const o = t.orders.find((x) => x.id === c.order_id);
+  const clean = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+  return {
+    code, id: c.id, name: c.card_name, customer: o.customer_name, orderId: o.id, orderNumber: o.order_number,
+    tierName: TIER_NAMES[c.tier ?? o.restoration_tier] ?? "",
+    orderNotes: [o.customer_notes].map(clean).filter(Boolean),
+    own: [c.notes, c.known_defects].map(clean).filter(Boolean),
+  };
+}
+/**
+ * A card's panel's text: what it shows (innerText, lines kept apart) and then its textContent (a
+ * note folded behind "Show more" still counts; adjacent elements run together there), whitespace
+ * collapsed.
+ */
+async function panelText(page, code, codes = DESK_ALL) {
+  const panel = UI.deskPanel(page, code, codes);
+  const [shown, all] = await Promise.all([panel.innerText({ timeout: 10_000 }), panel.textContent({ timeout: 10_000 })]);
+  return `${shown}\n${all ?? ""}`.replace(/\s+/g, " ");
+}
+/** An order number on its own, not inside a Card ID (CD-2549-01) or Bag ID (CD-2549-G). */
+const orderNumberRe = (orderNumber) => new RegExp(`${esc(orderNumber)}(?!\\d|-[A-Z0-9])`);
+/** A tier name as a word ("Gold"), also when run into its neighbours in textContent ("01GoldTest"). */
+const tierShown = (txt, tier) => new RegExp(`\\b${esc(tier)}\\b`, "i").test(txt) || new RegExp(`(?<![A-Za-z])${esc(tier)}(?![a-z])`).test(txt);
+/** The Card IDs (of `codes`) that have a panel on the page now, sorted. */
+async function deskPanelsShown(page, codes = DESK_ALL) {
+  const out = [];
+  for (const code of codes) if (await UI.deskPanel(page, code, codes).count()) out.push(code);
+  return out.sort();
+}
+/** Wait (20 s) until exactly `want` have panels; returns what is shown then. */
+async function waitPanels(page, want, codes = DESK_ALL, ms = 20_000) {
+  const goal = JSON.stringify(sorted(want));
+  let last = [];
+  await until(async () => { last = await deskPanelsShown(page, codes); return JSON.stringify(last) === goal; }, ms);
+  return last;
+}
+/**
+ * Watches for the save a tap makes (the first POST to /api/admin/...): `sent()` once it has gone
+ * out (a first compile can hold the answer for a minute, not the request), `response()` its answer.
+ */
+function watchSave(page) {
+  let sent = null;
+  const onRequest = (r) => { if (!sent && r.method() === "POST" && r.url().includes("/api/admin/")) sent = r; };
+  page.on("request", onRequest);
+  return {
+    sent: () => sent,
+    async response(ms = 120_000) {
+      await until(() => sent, ms, 100);
+      page.off("request", onRequest);
+      assert(sent, "the tap sent no save (no POST to /api/admin/…)");
+      const res = await sent.response();
+      assert(res, `${new URL(sent.url()).pathname}: no answer`);
+      assert(res.status() < 300, `${new URL(sent.url()).pathname} answered ${res.status()}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+      return res;
+    },
+  };
+}
+/** Tap a button that saves; if nothing is sent within 4 s it is asking first ("Tap again", "Yes"): answer yes. */
+async function tapToSave(page, locator, scope) {
+  const save = watchSave(page);
+  await locator.click();
+  if (!(await until(() => save.sent(), 4_000))) {
+    const inDialog = UI.deskConfirm(page.getByRole("dialog"));
+    const yes = (await inDialog.count()) ? inDialog : UI.deskConfirm(scope);
+    if (await yes.count()) await yes.click({ timeout: 5_000 }).catch(() => {});
+  }
+  return save.response();
+}
+/** The holder picker's text box once it is open (null if none shows within 10 s). */
+async function holderBox(page, scope) {
+  return until(async () => {
+    for (const cand of UI.holderBoxes(page, scope)) {
+      const box = cand.first();
+      if (!(await box.isVisible().catch(() => false))) continue;
+      if (["INPUT", "TEXTAREA"].includes(await box.evaluate((e) => e.tagName).catch(() => ""))) return box;
+    }
+    return null;
+  }, 10_000);
+}
+/**
+ * Choices the open picker (a dialog, else `scope`) shows: enabled and on screen (a full holder
+ * folded away under a closed "Full" <details> is not offered), their names.
+ */
+async function pickerChoices(page, scope) {
+  const dlg = page.getByRole("dialog").first();
+  const where = (await dlg.isVisible().catch(() => false)) ? dlg : scope;
+  return where.locator("button, option, [role='option'], [role='radio'], [role='menuitem']").evaluateAll((els) => els
+    // inside a closed <details> Chrome still lays the content out (content-visibility: hidden), so
+    // getClientRects() alone counts it: checkVisibility() and the closed <details> rule don't
+    .filter((e) => !e.disabled && e.getAttribute("aria-disabled") !== "true" && e.getClientRects().length > 0
+      && (typeof e.checkVisibility !== "function" || e.checkVisibility())
+      && !e.closest("details:not([open]) > :not(summary)"))
+    .map((e) => (e.getAttribute("aria-label") || e.textContent || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean));
+}
+/** The picker's choices once its holders have loaded (it may fetch them when it opens), or what it shows after 10 s. */
+async function holderChoices(page, scope) {
+  const listed = (c) => (c && c.some((x) => /\b(CLAMP|HUMIDOR|HEAT PRESS)\b/i.test(x)) ? c : null);
+  return (await until(async () => listed(await pickerChoices(page, scope).catch(() => null)), 10_000)) ?? pickerChoices(page, scope).catch(() => null);
+}
+/**
+ * In the open holder picker: type `typed` ("clamp 1") + Enter, as staff would (or a scanner);
+ * if nothing is saved within 15 s, tap the holder `name` ("CLAMP 01") in the list instead (the
+ * step then says so). Returns { how, res, typedSaved } (res: the save's answer, 2xx).
+ */
+async function pickHolder(page, box, typed, name) {
+  const save = watchSave(page);
+  let how = "";
+  if (box) {
+    await box.fill(typed);
+    await box.press("Enter");
+    how = `typed "${typed}" + Enter`;
+    await until(() => save.sent(), 15_000);
+  }
+  const typedSaved = !!save.sent();
+  if (!save.sent()) {
+    await UI.holderOption(page, name).click({ timeout: 10_000 }).catch(() => {});
+    how += `${how ? ", then " : ""}tapped ${name}`;
+    await until(() => save.sent(), 5_000);
+  }
+  if (!save.sent()) {
+    // one more question ("Put CD-2549-01 in CLAMP 01?")
+    const yes = UI.deskConfirm(page.getByRole("dialog"));
+    if (await yes.count()) await yes.click({ timeout: 5_000 }).catch(() => {});
+  }
+  const res = await save.response();
+  return { how, res, typedSaved };
+}
+/** A message on the page (status, alert, toast; not inside a dialog such as the picker) matching `re` within `ms`; its text, or null. */
+async function messageSeen(page, re, ms = 10_000) {
+  return until(async () => {
+    const all = await UI.liveRegions(page).evaluateAll((els) => els.filter((e) => !e.closest("dialog")).map((e) => (e.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
+    return all.find((x) => re.test(x)) ?? null;
+  }, ms);
+}
+/** Tap a panel's photo: the full-screen viewer opens with the photo (90%+ of the screen); Close (or Esc) closes it. */
+async function photoViewerCheck(page, panel, shotName) {
+  const btn = UI.deskPhotoButton(panel);
+  const tap = (await btn.count()) ? btn : panel.locator("img").first();
+  await tap.scrollIntoViewIfNeeded();
+  await tap.click();
+  const viewer = UI.photoViewer(page);
+  await viewer.waitFor({ state: "visible", timeout: 10_000 });
+  const box = await viewer.boundingBox();
+  const vp = page.viewportSize();
+  assert(box && box.width >= vp.width * 0.9 && box.height >= vp.height * 0.9, `the viewer is ${box ? `${Math.round(box.width)}x${Math.round(box.height)}` : "not on screen"}, the screen ${vp.width}x${vp.height}`);
+  await page.screenshot({ path: path.join(OUT, `${shotName}.png`) }).catch(() => {});
+  const close = UI.viewerClose(viewer);
+  if (await close.count()) await close.click();
+  else await page.keyboard.press("Escape");
+  await UI.photoViewer(page).waitFor({ state: "hidden", timeout: 10_000 });
+  return `viewer ${Math.round(box.width)}x${Math.round(box.height)} on ${vp.width}x${vp.height}`;
+}
+/** Tick a card's panel for the multi-select actions (a checkbox, or a Select toggle). */
+async function tickPanel(panel) {
+  const sel = UI.deskSelect(panel);
+  await sel.waitFor({ state: "attached", timeout: 10_000 });
+  const isBox = await sel.evaluate((e) => e.getAttribute("role") === "checkbox" || (e.tagName === "INPUT" && e.type === "checkbox"));
+  if (!isBox) return sel.click();
+  // a checkbox hidden inside its label is ticked without the visibility wait
+  await sel.check({ timeout: 5_000 }).catch(() => sel.check({ force: true, timeout: 5_000 }));
+}
+
 // ─── Runner ─────────────────────────────────────────────────────────────────
 class Scenario {
   constructor(name, page, results) {
@@ -2418,6 +2664,520 @@ const SCENARIOS = {
       await goto(page, ROUTES.receiving);
       eq(new URL(await UI.scanNavLink(page).getAttribute("href"), appUrl).pathname, ROUTES.scan, "Scan link");
     });
+  },
+
+  // ── Desk (owner, Nov 24): "if I have a heatpress stack of 8 cards and they come out I can scan
+  // them all and put them all back to the desk and then ... see on a page all of the 8 cards" ──
+
+  // A heat press stack of 8 (no capacity limit now) moved to the desk in one request: location only
+  async "desk-stack"({ page, ctx, s, mockUrl }) {
+    let t0 = null;
+    const ids = () => DESK_CARDS.map((c) => cardIdOf(t0, c));
+    await s.step("setup: receive CD-2549 (01-04, 07-08) and CD-2600-01..03 (notes, defects, receiving photos)", async () => {
+      t0 = await deskReceive(ctx, mockUrl);
+    }, { critical: true, shot: false });
+    await s.step("bulk-create HEAT PRESS 01 (LOC-HEAT-PRESS-01)", async () => {
+      const body = await bulkSlots(ctx, "heat-press", 1);
+      eq(body.created.map((l) => l.code), ["LOC-HEAT-PRESS-01"], "codes");
+    }, { critical: true, shot: false });
+    await s.step("HEAT PRESS 01 has no capacity limit (null), the heat press type's new default", async () => {
+      eq(placeOf(await tables(), "LOC-HEAT-PRESS-01").capacity ?? null, null, "HEAT PRESS 01 capacity");
+      const r = await api(ctx, "GET", ROUTES.trackLocations());
+      const type = (r.body?.stations ?? []).find((x) => x.key === "heat-press");
+      assert(type, `no heat-press station type in ${JSON.stringify(r.body?.stations).slice(0, 160)}`);
+      eq(type.defaultCapacity, null, "heat-press defaultCapacity");
+    }, { shot: false });
+    let assigned = false;
+    await s.step("assign the 8 to HEAT PRESS 01 in ONE request: 200 (no 409), all in, step Heat Press; one customer email per order", async () => {
+      const mails0 = (await emails()).length;
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-HEAT-PRESS-01", cardIds: ids() });
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      assigned = true;
+      assert(r.body.results.length === 8 && r.body.results.every((x) => x.ok && x.changed), r.body.results.map((x) => `${x.code}: ${x.message}`).join(" | "));
+      eq(r.body.changed, 8, "changed");
+      const t = await tables();
+      eq(cardsIn(t, "LOC-HEAT-PRESS-01"), sorted(DESK_CARDS), "cards in HEAT PRESS 01");
+      for (const code of DESK_CARDS) eq(latestStage(t, cardIdOf(t, code)), "Heat Press", `${code} step`);
+      const fresh = (await emails()).slice(mails0);
+      eq([mailsTo(fresh, CUSTOMER_A).length, mailsTo(fresh, CUSTOMER_G).length], [1, 1], "emails to Test Customer A, G");
+      return r.body.message;
+    }, { shot: false });
+    if (!assigned) await s.step("(fallback) assign the 8 with force", () => assignOk(ctx, "LOC-HEAT-PRESS-01", ids(), true), { critical: true, shot: false });
+    await s.step("the Desk page with nothing on it says so, and how to get cards there", async () => {
+      await goto(page, ROUTES.desk);
+      const text = await page.locator("main").first().innerText();
+      // the first visit makes LOC-DESK and shows it at once (a re-read in the same render is memoized by Next.js)
+      assert(!/couldn.t (make|load) the desk/i.test(text), `the first visit didn't show the desk it made: "${text.replace(/\s+/g, " ").slice(0, 300)}"`);
+      assert(UI.deskEmpty.test(text), `no empty-desk message: "${text.replace(/\s+/g, " ").slice(0, 200)}"`);
+      assert(UI.deskEmptyHow.test(text), `doesn't say how to get cards here (scan / move): "${text.replace(/\s+/g, " ").slice(0, 200)}"`);
+      const listed = DESK_ALL.filter((c) => text.includes(c));
+      assert(!listed.length, `lists ${listed.join(", ")}, but nothing is on the desk`);
+    });
+    await s.step(`${DESK} exists: a place of kind other (the Desk page makes it, else it is added as a place)`, async () => {
+      const { desk, how } = await ensureDesk(ctx);
+      eq([desk.kind, desk.active, desk.station ?? null, desk.stage ?? null], ["other", true, null, null], "kind, active, station, stage");
+      return `${desk.name}: ${how}`;
+    }, { critical: true, shot: false });
+    let before = null;
+    await s.step(`scan-move the stack: POST move { fromCode: LOC-HEAT-PRESS-01, toCode: ${DESK}, cardIds: the 8 } -> 200, all 8 moved, HEAT PRESS 01 freed, no email sent`, async () => {
+      before = await dump();
+      const body = await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-01", toCode: DESK, cardIds: ids() });
+      eq(body.location?.code, DESK, "location.code");
+      assert(body.results.length === 8 && body.results.every((r) => r.ok && r.changed), body.results.map((r) => `${r.code}: ok ${r.ok}, changed ${r.changed}, ${r.message}`).join(" | ").slice(0, 300));
+      eq(body.changed, 8, "changed");
+      assert(freedCodes(body).includes("LOC-HEAT-PRESS-01"), `freed ${JSON.stringify(freedCodes(body))}`);
+      eq(body.emailedOrders ?? [], [], "emailedOrders");
+      return body.message;
+    }, { critical: true, shot: false });
+    await s.step("HEAT PRESS 01 is empty; the 8 are at the desk (location_id, located_at); steps unchanged (Heat Press), no step events", async () => {
+      const t = await tables();
+      eq(cardsIn(t, "LOC-HEAT-PRESS-01"), [], "cards in HEAT PRESS 01");
+      eq(cardsIn(t, DESK), sorted(DESK_CARDS), "cards at the desk");
+      for (const code of DESK_CARDS) {
+        const c = cardByCode(t, code), was = cardByCode(before.tables, code);
+        assert(c.located_at && (!was.located_at || Date.parse(c.located_at) >= Date.parse(was.located_at)), `${code} located_at ${c.located_at} (was ${was.located_at})`);
+        eq([latestStage(t, c.id), c.completed], ["Heat Press", false], `${code} step, done`);
+      }
+      eq(stageEventCount(t), stageEventCount(before.tables), "stage_update events");
+    }, { shot: false });
+    await s.step("card_moves: one 'move' row per card, HEAT PRESS 01 -> DESK, Heat Press -> Heat Press (with order and bag)", async () => {
+      const t = await tables();
+      const from = placeOf(t, "LOC-HEAT-PRESS-01").id, to = placeOf(t, DESK).id;
+      for (const code of DESK_CARDS) {
+        const c = cardByCode(t, code);
+        const rows = movesOf(t, c.id).filter((m) => m.to_location_id === to);
+        eq(rows.length, 1, `${code} rows to the desk`);
+        eq([rows[0].action, rows[0].from_location_id, rows[0].stage_before, rows[0].stage_after], ["move", from, "Heat Press", "Heat Press"], `${code} action, from, stage_before, stage_after`);
+        eq([rows[0].order_id, rows[0].bag_id], [c.order_id, c.bag_id], `${code} order_id, bag_id`);
+      }
+      eq(t.card_moves.length - before.tables.card_moves.length, 8, "new card_moves rows");
+    }, { shot: false });
+    await s.step("no customer email for the desk move", async () => {
+      const fresh = (await emails()).slice(before.emails.length);
+      eq(fresh.length, 0, `emails (${fresh.map((m) => `${JSON.stringify(m.to)} ${m.subject}`).join(" | ").slice(0, 160)})`);
+    }, { shot: false });
+    await s.step(`resolve ${DESK} (what the Scan page shows): kind other, the 8 cards, each at Heat Press`, async () => {
+      const loc = await resolveVia(ctx, DESK, "location");
+      eq([loc.code, loc.kind, loc.cardCount], [DESK, "other", 8], "code, kind, cardCount");
+      eq(loc.cards.map((c) => c.code).sort(), sorted(DESK_CARDS), "cards");
+      const off = loc.cards.filter((c) => c.stage !== "Heat Press").map((c) => `${c.code} ${c.stage}`);
+      assert(!off.length, `not at Heat Press: ${off.join(", ")}`);
+    }, { shot: false });
+  },
+
+  // The Desk page: a panel per card with what the order page shows for it (photos, name, notes)
+  async "desk-page"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step(`setup: the 8 (notes, defects, photos) through HEAT PRESS 01 onto ${DESK}; ${DESK_DECOY} in CLAMP 01`, async () => {
+      t = await deskStack(ctx, mockUrl, { clamp: 1 });
+      await assignOk(ctx, "LOC-CLAMP-01", [cardIdOf(t, DESK_DECOY)]);
+      t = await tables();
+    }, { critical: true, shot: false });
+    const info = () => DESK_CARDS.map((code) => deskInfo(t, code));
+    await s.step(`/admin/receiving/desk lists exactly the 8 cards on the desk, one panel each (not ${DESK_DECOY}, in CLAMP 01)`, async () => {
+      await goto(page, ROUTES.desk);
+      eq(await waitPanels(page, DESK_CARDS), sorted(DESK_CARDS), "cards with a panel");
+      const text = await page.locator("main").first().innerText();
+      eq([...new Set(text.match(/CD-\d+-\d{2,}(?!\d)/g) ?? [])].sort(), sorted(DESK_CARDS), "Card IDs on the page");
+    }, { critical: true });
+    await s.step("each panel: Card ID, card name, customer, order number, the order's customer notes, the card's own notes and known defects", async () => {
+      const problems = [];
+      const all = info();
+      for (const x of all) {
+        const txt = await panelText(page, x.code);
+        for (const [what, want] of [["card name", x.name], ["customer", x.customer], ...x.orderNotes.map((n) => ["order's customer note", n]), ...x.own.map((n) => ["card note/defect", n])]) {
+          if (!txt.includes(want)) problems.push(`${x.code}: no ${what} "${want}"`);
+        }
+        if (!orderNumberRe(x.orderNumber).test(txt)) problems.push(`${x.code}: no order number ${x.orderNumber}`);
+        for (const y of all) for (const n of y.code === x.code ? [] : y.own) if (txt.includes(n)) problems.push(`${x.code}: shows ${y.code}'s note "${n}"`);
+      }
+      assert(!problems.length, problems.slice(0, 4).join(" | "));
+      return `notes on ${all.filter((x) => x.own.length).map((x) => x.code).join(", ")}`;
+    }, { shot: false });
+    await s.step("each panel has at least one photo (<img>)", async () => {
+      const counts = [];
+      for (const code of DESK_CARDS) {
+        const n = await UI.deskPanel(page, code, DESK_ALL).locator("img").count();
+        counts.push(`${code.slice(3)} ${n}`);
+        assert(n >= 1, `${code}: no photo`);
+      }
+      return counts.join(", ");
+    }, { shot: false });
+    await s.step("CD-2549-01's panel shows its receiving photo and its customer photos; its first photo loads", async () => {
+      const p1 = UI.deskPanel(page, "CD-2549-01", DESK_ALL);
+      assert(await p1.locator(`img[src*="${RECEIVING_PHOTO_STEM}"], img[srcset*="${RECEIVING_PHOTO_STEM}"]`).count() >= 1, "no receiving photo");
+      assert(await p1.locator('img[src*="seed-a-card01-"], img[srcset*="seed-a-card01-"]').count() >= 1, "no customer photo");
+      const img = p1.locator("img").first();
+      await img.scrollIntoViewIfNeeded();
+      assert(await until(() => img.evaluate((e) => e.complete && e.naturalWidth > 0).catch(() => false), 15_000), "the first photo didn't load");
+    }, { shot: false });
+    await s.step('each panel\'s "Open order" links to /admin/orders/<id> (the full order)', async () => {
+      const out = [];
+      for (const x of info()) {
+        const link = UI.deskOpenOrder(UI.deskPanel(page, x.code, DESK_ALL));
+        assert(await link.count() >= 1, `${x.code}: no "Open order" link`);
+        const href = await link.first().getAttribute("href");
+        eq(new URL(href, appUrl).pathname, ROUTES.order(x.orderId), `${x.code} "Open order"`);
+        out.push(href);
+      }
+      return [...new Set(out)].join(", ");
+    }, { shot: false });
+    await s.step("each panel also shows the tier, the step (Heat Press) and where the card came from (HEAT PRESS 01)", async () => {
+      const problems = [];
+      for (const x of info()) {
+        const txt = await panelText(page, x.code);
+        if (!tierShown(txt, x.tierName)) problems.push(`${x.code}: no tier ${x.tierName}`);
+        if (!/heat press/i.test(txt.replace(/heat press 01/gi, ""))) problems.push(`${x.code}: no step Heat Press`);
+        if (!nameRe("HEAT PRESS 01", "i").test(txt)) problems.push(`${x.code}: doesn't say it came from HEAT PRESS 01`);
+      }
+      assert(!problems.length, problems.slice(0, 4).join(" | "));
+    }, { shot: false });
+    await s.step("tapping a photo (CD-2549-01) opens it full screen; Close closes it", () => photoViewerCheck(page, UI.deskPanel(page, "CD-2549-01", DESK_ALL), "desk-page-viewer-1440"), { shot: false });
+    await s.step("1440 px: no sideways scroll, panels in a grid (side by side); screenshot desk-page-1440.png", async () => {
+      await page.screenshot({ path: path.join(OUT, "desk-page-1440.png"), fullPage: true });
+      const wide = await sidewaysScroll(page);
+      assert(wide <= 1, `scrolls sideways by ${wide}px`);
+      const boxes = [];
+      for (const code of DESK_CARDS.slice(0, 4)) boxes.push(await UI.deskPanel(page, code, DESK_ALL).boundingBox());
+      const side = boxes.some((a, i) => boxes.some((b, j) => i !== j && a && b && Math.abs(a.y - b.y) < 8 && Math.abs(a.x - b.x) > 100));
+      assert(side, `the panels are one column at 1440 px: ${boxes.map((b) => (b ? `${Math.round(b.x)},${Math.round(b.y)}` : "-")).join(" ")}`);
+    }, { shot: false });
+    await s.step("390 px: the 8 panels, no sideways scroll, a photo opens full screen; screenshot desk-page-390.png", async () => {
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        await goto(phone.page, ROUTES.desk);
+        eq(await waitPanels(phone.page, DESK_CARDS), sorted(DESK_CARDS), "cards with a panel");
+        await phone.page.screenshot({ path: path.join(OUT, "desk-page-390.png"), fullPage: true });
+        const w = await sidewaysScroll(phone.page);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        const r = await photoViewerCheck(phone.page, UI.deskPanel(phone.page, "CD-2549-07", DESK_ALL), "desk-page-viewer-390");
+        assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+        return r;
+      } finally {
+        await phone.ctx.close();
+      }
+    }, { shot: false });
+    await s.step('the menu has "Desk" (/admin/receiving/desk)', async () => {
+      const hrefs = await UI.deskNavLink(page).evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+      assert(hrefs.some((h) => h && new URL(h, appUrl).pathname === ROUTES.desk), `"Desk" links: ${JSON.stringify(hrefs)}`);
+    }, { shot: false });
+    await s.step("a second desk, DESK GAVIN (LOC-DESK-GAVIN), holding CD-2600-03: ?desk=LOC-DESK-GAVIN lists only it; ?desk=LOC-DESK the 8 and a picker naming DESK GAVIN", async () => {
+      const r = await api(ctx, "POST", ROUTES.trackLocations(), { name: "DESK GAVIN", kind: "other" });
+      assert([200, 201].includes(r.status), `add DESK GAVIN: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      eq(r.body?.location?.code, "LOC-DESK-GAVIN", "code");
+      await assignOk(ctx, "LOC-DESK-GAVIN", [cardIdOf(t, DESK_DECOY)]);
+      await goto(page, ROUTES.deskAt("LOC-DESK-GAVIN"));
+      eq(await waitPanels(page, [DESK_DECOY]), [DESK_DECOY], "cards on DESK GAVIN");
+      await goto(page, ROUTES.deskAt(DESK));
+      eq(await waitPanels(page, DESK_CARDS), sorted(DESK_CARDS), `cards on ${DESK}`);
+      const text = await page.locator("main").first().innerText();
+      const picker = /desk gavin/i.test(text) || (await page.locator('main a[href*="LOC-DESK-GAVIN"], main option[value="LOC-DESK-GAVIN"]').count()) > 0;
+      assert(picker, "no desk picker naming DESK GAVIN");
+    });
+  },
+
+  // From the Desk page: put one in a clamp (typing "clamp 1"), Done one, take one out, then two at once into a humidor
+  async "desk-actions"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    const id = (code) => cardIdOf(t, code);
+    await s.step(`setup: the 8 on ${DESK}; CLAMP 01..02 (hold 1), HUMIDOR 01 (no limit); ${DESK_DECOY} fills CLAMP 02`, async () => {
+      t = await deskStack(ctx, mockUrl, { clamp: 2, humidor: 1 });
+      for (const code of ["LOC-CLAMP-01", "LOC-CLAMP-02"]) await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", code);
+      await mockUpdate(mockUrl, "locations", { capacity: null }, "code", "LOC-HUMIDOR-01");
+      await assignOk(ctx, "LOC-CLAMP-02", [cardIdOf(t, DESK_DECOY)]);
+      t = await tables();
+    }, { critical: true, shot: false });
+    await s.step("open the Desk page: 8 panels", async () => {
+      await goto(page, ROUTES.desk);
+      eq(await waitPanels(page, DESK_CARDS), sorted(DESK_CARDS), "cards with a panel");
+    }, { critical: true });
+
+    const msgs = {};
+    let choices = null;
+    await s.step('CD-2549-01: "Put in holder", type "clamp 1" + Enter: in CLAMP 01, step Clamp Work', async () => {
+      const panel = UI.deskPanel(page, "CD-2549-01", DESK_ALL);
+      await UI.deskPutIn(panel).click();
+      const box = await holderBox(page, panel);
+      choices = await holderChoices(page, panel);
+      const { how, typedSaved } = await pickHolder(page, box, "clamp 1", "CLAMP 01");
+      await until(async () => cardsIn(await tables(), "LOC-CLAMP-01").length > 0, 10_000);
+      const t2 = await tables();
+      eq(cardsIn(t2, "LOC-CLAMP-01"), ["CD-2549-01"], "cards in CLAMP 01");
+      eq(latestStage(t2, id("CD-2549-01")), "Clamp Work", "step");
+      msgs.put = await messageSeen(page, nameRe("CLAMP 01", "i"));
+      assert(box, `no box to type the holder in (${how})`);
+      assert(typedSaved, `typing "clamp 1" + Enter saved nothing (${how})`);
+      return how;
+    });
+    if (!cardsIn(await tables(), "LOC-CLAMP-01").includes("CD-2549-01")) {
+      await s.step("(fallback) CD-2549-01 into CLAMP 01 through the API", () => assignOk(ctx, "LOC-CLAMP-01", [id("CD-2549-01")]), { shot: false });
+    }
+    await s.step("the picker offered holders with room (CLAMP 01, HUMIDOR 01), not the full CLAMP 02", async () => {
+      assert(choices, "the picker's choices weren't read (see the step above)");
+      const has = (name) => choices.some((c) => nameRe(name, "i").test(c));
+      const problems = [];
+      if (!has("CLAMP 01")) problems.push("no CLAMP 01");
+      if (!has("HUMIDOR 01")) problems.push("no HUMIDOR 01");
+      if (has("CLAMP 02")) problems.push("offers the full CLAMP 02");
+      assert(!problems.length, `${problems.join(", ")} (choices: ${choices.join(" | ").slice(0, 200)})`);
+    }, { shot: false });
+
+    await s.step("CD-2549-02: Done (answering a second tap or Yes if asked): done, at LOC-DONE; no customer email", async () => {
+      const n = (await emails()).length;
+      const panel = UI.deskPanel(page, "CD-2549-02", DESK_ALL);
+      await tapToSave(page, UI.deskDone(panel), panel);
+      await until(async () => cardByCode(await tables(), "CD-2549-02").completed, 10_000);
+      const t2 = await tables();
+      const c = cardByCode(t2, "CD-2549-02");
+      assert(c.completed, "not done");
+      eq(c.location_id, placeOf(t2, "LOC-DONE").id, "location (LOC-DONE)");
+      eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, 0, "emails to Test Customer A");
+      msgs.done = await messageSeen(page, /\bdone\b/i);
+    });
+    if (!cardByCode(await tables(), "CD-2549-02").completed) {
+      await s.step("(fallback) Done on CD-2549-02 through the API", () => trackOk(ctx, ROUTES.trackDone, { cardIds: [id("CD-2549-02")] }), { shot: false });
+    }
+
+    await s.step("CD-2549-03: Take out: in no place, step still Heat Press, a 'release' row from the desk", async () => {
+      const panel = UI.deskPanel(page, "CD-2549-03", DESK_ALL);
+      await tapToSave(page, UI.deskTakeOut(panel), panel);
+      await until(async () => !cardByCode(await tables(), "CD-2549-03").location_id, 10_000);
+      const t2 = await tables();
+      const c = cardByCode(t2, "CD-2549-03");
+      eq(c.location_id ?? null, null, "location_id");
+      eq(latestStage(t2, c.id), "Heat Press", "step");
+      const rows = movesOf(t2, c.id).filter((m) => m.action === "release");
+      eq(rows.map((m) => m.from_location_id), [placeOf(t2, DESK).id], "release rows (from the desk)");
+      msgs.out = await messageSeen(page, /\bout\b|taken|removed|\boff\b/i);
+    });
+    if (cardByCode(await tables(), "CD-2549-03").location_id) {
+      await s.step("(fallback) take CD-2549-03 out through the API", () => trackOk(ctx, ROUTES.trackRelease, { cardIds: [id("CD-2549-03")] }), { shot: false });
+    }
+
+    const five = ["CD-2549-04", "CD-2549-07", "CD-2549-08", "CD-2600-01", "CD-2600-02"];
+    await s.step("without a reload the page shows the 5 left, and a message after each action", async () => {
+      eq(await waitPanels(page, five), sorted(five), "cards with a panel");
+      const missing = ["put", "done", "out"].filter((k) => !msgs[k]);
+      assert(!missing.length, `no message after: ${missing.join(", ")}`);
+      return ["put", "done", "out"].map((k) => msgs[k]).join(" | ").slice(0, 200);
+    });
+
+    let multi = false;
+    await s.step('tick CD-2600-01 and CD-2600-02, "Put selected in…", type "humidor 1": both in HUMIDOR 01 (no 409), step stays Heat Press, no email', async () => {
+      const n = (await emails()).length;
+      for (const code of ["CD-2600-01", "CD-2600-02"]) await tickPanel(UI.deskPanel(page, code, DESK_ALL));
+      await UI.deskPutSelected(page).click();
+      const box = await holderBox(page, null);
+      await holderChoices(page, page.locator("main").first());
+      const { how } = await pickHolder(page, box, "humidor 1", "HUMIDOR 01");
+      multi = true;
+      await until(async () => cardsIn(await tables(), "LOC-HUMIDOR-01").length >= 2, 10_000);
+      const t2 = await tables();
+      eq(cardsIn(t2, "LOC-HUMIDOR-01"), ["CD-2600-01", "CD-2600-02"], "cards in HUMIDOR 01");
+      for (const code of ["CD-2600-01", "CD-2600-02"]) eq(latestStage(t2, id(code)), "Heat Press", `${code} step (Humidor is earlier)`);
+      eq(mailsTo((await emails()).slice(n), CUSTOMER_G).length, 0, "emails to Test Customer G");
+      msgs.multi = await messageSeen(page, nameRe("HUMIDOR 01", "i"));
+      assert(box, `no box to type the holder in (${how})`);
+      return how;
+    });
+    if (!multi || cardsIn(await tables(), "LOC-HUMIDOR-01").length < 2) {
+      await s.step("(fallback) CD-2600-01 and -02 into HUMIDOR 01 through the API", () => assignOk(ctx, "LOC-HUMIDOR-01", ["CD-2600-01", "CD-2600-02"].map(id)), { shot: false });
+    }
+    const three = ["CD-2549-04", "CD-2549-07", "CD-2549-08"];
+    await s.step("the page shows the 3 left, with a message naming HUMIDOR 01", async () => {
+      eq(await waitPanels(page, three), sorted(three), "cards with a panel");
+      assert(msgs.multi, "no message naming HUMIDOR 01");
+      return msgs.multi;
+    });
+    await s.step("reloaded, the desk lists exactly those 3; 390 px no sideways scroll (screenshot)", async () => {
+      await goto(page, ROUTES.desk);
+      eq(await waitPanels(page, three), sorted(three), "cards with a panel");
+      eq(cardsIn(await tables(), DESK), sorted(three), `cards at ${DESK} (database)`);
+      const w = await phoneShot(browser, appUrl, ROUTES.desk, "desk-actions-after");
+      assert(!w, w);
+    });
+  },
+
+  // The Scan page (handheld scanner, 390 px): HEAT PRESS 01 -> Move -> the desk; "desk" shows the desk
+  async "desk-scan"({ ctx, s, browser, appUrl, mockUrl }) {
+    await s.step(`setup: the 8 (received) in HEAT PRESS 01; ${DESK} exists`, () => deskStack(ctx, mockUrl, {}, { toDesk: false }), { critical: true, shot: false });
+    await s.step("/q/LOC-DESK, /Q/LOC-DESK and /q/loc-desk -> /admin/scan?loc=LOC-DESK", async () => {
+      for (const url of [ROUTES.qr(DESK), ROUTES.qrUpper(DESK), ROUTES.qr(DESK.toLowerCase())]) {
+        let r = await api(ctx, "GET", url);
+        assert([301, 302, 303, 307, 308].includes(r.status), `${url}: HTTP ${r.status}`);
+        let loc = new URL(r.headers.location ?? "/", appUrl);
+        if (loc.pathname.startsWith("/q/")) {
+          r = await api(ctx, "GET", loc.pathname);
+          loc = new URL(r.headers.location ?? "/", appUrl);
+        }
+        eq([loc.pathname, loc.searchParams.get("loc")], [ROUTES.scan, DESK], `${url} redirect`);
+      }
+    }, { shot: false });
+
+    const phone = await phoneContext(browser, appUrl);
+    const p = phone.page;
+    const shot = (name) => p.screenshot({ path: path.join(OUT, `desk-scan-${name}.png`), fullPage: true }).catch(() => {});
+    const mainText = () => p.locator("main").first().innerText();
+    // The desk on the Scan page: its 8 cards and "Open desk page" (-> /admin/receiving/desk[?desk=LOC-DESK])
+    const showsDesk = async () => {
+      const text = (await until(async () => { const x = await mainText(); return DESK_CARDS.every((c) => x.includes(c)) ? x : null; }, 20_000)) ?? await mainText();
+      const missing = DESK_CARDS.filter((c) => !text.includes(c));
+      assert(!missing.length, `desk cards not shown: ${missing.join(", ")}`);
+      const link = UI.openDeskPage(p);
+      await link.waitFor({ timeout: 15_000 });
+      const href = new URL(await link.getAttribute("href"), appUrl);
+      eq(href.pathname, ROUTES.desk, '"Open desk page" link');
+      if (href.searchParams.has("desk")) eq(href.searchParams.get("desk"), DESK, '"Open desk page" ?desk=');
+      const w = await sidewaysScroll(p);
+      assert(w <= 1, `scrolls sideways by ${w}px`);
+      return `${href.pathname}${href.search}`;
+    };
+    try {
+      await s.step("phone /admin/scan: the scanner reads HEAT PRESS 01's label: its 8 cards, with Move", async () => {
+        await goto(p, ROUTES.scan);
+        await Promise.all([
+          p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 60_000 }),
+          scanType(p, "HTTPS://THECARDDOC1.COM/Q/LOC-HEAT-PRESS-01"),
+        ]);
+        const text = (await until(async () => { const x = await mainText(); return DESK_CARDS.every((c) => x.includes(c)) ? x : null; }, 15_000)) ?? await mainText();
+        const missing = DESK_CARDS.filter((c) => !text.includes(c));
+        assert(!missing.length, `not shown: ${missing.join(", ")}`);
+        assert(await UI.slotMove(p).count() > 0, "no Move button");
+        await shot("01-heat-press");
+      }, { shot: false });
+      let moved = false;
+      await s.step("Move, then the scanner reads the desk's label: POST move to LOC-DESK; all 8 at the desk, HEAT PRESS 01 empty, steps kept; a desk page link shows", async () => {
+        await UI.slotMove(p).click();
+        const res = p.waitForResponse((r) => r.url().includes(ROUTES.trackMove) && r.request().method() === "POST", { timeout: 60_000 });
+        await scanType(p, "HTTPS://THECARDDOC1.COM/Q/LOC-DESK");
+        const r = await res;
+        assert(r.status() < 300, `move answered ${r.status()}: ${await r.text()}`);
+        moved = true;
+        const sent = JSON.parse(r.request().postData() ?? "{}");
+        eq([sent.fromCode, sent.toCode, (sent.cardIds ?? []).length], ["LOC-HEAT-PRESS-01", DESK, 8], "fromCode, toCode, cards sent");
+        const t = await tables();
+        eq(cardsIn(t, DESK), sorted(DESK_CARDS), "cards at the desk");
+        eq(cardsIn(t, "LOC-HEAT-PRESS-01"), [], "cards in HEAT PRESS 01");
+        for (const code of DESK_CARDS) eq(latestStage(t, cardIdOf(t, code)), "Heat Press", `${code} step`);
+        await UI.openDeskPage(p).waitFor({ timeout: 15_000 });
+        // on the phone the link is on screen as the move lands, not under the Move/Done/Take out bar
+        const onScreen = await until(() => p.getByRole("link", { name: /^open (the )?desk( page)?\b/i }).evaluateAll((els) => els.some((el) => {
+          const r = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return r.width > 0 && r.top >= 0 && r.bottom <= window.innerHeight && !!hit && (hit === el || el.contains(hit));
+        })), 10_000);
+        assert(onScreen, 'the "Open desk page" link needs a scroll (off screen, or under the action bar)');
+        await shot("02-moved-to-desk");
+        return (await UI.openDeskPage(p).getAttribute("href")) ?? "";
+      }, { shot: false });
+      if (!moved) {
+        await s.step("(fallback) move the stack to the desk through the API", async () => {
+          const t = await tables();
+          await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-01", toCode: DESK, cardIds: DESK_CARDS.map((c) => cardIdOf(t, c)) });
+        }, { critical: true, shot: false });
+      }
+      await s.step('a fresh Scan page, typing "desk" + Enter: the desk\'s 8 cards and "Open desk page"', async () => {
+        await goto(p, ROUTES.scan);
+        await scanType(p, "desk");
+        const r = await showsDesk();
+        await shot("03-typed-desk");
+        return r;
+      }, { shot: false });
+      await s.step("a fresh Scan page, the scanner reads the desk's label (…/Q/LOC-DESK): the same", async () => {
+        await goto(p, ROUTES.scan);
+        await scanType(p, "HTTPS://THECARDDOC1.COM/Q/LOC-DESK");
+        const r = await showsDesk();
+        await shot("04-desk-label");
+        return r;
+      }, { shot: false });
+      await s.step("opened from the desk's QR (/admin/scan?loc=LOC-DESK): the same", async () => {
+        await goto(p, ROUTES.scanAt(DESK));
+        return showsDesk();
+      }, { shot: false });
+      await s.step('"Open desk page" opens /admin/receiving/desk with the 8 cards', async () => {
+        await Promise.all([
+          p.waitForURL((u) => u.pathname === ROUTES.desk, { timeout: 240_000 }),
+          UI.openDeskPage(p).click(),
+        ]);
+        eq(await waitPanels(p, DESK_CARDS), sorted(DESK_CARDS), "cards with a panel");
+        await shot("05-desk-page");
+      }, { shot: false });
+      await s.step("no browser errors on the phone", async () => {
+        assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+  },
+
+  // Stack holders have no limit by default now; a clamp and a slab crack spot still hold 1
+  async "desk-capacity"({ ctx, s, mockUrl }) {
+    const ONE = ["clamp", "slab-crack"];
+    await s.step("station types: clamp and slab crack hold 1 card; humidor, humidity press, drying, heat press, book weights, final dry: no limit", async () => {
+      const r = await api(ctx, "GET", ROUTES.trackLocations());
+      eq(r.status, 200, "HTTP");
+      const got = Object.fromEntries((r.body?.stations ?? []).map((x) => [x.key, x.defaultCapacity]));
+      eq(Object.keys(STATIONS).map((k) => [k, k in got ? got[k] : "(missing)"]), Object.keys(STATIONS).map((k) => [k, ONE.includes(k) ? 1 : null]), "default capacities");
+    }, { shot: false });
+    let t0 = null;
+    const id = (code) => cardIdOf(t0, code);
+    await s.step("setup: receive CD-2549 (01-04, 07-08) and CD-2600-01..03; make CLAMP 01..02, SLAB CRACK 01, HEAT PRESS 01..02, HUMIDOR 01", async () => {
+      await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7].map(mailCard), "2026-11-15");
+      await receiveViaApi(ctx, IDS.bigOrder, IDS.bigCards.slice(0, 3), "2026-11-20");
+      for (const [station, count] of [["clamp", 2], ["slab-crack", 1], ["heat-press", 2], ["humidor", 1]]) await bulkSlots(ctx, station, count);
+      t0 = await tables();
+      for (const code of DESK_ALL) cardIdOf(t0, code);
+    }, { critical: true, shot: false });
+    await s.step("new slots store their type's default: CLAMP 01, 02 and SLAB CRACK 01 hold 1; HEAT PRESS 01, 02 and HUMIDOR 01 no limit", async () => {
+      const codes = ["LOC-CLAMP-01", "LOC-CLAMP-02", "LOC-SLAB-CRACK-01", "LOC-HEAT-PRESS-01", "LOC-HEAT-PRESS-02", "LOC-HUMIDOR-01"];
+      eq(codes.map((c) => placeOf(t0, c)?.capacity ?? null), [1, 1, 1, null, null, null], "capacities");
+    }, { shot: false });
+    await s.step("CLAMP 01: CD-2549-01 goes in; CD-2549-02 -> 409 overCapacity (holds 1, has CD-2549-01); nothing written", async () => {
+      await assignOk(ctx, "LOC-CLAMP-01", [id("CD-2549-01")]);
+      const before = await dump();
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-01", cardIds: [id("CD-2549-02")] });
+      const msg = checkCapacityConflict(r, 1, ["CD-2549-01"]);
+      const after = await dump();
+      eq(cardsIn(after.tables, "LOC-CLAMP-01"), ["CD-2549-01"], "cards in CLAMP 01");
+      eq(after.tables.card_moves.length, before.tables.card_moves.length, "card_moves rows");
+      eq(after.emails.length, before.emails.length, "emails");
+      return msg;
+    }, { shot: false });
+    await s.step("SLAB CRACK 01: CD-2600-01 goes in; CD-2600-02 -> 409 overCapacity", async () => {
+      await assignOk(ctx, "LOC-SLAB-CRACK-01", [id("CD-2600-01")]);
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-SLAB-CRACK-01", cardIds: [id("CD-2600-02")] });
+      const msg = checkCapacityConflict(r, 1, ["CD-2600-01"]);
+      eq(cardsIn(await tables(), "LOC-SLAB-CRACK-01"), ["CD-2600-01"], "cards in SLAB CRACK 01");
+      return msg;
+    }, { shot: false });
+    const five = ["CD-2549-02", "CD-2549-03", "CD-2549-04", "CD-2549-07", "CD-2549-08"];
+    await s.step("HEAT PRESS 01: 3 cards in one request, then 2 more: 200 both times (no 409); it holds 5", async () => {
+      for (const batch of [five.slice(0, 3), five.slice(3)]) {
+        const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-HEAT-PRESS-01", cardIds: batch.map(id) });
+        eq(r.status, 200, `${batch.join(", ")}: HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      }
+      eq(cardsIn(await tables(), "LOC-HEAT-PRESS-01"), sorted(five), "cards in HEAT PRESS 01");
+    }, { shot: false });
+    await s.step("HUMIDOR 01: CD-2600-01..03 in (one taken from SLAB CRACK 01), then HEAT PRESS 01's 5 moved in: 200 (no 409); it holds 8", async () => {
+      const three = ["CD-2600-01", "CD-2600-02", "CD-2600-03"];
+      const a = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-HUMIDOR-01", cardIds: three.map(id) });
+      eq(a.status, 200, `assign: HTTP (${JSON.stringify(a.body).slice(0, 160)})`);
+      const m = await trackPost(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-01", toCode: "LOC-HUMIDOR-01" });
+      eq(m.status, 200, `move: HTTP (${JSON.stringify(m.body).slice(0, 160)})`);
+      const t = await tables();
+      eq(cardsIn(t, "LOC-HUMIDOR-01"), sorted([...three, ...five]), "cards in HUMIDOR 01");
+      eq(cardsIn(t, "LOC-HEAT-PRESS-01"), [], "cards in HEAT PRESS 01");
+    }, { shot: false });
+    await s.step("a slot made before the change keeps its stored capacity: HEAT PRESS 02 set to 1 (in the mock), 2 cards -> 409; nothing written", async () => {
+      await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", "LOC-HEAT-PRESS-02");
+      const before = await tables();
+      const r = await trackPost(ctx, ROUTES.trackAssign, { locationCode: "LOC-HEAT-PRESS-02", cardIds: ["CD-2549-07", "CD-2549-08"].map(id) });
+      const msg = checkCapacityConflict(r, 1, []);
+      const t = await tables();
+      eq(cardsIn(t, "LOC-HEAT-PRESS-02"), [], "cards in HEAT PRESS 02");
+      eq(t.card_moves.length, before.card_moves.length, "card_moves rows");
+      return msg;
+    }, { shot: false });
   },
 };
 
