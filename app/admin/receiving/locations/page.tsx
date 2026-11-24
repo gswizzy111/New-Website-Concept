@@ -146,7 +146,7 @@ export default async function PlacesPage() {
   const off = all.filter((p) => !p.active).sort((a, b) => a.kind.localeCompare(b.kind) || byName(a, b));
 
   return (
-    <div className="min-h-screen bg-secondary/30">
+    <div className="min-h-screen bg-secondary/30 lining-nums">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <AdminLink href="/admin/receiving" className={`inline-flex items-center min-h-11 text-sm font-semibold text-primary hover:underline rounded ${focusRing}`}>
           ← Receiving

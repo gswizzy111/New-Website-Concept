@@ -42,7 +42,7 @@ export default async function ShipCheckPage({ params, searchParams }: { params: 
   if (!result.ok && result.status === 404) notFound();
   if (!result.ok) {
     return (
-      <div className="min-h-screen bg-secondary/30">
+      <div className="min-h-screen bg-secondary/30 lining-nums">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-10 flex flex-col gap-4">
           <AdminLink href="/admin/receiving" className={linkClass}>← Receiving</AdminLink>
           {isMissingIntakeSchema({ message: result.error }) ? (
@@ -65,7 +65,7 @@ export default async function ShipCheckPage({ params, searchParams }: { params: 
   const shipped = ["shipped_back", "delivered"].includes(order.status);
 
   return (
-    <div className="min-h-screen bg-secondary/30">
+    <div className="min-h-screen bg-secondary/30 lining-nums">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 sm:py-8 flex flex-col gap-4">
         <nav aria-label="Related pages" className="flex flex-wrap items-center justify-between gap-x-4">
           <AdminLink href="/admin/receiving" className={linkClass}>← Receiving</AdminLink>

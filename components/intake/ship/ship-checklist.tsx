@@ -298,7 +298,8 @@ export function ShipChecklist({
                 )}
               </div>
               <span className="text-xs text-muted-foreground">
-                {plural(g.rows.filter(isLive).length, "card")}
+                {/* Never-arrived and refunded cards are listed but don't ship: "4 cards · 0 to ship" */}
+                {g.rows.every(isLive) ? plural(g.rows.length, "card") : `${plural(g.rows.length, "card")} · ${g.rows.filter(isLive).length} to ship`}
                 {g.bag?.place ? ` · bag on ${g.bag.place}` : ""}
               </span>
             </header>

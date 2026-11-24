@@ -23,7 +23,7 @@ export function PutInShelf({ groups }: { groups: ShelfGroup[] }) {
     <section
       id="shelf"
       aria-labelledby="shelf-h"
-      className={`mt-4 scroll-mt-20 lg:scroll-mt-6 rounded-xl bg-white p-4 sm:p-5 ${todo.length ? "border-2 border-primary" : "border border-green-300"}`}
+      className={`mt-4 scroll-mt-20 lg:scroll-mt-6 rounded-xl bg-white p-4 sm:p-5 lining-nums ${todo.length ? "border-2 border-primary" : "border border-green-300"}`}
     >
       {todo.length > 0 ? (
         <>
