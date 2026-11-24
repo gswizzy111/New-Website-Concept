@@ -96,7 +96,7 @@ export function OrderLabelPrint({
           <p className="mt-0.5 text-sm text-muted-foreground">
             {reprint
               ? `${n === 1 ? "The bag has" : "Every bag has"} its label${lastPrint ? ` (last printed ${printedWhen(lastPrint)})` : ""}. ${n === 1 ? "Reprint it if it got" : "Reprint them if one got"} lost or damaged.`
-              : <>Every card has its photo. {n === 1 ? "Bag" : "Bags"}: {codes}.</>}
+              : <>{n === 1 ? "Bag" : "Bags"}: {codes}.</>}
           </p>
         </div>
         <LabelPrintButton

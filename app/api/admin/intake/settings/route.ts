@@ -4,7 +4,7 @@ import { isAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isDay } from "@/lib/intake/business-days";
 import { getLabelSettings } from "@/lib/intake/labels/data";
-import { CONTENT_WIDTH_CONFIG_KEY, LABEL_STOCKS, MIN_CONTENT_WIDTH_IN, STOCK_CONFIG_KEY } from "@/lib/intake/labels/stock";
+import { CONTENT_WIDTH_CONFIG_KEY, LABEL_STOCKS, MIN_CONTENT_WIDTH_IN, STOCK_CONFIG_KEY, stockWidthRange } from "@/lib/intake/labels/stock";
 
 // Receiving settings: the label stock and print width (store_config) and the
 // business holidays (business_holidays). Holiday changes only affect due
@@ -21,6 +21,10 @@ const Body = z
       })
       .refine((l) => l.contentWidthIn <= LABEL_STOCKS[l.stock].widthIn, {
         message: "The print width can't be wider than the label.",
+      })
+      // Each label size has its own narrowest print (inch labels 2 in, 50 x 80 mm 1.75 in)
+      .refine((l) => l.contentWidthIn >= stockWidthRange(l.stock).min, {
+        message: "The print width is too narrow for this label size.",
       })
       .optional(),
     addHoliday: z.object({ day: z.string().refine(isDay, "Pick a date."), name: z.string().trim().min(1).max(80) }).optional(),

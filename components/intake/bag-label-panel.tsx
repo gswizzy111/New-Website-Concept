@@ -7,6 +7,7 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { connectQZ, isQZActive } from "@/lib/qz-print";
 import type { BagSummary } from "@/lib/intake/types";
 import type { LabelPreviewResponse } from "@/lib/intake/labels/respond";
+import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import { LabelPreview } from "./label-preview";
 import { LabelPrintButton, paperGroup, useLabelPrinter, useShareDevice } from "./label-print-button";
 
@@ -247,7 +248,7 @@ export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; b
           <h3 id="labels-h" className="font-heading font-black text-base text-foreground">{bags.length === 1 ? "Bag label" : "Bag labels"}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             One label per tier bag.{" "}
-            {settings ? `${settings.stock.replace("x", " × ")} in labels, ${settings.contentWidthIn} in wide print. ` : ""}
+            {settings ? `${LABEL_STOCKS[settings.stock]?.name ?? settings.stock} labels, ${settings.contentWidthIn} in wide print. ` : ""}
             Preview shows exactly what prints.{" "}
             <AdminLink href="/admin/receiving/settings" className="text-primary font-semibold hover:underline">Label settings</AdminLink>
           </p>

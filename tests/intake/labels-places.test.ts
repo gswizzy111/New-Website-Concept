@@ -101,12 +101,12 @@ function checkPage(p: LabelPage, stock: LabelStock, qrData: string, minQrIn: num
   }
   for (const e of ink) {
     if (e.kind === "text") assert.ok(!inkRects.some((r) => r.kind === "rect" && r.h > 3 && overlap(box(e), box(r))), `${label}: "${e.text}" clear of the banner`);
-    if (e.kind === "qr") assert.ok(!inkRects.some((r) => overlap(box(e), box(r), 2 * module)), `${label}: QR quiet zone clear of rules and the banner`);
+    if (e.kind === "qr") assert.ok(!inkRects.some((r) => overlap(box(e), box(r), 2 * moduleSize)), `${label}: QR quiet zone clear of rules and the banner`);
   }
   for (let i = 0; i < ink.length; i++) {
     for (let j = i + 1; j < ink.length; j++) {
       const [a, b] = [ink[i], ink[j]];
-      const pad = a.kind === "qr" || b.kind === "qr" ? 2 * module : 0;
+      const pad = a.kind === "qr" || b.kind === "qr" ? 2 * moduleSize : 0;
       assert.ok(!overlap(box(a), box(b), pad), `${label}: ${a.kind === "text" ? `"${a.text}"` : a.kind} overlaps ${b.kind === "text" ? `"${b.text}"` : b.kind}`);
     }
   }

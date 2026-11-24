@@ -665,7 +665,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     : [];
 
   return (
-    <div className={`mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-4 sm:px-6 lg:py-8 ${showActions ? "pb-36 lg:pb-8" : "pb-10"}`}>
+    <div className={`mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-4 sm:px-6 lg:py-8 ${showActions ? "pb-44 lg:pb-8" : "pb-10"}`}>
       <Flash flash={flash} />
       <p role="status" aria-live="polite" className="sr-only">{status}</p>
 
@@ -791,6 +791,14 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                   {slotCards.length > 1 && (
                     <p className="mb-2 text-xs font-semibold text-muted-foreground">
                       {chosen.length === slotCards.length ? `All ${slotCards.length} cards` : `${chosen.length} of ${slotCards.length} cards picked`}
+                    </p>
+                  )}
+                  {/* On a phone the card can sit below the fold, under this bar: say which card the buttons act on */}
+                  {slotCards.length === 1 && (
+                    <p className="mb-2 truncate text-sm text-foreground lg:hidden">
+                      <span className="font-mono font-black">{slotCards[0].code ?? "No Card ID"}</span>
+                      {slotCards[0].name ? <span className="font-semibold"> · {slotCards[0].name}</span> : null}
+                      {slotCards[0].customer ? <span className="text-muted-foreground"> · {slotCards[0].customer}</span> : null}
                     </p>
                   )}
                   <div className="grid grid-cols-3 gap-2">
