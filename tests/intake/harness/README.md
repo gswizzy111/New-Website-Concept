@@ -254,9 +254,9 @@ still say whether the backend is right.
   sideways scroll at 1440 and 390 px (screenshots). `?bag=<CD-2549-P>`: only
   that bag's cards and Card IDs, customer, Bag ID, tier, due date, a link to
   the bag page and "Whole order (10 cards in 4 bags)"; phone width.
-- `print-step`: three bags; the "Print labels" step's button is disabled and
-  says 4 cards need a photo, then 1, then (every card has a receiving photo)
-  it is enabled and says "Ready to print: 3 labels"; the bag label panel shows
+- `print-step`: three bags; the "Print labels" step's button is enabled and
+  says "Ready to print: 3 labels" with no receiving photos, with 3 of 4 and
+  with all of them (labels print without waiting for photos); the bag label panel shows
   one label preview per bag (named by Bag ID) and "Print all 3 labels"; the
   bag page shows ONE label preview; the card page has a print-label button; no
   "Print tag" button and no tag preview on the order, bag or card page (the

@@ -1355,23 +1355,26 @@ const SCENARIOS = {
       return step;
     };
     const stepText = async (step) => (await step.innerText()).replace(/\s+/g, " ").trim();
-    await s.step("no receiving photos yet: Print label(s) is disabled and says 4 cards need a photo", async () => {
+    // Labels print without waiting for photos (main #70, "Printing needs no photos"): no photo
+    // ever disables the button or adds a "needs a photo" line
+    await s.step("no receiving photos yet: Print labels is enabled, \"Ready to print: 3 labels\", no photo asked for", async () => {
       const step = await openStep();
       const btn = UI.printButton(step);
       await btn.waitFor();
-      assert(await btn.isDisabled(), "the print button is enabled before every card has a receiving photo");
+      assert(await waitEnabled(btn), "the print button is disabled before the cards have receiving photos (photos never block printing)");
       const text = await stepText(step);
-      assert(UI.saysNeedPhoto(text, picked.length), `the step doesn't say ${picked.length} cards need a photo: "${text.slice(0, 160)}"`);
+      assert(UI.saysReady(text, bags.length), `the step doesn't say "Ready to print: ${bags.length} labels": "${text.slice(0, 160)}"`);
+      assert(!/take a photo|still needs? one|needs? a photo/i.test(text), `the step asks for photos: "${text.slice(0, 160)}"`);
       return text.slice(0, 120);
     });
-    await s.step("photos on 3 of the 4 cards (set in the mock): still disabled, 1 card left", async () => {
+    await s.step("photos on 3 of the 4 cards (set in the mock): still enabled, no photo asked for", async () => {
       await setReceivingPhotos(mockUrl, picked.slice(0, 3));
       const step = await openStep();
       const btn = UI.printButton(step);
       await btn.waitFor();
-      assert(await btn.isDisabled(), "enabled while a card still has no receiving photo");
+      assert(await waitEnabled(btn), "disabled while a card has no receiving photo (photos never block printing)");
       const text = await stepText(step);
-      assert(UI.saysNeedPhoto(text, 1), `the step doesn't say 1 card needs a photo: "${text.slice(0, 160)}"`);
+      assert(!/take a photo|still needs? one|needs? a photo/i.test(text), `the step asks for photos: "${text.slice(0, 160)}"`);
       return text.slice(0, 120);
     });
     await s.step("a receiving photo on every received card: enabled, \"Ready to print: 3 labels\"", async () => {
