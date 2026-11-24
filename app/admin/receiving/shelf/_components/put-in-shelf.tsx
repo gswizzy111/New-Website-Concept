@@ -7,8 +7,8 @@ import { PlaceLabelButton } from "./print-buttons";
 /**
  * The receiving workspace's "Put in shelf" box (right after Receive): for
  * each due date, the shelf slot its bags go in ("DUE MON DEC 7"), big, with
- * the shelf sign to print, the Scan page ready to confirm (the shelf already
- * scanned) and the way to put cards in slots. Bags already on their shelf
+ * the shelf sign to print, the Scan page with the shelf already scanned (scan
+ * the bag, then "Put all in ...") and the way to put cards in slots. Bags already on their shelf
  * show as one short line. Server component; the print button is a client part.
  */
 
@@ -65,7 +65,7 @@ export function PutInShelf({ groups }: { groups: ShelfGroup[] }) {
                       className={`inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground hover:bg-primary/90 ${focusRing}`}
                     >
                       <ScanLine aria-hidden className="size-4" strokeWidth={1.75} />
-                      Scan the shelf to confirm
+                      Scan the shelf, then the bag
                     </AdminLink>
                     {g.place.id && (
                       <PlaceLabelButton pdfUrl={placeLabelsUrl({ ids: [g.place.id] })} fileName={`${g.place.code}-sign.pdf`}>

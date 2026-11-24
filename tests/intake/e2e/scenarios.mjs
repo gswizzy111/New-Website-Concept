@@ -157,20 +157,24 @@ export const UI = {
   slotMove: (page) => page.getByRole("button", { name: /^move\b/i }).first(),
   slotDone: (page) => page.getByRole("button", { name: /^(mark )?done\b/i }).first(),
   slotTakeOut: (page) => page.getByRole("button", { name: /^take (it |them )?out\b/i }).first(),
-  // After a bag scan, tapping a card to put it in the slot (and a confirm button, if the page has one)
-  pickCard: (page, cardCode) => page.getByRole("button", { name: new RegExp(esc(cardCode)) }).or(page.getByRole("checkbox", { name: new RegExp(esc(cardCode)) })).first(),
-  confirmPut: (page) => page.getByRole("button", { name: /^(put|assign|add)\b/i }).first(),
+  // After a bag scan with a slot waiting, each card's row has "Put in CLAMP 01" (components/intake/scan/scan-app.tsx)
+  pickCard: (page, cardCode) => {
+    const row = page.locator("li").filter({ hasText: cardCode }).last();
+    return row.getByRole("button", { name: /^put in\b/i }).or(row.getByRole("checkbox")).first();
+  },
   // The menu item at the top of the intake group
   scanNavLink: (page) => page.getByRole("link", { name: /^scan$/i }).first(),
   // After Receive, the workspace says where the bags go: "Put in shelf: DUE MON DEC 7"
   putInShelf: /put in shelf/i,
   printShelfSign: (page) => page.getByRole("button", { name: /print (the )?shelf (sign|label)/i }).or(page.getByRole("link", { name: /print (the )?shelf (sign|label)/i })).first(),
-  // Ship check page rows: OK (done, out of the slots), flagged (⚠ "still in CLAMP 07", or not done + Mark done)
+  // Ship check page rows (components/intake/ship/ship-checklist.tsx): OK "Done · not in a slot"; flagged
+  // "Not marked done · Step: …" (+ Mark done, then "Yes, mark done") or "Still in CLAMP 07 · marked done"
   shipRow: (page, cardCode) => page.locator("li, tr, article, [role='row']").filter({ hasText: cardCode }).last(),
-  shipFlag: /⚠|not done|still in/i,
-  shipOk: /✅|\bready\b|\bok\b/i,
+  shipFlag: /⚠|not (marked )?done|still in/i,
+  shipOk: /✅|\bdone\b.{0,4}not in a slot|^done\b|\bok\b/im,
   stillIn: (slotName) => new RegExp(`still in\\s+${esc(slotName)}(?!\\d)`, "i"),
   shipMarkDone: (scope) => scope.getByRole("button", { name: /^mark( as)? done\b/i }).first(),
+  shipConfirmDone: (scope) => scope.getByRole("button", { name: /^yes,? mark( it)? done\b/i }).first(),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1995,18 +1999,23 @@ const SCENARIOS = {
       await goto(page, ROUTES.ship(IDS.mailOrder));
       const row = async (code) => (await UI.shipRow(page, code).innerText()).replace(/\s+/g, " ");
       const r1 = await row("CD-2549-01"), r2 = await row("CD-2549-02"), r3 = await row("CD-2549-03");
-      assert(UI.shipOk.test(r1) && !/⚠/.test(r1), `CD-2549-01 row: "${r1.slice(0, 120)}"`);
-      assert(/⚠/.test(r2) || UI.shipFlag.test(r2), `CD-2549-02 row not flagged: "${r2.slice(0, 120)}"`);
+      assert(UI.shipOk.test(r1) && !UI.shipFlag.test(r1), `CD-2549-01 row: "${r1.slice(0, 120)}"`);
+      assert(UI.shipFlag.test(r2), `CD-2549-02 row not flagged: "${r2.slice(0, 120)}"`);
       assert(UI.stillIn("CLAMP 02").test(r2), `CD-2549-02 row doesn't say "still in CLAMP 02": "${r2.slice(0, 120)}"`);
-      assert((/⚠/.test(r3) || UI.shipFlag.test(r3)) && !/✅/.test(r3), `CD-2549-03 row: "${r3.slice(0, 120)}"`);
+      assert(UI.shipFlag.test(r3) && !/✅/.test(r3), `CD-2549-03 row: "${r3.slice(0, 120)}"`);
       eq(await UI.shipMarkDone(UI.shipRow(page, "CD-2549-03")).count(), 1, "Mark done button on CD-2549-03's row");
       const w = await phoneShot(browser, appUrl, ROUTES.ship(IDS.mailOrder), "track-ship");
       assert(!w, w);
       return `01 "${r1.slice(0, 50)}" | 02 "${r2.slice(0, 50)}"`;
     });
     let markedInUi = false;
-    await s.step("Mark done on CD-2549-03's row: done (POST done), then ok", async () => {
-      const res = await clickForApi(page, UI.shipMarkDone(UI.shipRow(page, "CD-2549-03")), ROUTES.trackDone);
+    await s.step("Mark done (then Yes) on CD-2549-03's row: done (POST done), then ok", async () => {
+      const row = UI.shipRow(page, "CD-2549-03");
+      const done = page.waitForResponse((r) => r.url().includes(ROUTES.trackDone) && r.request().method() === "POST", { timeout: 60_000 });
+      await UI.shipMarkDone(row).click();
+      // the row asks "Is CD-2549-03 finished?" first
+      await UI.shipConfirmDone(row).click({ timeout: 5_000 }).catch(() => {});
+      const res = await done;
       assert(res.status() < 300, `done answered ${res.status()}: ${await res.text()}`);
       markedInUi = true;
       assert(cardByCode(await tables(), "CD-2549-03").completed, "CD-2549-03 not done");
@@ -2305,9 +2314,6 @@ const SCENARIOS = {
         await shot("03-bag-cards");
         const assigned = p.waitForResponse((r) => r.url().includes(ROUTES.trackAssign) && r.request().method() === "POST", { timeout: 30_000 });
         await pick.click();
-        // a page that collects picks first has a confirm button ("Put 1 card in CLAMP 01")
-        const confirm = UI.confirmPut(p);
-        if (await confirm.isVisible().catch(() => false)) await confirm.click().catch(() => {});
         const res = await assigned;
         assert(res.status() < 300, `assign answered ${res.status()}: ${await res.text()}`);
         const t = await tables();

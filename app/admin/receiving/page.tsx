@@ -112,10 +112,15 @@ async function byDueDate(
   const due = new Map<string, string>();
   const ids = all.map((o) => o.id);
   for (let i = 0; i < ids.length; i += 100) {
-    const { data, error } = await admin.from("tier_bags").select("order_id, due_date").in("order_id", ids.slice(i, i + 100))
-      .is("completed_at", null).not("due_date", "is", null).limit(5000);
-    if (error) break; // sorted newest first, as before
-    for (const b of (data ?? []) as { order_id: string; due_date: string }[]) {
+    const part = ids.slice(i, i + 100);
+    let rows: { order_id: string; due_date: string }[];
+    try {
+      rows = await fetchAll<{ order_id: string; due_date: string }>((f, t) => admin.from("tier_bags").select("order_id, due_date")
+        .in("order_id", part).is("completed_at", null).not("due_date", "is", null).order("id").range(f, t));
+    } catch {
+      break; // the rest keep no due date (listed after the dated ones, newest first)
+    }
+    for (const b of rows) {
       const seen = due.get(b.order_id);
       if (!seen || b.due_date < seen) due.set(b.order_id, b.due_date);
     }
@@ -399,9 +404,9 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
                 )}
                 {queue && pages > 1 && (
                   <nav className="flex items-center justify-between gap-3 mt-3 text-sm" aria-label="Pages">
-                    {page > 1 ? <AdminLink href={queueHref(q.key, page - 1)} className="min-h-11 inline-flex items-center px-4 rounded-lg border border-border bg-white font-bold">← Newer</AdminLink> : <span />}
+                    {page > 1 ? <AdminLink href={queueHref(q.key, page - 1)} className="min-h-11 inline-flex items-center px-4 rounded-lg border border-border bg-white font-bold">← Previous</AdminLink> : <span />}
                     <span className="text-muted-foreground">Page {page} of {pages}</span>
-                    {page < pages ? <AdminLink href={queueHref(q.key, page + 1)} className="min-h-11 inline-flex items-center px-4 rounded-lg border border-border bg-white font-bold">Older →</AdminLink> : <span />}
+                    {page < pages ? <AdminLink href={queueHref(q.key, page + 1)} className="min-h-11 inline-flex items-center px-4 rounded-lg border border-border bg-white font-bold">Next →</AdminLink> : <span />}
                   </nav>
                 )}
               </section>

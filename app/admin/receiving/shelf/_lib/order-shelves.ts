@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAll } from "@/lib/fetch-all";
 import { ensureShelfSlot } from "@/lib/intake/tracking/shelf";
 import type { OrderIntake } from "@/lib/intake/types";
 import { shelfSlotCode, shelfSlotName } from "./places";
@@ -53,13 +54,16 @@ function asPlace(value: unknown): { id: string; code: string; name: string } | n
 }
 
 export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntake): Promise<OrderShelves> {
-  const [{ data: rows, error }, bagRows] = await Promise.all([
-    admin.from("cards").select("id, location_id").eq("order_id", intake.order.id).limit(2000),
+  type PlaceOfRow = { id: string; location_id: string | null };
+  const [cardRows, bagRows] = await Promise.all([
+    // Paged: the API returns at most 1,000 rows
+    fetchAll<PlaceOfRow>((from, to) => admin.from("cards").select("id, location_id").eq("order_id", intake.order.id).order("id").range(from, to))
+      .then((rows) => ({ rows, error: null }), (e: unknown) => ({ rows: [] as PlaceOfRow[], error: e instanceof Error ? e.message : String(e) })),
     // Where each bag itself was put (best effort: a bag scanned onto its shelf counts its waiting cards as there)
     admin.from("tier_bags").select("id, location_id").eq("order_id", intake.order.id).limit(200),
   ]);
-  if (error) return { ok: false, error: error.message };
-  const placeOf = new Map(((rows ?? []) as { id: string; location_id: string | null }[]).map((r) => [r.id, r.location_id]));
+  if (cardRows.error) return { ok: false, error: cardRows.error };
+  const placeOf = new Map(cardRows.rows.map((r) => [r.id, r.location_id]));
   const bagPlace = new Map(((bagRows.error ? [] : bagRows.data ?? []) as { id: string; location_id: string | null }[]).map((r) => [r.id, r.location_id]));
 
   // Open bags with cards waiting at the start (in the bag, not refunded, not done, no step this round)
@@ -73,11 +77,14 @@ export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntak
   if (dates.length) {
     const { data: found, error: slotErr } = await admin.from("locations").select("id, code, name, due_date, active").eq("kind", "shelf").in("due_date", dates);
     if (slotErr) return { ok: false, error: slotErr.message };
+    const on = new Set<string>();
     for (const p of (found ?? []) as { id: string; code: string; name: string; due_date: string | null; active: boolean }[]) {
       if (p.due_date && (!slots.has(p.due_date) || p.active)) slots.set(p.due_date, { id: p.id, code: p.code, name: p.name });
+      if (p.due_date && p.active) on.add(p.due_date);
     }
     for (const day of dates) {
-      if (slots.has(day)) continue;
+      // A switched-off slot can't take moves: ensureShelfSlot switches it back on
+      if (on.has(day)) continue;
       try {
         const made = asPlace(await ensureShelfSlot(admin, day));
         if (made) {
@@ -87,7 +94,7 @@ export async function loadOrderShelves(admin: SupabaseClient, intake: OrderIntak
       } catch (e) {
         console.warn("[shelf] slot not made:", e instanceof Error ? e.message : e);
       }
-      slots.set(day, { id: null, code: shelfSlotCode(day), name: shelfSlotName(day) });
+      if (!slots.has(day)) slots.set(day, { id: null, code: shelfSlotCode(day), name: shelfSlotName(day) });
     }
   }
 

@@ -194,6 +194,18 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     if (flashTimer.current) clearTimeout(flashTimer.current);
   }, []);
 
+  // Escape (a computer's keyboard) drops what the next scan was going to do
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      setWaiting(null);
+      setConflict(null);
+      setConfirmDone(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setWaiting]);
+
   // "Done" asks for a second tap; the question goes away after a few seconds
   useEffect(() => {
     if (!confirmDone) return;
@@ -664,7 +676,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             <button
               type="button"
               onClick={cue.cancel}
-              className="min-h-11 shrink-0 rounded-full bg-black/10 px-3 text-sm font-bold inline-flex items-center gap-1 hover:bg-black/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+              className="min-h-11 shrink-0 rounded-full border border-current/30 bg-current/10 px-3 text-sm font-bold inline-flex items-center gap-1 hover:bg-current/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
             >
               <X className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
               {cue.cancelLabel ?? "Cancel"}
@@ -718,7 +730,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
           {slotView && (
             <div className="flex flex-col gap-3">
-              <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "typed")} />
+              <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
               {slotCards.length > 0 && (
                 <ul className={panel}>
                   {slotCards.map((card) => (
@@ -757,6 +769,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                         setConfirmDone(false);
                         setWaiting({ type: "move", from: slotView, cards: chosen });
                         setStatus(`Scan the next slot for ${cardsLabel(chosen)}.`);
+                        scrollToTop();
                       }}
                       className={`${actionButton} bg-primary text-primary-foreground hover:bg-primary/90`}
                     >
