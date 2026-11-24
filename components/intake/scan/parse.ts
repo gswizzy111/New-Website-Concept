@@ -59,11 +59,12 @@ export function scanKey(raw: string): string {
 
 /**
  * A slot typed by its name: "clamp 7", "CLAMP 07", "heat press 3" ->
- * LOC-CLAMP-07, LOC-HEAT-PRESS-03; "done" -> LOC-DONE, "ship" -> LOC-SHIP.
- * Null when the text doesn't look like a slot name (it is then searched).
+ * LOC-CLAMP-07, LOC-HEAT-PRESS-03 ("loc-clamp-7" too); "done" -> LOC-DONE,
+ * "ship" -> LOC-SHIP. Null when the text doesn't look like a slot name (it
+ * is then searched).
  */
 export function slotCodeGuess(text: string): string | null {
-  const t = text.trim().toUpperCase().replace(/\s+/g, " ");
+  const t = text.trim().toUpperCase().replace(/\s+/g, " ").replace(/^LOC[ -]+/, "");
   if (t === "DONE") return "LOC-DONE";
   if (t === "SHIP" || t === "SHIPPING") return "LOC-SHIP";
   const m = /^([A-Z][A-Z -]*?)[ -]*(\d{1,4})$/.exec(t);
@@ -72,4 +73,16 @@ export function slotCodeGuess(text: string): string | null {
   if (!words || words === "CD" || words === "LOC") return null;
   const code = `LOC-${words}-${m[2].padStart(2, "0")}`;
   return isLocationCode(code) ? code : null;
+}
+
+/**
+ * Typed text (the code box, a paste) that names a slot, when that slot isn't
+ * what parseScan() reads: "clamp 7" and "CLAMP 07" have an order code's shape
+ * (CLAMP-7), "loc-clamp-7" lacks the slot number's zero. Order numbers are
+ * always CD-<number> and slotCodeGuess() never answers for "CD", so this
+ * never hides a real order, Card or Bag ID. Null: use parseScan() (or search).
+ */
+export function typedSlotGuess(text: string): string | null {
+  const guess = slotCodeGuess(text);
+  return guess && guess !== parseScan(text)?.code ? guess : null;
 }

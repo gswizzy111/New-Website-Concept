@@ -15,9 +15,9 @@ import type {
 } from "@/lib/intake/tracking/types";
 import * as api from "./api";
 import { ScanCamera } from "./camera";
-import { beep, unlockAudio } from "./feedback";
+import { audioUnlocked, beep, unlockAudio } from "./feedback";
 import { cardsLabel, roomLeft } from "./format";
-import { createScanGate, parseScan, slotCodeGuess } from "./parse";
+import { createScanGate, parseScan, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
 import {
@@ -184,18 +184,22 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDone, setConfirmDone] = useState(false);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const pending = useRef(0);
   const gate = useRef(createScanGate(2000));
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sounds may only start after a tap or key press on the page
+  // Sounds may only start after a tap or key press on the page. A touch's
+  // pointerdown doesn't count on an iPhone (the tap's end does), so every tap
+  // end, click and key press tries until the sound is on.
   useEffect(() => {
-    const unlock = () => unlockAudio();
-    window.addEventListener("pointerdown", unlock, { once: true, capture: true });
-    window.addEventListener("keydown", unlock, { once: true, capture: true });
-    return () => {
-      window.removeEventListener("pointerdown", unlock, { capture: true });
-      window.removeEventListener("keydown", unlock, { capture: true });
-    };
+    const events = ["pointerup", "touchend", "click", "keydown"] as const;
+    const off = () => events.forEach((name) => window.removeEventListener(name, unlock, true));
+    function unlock() {
+      unlockAudio();
+      if (audioUnlocked()) off();
+    }
+    events.forEach((name) => window.addEventListener(name, unlock, true));
+    return off;
   }, []);
 
   useEffect(() => () => {
@@ -269,10 +273,29 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   /** Runs one step after the ones before it (scans and taps alike). */
   const enqueue = useCallback((task: () => Promise<void>) => {
-    queue.current = queue.current.then(task).catch(() => {
-      // a step's own errors are shown by the step
-    });
+    pending.current += 1;
+    queue.current = queue.current
+      .then(task)
+      .catch(() => {
+        // a step's own errors are shown by the step
+      })
+      .finally(() => {
+        pending.current -= 1;
+      });
   }, []);
+
+  /**
+   * A button that saves (Done, Take out, Put in, Add anyway): ignored while a
+   * step is still running, so a double tap (before the buttons turn grey)
+   * never saves twice. Scans still queue up behind each other.
+   */
+  const tapSave = useCallback(
+    (task: () => Promise<void>) => {
+      if (pending.current > 0) return;
+      enqueue(task);
+    },
+    [enqueue],
+  );
 
   const showSlot = useCallback(
     (slot: TrackSlotSummary) => {
@@ -344,14 +367,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     async (from: TrackSlotSummary, to: TrackSlotSummary, cards: TrackCardSummary[], force = false) => {
       setConflict(null);
       setBusy(`Moving ${cardsLabel(cards)} to ${to.name}…`);
-      const all = cards.length >= from.cards.length;
-      const res = await api.move({
-        fromCode: from.code,
-        toCode: to.code,
-        ...(all ? {} : { cardIds: cards.map((c) => c.id) }),
-        force,
-        sessionId: scanSessionId(),
-      });
+      // Always the cards on screen: a card put in the slot since then (another phone) stays where it is
+      const res = await api.move({ fromCode: from.code, toCode: to.code, cardIds: cards.map((c) => c.id), force, sessionId: scanSessionId() });
       setBusy(null);
       if (!res.ok) {
         if (res.conflict) {
@@ -361,6 +378,11 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           return;
         }
         fail(res.error);
+        if (res.status === 409) {
+          // The cards aren't in the from-slot any more (or a slot is switched off): stop waiting, show it as it is now
+          setWaiting(null);
+          await refreshSlot(from.code);
+        }
         return;
       }
       setWaiting(null);
@@ -500,14 +522,16 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       const text = raw.trim();
       if (!text) return;
       const parsed = parseScan(text);
+      // Typed "clamp 7" is the slot CLAMP 07 (it also has an order code's shape, CLAMP-7)
+      const slotGuess = source === "typed" || source === "paste" ? typedSlotGuess(text) : null;
       if (source === "camera" || source === "wedge") {
         if (!gate.current(parsed?.code ?? text.toUpperCase().slice(0, 200), Date.now())) return;
       }
-      if (source === "typed" || source === "paste") {
+      if ((source === "typed" || source === "paste") && !slotGuess) {
         // A repeat of the same code right after (a scanner typing into the box) is ignored too
         if (parsed && !gate.current(parsed.code, Date.now())) return;
       }
-      if (parsed) {
+      if (parsed && !slotGuess) {
         if (source !== "link") beep("read", soundStore.get());
         enqueue(() => handleCode(parsed.code, source));
         return;
@@ -517,10 +541,9 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         return;
       }
       // Typed: a slot by its name ("clamp 7"), else a search
-      const guess = slotCodeGuess(text);
       enqueue(async () => {
-        if (guess) {
-          const res = await api.resolve(guess);
+        if (slotGuess) {
+          const res = await api.resolve(slotGuess);
           if (res.ok && res.data.kind === "location") {
             await onSlot(res.data.location);
             return;
@@ -560,7 +583,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     // The slot cards go into ("Put a card in CLAMP 07"): put it there now
     if (activeTarget) {
       const slot = activeTarget;
-      enqueue(() => doAssign(cards, slot));
+      tapSave(() => doAssign(cards, slot));
       return;
     }
     // Else: the next slot scanned gets them
@@ -584,10 +607,11 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   }
 
   function addAnyway() {
-    if (!conflict) return;
+    // A scan still being looked up: keep the question on screen (tap again in a moment)
+    if (!conflict || pending.current > 0) return;
     const r = conflict.retry;
     setConflict(null);
-    enqueue(() => (r.type === "assign" ? doAssign(r.cards, r.slot, true) : doMove(r.from, r.to, r.cards, true)));
+    tapSave(() => (r.type === "assign" ? doAssign(r.cards, r.slot, true) : doMove(r.from, r.to, r.cards, true)));
   }
 
   function toggleShip() {
@@ -795,7 +819,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                           return;
                         }
                         const cards = chosen;
-                        enqueue(() => doFinish("done", slotView, cards));
+                        tapSave(() => doFinish("done", slotView, cards));
                       }}
                       className={`${actionButton} ${confirmDone ? "bg-green-800 text-white ring-4 ring-green-300" : "bg-green-700 text-white hover:bg-green-800"}`}
                     >
@@ -807,7 +831,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                       disabled={!!busy || chosen.length === 0}
                       onClick={() => {
                         const cards = chosen;
-                        enqueue(() => doFinish("release", slotView, cards));
+                        tapSave(() => doFinish("release", slotView, cards));
                       }}
                       className={`${actionButton} border border-border bg-white text-foreground hover:border-primary/40`}
                     >

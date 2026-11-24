@@ -17,11 +17,17 @@ function audio(): Ctx | null {
       if (!AC) return null;
       ctx = new AC();
     }
-    if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+    // "suspended" until a tap; "interrupted" (iPhone) after a call or the lock screen
+    if (ctx.state !== "running" && ctx.state !== "closed") void ctx.resume().catch(() => {});
     return ctx;
   } catch {
     return null;
   }
+}
+
+/** Whether beeps can play now (a tap or key press has unlocked the sound). */
+export function audioUnlocked(): boolean {
+  return ctx?.state === "running";
 }
 
 /** Call from a tap or key press: lets later beeps play. */
