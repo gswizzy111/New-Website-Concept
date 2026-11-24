@@ -1,8 +1,8 @@
 /**
  * What a scanned QR resolves to and opens (resolveCode in lib/intake/data.ts
  * and codeTargetPath, used by app/q/[code]/route.ts): the bag QR on each tier
- * bag's label (CD-2549-P), an order code (CD-2549) and the card QRs on labels
- * printed before, against the in-memory Supabase stand-in
+ * bag's label (CD-2549-P), an order code (CD-2549), the card QRs on labels
+ * printed before and the slot labels (LOC-CLAMP-07), against the in-memory Supabase stand-in
  * (tests/intake/harness/mock-supabase.mjs). No real database.
  */
 import { after, before, test } from "node:test";
@@ -139,8 +139,26 @@ test("a failed read throws (the /q route logs it and shows not found), for every
       }),
     },
   });
-  for (const raw of ["CD-2549", "CD-2549-03", "CD-2549-P"]) {
+  for (const raw of ["CD-2549", "CD-2549-03", "CD-2549-P", "LOC-CLAMP-07"]) {
     await assert.rejects(resolveCode(failing, raw), /database unavailable/, raw);
   }
   assert.equal(await resolveCode(failing, "2549"), null, "not a code: no read, no error");
+});
+
+test("a slot or place QR (LOC-) resolves to its place and opens the Scan page there, active or not", async () => {
+  const slot = "00000000-0000-4000-8000-00000000e001";
+  const off = "00000000-0000-4000-8000-00000000e002";
+  mock.store.table("locations").push(
+    { id: slot, code: "LOC-CLAMP-07", name: "CLAMP 07", kind: "station", station: "clamp", serial: 7, stage: "Clamp Work", active: true },
+    { id: off, code: "LOC-2026-12", name: "OLD SPOT", kind: "other", active: false },
+  );
+  for (const raw of ["LOC-CLAMP-07", "loc-clamp-07", qrUrl("LOC-CLAMP-07"), "https://thecarddoc1.com/q/loc-clamp-07"]) {
+    const found = await resolveCode(admin, raw);
+    assert.deepEqual(found, { kind: "location", id: slot, code: "LOC-CLAMP-07" }, raw);
+    assert.equal(codeTargetPath(found!.kind, found!.id, found!.orderId, found!.code), "/admin/scan?loc=LOC-CLAMP-07");
+  }
+  // A place code that looks like a Card ID is still a place; a switched-off place still resolves
+  assert.deepEqual(await resolveCode(admin, "LOC-2026-12"), { kind: "location", id: off, code: "LOC-2026-12" });
+  assert.equal(await resolveCode(admin, "LOC-CLAMP-99"), null, "unknown place");
+  assert.equal(await resolveCode(admin, "LOC-CLAMP-0"), null, "no prefix matching");
 });

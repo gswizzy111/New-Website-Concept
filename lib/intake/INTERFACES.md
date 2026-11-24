@@ -200,16 +200,95 @@ owned by the UI agents and documented in their own files.
 
 **QR links** (`app/q/[code]/route.ts`; `/Q/<CODE>` is rewritten to it in
 `middleware.ts`): first the shape check, for everyone: `normalizeCode` then
-`codeKind` (order, card or bag); anything else, a bare number included, is 404
+`codeKind` (order, card, bag or location); anything else, a bare number included, is 404
 without any lookup. Without a full admin session a well-formed code is never
 looked up: it redirects to `/admin/login?next=/q/<CODE>` (the normalized code;
 the login page accepts `/q/[A-Za-z0-9-]{1,40}` and same-site `/admin/...`
 paths), so a signed-out visitor can't tell a real code from a made-up one.
 Signed in, `resolveCode` then `codeTargetPath`: an order code to its photos
 page, a Bag ID to that bag's photos (`?bag=<bagId>`), a Card ID to its card
-page; an unknown code (or a failed read, which is logged) is 404. Every
+page, a place code (`LOC-…`) to the Scan page at that place
+(`/admin/scan?loc=LOC-CLAMP-07`); an unknown code (or a failed read, which is
+logged) is 404. Every
 response is `no-store`. A signed-out GET of any other `/admin/...` page redirects to
 `/admin/login?next=<path+query>`.
+
+## Tracking (slots)
+
+Owner's model (Nov 24 2026): cards carry no sticker and are never scanned.
+Every physical holder is a numbered **slot** with a QR label: each clamp, heat
+press spot, humidor spot and so on. Staff scan a slot on the Scan page
+(`/admin/scan`, phone camera or a handheld scanner), then pick the card(s) from
+a bag's QR or a search; the card is now in that slot and at its step. Bags wait
+on due-date shelf slots; `LOC-DONE` and `LOC-SHIP` are places too.
+
+**Codes** (`codes.ts`: `codeKind()` → `"location"`, checked first;
+`isLocationCode`, `scanPathForLocation`): `LOC-` + an upper-case slug, at most
+40 characters. Slots `LOC-<STATION>-<NN>` (`LOC-CLAMP-07`, name "CLAMP 07";
+`stations.ts` `slotCode`/`slotName`), shelf slots `LOC-SHELF-YYYYMMDD` ("DUE MON
+DEC 7"), `LOC-DONE`, `LOC-SHIP`, other places from their name (`LOC-BENCH-2`).
+QR content is `qrUrl(code)`. Codes never change once printed: places are
+renamed or switched off, never deleted.
+
+**Station types** (`tracking/stations.ts` `STATION_TYPES`, editable list): key,
+name, stage, default capacity (1): slab-crack, humidor, humidity-press, drying
+(stage `Book`), heat-press, clamp, book-weights, final-dry. A new slot copies
+its type's stage and capacity; capacity is per slot after that (null = no
+limit). Over capacity answers 409 `overCapacity`; `force: true` adds anyway.
+
+**Rules** (`tracking/move-plan.ts`, pure): a card is in one place at a time
+(putting it somewhere else frees the old slot); in a slot its step becomes the
+slot's stage, **forward only** (Heat Press comes before Clamp Work in STAGES, so
+a Clamp Work card put in a heat press keeps Clamp Work and says so); at most one
+customer email per order per request (`tracking/stage-email.ts`, same email as
+`advanceCards`); refunded and not-received cards are refused; repeating a
+request changes nothing. Done marks the card done (as the Done toggle), frees
+its slot, puts it at `LOC-DONE` and refreshes bag completion; no email.
+
+**Schema** (`supabase/migrations/20261124_card_tracking.sql`, additive and
+rerunnable; apply before deploying the code):
+
+- `locations`: `code` unique, `name`, `kind` (station, shelf, done, shipping,
+  other), `station` + `serial` (unique together) + `stage` + `capacity` for a
+  slot (kind 'station' ⇔ a stage), `due_date` for a shelf slot, `sort`,
+  `active`, `created_at`, `created_by`. RLS on. Seed: LOC-DONE, LOC-SHIP.
+- `card_moves`: insert-only history (`forbid_change` on update): card, order,
+  bag, from/to location, `stage_before`/`stage_after`, `action` (assign, move,
+  release, done, receive, ship_check), `by`, `session_id`, `created_at`.
+- `cards.location_id` / `located_at`, `tier_bags.location_id` / `located_at`
+  (on delete set null).
+
+**Server** (`lib/intake/tracking/*`, server only unless marked pure):
+`moves.ts` (`assignCards`, `moveSlot`, `releaseCards`, `markCardsDone`,
+`placeCards`), `locations.ts` (list with occupancy, `createSlots`,
+`createLocation`, `updateLocation`), `shelf.ts` (`ensureShelfSlot`,
+`shelveBags`), `resolve.ts`, `ship-check.ts`, `history.ts`; pure: `stations.ts`,
+`places.ts`, `move-plan.ts`, `summaries.ts`; response shapes in `types.ts`.
+
+**Routes** (`app/api/admin/track/**`, full admin only):
+
+| route | body / query | response |
+|---|---|---|
+| `POST assign` | `{ locationCode, cardIds, force?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }` |
+| `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed); 409 full / empty |
+| `POST release` | `{ cardIds, sessionId? }` | "Take out": no place, step kept |
+| `POST done` | `{ cardIds, sessionId? }` | done, at LOC-DONE, `bagsCompleted` |
+| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards; a bag or order with each card's slot) |
+| `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order |
+| `GET history` | `?code=` | last 50 moves, newest first |
+| `GET ship-check` | `?code=` bag, order or Card ID | each card `ok`, `not_done`, `in_slot`, `refunded`; `ready` |
+| `GET/POST/PATCH locations` | `?all=1&station=`; `{ station, count, startAt? }` or `{ name, kind, dueDate? }`; `{ id, name?, active?, capacity?, sort? }` | list with occupancy; CLAMP 01..N; rename, switch off, capacity |
+| `GET locations/labels` | `?station=clamp&from=1&to=20` or `?ids=`; `&stock=`, `&format=json` | slot labels, one 50 x 80 mm page each |
+| `GET locations/[id]/sign` | `&stock=`, `&format=json` | one slot label or shelf sign |
+
+`POST /api/admin/intake/orders/[orderId]/receive` also answers `shelves` (each
+received bag's due-date shelf slot, made with `ensureShelfSlot`).
+
+**Pages**: `/admin/scan` (menu "Scan"), `/admin/receiving/locations` (Places:
+add slots, print labels), `/admin/receiving/shelf` (by due date),
+`/admin/receiving/ship/<orderId>[?bag=]` (ship check),
+`/admin/receiving/forgotten` (menu "Check", with a badge),
+`/admin/receiving/printing` (Katasymbol guide).
 
 ## Tests
 

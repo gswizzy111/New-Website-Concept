@@ -164,15 +164,16 @@ export async function loadCard(
 }
 
 /**
- * What a scanned or typed order code (CD-2549), Card ID (CD-2549-03) or Bag ID
- * (CD-2549-P) points at (case-insensitive; a pasted QR link works too): its
- * id, plus its order's id (orderId) for an order code (the same as id) or a
- * Bag ID (the bag's photos page needs it; a card's result is as before). Each
- * kind is looked up only where it lives (codeKind), so a card or bag code is
- * never taken for an order or the other way round. Null when it's not a code,
- * nothing has it, or an order number belongs to more than one order (never
- * another customer's cards). Throws on a failed read (the /q route logs it
- * and shows "not found").
+ * What a scanned or typed order code (CD-2549), Card ID (CD-2549-03), Bag ID
+ * (CD-2549-P) or place code (LOC-HUMIDOR) points at (case-insensitive; a
+ * pasted QR link works too): its id, plus its order's id (orderId) for an
+ * order code (the same as id) or a Bag ID (the bag's photos page needs it; a
+ * card's result is as before). Each kind is looked up only where it lives
+ * (codeKind), so a card or bag code is never taken for an order or the other
+ * way round. A place is found whether or not it is active. Null when it's
+ * not a code, nothing has it, or an order number belongs to more than one
+ * order (never another customer's cards). Throws on a failed read (the /q
+ * route logs it and shows "not found").
  */
 export async function resolveCode(
   admin: SupabaseClient,
@@ -192,6 +193,11 @@ export async function resolveCode(
     const exact = rows.filter((r) => r.order_number === code);
     const order = exact.length ? (exact.length === 1 ? exact[0] : null) : rows.length === 1 ? rows[0] : null;
     return order ? { kind, id: order.id, code, orderId: order.id } : null;
+  }
+  if (kind === "location") {
+    const { data, error } = await admin.from("locations").select("id").eq("code", code).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.id ? { kind, id: data.id as string, code } : null;
   }
   if (kind === "card") {
     const { data, error } = await admin.from("cards").select("id").eq("card_code", code).maybeSingle();

@@ -6,6 +6,7 @@ import { getAdminSession } from "@/lib/admin-auth";
 import { INQUIRY_TYPE, OPEN_CASE_STATUSES } from "@/lib/card-inquiries";
 import { openProblemCount } from "@/lib/email-problems";
 import { countUnseenCompletedBags } from "@/lib/intake/completed";
+import { countForgottenCards } from "@/components/intake/ship/forgotten-data";
 import { ViewAsButton } from "./view-as-button";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./admin-legacy.css";
@@ -42,6 +43,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const role = session?.role ?? null;
   const isAdmin = role === "admin";
   const isSupport = role === "support";
+  // Cards that look forgotten (the Check badge), started now so it runs alongside the badges below; 0 on any error
+  const forgottenCardCount = isAdmin ? countForgottenCards().catch(() => 0) : 0;
 
   let openCaseCount = 0;
   let openInquiryCount = 0;
@@ -83,7 +86,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className={ADMIN_LOOK}>
     <div className="flex min-h-screen">
-      <AdminNav openCaseCount={openCaseCount} openUpdateRequestCount={openInquiryCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} role={role} username={session?.name ?? session?.username ?? null} />
+      <AdminNav openCaseCount={openCaseCount} openUpdateRequestCount={openInquiryCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} forgottenCardCount={await forgottenCardCount} role={role} username={session?.name ?? session?.username ?? null} />
       <main className="flex-1 min-w-0 pt-14 lg:pt-0">
         {session?.preview && (
           <div className="flex flex-wrap items-center justify-between gap-3 bg-gray-900 px-6 py-3 text-sm font-semibold text-white">

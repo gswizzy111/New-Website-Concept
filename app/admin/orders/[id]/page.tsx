@@ -804,8 +804,8 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
               </div>
             ) : null}
 
-            {/* Shipping */}
-            <div className="bg-white rounded-xl border border-border p-6">
+            {/* Shipping (the ship check's "All good: ready to ship" links here) */}
+            <div id="shipping" className="scroll-mt-20 bg-white rounded-xl border border-border p-6">
               <h2 className="font-heading font-black text-lg text-foreground mb-3">Shipping</h2>
               <div className="flex items-center justify-between gap-3 mb-3">
                 <p className="text-sm text-foreground font-medium">

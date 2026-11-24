@@ -40,6 +40,9 @@ import { pathToFileURL } from "node:url";
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
+/** The 8 steps (lib/restoration-stages.ts STAGES), for the locations.stage check. */
+const TRACK_STAGES = ["Ready for Slab Crack", "Humidor", "Humidity Press", "Book", "Heat Press", "Clamp Work", "Book with Weights", "Final Dry"];
+
 /** Per table: primary key, unique sets, NOT NULL columns, CHECKs, FKs, defaults. */
 export const SCHEMA = {
   orders: {
@@ -75,6 +78,8 @@ export const SCHEMA = {
       order_id: { table: "orders", onDelete: "cascade" },
       // NO ACTION: a bag still holding cards can't be deleted (an order's delete takes both)
       bag_id: { table: "tier_bags", onDelete: "no action" },
+      // 20261124_card_tracking.sql: where the card is now (located_at: since when)
+      location_id: { table: "locations", onDelete: "set null" },
     },
     defaults: () => ({
       photo_urls: [], service_ids: [], completed: false, slab_removal_selected: false, pregrade_selected: false,
@@ -99,8 +104,51 @@ export const SCHEMA = {
       tier_bags_due_status_check: (r) => ["calculated", "manual", "needs_review", "missing_received_date", "pending"].includes(r.due_status),
       tier_bags_source_check: (r) => ["receiving", "migration"].includes(r.source),
     },
-    fks: { order_id: { table: "orders", onDelete: "cascade" } },
+    fks: {
+      order_id: { table: "orders", onDelete: "cascade" },
+      // 20261124_card_tracking.sql: where the bag is now (located_at: since when)
+      location_id: { table: "locations", onDelete: "set null" },
+    },
     defaults: () => ({ batch: 1, due_status: "pending", source: "receiving" }),
+  },
+  // ─── Card tracking (20261124_card_tracking.sql): serial-numbered slots ───
+  // Slots and places: numbered slots of a station type (kind 'station': station + serial + stage +
+  // capacity, CLAMP 07 = LOC-CLAMP-07), due-date shelf slots, LOC-DONE, LOC-SHIP, other places.
+  locations: {
+    pk: ["id"],
+    unique: [
+      { name: "locations_code_key", cols: ["code"] },
+      // partial unique index (station is not null): NULLs never clash here either
+      { name: "locations_station_serial_key", cols: ["station", "serial"] },
+    ],
+    notNull: ["code", "name", "kind", "sort", "active"],
+    checks: {
+      locations_code_check: (r) => typeof r.code === "string" && /^LOC-[A-Z0-9]+(-[A-Z0-9]+)*$/.test(r.code) && r.code.length <= 40,
+      locations_name_check: (r) => typeof r.name === "string" && r.name.trim() !== "" && r.name.length <= 60,
+      locations_kind_check: (r) => ["station", "shelf", "done", "shipping", "other"].includes(r.kind),
+      locations_station_check: (r) => r.station == null || /^[a-z0-9]+(-[a-z0-9]+)*$/.test(r.station),
+      locations_serial_check: (r) => r.serial == null || (Number.isInteger(r.serial) && r.serial >= 1 && r.serial <= 9999),
+      locations_capacity_check: (r) => r.capacity == null || (Number.isInteger(r.capacity) && r.capacity >= 1),
+      locations_stage_check: (r) => r.stage == null || TRACK_STAGES.includes(r.stage),
+      // a slot (kind 'station') has its type, number and step; nothing else has a step
+      locations_slot_shape: (r) => (r.kind === "station") === (r.stage != null) && (r.kind !== "station" || (r.station != null && r.serial != null)),
+    },
+    defaults: () => ({ sort: 0, active: true }),
+  },
+  // Every card move (insert-only: a trigger refuses updates; deleting a card deletes its moves).
+  // A place with history can't be deleted (NO ACTION); bag_id and order_id are plain uuids.
+  card_moves: {
+    pk: ["id"],
+    notNull: ["card_id", "action"],
+    checks: {
+      card_moves_action_check: (r) => ["assign", "move", "release", "done", "receive", "ship_check"].includes(r.action),
+    },
+    fks: {
+      card_id: { table: "cards", onDelete: "cascade" },
+      from_location_id: { table: "locations", onDelete: "no action" },
+      to_location_id: { table: "locations", onDelete: "no action" },
+    },
+    immutable: true,
   },
   tier_bag_due_changes: {
     pk: ["id"],
@@ -435,6 +483,15 @@ export class MockStore {
   // Relationship from a parent table to an embedded name
   relation(parent, rel, hint) {
     const pf = fksOf(parent);
+    // Two FKs between the same tables with no hint: PostgREST refuses (PGRST201), so do we
+    // (card_moves.from_location_id / to_location_id -> locations)
+    if (!hint) {
+      const m2o = Object.values(pf).filter((fk) => fk.table === rel).length;
+      const o2m = Object.values(fksOf(rel)).filter((fk) => fk.table === parent).length;
+      if (m2o > 1 || (!m2o && o2m > 1)) {
+        throw new MockError(300, { code: "PGRST201", message: `Could not embed because more than one relationship was found for '${parent}' and '${rel}'`, details: null, hint: `Try changing '${rel}' to one of the FK columns, e.g. '${rel}!<column>'` });
+      }
+    }
     // many-to-one: parent column points at rel table
     for (const [col, fk] of Object.entries(pf)) {
       if (fk.table === rel && (!hint || hint === col || hint.includes(col))) return { type: "m2o", col, target: rel };

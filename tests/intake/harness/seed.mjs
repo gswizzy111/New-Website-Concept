@@ -33,7 +33,19 @@ export const IDS = {
   // one-label-per-bag tests (a bag's label must stay ONE page at 4, 16, 32 and 40 cards)
   bigOrder: id("0f000000", 1),
   bigCards: Array.from({ length: 40 }, (_, i) => id("0f00000c", i + 1)),
+  // the two places 20261124_card_tracking.sql seeds (random ids there; fixed here)
+  places: [id("10c00000", 1), id("10c00000", 2)],
 };
+
+/**
+ * The places 20261124_card_tracking.sql seeds (on conflict do nothing): LOC-DONE and LOC-SHIP
+ * only. Slots (CLAMP 01..N, HEAT PRESS 01..N, ...) are made by staff in Places (the bulk API),
+ * and due-date shelf slots (LOC-SHELF-YYYYMMDD) when a bag first needs one, so none are seeded.
+ */
+export const DEFAULT_PLACES = [
+  { code: "LOC-DONE", name: "Done", kind: "done", sort: 900 },
+  { code: "LOC-SHIP", name: "Shipping", kind: "shipping", sort: 1000 },
+];
 
 export const ORDER_NUMBERS = {
   mailOrder: "CD-2549",
@@ -142,6 +154,9 @@ function card(over) {
     received_by: null,
     awaiting_arrival: false,
     receiving_photo_urls: [],
+    // tracking columns (20261124_card_tracking.sql): nowhere yet
+    location_id: null,
+    located_at: null,
     ...over,
   };
 }
@@ -317,6 +332,12 @@ export function buildSeed({ baseUrl }) {
       order_events: events,
       tier_bags: [],
       tier_bag_due_changes: [],
+      // card tracking (20261124_card_tracking.sql): LOC-DONE and LOC-SHIP, no slots, no moves yet
+      locations: DEFAULT_PLACES.map((p, i) => ({
+        id: IDS.places[i], code: p.code, name: p.name, kind: p.kind, station: null, serial: null, capacity: null,
+        stage: null, due_date: null, sort: p.sort, active: true, created_at: created, created_by: "setup",
+      })),
+      card_moves: [],
       show_dropoffs: [
         showDropoff({ id: IDS.dropoffForm, dropoff_number: 1001, customer_name: "Test Customer B", customer_email: "test.customer.b@example.com", tiers: ["premium"], card_count: 2, cards: [{ name: "Test Drop-off Card 1" }, { name: "Test Drop-off Card 2" }], status: "entered", order_id: IDS.dropoffOrder, processed_at: dropCreated }),
         showDropoff({ id: IDS.newDropoffForm, dropoff_number: 1002, customer_name: "Test Customer F", customer_email: "test.customer.f@example.com", tiers: ["ultra_premium"], card_count: 1, cards: [{ name: "Test New Drop-off Card" }], status: "new", order_id: null }),

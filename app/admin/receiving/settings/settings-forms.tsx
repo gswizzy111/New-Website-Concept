@@ -3,11 +3,15 @@
 import { useMemo, useState } from "react";
 import { LabelPreview } from "@/components/intake/label-preview";
 import { bagLabelCapacity, layoutBagLabel } from "@/lib/intake/labels/layout";
+import { layoutPlaceLabel, type LabelPlace } from "@/lib/intake/labels/place";
 import {
   DEFAULT_CONTENT_WIDTH_IN,
   LABEL_STOCKS,
-  MIN_CONTENT_WIDTH_IN,
+  PLACE_LABEL_STOCK,
+  fullWidthPoints,
+  isFullWidthStock,
   stockPoints,
+  stockWidthRange,
   type LabelStockId,
 } from "@/lib/intake/labels/stock";
 import type { LabelBag } from "@/lib/intake/labels/types";
@@ -58,9 +62,11 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const maxW = LABEL_STOCKS[stock].widthIn;
-  const n = parseFloat(width);
-  const valid = Number.isFinite(n) && n >= MIN_CONTENT_WIDTH_IN && n <= maxW;
+  const { min: minW, max: maxW } = stockWidthRange(stock);
+  // 50 x 80 mm prints across the whole label: no width to pick
+  const fullWidth = isFullWidthStock(stock);
+  const n = fullWidth ? maxW : parseFloat(width);
+  const valid = Number.isFinite(n) && n >= minW && n <= maxW;
   const dirty = stock !== saved.stock || n !== saved.contentWidthIn;
 
   const sample = useMemo(() => {
@@ -104,7 +110,10 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
                   checked={stock === id}
                   onChange={() => {
                     setStock(id);
-                    if (!(parseFloat(width) <= LABEL_STOCKS[id].widthIn)) setWidth(String(Math.min(DEFAULT_CONTENT_WIDTH_IN, LABEL_STOCKS[id].widthIn - 0.4)));
+                    const range = stockWidthRange(id);
+                    const w = parseFloat(width);
+                    if (isFullWidthStock(id)) setWidth(String(range.max));
+                    else if (!(w >= range.min && w <= range.max)) setWidth(String(Math.max(range.min, Math.min(DEFAULT_CONTENT_WIDTH_IN, LABEL_STOCKS[id].widthIn - 0.4))));
                   }}
                   className="size-4"
                 />
@@ -113,29 +122,37 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
               </label>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-2">Load the same size in the Labelife printer (and relearn the gap after changing rolls).</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {LABEL_STOCKS[stock].printer === "Katasymbol"
+              ? "50 × 80 mm labels print from the Katasymbol app on the phone."
+              : "Load the same size in the Labelife printer (and relearn the gap after changing rolls)."}
+          </p>
         </fieldset>
 
-        <div>
-          <label htmlFor="content-width" className={labelCls}>Printed width (inches)</label>
-          <input
-            id="content-width"
-            className={`${input} w-32`}
-            type="number"
-            inputMode="decimal"
-            step="0.05"
-            min={MIN_CONTENT_WIDTH_IN}
-            max={maxW}
-            value={width}
-            onChange={(e) => setWidth(e.target.value)}
-            aria-invalid={!valid}
-          />
-          <p className={`text-xs mt-1.5 ${valid ? "text-muted-foreground" : "text-red-600 font-semibold"}`}>
-            {valid
-              ? `Centered on the ${maxW} in wide label. Default ${DEFAULT_CONTENT_WIDTH_IN} in (about 80% of a 4 in bag).`
-              : `Between ${MIN_CONTENT_WIDTH_IN} and ${maxW} in.`}
-          </p>
-        </div>
+        {fullWidth ? (
+          <p className="text-sm text-foreground">Prints across the whole 50 mm label, 2.5 mm in from each side.</p>
+        ) : (
+          <div>
+            <label htmlFor="content-width" className={labelCls}>Printed width (inches)</label>
+            <input
+              id="content-width"
+              className={`${input} w-32`}
+              type="number"
+              inputMode="decimal"
+              step="0.05"
+              min={minW}
+              max={maxW}
+              value={width}
+              onChange={(e) => setWidth(e.target.value)}
+              aria-invalid={!valid}
+            />
+            <p className={`text-xs mt-1.5 ${valid ? "text-muted-foreground" : "text-red-600 font-semibold"}`}>
+              {valid
+                ? `Centered on the ${maxW} in wide label. Default ${DEFAULT_CONTENT_WIDTH_IN} in (about 80% of a 4 in bag).`
+                : `Between ${minW} and ${maxW} in.`}
+            </p>
+          </div>
+        )}
 
         {sample && (
           <p className="text-sm text-foreground">
@@ -173,6 +190,30 @@ export function LabelSettingsForm({ initial }: { initial: { stock: LabelStockId;
         </figure>
       )}
     </form>
+  );
+}
+
+/** Made-up places, only to show how slot labels and signs print. */
+const SAMPLE_PLACES: { place: LabelPlace; label: string }[] = [
+  { place: { code: "LOC-CLAMP-07", name: "CLAMP 07", kind: "station", stage: "Clamp Work", serial: 7 }, label: "Sample slot label CLAMP 07" },
+  { place: { code: "LOC-SHELF-20261207", name: "DUE MON DEC 7", kind: "shelf", dueDate: "2026-12-07" }, label: "Sample shelf sign DUE MON DEC 7" },
+];
+
+/** Sample slot label and shelf sign at the size they print (50 x 80 mm on the Katasymbol). */
+export function PlaceLabelSamples() {
+  const pages = useMemo(() => {
+    const stock = fullWidthPoints(PLACE_LABEL_STOCK);
+    return SAMPLE_PLACES.map((s) => ({ ...s, page: layoutPlaceLabel(s.place, stock) }));
+  }, []);
+  return (
+    <div className="flex flex-wrap gap-4">
+      {pages.map((p) => (
+        <figure key={p.place.code} className="w-[150px] max-w-full">
+          <LabelPreview page={p.page} printed label={p.label} />
+          <figcaption className="mt-1 text-xs text-muted-foreground">{p.place.name}</figcaption>
+        </figure>
+      ))}
+    </div>
   );
 }
 

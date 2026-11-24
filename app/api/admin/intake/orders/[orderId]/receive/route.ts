@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { receiveCards } from "@/lib/intake/receiving";
+import { ensureShelfSlot } from "@/lib/intake/tracking/shelf";
 import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard";
 
 /**
@@ -15,6 +16,8 @@ import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard
  * POST { cardIds: uuid[] (1-500), receivedOn?: "YYYY-MM-DD" (default today, New York), allowUnpaid?: boolean }
  * → 200 { ok: true, summary, receivedCardIds, alreadyReceived, bags: ReceivedBag[], markedAwaiting,
  *         orderStatusChanged, emailFailed, eventText } (ReceiveResult in lib/intake/receiving.ts)
+ *         + shelves: { bagCode, dueDate, location: { code, name } | null }[] (each received bag with a
+ *           due date: its shelf slot, made with ensureShelfSlot; null if that failed, the cards are received anyway)
  *   | 400 { error, needsTier?: { cardId, seq, name }[] }
  *   | 409 { error, payment: "unpaid", unpaid: true } | 409 { error, payment: "refunded" } | 4xx/5xx { error }
  */
@@ -61,5 +64,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     });
     if (logError) console.error("[intake receive] unpaid receipt not logged:", logError.message);
   }
-  return Response.json({ ...result, summary: result.eventText });
+  return Response.json({ ...result, summary: result.eventText, shelves: await shelvesFor(admin, result.bags, who.by) });
+}
+
+/**
+ * The shelf slot each received bag goes in (one per due date, made where
+ * missing). Best effort: a failure never fails the receipt, its bag just gets
+ * location null (the receiving page shows the shelf box again on load).
+ */
+async function shelvesFor(admin: ReturnType<typeof createAdminClient>, bags: { code: string; dueDate: string | null }[], by: string) {
+  const slots = new Map<string, Promise<{ code: string; name: string } | null>>();
+  const slot = (day: string) => {
+    let p = slots.get(day);
+    if (!p) {
+      p = ensureShelfSlot(admin, day, by)
+        .then((loc) => (loc ? { code: loc.code, name: loc.name } : null))
+        .catch((e: unknown) => {
+          console.error("[intake receive] shelf slot not made:", e instanceof Error ? e.message : e);
+          return null;
+        });
+      slots.set(day, p);
+    }
+    return p;
+  };
+  return Promise.all(bags.filter((b) => b.dueDate).map(async (b) => ({ bagCode: b.code, dueDate: b.dueDate, location: await slot(b.dueDate!) })));
 }

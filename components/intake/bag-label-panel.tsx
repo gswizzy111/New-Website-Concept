@@ -7,8 +7,9 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { connectQZ, isQZActive } from "@/lib/qz-print";
 import type { BagSummary } from "@/lib/intake/types";
 import type { LabelPreviewResponse } from "@/lib/intake/labels/respond";
+import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import { LabelPreview } from "./label-preview";
-import { LabelPrintButton, useShareDevice } from "./label-print-button";
+import { LabelPrintButton, paperGroup, useLabelPrinter, useShareDevice } from "./label-print-button";
 
 // Per-computer choices, kept in this browser (localStorage)
 const HINT_KEY = "intake_label_hint_seen";
@@ -226,6 +227,10 @@ export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; b
   const current = loaded?.key === key ? loaded : null;
   const settings = current?.body?.settings;
   const paper = settings ? { widthIn: settings.widthIn, heightIn: settings.heightIn } : { widthIn: 4, heightIn: 6 };
+  // The phone tip follows the printer this device uses for this label size (50x80 defaults to the Katasymbol)
+  const group = paperGroup(paper);
+  const savedPrinter = useLabelPrinter(group);
+  const printer = savedPrinter ?? (group === "50x80" ? "katasymbol" : "pdf");
   const stockName = settings?.stock ?? "4x6";
   const previewById = new Map((current?.body?.bags ?? []).map((b) => [b.id, b]));
   // One label per bag
@@ -243,7 +248,7 @@ export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; b
           <h3 id="labels-h" className="font-heading font-black text-base text-foreground">{bags.length === 1 ? "Bag label" : "Bag labels"}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             One label per tier bag.{" "}
-            {settings ? `${settings.stock.replace("x", " × ")} in labels, ${settings.contentWidthIn} in wide print. ` : ""}
+            {settings ? `${LABEL_STOCKS[settings.stock]?.name ?? settings.stock} labels, ${settings.contentWidthIn} in wide print. ` : ""}
             Preview shows exactly what prints.{" "}
             <AdminLink href="/admin/receiving/settings" className="text-primary font-semibold hover:underline">Label settings</AdminLink>
           </p>
@@ -271,7 +276,7 @@ export function BagLabelPanel({ orderId, bags, needPhoto }: { orderId: string; b
 
       {!hintSeen && share && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-          <span>On iPhone: pick Labelife, then PDF at {stockName}</span>
+          <span>{printer === "katasymbol" ? "On iPhone: tap Save Image, then in the Katasymbol app tap Image, pick the label and print" : `On iPhone: pick Labelife, then PDF at ${stockName}`}</span>
           <button type="button" onClick={() => writeFlag(HINT_KEY, true)} className="min-h-11 px-3 font-bold text-blue-900 hover:underline">
             Got it
           </button>
