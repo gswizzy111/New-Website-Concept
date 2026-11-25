@@ -1,10 +1,11 @@
-import { Camera, Package, TriangleAlert } from "lucide-react";
+import { Camera, Check, Package, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
-import { orderPhotosPath } from "@/lib/intake/codes";
+import { openCodePath, orderPhotosPath } from "@/lib/intake/codes";
 import { groupPickerCards } from "@/lib/intake/step-picker";
+import { nyDate } from "@/lib/intake/tracking-format";
 import { StepPicker } from "@/components/intake/tracking-actions";
-import type { BoardBag } from "./load-board";
+import type { BoardBag, ReadyBag } from "./load-board";
 import { DoneBar, DUE_TEXT, LabelStatus, shortDay, StepSummary, TierBadge, type DueInfo } from "./_components/bag-bits";
 
 /**
@@ -150,6 +151,72 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
           >
             <Camera aria-hidden className="size-4" strokeWidth={1.75} />
             Photos
+          </AdminLink>
+          <AdminLink
+            href={`/admin/orders/${bag.orderId}`}
+            aria-label={`Open order #${bag.orderNumber}`}
+            className={`${button} bg-white text-foreground border-border hover:border-primary/40`}
+          >
+            Order
+          </AdminLink>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * One finished bag under "Ready to ship" (every card done, not shipped yet):
+ * Bag ID, tier, customer, order, where the bag is, and "Open bag" (the scan
+ * landing, where "It's in the Ready to ship bin" files it). A bag not in the
+ * bin yet says so in amber; one in the bin, in green.
+ */
+export function ReadyRow({ bag }: { bag: ReadyBag }) {
+  const n = bag.cardCount;
+  return (
+    <li className="bg-white rounded-xl border border-border p-4 sm:px-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <AdminLink
+            href={openCodePath(bag.code)}
+            className={`font-mono font-black text-xl leading-tight text-foreground hover:text-primary hover:underline underline-offset-4 [overflow-wrap:anywhere] rounded ${focusRing}`}
+          >
+            {bag.code}
+          </AdminLink>
+          <TierBadge tier={bag.tier} name={bag.tierName} />
+        </div>
+        <p className="mt-1 text-base font-bold leading-snug text-foreground [overflow-wrap:anywhere]">
+          {bag.customerName ?? <span className="font-semibold text-muted-foreground">No customer name</span>}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Order #{bag.orderNumber} · {n} of {n} done{bag.finishedAt ? ` · finished ${nyDate(bag.finishedAt)}` : ""}
+        </p>
+      </div>
+      <div className="flex flex-col gap-2 sm:items-end">
+        {bag.inBin ? (
+          <p className="inline-flex items-center gap-1.5 text-sm font-bold text-green-800">
+            <Check aria-hidden className="size-4 shrink-0" strokeWidth={1.75} />
+            In the Ready to ship bin
+          </p>
+        ) : (
+          <div className="flex flex-col gap-0.5 sm:items-end">
+            <p className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-900">
+              <TriangleAlert aria-hidden className="size-4 shrink-0" strokeWidth={1.75} />
+              Not in the bin yet
+            </p>
+            <p className="inline-flex items-center gap-1.5 text-sm text-foreground">
+              <Package aria-hidden className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+              {bag.place ?? "No place yet"}
+            </p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 sm:flex gap-2">
+          <AdminLink
+            href={openCodePath(bag.code)}
+            aria-label={`Open bag ${bag.code}`}
+            className={`${button} ${bag.inBin ? "bg-white text-foreground border-border hover:border-primary/40" : "bg-primary text-primary-foreground border-primary hover:bg-primary/90"}`}
+          >
+            Open bag
           </AdminLink>
           <AdminLink
             href={`/admin/orders/${bag.orderId}`}

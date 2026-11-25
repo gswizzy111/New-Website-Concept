@@ -199,3 +199,41 @@ test("a switched-off Open bags box is switched back on when a bag needs it", asy
   assert.equal(bagRow().location_id, box.id);
   assert.match(r.message, /Put the bag in the Open bags box, under R\.$/);
 });
+
+test("the order page's Done toggle ends like every Done: back in its bag, off the desk, one 'done' move row; un-doing moves nothing", async () => {
+  const toggle = await import("@/lib/intake/card-completion");
+  const { bagSentences } = await import("@/lib/intake/tracking/bag-home");
+  const emails = sent.length;
+  // Card 1 is done and on the desk (the test before): un-done, it stays where it is
+  assert.deepEqual([cardRow(C(1)).completed, cardRow(C(1)).location_id], [true, DESK]);
+  const off = await toggle.toggleCardCompletion(admin, { cardId: C(1), by: "gavin" });
+  assert.ok(off.ok && off.completed === false && !off.bagPlaces && !off.orderCompletion, JSON.stringify(off));
+  assert.equal(cardRow(C(1)).location_id, DESK, "un-doing never moves the card");
+  assert.equal(bagRow().completed_at, null, "the bag reopens");
+
+  const before = mock.store.table("card_moves").length;
+  const on = await toggle.toggleCardCompletion(admin, { cardId: C(1), by: "gavin" });
+  assert.ok(on.ok, on.ok ? "" : on.error);
+  if (!on.ok) return;
+  assert.equal(on.completed, true);
+  assert.deepEqual([cardRow(C(1)).completed, cardRow(C(1)).location_id, cardRow(C(1)).located_at], [true, null, null]);
+  assert.deepEqual(mock.store.table("card_moves").slice(before).map((m) => [m.card_id, m.action, m.from_location_id, m.to_location_id, m.stage_before, m.stage_after, m.by]), [
+    [C(1), "done", DESK, null, "Clamp Work", "done", "gavin"],
+  ]);
+  assert.ok(bagRow().completed_at, "the bag is finished again");
+  assert.deepEqual(on.bagPlaces?.map((b) => [b.code, b.location?.code, b.returned, b.doneCount, b.cardCount, b.finished]), [
+    ["CD-7001-G", "LOC-OPEN-BAGS", 1, 2, 2, true],
+  ]);
+  assert.equal(bagSentences(on.bagPlaces ?? [], 1), "Put it back in REYES's bag: Open bags box, under R. Bag finished: put it in the Ready to ship bin.");
+  // The order completed already (the test before): no second email
+  assert.equal(on.orderCompletion?.reason, "already_done");
+  assert.equal(sent.length, emails);
+
+  // A card in no place: done all the same, no move row
+  const off2 = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(off2.ok && !off2.completed);
+  const rows = mock.store.table("card_moves").length;
+  const on2 = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(on2.ok && on2.completed && on2.bagPlaces?.[0]?.returned === 1);
+  assert.equal(mock.store.table("card_moves").length, rows, "nothing to move");
+});

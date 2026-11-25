@@ -6,15 +6,18 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { nyToday } from "@/lib/intake/business-days";
 import { codeKind, normalizeCode, normalizeTier, tierRank } from "@/lib/intake/codes";
 import { MIGRATION_NOTICE } from "../_components/schema";
-import { loadBoard, type BoardBag } from "./load-board";
-import { BagRow, ROW_COLUMNS } from "./bag-row";
+import { loadBoard, type BoardBag, type ReadyBag } from "./load-board";
+import { BagRow, ReadyRow, ROW_COLUMNS } from "./bag-row";
 import { dueInfo, endOfWeek, shortDay, type DueInfo } from "./_components/bag-bits";
 
 /**
  * The Bags board: every open tier bag as its own work order (its own Bag ID,
  * label, due date, steps and completion), overdue first, then the soonest
  * due. The customer keeps one order; staff work bag by bag. Filters are plain
- * GET links and a GET form, so they work without JavaScript.
+ * GET links and a GET form, so they work without JavaScript. Below them,
+ * "Ready to ship": the finished bags not shipped yet (done flow, Nov 25
+ * 2026), the ones not in the Ready to ship bin first; the tier filter and the
+ * search apply to them too, the due-date and label filters hide them.
  */
 
 export const dynamic = "force-dynamic";
@@ -58,7 +61,7 @@ function boardHref(f: Filters, patch: Partial<Filters> = {}, showAll = false): s
  * exactly: an order code (CD-2549) every bag of the order, a Bag ID its bag,
  * a Card ID (or a card's QR link) the bag the card is in.
  */
-function matchesSearch(bag: BoardBag, q: string): boolean {
+function matchesSearch(bag: Pick<BoardBag, "orderNumber" | "code" | "cardCodes" | "customerName">, q: string): boolean {
   if (!q) return true;
   const code = normalizeCode(q);
   const kind = code ? codeKind(code) : null;
@@ -138,6 +141,11 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
   );
 
   const filtered = bags.filter((b) => passes(b, f, ctx));
+  // Finished bags waiting to ship: only the tier filter and the search apply (due date and label are open work)
+  const ready: ReadyBag[] = result.ok && !f.due && !f.label
+    ? result.ready.filter((b) => (!f.tier || normalizeTier(b.tier) === f.tier) && matchesSearch(b, f.q))
+    : [];
+  const notInBin = ready.filter((b) => !b.inBin).length;
   const shown = showAll ? filtered : filtered.slice(0, SHOWN);
   const orderCount = new Set(bags.map((b) => b.orderId)).size;
   const anyFilter = !!(f.tier || f.due || f.label || f.q);
@@ -171,9 +179,15 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
           <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
             Every open tier bag is its own work order: its own Bag ID, label, due date and steps. The customer still has one order. Overdue bags first, then the soonest due.
           </p>
-          {result.ok && bags.length > 0 && (
+          {result.ok && (bags.length > 0 || ready.length > 0) && (
             <p className="mt-2 text-sm font-semibold text-foreground">
-              {bags.length} open bag{bags.length === 1 ? "" : "s"} in {orderCount} order{orderCount === 1 ? "" : "s"}
+              {bags.length > 0 && <>{bags.length} open bag{bags.length === 1 ? "" : "s"} in {orderCount} order{orderCount === 1 ? "" : "s"}</>}
+              {bags.length > 0 && ready.length > 0 && " · "}
+              {ready.length > 0 && (
+                <a href="#ready-to-ship" className={`text-primary hover:underline rounded ${focusRing}`}>
+                  {ready.length} ready to ship
+                </a>
+              )}
             </p>
           )}
         </div>
@@ -289,6 +303,21 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
               Show all {filtered.length} bags
             </AdminLink>
           </div>
+        )}
+
+        {ready.length > 0 && (
+          <section aria-labelledby="ready-to-ship" className="mt-10">
+            <h2 id="ready-to-ship" className="flex items-center gap-2 font-heading font-black text-2xl text-foreground">
+              Ready to ship <Count n={ready.length} active={false} />
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+              Finished bags: every card done, not shipped yet.
+              {notInBin > 0 ? ` ${notInBin} not in the Ready to ship bin yet (listed first).` : " All in the Ready to ship bin."}
+            </p>
+            <ul className="mt-3 flex flex-col gap-2" aria-label="Ready to ship">
+              {ready.map((b) => <ReadyRow key={b.id} bag={b} />)}
+            </ul>
+          </section>
         )}
       </div>
     </div>

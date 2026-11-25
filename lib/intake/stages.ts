@@ -313,6 +313,24 @@ export async function refreshBagCompletion(
 }
 
 /**
+ * A card's step right now (this round's newest step, Done left aside), for
+ * the move row the order page's Done toggle writes; null when it has none
+ * or the order's events can't be read. Never throws.
+ */
+export async function currentStageOf(
+  admin: SupabaseClient,
+  input: { orderId: string; cardId: string; round: number | null },
+): Promise<string | null> {
+  try {
+    const events = await loadStageEvents(admin, input.orderId);
+    return cardStageState({ id: input.cardId, completed: false, current_round: input.round }, events).current;
+  } catch (e) {
+    console.warn("[intake] card's step not read:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/**
  * One-line hook for the existing card routes (complete, round): refresh the
  * card's bag, if it has one. Never throws, and does nothing before the intake
  * migration is applied (no bag_id column yet).
