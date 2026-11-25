@@ -130,6 +130,18 @@ export type PackingResponse = {
   next: PackingNext;
   rates?: ShipRate[];
   ratesError?: string;
+  /**
+   * next "wait" only: the purchase bought this label but couldn't save it.
+   * Show the link and offer "Save this label": POST {} saves it (200,
+   * existing: true); nothing new is bought, no warning needed.
+   */
+  unsavedLabel?: { labelUrl: string };
+  /**
+   * Set when this page load did (or tried) something for the order: every
+   * bag has shipped, so the order was set to Shipped Back now ("Every bag has
+   * shipped: the order is now Shipped Back."), or that failed and says why.
+   */
+  notice?: string;
 };
 
 /** POST /api/admin/intake/bags/<bagId>/ship-label body (all optional: {} = one tap). */
@@ -151,8 +163,12 @@ export type MarkShippedResponse = {
   message: string;
 };
 
-/** Order statuses a bag label may be bought in (the cards are in the shop, or partly sent back). */
-export const LABEL_ORDER_STATUSES: readonly string[] = ["received", "in_progress", "completed", "shipped_back"];
+/**
+ * Order statuses a bag label may be bought in: the cards are in the shop. Not
+ * shipped_back: an order only gets there when every bag has shipped (or when
+ * staff shipped it back by hand), so a bag label then would be a second one.
+ */
+export const LABEL_ORDER_STATUSES: readonly string[] = ["received", "in_progress", "completed"];
 /** Order statuses that move to shipped_back when the last bag ships. */
 export const SHIP_BACK_FROM: readonly string[] = ["received", "in_progress", "completed"];
 
@@ -160,6 +176,7 @@ export const SHIP_BACK_FROM: readonly string[] = ["received", "in_progress", "co
 export function orderStatusBlock(status: string): string | null {
   if (LABEL_ORDER_STATUSES.includes(status)) return null;
   if (status === "delivered") return "This order is already delivered.";
+  if (status === "shipped_back") return "This order is already shipped back.";
   if (status === "cancelled") return "This order is cancelled.";
   if (status === "awaiting_payment" || status === "awaiting_cards") return "This order's cards haven't been received.";
   return `A return label can't be bought while the order is "${status}".`;
@@ -264,6 +281,39 @@ export function returnPackagesToShow<S extends { status: string; tracking_number
   if (sent.length === 0) return [];
   if (sent.length === 1 && orderTrackingNumber && sent[0].tracking_number === orderTrackingNumber) return [];
   return sent;
+}
+
+/**
+ * The shipment that left the shop last (the newest shipped_at among the
+ * shipped and delivered ones), or null. Its tracking number is the one the
+ * order carries once every bag has shipped: both sites' order pages and the
+ * old site's sync mark an order delivered from orders.tracking_number alone.
+ */
+export function latestSentShipment<S extends { status: string; shipped_at?: string | null; purchased_at?: string | null; claimed_at?: string | null }>(
+  shipments: readonly S[],
+): S | null {
+  let best: S | null = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const s of shipments) {
+    if (!(SENT_SHIPMENT_STATUSES as readonly string[]).includes(s.status)) continue;
+    const at = Date.parse(s.shipped_at ?? s.purchased_at ?? s.claimed_at ?? "");
+    const t = Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY;
+    if (!best || t >= bestAt) {
+      best = s;
+      bestAt = t;
+    }
+  }
+  return best;
+}
+
+/**
+ * A shipment's error column only grows: a release or a lost label adds its
+ * note after what was there (the "Bought but not saved: <url>" note must
+ * never be overwritten). Kept under 2,000 characters, newest notes kept.
+ */
+export function appendNote(existing: string | null | undefined, note: string): string {
+  const joined = existing?.trim() ? `${existing.trim()} | ${note}` : note;
+  return joined.length > 2000 ? `…${joined.slice(-1999)}` : joined;
 }
 
 /** "Charizard, Blastoise, Venusaur and 2 more" (at most `max` names). */

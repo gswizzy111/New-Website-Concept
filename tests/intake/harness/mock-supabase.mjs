@@ -14,6 +14,7 @@
 //   POST /__rows/<table>    insert raw rows (no defaults/constraints), for test setup
 //   GET  /__emails          emails captured from the app
 //   GET  /__requests        the last 500 requests (method, path, status)
+//   *    /__shippo/...      a fake Shippo (mock-shippo.mjs; off until POST /__shippo/__config {"enabled":true})
 //
 // PostgREST coverage: select with columns, aliases, casts, json paths and
 // embedded relations (many-to-one / one-to-many, !inner, !hint), filters
@@ -38,6 +39,7 @@ import https from "node:https";
 import crypto from "node:crypto";
 import zlib from "node:zlib";
 import { pathToFileURL } from "node:url";
+import { handleShippo, shippoDump } from "./mock-shippo.mjs";
 
 // ─── Schema: only what the constraints, defaults and relations need ─────────
 const now = () => new Date().toISOString();
@@ -154,17 +156,20 @@ export const SCHEMA = {
     immutable: true,
   },
   // Per-bag return labels (20261125_bag_shipments.sql): claimed before Shippo is called,
-  // one live row per bag (partial unique index), one order label per order
+  // one live row per bag (partial unique index), one order label per order; a row
+  // with no bag is the order page's claim on the whole-order label (one live per order)
   bag_shipments: {
     pk: ["id"],
     unique: [
       { name: "bag_shipments_one_live_per_bag", cols: ["bag_id"], where: (r) => ["claimed", "purchased", "shipped", "delivered"].includes(r.status) },
+      { name: "bag_shipments_one_order_claim", cols: ["order_id"], where: (r) => r.bag_id == null && ["claimed", "purchased", "shipped", "delivered"].includes(r.status) },
       { name: "bag_shipments_one_order_label", cols: ["order_id"], where: (r) => r.order_label === true },
     ],
-    notNull: ["bag_id", "order_id", "status", "order_label", "claimed_at"],
+    notNull: ["order_id", "status", "order_label", "claimed_at"],
     checks: {
       bag_shipments_status_check: (r) => ["claimed", "purchased", "shipped", "delivered", "failed", "voided"].includes(r.status),
       bag_shipments_label_shape: (r) => ["claimed", "failed", "voided"].includes(r.status) || r.label_url != null,
+      bag_shipments_order_claim_shape: (r) => r.bag_id != null || (["claimed", "failed"].includes(r.status) && !r.order_label),
       bag_shipments_cost_cents_check: (r) => r.cost_cents == null || r.cost_cents >= 0,
     },
     fks: {
@@ -497,6 +502,7 @@ export class MockStore {
     this.tables = {};
     this.storage = new Map();
     this.emails = [];
+    this.shippo = null; // the fake Shippo (mock-shippo.mjs): off again, no calls
     this.rpcCalls = [];
     this.unknown = { tables: new Set(), rpcs: new Set() };
     for (const [t, rows] of Object.entries(seed?.tables ?? {})) this.tables[t] = clone(rows);
@@ -755,7 +761,8 @@ function beforeInsert(store, table, row) {
 }
 
 function bagShipmentGuard(store, row) {
-  // bag_shipments_guard(): the bag must belong to the order
+  // bag_shipments_guard(): the bag (when there is one) must belong to the order
+  if (row.bag_id == null) return;
   if (!store.table("tier_bags").some((b) => b.id === row.bag_id && b.order_id === row.order_id)) {
     throw pgError(400, "23514", `bag ${row.bag_id} is not a bag of order ${row.order_id}`);
   }
@@ -1244,6 +1251,7 @@ export async function startMock({ port = 0, tls = null, seedFn = null, quiet = f
             storage: [...store.storage.entries()].map(([k, v]) => ({ key: k, contentType: v.contentType, size: v.bytes.length })),
             unknown: { tables: [...store.unknown.tables], rpcs: [...store.unknown.rpcs] },
             rpcCalls: store.rpcCalls,
+            shippo: shippoDump(store),
           };
           res.writeHead(200, { "content-type": "application/json" });
           return res.end(JSON.stringify(payload));
@@ -1267,6 +1275,7 @@ export async function startMock({ port = 0, tls = null, seedFn = null, quiet = f
         if (p.startsWith("/storage/v1")) return handleStorage(store, req, res, url, body);
         if (p.startsWith("/auth/v1")) return handleAuth(req, res, url, body);
         if (p.startsWith("/__resend")) return handleResend(store, req, res, url, body);
+        if (p.startsWith("/__shippo")) return void handleShippo(store, req, res, url, body, baseUrl).catch((e) => { console.error("[mock-shippo] error", e); if (!res.headersSent) res.writeHead(500); res.end(); });
         if (p.startsWith("/realtime") || p.startsWith("/functions/v1")) { res.writeHead(404); return res.end(); }
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ message: `mock: no route ${req.method} ${p}` }));

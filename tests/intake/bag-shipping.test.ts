@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { ShippoPort } from "@/lib/intake/shipping/bag-label";
+import type { ShippoPort, ShippoTransaction } from "@/lib/intake/shipping/bag-label";
 
 type Row = Record<string, unknown>;
 type Mock = {
@@ -27,7 +27,13 @@ let svc: typeof import("@/lib/intake/shipping/bag-shipments");
 let label: typeof import("@/lib/intake/shipping/bag-label");
 let types: typeof import("@/lib/intake/shipping/types");
 let syncDelivered: typeof import("@/lib/sync-delivered");
+let orderSvc: typeof import("@/lib/intake/shipping/order-label");
+let queue: typeof import("@/lib/intake/shipping/ship-queue");
 const sent: { to: unknown; subject: string; html: string }[] = [];
+/** Emails whose subject matches are refused by "Resend" (500). */
+let resendRefuses: RegExp | null = null;
+/** Shippo's GET /transactions answer for the SDK (sync-delivered); null: any Shippo call fails the test. */
+let shippoHistory: Row[] | null = null;
 const realFetch = globalThis.fetch;
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -168,6 +174,8 @@ const eventsOf = (oid: string, type?: string) => mock.store.table("order_events"
 const setCard = (name: string, patch: Row) => Object.assign(mock.store.table("cards").find((c) => c.card_name === name)!, patch);
 
 before(async () => {
+  // lib/shippo.ts builds the SDK client when it loads: a dummy key (every Shippo call is answered here)
+  process.env.SHIPPO_API_TOKEN ??= "shippo_test_dummy";
   const harness = pathToFileURL(path.resolve("tests/intake/harness/mock-supabase.mjs")).href;
   const { startMock } = (await import(harness)) as { startMock: (o: { port: number; quiet: boolean }) => Promise<Mock> };
   mock = await startMock({ port: 0, quiet: true });
@@ -176,10 +184,21 @@ before(async () => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.startsWith(resendBase) || url.startsWith("https://api.resend.com")) {
       const body = JSON.parse(String(init?.body ?? "{}"));
+      if (resendRefuses?.test(body.subject ?? "")) {
+        return new Response(JSON.stringify({ statusCode: 500, name: "application_error", message: "Resend is down" }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
       sent.push({ to: body.to, subject: body.subject, html: body.html });
       return new Response(JSON.stringify({ id: `email-${sent.length}` }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
-    if (url.includes("goshippo.com")) throw new Error(`a test reached Shippo: ${url}`);
+    if (url.includes("goshippo.com")) {
+      const u = new URL(url);
+      const method = (init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET")).toUpperCase();
+      if (shippoHistory && method === "GET" && /\/transactions\/?$/.test(u.pathname)) {
+        const page = Number(u.searchParams.get("page") ?? "1");
+        return new Response(JSON.stringify({ next: null, previous: null, results: page === 1 ? shippoHistory : [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      throw new Error(`a test reached Shippo: ${url}`);
+    }
     return realFetch(input, init);
   }) as typeof fetch;
   admin = createClient(mock.url, "service-role-test-key", { auth: { persistSession: false } });
@@ -187,11 +206,15 @@ before(async () => {
   label = await import("@/lib/intake/shipping/bag-label");
   types = await import("@/lib/intake/shipping/types");
   syncDelivered = await import("@/lib/sync-delivered");
+  orderSvc = await import("@/lib/intake/shipping/order-label");
+  queue = await import("@/lib/intake/shipping/ship-queue");
 });
 
 beforeEach(() => {
   seed();
   sent.length = 0;
+  resendRefuses = null;
+  shippoHistory = null;
   mock.store.missingTables.clear();
 });
 
@@ -280,6 +303,8 @@ test("no clear answer from Shippo keeps the claim: in progress, then stale, then
   const retry = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin", retryStaleClaim: true }, { shippo: good.port, preview: false, now: later });
   assert.ok(retry.ok && !retry.body.existing);
   assert.deepEqual(shipmentsOf(B_FAILS).map((s) => s.status), ["failed", "purchased"]);
+  // The release adds its note after the unclear answer's: the error column is never overwritten
+  assert.equal(shipmentsOf(B_FAILS)[0].error, "Failed to purchase label: socket hang up | Never finished; released by gavin to buy again.");
 });
 
 test("single-bag order: Mark shipped sends the usual shipped email once and ships the order back", async () => {
@@ -350,9 +375,10 @@ test("multi-bag order: each bag ships with its own label and email; the order sh
   assert.equal(sent.length, 2, "one email per bag, no status email");
   assert.match(sent[1].html, /9400TEST2/);
   assert.match(sent[1].html, /It&#39;s the last package of your order\.|It's the last package of your order\./);
+  // The order carries the LAST package's tracking (both sites mark it delivered from that number alone), the first label stays its return label
   const o = orderRow(MIXED);
-  assert.deepEqual([o.status, o.tracking_number], ["shipped_back", "9400TEST1"]);
-  assert.deepEqual(eventsOf(MIXED, "status_updated").map((e) => e.description), ["Status updated to: Shipped Back — Tracking: 9400TEST1"]);
+  assert.deepEqual([o.status, o.tracking_number, o.return_label_url], ["shipped_back", "9400TEST2", "https://shippo.test/label-1.pdf"]);
+  assert.deepEqual(eventsOf(MIXED, "status_updated").map((e) => e.description), ["Status updated to: Shipped Back — Tracking: 9400TEST2"]);
 
   // Customer order page: one panel per package
   const pk = await (await import("@/lib/intake/shipping/return-packages")).loadReturnPackages(admin, { id: MIXED, tracking_number: o.tracking_number as string }, mock.store.table("cards").filter((c) => c.order_id === MIXED) as Row[]);
@@ -530,4 +556,524 @@ test("pure rules: insurance share, packages to show, every bag shipped", () => {
   assert.equal(types.orderStatusBlock("cancelled"), "This order is cancelled.");
   assert.equal(types.orderStatusBlock("completed"), null);
   assert.equal(types.cardList(["A", "B", "C", "D", "E", "F", "G"]), "A, B, C, D, E and 2 more");
+});
+
+// ─── Review fixes (Nov 25): the last package's tracking, the order-level claim, lost labels, ship-back retries ───
+
+type Rule = { method: string; table: string; when?: (body: string, url: string) => boolean; times?: number; act: "fail" | (() => void) };
+/** A client whose requests meet `rules` first: an injected database failure, or a change made "meanwhile" by someone else. */
+function clientWith(rules: Rule[]): SupabaseClient {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = typeof init?.body === "string" ? init.body : "";
+    for (const r of rules) {
+      if ((r.times ?? Number.POSITIVE_INFINITY) <= 0) continue;
+      if (r.method !== method || !new URL(url).pathname.endsWith(`/rest/v1/${r.table}`)) continue;
+      if (r.when && !r.when(body, url)) continue;
+      r.times = (r.times ?? Number.POSITIVE_INFINITY) - 1;
+      if (r.act === "fail") {
+        return new Response(JSON.stringify({ code: "XX000", message: "injected failure", details: null, hint: null }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+      r.act();
+    }
+    return realFetch(input, init);
+  };
+  return createClient(mock.url, "service-role-test-key", { auth: { persistSession: false }, global: { fetch: wrapped as typeof fetch } });
+}
+
+/** Shippo's label history (one page, newest first) for findLabelByMetadata; an Error = Shippo unreachable. */
+const withHistory = (port: ShippoPort, txs: ShippoTransaction[] | Error): ShippoPort => ({
+  ...port,
+  async listTransactions(page: number) {
+    if (txs instanceof Error) throw txs;
+    return { results: page === 1 ? txs : [], next: false };
+  },
+});
+const tx = (over: Partial<ShippoTransaction>): ShippoTransaction => ({
+  objectId: "tx_x", status: "SUCCESS", labelUrl: null, trackingNumber: null, trackingUrlProvider: null, metadata: null,
+  objectCreated: new Date().toISOString(), rate: null, ...over,
+});
+const later = () => new Date(Date.now() + 3 * 60_000);
+const buy = async (bagId: string, port: ShippoPort) => {
+  const r = await svc.buyBagLabel(admin, { bagId, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(r.ok, JSON.stringify(r.body));
+  return r;
+};
+const ship = async (bagId: string, client: SupabaseClient = admin, now?: () => Date) => svc.markBagShipped(client, { bagId, by: "gavin" }, { preview: false, now });
+
+test("the order carries the last package's tracking; the order page doesn't deliver it from that number while a package is out", async () => {
+  const { port } = fakeShippo();
+  setCard("Eevee", { completed: true, completed_at: "2026-11-25T15:00:00+00:00" });
+  await buy(B_GOLD, port);
+  await ship(B_GOLD);
+  // sync-return-tracking: a bag order is filled from its last package to leave, never from return_label_url (the first)
+  let latest = await svc.latestShippedBags(admin, [MIXED, SOLO]);
+  assert.equal(latest.failed, false);
+  assert.equal(latest.byOrder.get(MIXED)?.tracking_number, "9400TEST1");
+  assert.equal(latest.byOrder.has(SOLO), false, "no bag label: filled from return_label_url as before");
+  assert.equal(await svc.bagShipmentsHoldDelivery(admin, MIXED), true);
+  await buy(B_BRONZE, port);
+  assert.equal((await svc.latestShippedBags(admin, [MIXED])).byOrder.get(MIXED)?.tracking_number, "9400TEST1", "bought isn't shipped");
+  const r = await ship(B_BRONZE);
+  assert.ok(r.ok && r.body.orderShipped);
+  latest = await svc.latestShippedBags(admin, [MIXED]);
+  assert.equal(latest.byOrder.get(MIXED)?.tracking_number, "9400TEST2");
+  assert.equal(orderRow(MIXED).tracking_number, "9400TEST2");
+
+  // The admin order page: the last package delivered but the first still out -> wait; both -> deliver
+  await svc.syncBagDeliveries(admin, new Map([["9400TEST2", "DELIVERED"]]), [], async () => []);
+  assert.equal(await svc.bagShipmentsHoldDelivery(admin, MIXED), true);
+  await svc.syncBagDeliveries(admin, new Map([["9400TEST1", "DELIVERED"]]), [], async () => []);
+  assert.equal(await svc.bagShipmentsHoldDelivery(admin, MIXED), false);
+  assert.equal(await svc.bagShipmentsHoldDelivery(admin, SOLO), false, "no bag labels: as before");
+
+  // A read error holds the order page (the sync decides) and fills no order in sync-return-tracking
+  const broken = clientWith([{ method: "GET", table: "bag_shipments", act: "fail" }]);
+  assert.equal(await svc.bagShipmentsHoldDelivery(broken, MIXED), true);
+  assert.equal((await svc.latestShippedBags(broken, [MIXED])).failed, true);
+  mock.store.missingTables.add("bag_shipments");
+  assert.equal(await svc.bagShipmentsHoldDelivery(admin, MIXED), false);
+  assert.deepEqual([...(await svc.latestShippedBags(admin, [MIXED])).byOrder.keys()], []);
+});
+
+test("the order page's label claims the order: a double tap buys one label, otherwise exactly as before", async () => {
+  const { port, calls } = fakeShippo({ delayMs: 60 });
+  const body = { rateObjectId: "rate_priority_9" };
+  const [a, b] = await Promise.all([
+    orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body }, { shippo: port, preview: false }),
+    orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body }, { shippo: port, preview: false }),
+  ]);
+  assert.equal(calls.transactions.length, 1, "one purchase");
+  assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+  const [winner, loser] = a.status === 200 ? [a, b] : [b, a];
+  assert.deepEqual(winner.body, { labelUrl: "https://shippo.test/label-1.pdf", trackingNumber: "9400TEST1" });
+  assert.equal(loser.body.inProgress, true);
+  assert.deepEqual(calls.transactions[0], { rate: "rate_priority_9", label_file_type: "PDF_4x6", async: false, metadata: "Order CD-5001" });
+  const o = orderRow(SOLO);
+  assert.deepEqual([o.status, o.return_label_url, o.tracking_number, o.outbound_carrier, o.outbound_service_level],
+    ["shipped_back", "https://shippo.test/label-1.pdf", "9400TEST1", "USPS", "Priority Mail"]);
+  assert.deepEqual(eventsOf(SOLO, "status_updated").map((e) => e.description), ["Return label purchased — marked Shipped Back. Tracking: 9400TEST1"]);
+  assert.equal(sent.length, 1);
+  assert.equal(mock.store.table("bag_shipments").length, 0, "the claim is gone once the label is on the order");
+  // A later tap answers the label; the bag route refuses (the whole-order label covers the bag)
+  assert.deepEqual(await orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body }, { shippo: port, preview: false }),
+    { status: 200, body: { labelUrl: "https://shippo.test/label-1.pdf" } });
+  const bag = await svc.buyBagLabel(admin, { bagId: B_SOLO, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(!bag.ok && bag.status === 409 && (bag.body.orderLabel as Row).labelUrl === "https://shippo.test/label-1.pdf");
+  assert.equal(calls.transactions.length, 1);
+});
+
+test("a bag label and a whole-order label are never both bought: each route checks the other's claim after writing its own", async () => {
+  const { port, calls } = fakeShippo();
+  // The order page holds the order: the bag claims, sees it, lets go (nothing reaches Shippo)
+  await admin.from("bag_shipments").insert({ bag_id: null, order_id: SOLO, status: "claimed", claimed_at: new Date().toISOString() });
+  const r = await svc.buyBagLabel(admin, { bagId: B_SOLO, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(!r.ok && r.status === 409 && r.body.inProgress === true && /being bought on the order page/.test(r.body.error));
+  assert.deepEqual(shipmentsOf(B_SOLO), [], "the bag's claim was dropped");
+  assert.equal(calls.shipments.length + calls.transactions.length, 0);
+  // The packing page doesn't count the order page's claim as a package
+  const page = await svc.loadPacking(admin, B_SOLO);
+  assert.ok(page.ok && page.body.shipment === null && page.body.packages.every((p) => p.status === "none"));
+
+  // A bag label being bought: the order page claims, sees it, lets go
+  await admin.from("bag_shipments").insert({ bag_id: B_GOLD, order_id: MIXED, status: "claimed", claimed_at: new Date().toISOString() });
+  const o = await orderSvc.buyOrderReturnLabel(admin, { orderId: MIXED, body: { rateObjectId: "rate_priority_9" } }, { shippo: port, preview: false });
+  assert.equal(o.status, 409);
+  assert.match(String(o.body.error), /one of this order's bags/);
+  assert.deepEqual(mock.store.table("bag_shipments").filter((s) => s.order_id === MIXED).map((s) => [s.bag_id, s.status]), [[B_GOLD, "claimed"]], "the order's claim was dropped");
+  // ...and can't read the bag labels: doesn't buy blind
+  const blind = clientWith([{ method: "GET", table: "bag_shipments", when: (_b, url) => url.includes("bag_id=not.is.null"), act: "fail" }]);
+  const ob = await orderSvc.buyOrderReturnLabel(blind, { orderId: FAILS, body: { rateObjectId: "rate_priority_9" } }, { shippo: port, preview: false });
+  assert.equal(ob.status, 500);
+  assert.equal(calls.transactions.length, 0);
+  assert.deepEqual(mock.store.table("bag_shipments").filter((s) => s.order_id === FAILS), []);
+
+  // The order page saved a label since the bag was read: the bag re-reads the order after its claim and lets go
+  const sneaky = clientWith([{
+    method: "POST", table: "bag_shipments", times: 1,
+    act: () => Object.assign(orderRow(FAILS), { return_label_url: "https://shippo.test/order-page-late.pdf", tracking_number: "9400LATE" }),
+  }]);
+  const late = await svc.buyBagLabel(sneaky, { bagId: B_FAILS, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(!late.ok && late.status === 409 && (late.body.orderLabel as Row).labelUrl === "https://shippo.test/order-page-late.pdf");
+  assert.deepEqual(shipmentsOf(B_FAILS), []);
+  assert.equal(calls.transactions.length, 0);
+});
+
+test("the order page: a label bought but not saved is saved by the next tap; an unclear answer is checked in Shippo first", async () => {
+  const body = { rateObjectId: "rate_priority_9" };
+  // The order's save fails (with and without the carrier): the label stays on the claim
+  const first = fakeShippo();
+  const failing = clientWith([{ method: "PATCH", table: "orders", times: 2, act: "fail" }]);
+  const r = await orderSvc.buyOrderReturnLabel(failing, { orderId: SOLO, body }, { shippo: first.port, preview: false });
+  assert.equal(r.status, 500);
+  assert.match(String(r.body.error), /bought but couldn't be saved on the order .*label-1\.pdf/);
+  const [claim] = mock.store.table("bag_shipments");
+  assert.deepEqual([claim.bag_id, claim.status, claim.label_url, claim.tracking_number, claim.error],
+    [null, "claimed", "https://shippo.test/label-1.pdf", "9400TEST1", "Bought but not saved: https://shippo.test/label-1.pdf"]);
+  // Meanwhile the bag route won't buy
+  const bag = await svc.buyBagLabel(admin, { bagId: B_SOLO, by: "gavin" }, { shippo: first.port, preview: false });
+  assert.ok(!bag.ok && bag.status === 409 && /bought on the order page but not saved/.test(bag.body.error));
+  // The next tap saves it: nothing new bought
+  const again = await orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body }, { shippo: first.port, preview: false });
+  assert.deepEqual([again.status, again.body], [200, { labelUrl: "https://shippo.test/label-1.pdf", trackingNumber: "9400TEST1" }]);
+  assert.equal(first.calls.transactions.length, 1);
+  assert.deepEqual([orderRow(SOLO).status, orderRow(SOLO).return_label_url, orderRow(SOLO).tracking_number], ["shipped_back", "https://shippo.test/label-1.pdf", "9400TEST1"]);
+  assert.equal(mock.store.table("bag_shipments").length, 0);
+
+  // No clear answer: the claim stays; within 2 minutes a tap waits; then Shippo's history ("Order CD-5007") decides
+  const lostAnswer = async () => {
+    const u = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body }, { shippo: fakeShippo({ throwOnTx: true }).port, preview: false });
+    assert.equal(u.status, 500);
+    assert.match(String(u.body.error), /checked in Shippo first/);
+    return String(mock.store.table("bag_shipments").find((s) => s.order_id === FAILS)!.claimed_at);
+  };
+  let claimedAt = await lostAnswer();
+  const waiting = fakeShippo();
+  const soon = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body }, { shippo: waiting.port, preview: false });
+  assert.ok(soon.status === 409 && soon.body.inProgress === true);
+  const found = fakeShippo();
+  const inHistory = withHistory(found.port, [tx({
+    objectId: "tx_lost", labelUrl: "https://shippo.test/lost.pdf", trackingNumber: "9400LOST", metadata: "Order CD-5007",
+    objectCreated: new Date(Date.parse(claimedAt) + 1000).toISOString(), rate: "rate_priority_7",
+  })]);
+  const rec = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body }, { shippo: inHistory, preview: false, now: later });
+  assert.deepEqual([rec.status, rec.body.labelUrl, rec.body.trackingNumber], [200, "https://shippo.test/lost.pdf", "9400LOST"]);
+  assert.equal(found.calls.transactions.length + waiting.calls.transactions.length, 0, "saved, not bought again");
+  assert.deepEqual([orderRow(FAILS).status, orderRow(FAILS).outbound_service_level], ["shipped_back", "Priority Mail"]);
+
+  // Shippo's history reaches past the claim with no label for it: released and bought (the order page has no retry button)
+  seed();
+  claimedAt = await lostAnswer();
+  const none = fakeShippo();
+  const bought = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body },
+    { shippo: withHistory(none.port, [tx({ metadata: "Order CD-9999", labelUrl: "https://shippo.test/x.pdf", objectCreated: "2026-01-01T00:00:00.000Z" })]), preview: false, now: later });
+  assert.equal(bought.status, 200);
+  assert.equal(none.calls.transactions.length, 1);
+  assert.deepEqual(mock.store.table("bag_shipments").map((s) => [s.status, s.error]),
+    [["failed", "Failed to purchase label: socket hang up | Never finished; Shippo had no label for it, released to buy again."]]);
+
+  // Shippo unreachable: stale, and only a deliberate retry buys
+  seed();
+  await lostAnswer();
+  const unsure = fakeShippo();
+  const stale = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body }, { shippo: withHistory(unsure.port, new Error("Shippo is down")), preview: false, now: later });
+  assert.ok(stale.status === 409 && stale.body.staleClaim === true && /Shippo is down/.test(String(stale.body.error)));
+  const forced = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body: { ...body, retryStaleClaim: true } },
+    { shippo: withHistory(unsure.port, new Error("Shippo is down")), preview: false, now: later });
+  assert.equal(forced.status, 200);
+  assert.equal(unsure.calls.transactions.length, 1);
+});
+
+test("the order page before the migration buys as before (no claim); its other answers are unchanged", async () => {
+  const { port, calls } = fakeShippo();
+  assert.deepEqual(await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body: {} }, { shippo: port, preview: false }), { status: 400, body: { error: "Missing rateObjectId" } });
+  assert.deepEqual(await orderSvc.buyOrderReturnLabel(admin, { orderId: id(999), body: { rateObjectId: "r" } }, { shippo: port, preview: false }), { status: 404, body: { error: "Order not found" } });
+  assert.deepEqual(await orderSvc.buyOrderReturnLabel(admin, { orderId: PAGE, body: { rateObjectId: "r" } }, { shippo: port, preview: false }), { status: 200, body: { labelUrl: "https://shippo.test/order-page.pdf" } });
+  assert.equal((await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body: { rateObjectId: "r" } }, { shippo: port, preview: true })).status, 503);
+  const refused = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body: { rateObjectId: "r" } }, { shippo: fakeShippo({ fail: true }).port, preview: false });
+  assert.deepEqual(refused, { status: 500, body: { error: "Label purchase failed: The address is invalid" } });
+  assert.deepEqual(mock.store.table("bag_shipments").map((s) => [s.bag_id, s.status]), [[null, "failed"]], "Shippo said no: the claim is released");
+  assert.equal(calls.transactions.length, 0);
+
+  mock.store.missingTables.add("bag_shipments");
+  const r = await orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body: { rateObjectId: "rate_priority_9" } }, { shippo: port, preview: false });
+  assert.deepEqual([r.status, r.body.labelUrl], [200, "https://shippo.test/label-1.pdf"]);
+  assert.equal(orderRow(SOLO).status, "shipped_back");
+});
+
+test("a bag label bought but not saved is saved by the next tap, never bought twice; Shippo's history settles a stale claim", async () => {
+  const { port, calls } = fakeShippo();
+  // Saving the label on the claim fails: it is kept on the claim
+  const failing = clientWith([{ method: "PATCH", table: "bag_shipments", times: 1, when: (b) => b.includes('"purchased"'), act: "fail" }]);
+  const r = await svc.buyBagLabel(failing, { bagId: B_FAILS, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(!r.ok && r.status === 500 && r.body.unsaved === true && r.body.labelUrl === "https://shippo.test/label-1.pdf");
+  const [kept] = shipmentsOf(B_FAILS);
+  assert.deepEqual([kept.status, kept.label_url, kept.tracking_number, kept.error],
+    ["claimed", "https://shippo.test/label-1.pdf", "9400TEST1", "Bought but not saved: https://shippo.test/label-1.pdf"]);
+  const page = await svc.loadPacking(admin, B_FAILS);
+  assert.ok(page.ok && page.body.next === "wait" && /bought but couldn't be saved/.test(page.body.blocked ?? ""));
+  assert.ok(page.ok && page.body.unsavedLabel?.labelUrl === "https://shippo.test/label-1.pdf");
+  const early = await ship(B_FAILS);
+  assert.ok(!early.ok && early.status === 409 && /isn't saved yet/.test(early.body.error));
+  // The next tap saves that label: nothing new bought
+  const again = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(again.ok && again.body.existing && again.body.orderLabel && again.body.shipment.status === "purchased");
+  if (again.ok) assert.deepEqual([again.body.shipment.labelUrl, again.body.shipment.trackingNumber, again.body.shipment.error], ["https://shippo.test/label-1.pdf", "9400TEST1", null]);
+  assert.equal(calls.transactions.length, 1, "one label");
+  assert.equal(orderRow(FAILS).return_label_url, "https://shippo.test/label-1.pdf");
+  assert.match(String(eventsOf(FAILS, "bag_label_bought")[0].description), /Saved after an unfinished purchase: nothing new was bought\.$/);
+
+  // Only the note survived: the URL in it is saved (even on a deliberate retry), no Shippo call
+  seed();
+  await admin.from("bag_shipments").insert({
+    bag_id: B_FAILS, order_id: FAILS, status: "claimed", claimed_at: new Date().toISOString(),
+    error: "Failed to purchase label: timeout | Bought but not saved: https://shippo.test/label-9.pdf",
+  });
+  const fresh = fakeShippo();
+  const saved = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin", retryStaleClaim: true }, { shippo: fresh.port, preview: false, now: later });
+  assert.ok(saved.ok && saved.body.shipment.labelUrl === "https://shippo.test/label-9.pdf" && saved.body.shipment.status === "purchased");
+  assert.equal(fresh.calls.transactions.length + fresh.calls.shipments.length, 0);
+
+  // A stale claim: Shippo's history ("Bag CD-5007-G") decides
+  seed();
+  await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin" }, { shippo: fakeShippo({ throwOnTx: true }).port, preview: false });
+  const claimedAt = String(shipmentsOf(B_FAILS)[0].claimed_at);
+  const at = (ms: number) => new Date(Date.parse(claimedAt) + ms).toISOString();
+  const older = tx({ metadata: "Bag CD-5007-G", labelUrl: "https://shippo.test/older.pdf", objectCreated: "2026-11-01T00:00:00.000Z" });
+  const p = fakeShippo();
+  const making = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin", retryStaleClaim: true },
+    { shippo: withHistory(p.port, [tx({ status: "QUEUED", metadata: "Bag CD-5007-G", objectCreated: at(1000) }), older]), preview: false, now: later });
+  assert.ok(!making.ok && making.status === 409 && making.body.inProgress === true, "still being made: wait");
+  const noneYet = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin" }, { shippo: withHistory(p.port, [older]), preview: false, now: later });
+  assert.ok(!noneYet.ok && noneYet.status === 409 && noneYet.body.staleClaim === true && /Shippo has no label for it, so buying again is safe/.test(noneYet.body.error),
+    "an older label of the bag isn't this claim's");
+  const lost = tx({ objectId: "tx_lost", labelUrl: "https://shippo.test/lost.pdf", trackingNumber: "9400LOST", trackingUrlProvider: "https://track.test/lost", metadata: "Bag CD-5007-G", objectCreated: at(2000), rate: "rate_ground_3" });
+  const f = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin" }, { shippo: withHistory(p.port, [lost, older]), preview: false, now: later });
+  assert.ok(f.ok && f.body.existing, JSON.stringify(f.body));
+  if (f.ok) assert.deepEqual([f.body.shipment.labelUrl, f.body.shipment.trackingNumber, f.body.shipment.service, f.body.shipment.costCents], ["https://shippo.test/lost.pdf", "9400LOST", "Ground Advantage", 510]);
+  assert.equal(p.calls.transactions.length, 0, "found, not bought again");
+});
+
+test("no bag label for an order already shipped back (by hand)", async () => {
+  const { port, calls } = fakeShippo();
+  orderRow(SOLO).status = "shipped_back";
+  const r = await svc.buyBagLabel(admin, { bagId: B_SOLO, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(!r.ok && r.status === 409 && r.body.error === "This order is already shipped back.");
+  const p = await svc.loadPacking(admin, B_SOLO);
+  assert.ok(p.ok && !p.body.canBuy && p.body.next === "blocked" && p.body.blocked === "This order is already shipped back.");
+  assert.equal(calls.transactions.length, 0);
+  assert.equal(types.LABEL_ORDER_STATUSES.includes("shipped_back"), false);
+});
+
+test("delivered sync fails closed on a read error; an order shipped partly by hand is left to its tracking number", async () => {
+  const { port } = fakeShippo();
+  const mark = (ids: string[]) => syncDelivered.markRestorationsDelivered(admin as never, ids, { onlyFrom: ["shipped_back"] });
+  // MIXED: Gold went as a bag; Bronze was shipped back by hand (no bag label), the order carries that label's number
+  await buy(B_GOLD, port);
+  await ship(B_GOLD);
+  Object.assign(orderRow(MIXED), { status: "shipped_back", tracking_number: "9400HAND" });
+  const r = await svc.syncBagDeliveries(admin, new Map([["9400TEST1", "DELIVERED"]]), [MIXED], mark);
+  assert.deepEqual([r.failed, r.shipmentsDelivered, r.bagOrderIds.has(MIXED), r.ordersDelivered], [false, 1, false, []],
+    "not shipped wholly bag by bag: the caller checks 9400HAND");
+  // SOLO went wholly as bags: a bag order
+  await buy(B_SOLO, port);
+  await ship(B_SOLO);
+  const s = await svc.syncBagDeliveries(admin, new Map(), [SOLO], mark);
+  assert.deepEqual([s.failed, s.bagOrderIds.has(SOLO)], [false, true]);
+  // A read error: failed (the callers skip their tracking-number pass), nothing marked
+  const broken = clientWith([{ method: "GET", table: "bag_shipments", act: "fail" }]);
+  const f = await svc.syncBagDeliveries(broken, new Map([["9400TEST2", "DELIVERED"]]), [SOLO], mark);
+  assert.deepEqual([f.failed, f.bagOrderIds.size, f.ordersDelivered], [true, 0, []]);
+  const broken2 = clientWith([{ method: "GET", table: "tier_bags", act: "fail" }]);
+  assert.equal((await svc.syncBagDeliveries(broken2, new Map(), [SOLO], mark)).failed, true);
+  assert.equal(orderRow(SOLO).status, "shipped_back");
+  // Before the migration: not failed (orders go by tracking number, as before)
+  mock.store.missingTables.add("bag_shipments");
+  const pre = await svc.syncBagDeliveries(admin, new Map(), [SOLO], mark);
+  assert.deepEqual([pre.failed, pre.bagOrderIds.size], [false, 0]);
+});
+
+test("a failed or skipped ship-back step says so and runs again from the packing page or a second Mark shipped", async () => {
+  const { port } = fakeShippo();
+  const inTwoMinutes = () => new Date(Date.now() + 2 * 60_000);
+  await buy(B_SOLO, port);
+  // The order's status update fails (setOrderStatus' conditional update)
+  const statusFails = () => clientWith([{ method: "PATCH", table: "orders", times: 1, when: (b) => b.includes("shipped_back"), act: "fail" }]);
+  const r = await ship(B_SOLO, statusFails());
+  assert.ok(r.ok && r.body.emailed && !r.body.orderShipped && r.body.orderStatus === "completed");
+  if (r.ok) assert.match(r.body.message, /^Marked shipped and the customer was emailed the tracking\. Every bag has shipped, but the order couldn't be set to Shipped Back \(injected failure\)\. Reload this page to try again\.$/);
+  assert.equal(orderRow(SOLO).status, "completed");
+  // Right away a reload leaves it to the tap still at it; a minute on it ships the order back, once, no second email
+  const soon = await svc.loadPacking(admin, B_SOLO, {}, { preview: false });
+  assert.ok(soon.ok && soon.body.order.status === "completed" && soon.body.notice === undefined);
+  const preview = await svc.loadPacking(admin, B_SOLO, {}, { preview: true, now: inTwoMinutes });
+  assert.ok(preview.ok && preview.body.order.status === "completed", "preview never writes");
+  const p = await svc.loadPacking(admin, B_SOLO, {}, { preview: false, now: inTwoMinutes });
+  assert.ok(p.ok && p.body.order.status === "shipped_back" && p.body.notice === "Every bag has shipped: the order is now Shipped Back.");
+  assert.deepEqual([orderRow(SOLO).status, orderRow(SOLO).tracking_number], ["shipped_back", "9400TEST1"]);
+  assert.equal(sent.length, 1, "the bag's email only");
+  assert.equal(eventsOf(SOLO, "status_updated").length, 1);
+  const p2 = await svc.loadPacking(admin, B_SOLO, {}, { preview: false, now: inTwoMinutes });
+  assert.ok(p2.ok && p2.body.notice === undefined && eventsOf(SOLO, "status_updated").length === 1, "once");
+
+  // A second Mark shipped runs it too
+  seed();
+  sent.length = 0;
+  await buy(B_SOLO, fakeShippo().port);
+  await ship(B_SOLO, statusFails());
+  const again = await ship(B_SOLO, admin, inTwoMinutes);
+  assert.ok(again.ok && again.body.alreadyShipped && again.body.orderShipped && again.body.orderStatus === "shipped_back");
+  if (again.ok) assert.match(again.body.message, /No second email was sent\. Every bag has shipped: the order is now Shipped Back\.$/);
+  assert.equal(sent.length, 1);
+
+  // Skipped (the status moved meanwhile): read again; a status it ships from -> shipped back; cancelled -> said
+  for (const [moveTo, shipped] of [["in_progress", true], ["cancelled", false]] as const) {
+    seed();
+    await buy(B_SOLO, fakeShippo().port);
+    const moved = clientWith([{ method: "PATCH", table: "bag_shipments", times: 1, when: (b) => b.includes('"shipped"'), act: () => { orderRow(SOLO).status = moveTo; } }]);
+    const m = await ship(B_SOLO, moved);
+    assert.ok(m.ok && m.body.orderShipped === shipped, JSON.stringify(m.body));
+    assert.equal(orderRow(SOLO).status, shipped ? "shipped_back" : "cancelled");
+    if (m.ok && !shipped) assert.match(m.body.message, /the order is "cancelled" now, so it wasn't set to Shipped Back\./);
+  }
+});
+
+test("the order's shipped-back email goes when the bag's own email didn't (failed, or no tracking)", async () => {
+  resendRefuses = /restored cards are on the way/;
+  await buy(B_SOLO, fakeShippo().port);
+  const r = await ship(B_SOLO);
+  assert.ok(r.ok && !r.body.emailed && r.body.emailFailed && r.body.orderShipped);
+  assert.deepEqual(sent.map((m) => m.subject), ["Your cards are on the way! — Order #CD-5001"]);
+  assert.match(sent[0].html, /9400TEST1/);
+  if (r.ok) assert.match(r.body.message, /^Marked shipped, but the customer's email didn't send\. Every bag has shipped: the order is Shipped Back\. The customer was sent the order's shipped-back email instead\.$/);
+
+  // A label with no tracking number: the bag's email is skipped, the status email still goes
+  seed();
+  sent.length = 0;
+  resendRefuses = null;
+  shippoHistory = null;
+  const noTracking: ShippoPort = {
+    ...fakeShippo().port,
+    async createTransaction() { return { httpStatus: 201, body: { status: "SUCCESS", label_url: "https://shippo.test/nt.pdf", object_id: "tx_nt" } }; },
+  };
+  await buy(B_SOLO, noTracking);
+  const n = await ship(B_SOLO);
+  assert.ok(n.ok && !n.body.emailed && !n.body.emailFailed && n.body.orderShipped);
+  assert.deepEqual(sent.map((m) => m.subject), ["Your cards are on the way! — Order #CD-5001"]);
+  assert.equal(orderRow(SOLO).tracking_number, null);
+});
+
+test("customs: one bag declares the whole order only when no live card is outside it", async () => {
+  // A card of the order not received yet (no bag): not in the box, not on the form
+  mock.store.table("cards").push(card(INTL, null, "Mew", { awaiting_arrival: true, received_at: null, completed: false, completed_at: null, estimated_value_cents: 90000 }));
+  const { port, calls } = fakeShippo();
+  const r = await svc.buyBagLabel(admin, { bagId: B_INTL, by: "gavin" }, { shippo: port, preview: false });
+  assert.ok(r.ok, JSON.stringify(r.body));
+  assert.equal(calls.shipments.length, 2);
+  for (const sh of calls.shipments) {
+    assert.deepEqual((sh.customsDeclaration as { items: Row[] }).items.map((i) => i.description).sort(), ["Charizard Base Set Holo 1", "Pikachu"]);
+  }
+});
+
+test("ship queue: finished bags and bought labels stay listed until they ship", async () => {
+  const { port } = fakeShippo();
+  const find = (q: Awaited<ReturnType<typeof queue.loadShipQueueBags>>, code: string) => q.bags.find((b) => b.bagCode === code);
+  let q = await queue.loadShipQueueBags(admin);
+  assert.ok(q.ready && q.error === null);
+  assert.ok(find(q, "CD-5002-G")?.finished && find(q, "CD-5002-G")?.shipment === null);
+  assert.equal(find(q, "CD-5002-B"), undefined, "Bronze isn't finished and its order isn't Completed");
+  assert.equal(find(q, "CD-5004-G"), undefined, "a whole-order label covers the bag");
+  assert.equal(find(q, "CD-5006-G"), undefined, "every card refunded");
+  assert.ok(q.orderIdsWithBags.has(MIXED) && !q.orderIdsWithBags.has(PAGE));
+  assert.equal(find(q, "CD-5002-G")?.packHref.startsWith("/admin/receiving/pack/"), true);
+
+  // Gold's label bought: still listed with it (print it, Mark shipped)
+  await buy(B_GOLD, port);
+  q = await queue.loadShipQueueBags(admin);
+  const gold = find(q, "CD-5002-G")?.shipment;
+  assert.deepEqual([gold?.status, gold?.labelUrl, gold?.trackingNumber, gold?.stale], ["purchased", "https://shippo.test/label-1.pdf", "9400TEST1", false]);
+  // Shipped: off the list
+  await ship(B_GOLD);
+  assert.equal(find(await queue.loadShipQueueBags(admin), "CD-5002-G"), undefined);
+
+  // A label bought and never marked shipped stays listed, even once the order was shipped back by hand
+  await buy(B_SOLO, port);
+  orderRow(SOLO).status = "shipped_back";
+  q = await queue.loadShipQueueBags(admin);
+  assert.equal(find(q, "CD-5001-G")?.shipment?.status, "purchased");
+  assert.equal(q.orderIdsWithBags.has(SOLO), false);
+  // A purchase being bought (claimed) is listed too, flagged once stale
+  await admin.from("bag_shipments").insert({ bag_id: B_FAILS, order_id: FAILS, status: "claimed", claimed_at: new Date(Date.now() - 5 * 60_000).toISOString() });
+  q = await queue.loadShipQueueBags(admin);
+  assert.deepEqual([find(q, "CD-5007-G")?.shipment?.status, find(q, "CD-5007-G")?.shipment?.stale], ["claimed", true]);
+
+  // Before the migration: nothing per bag (the page lists whole orders as before)
+  mock.store.missingTables.add("bag_shipments");
+  q = await queue.loadShipQueueBags(admin);
+  assert.deepEqual([q.ready, q.bags.length, q.error], [false, 0, null]);
+});
+
+test("Shippo's history: a lost purchase is found by its metadata, made after its claim, never a label already saved", async () => {
+  const since = "2026-11-25T15:00:00.000Z";
+  const t = (min: number) => new Date(Date.parse(since) + min * 60_000).toISOString();
+  const base = fakeShippo().port;
+  const look = (txs: ShippoTransaction[] | Error, exclude?: Set<string>) => label.findLabelByMetadata(withHistory(base, txs), "Bag CD-1-G", since, exclude);
+  const ok = await look([tx({ metadata: "Bag CD-2-G", labelUrl: "u0", objectCreated: t(2) }), tx({ metadata: "Bag CD-1-G", labelUrl: "u1", trackingNumber: "T1", objectCreated: t(1) })]);
+  assert.ok(ok.kind === "found" && ok.label.labelUrl === "u1" && ok.label.trackingNumber === "T1");
+  assert.equal((await look([tx({ metadata: "Bag CD-1-G", labelUrl: "u2", objectCreated: t(-1) })])).kind, "found", "within the clock slack");
+  assert.equal((await look([tx({ metadata: "Bag CD-1-G", labelUrl: "u1", objectCreated: t(-30) })])).kind, "none", "older than the claim: an earlier purchase");
+  assert.equal((await look([tx({ metadata: "Bag CD-1-G", labelUrl: "u1", objectCreated: t(1) })], new Set(["u1"]))).kind, "none", "already saved on a shipment");
+  assert.equal((await look([tx({ metadata: "Bag CD-1-G", status: "ERROR", objectCreated: t(1) })])).kind, "none", "Shippo refused it");
+  assert.equal((await look([tx({ metadata: "Bag CD-1-G", status: "WAITING", objectCreated: t(1) })])).kind, "pending");
+  assert.equal((await look(new Error("down"))).kind, "unknown");
+  assert.equal((await label.findLabelByMetadata(base, "Bag CD-1-G", since)).kind, "unknown", "no history reader");
+  const endless: ShippoPort = { ...base, async listTransactions() { return { results: [tx({ metadata: "Other", objectCreated: t(5) })], next: true }; } };
+  assert.equal((await label.findLabelByMetadata(endless, "Bag CD-1-G", since)).kind, "unknown", "history never reaches back to the claim");
+});
+
+test("pure rules: the last package, notes only grow", () => {
+  const s = (status: string, shipped_at: string | null, tracking_number: string) => ({ status, shipped_at, tracking_number });
+  assert.equal(types.latestSentShipment([s("shipped", "2026-11-20T10:00:00Z", "A"), s("delivered", "2026-11-22T10:00:00Z", "B"), s("purchased", null, "C")])?.tracking_number, "B");
+  assert.equal(types.latestSentShipment([s("purchased", null, "C")]), null);
+  assert.equal(types.appendNote(null, "a"), "a");
+  assert.equal(types.appendNote("a", "b"), "a | b");
+  assert.ok(types.appendNote("x".repeat(3000), "Bought but not saved: https://u").endsWith("Bought but not saved: https://u"));
+  assert.equal(types.orderStatusBlock("shipped_back"), "This order is already shipped back.");
+});
+
+test("bag_shipments missing (code live before the migration): the order page's label, the syncs, auto-deliver and the ship queue work exactly as before", async () => {
+  mock.store.missingTables.add("bag_shipments");
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  const env = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, key: process.env.SUPABASE_SERVICE_ROLE_KEY, cron: process.env.CRON_SECRET };
+  console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+  try {
+    // The order page's return label: bought and saved as always, no claim, a warning in the log
+    const { port, calls } = fakeShippo();
+    const r = await orderSvc.buyOrderReturnLabel(admin, { orderId: SOLO, body: { rateObjectId: "rate_priority_9" } }, { shippo: port, preview: false });
+    assert.deepEqual([r.status, r.body], [200, { labelUrl: "https://shippo.test/label-1.pdf", trackingNumber: "9400TEST1" }]);
+    assert.equal(calls.transactions.length, 1);
+    const o = orderRow(SOLO);
+    assert.deepEqual([o.status, o.return_label_url, o.tracking_number, o.outbound_carrier], ["shipped_back", "https://shippo.test/label-1.pdf", "9400TEST1", "USPS"]);
+    assert.deepEqual(eventsOf(SOLO, "status_updated").map((e) => e.description), ["Return label purchased — marked Shipped Back. Tracking: 9400TEST1"]);
+    assert.equal(sent.length, 1, "the customer's shipped email, as always");
+    assert.ok(warnings.some((w) => /bag_shipments isn't in the database .*buying without the order claim, as before/.test(w)), warnings.join("\n"));
+    // A failed purchase answers as always too (nothing to release)
+    const bad = await orderSvc.buyOrderReturnLabel(admin, { orderId: FAILS, body: { rateObjectId: "r" } }, { shippo: fakeShippo({ fail: true }).port, preview: false });
+    assert.deepEqual(bad, { status: 500, body: { error: "Label purchase failed: The address is invalid" } });
+
+    // The admin order page's auto-deliver: no bag shipments, nothing held
+    assert.equal(await svc.bagShipmentsHoldDelivery(admin, SOLO), false);
+    // sync-return-tracking: no bag labels to fill, no bag orders (orders filled from return_label_url as before)
+    assert.deepEqual(await svc.shipmentsMissingTracking(admin), []);
+    const latest = await svc.latestShippedBags(admin, [SOLO, PAGE]);
+    assert.deepEqual([latest.failed, latest.byOrder.size], [false, 0]);
+    // sync-delivered, the daily route itself: orders delivered from their tracking number as before, not "failed"
+    process.env.NEXT_PUBLIC_SUPABASE_URL = mock.url;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-test-key";
+    process.env.CRON_SECRET = "cron-test-secret";
+    shippoHistory = [{ object_id: "tx_page", status: "SUCCESS", tracking_number: "9400PAGE", tracking_status: "DELIVERED", label_url: "https://shippo.test/order-page.pdf" }];
+    const cron = await import("@/app/api/cron/sync-delivered/route");
+    const res = await cron.GET(new Request("http://localhost/api/cron/sync-delivered", { headers: { authorization: "Bearer cron-test-secret" } }));
+    const out = await res.json() as Row;
+    assert.equal(res.status, 200, JSON.stringify(out));
+    assert.equal(out.bagSyncFailed, undefined);
+    assert.equal(orderRow(PAGE).status, "delivered", "delivered from its tracking number, as before");
+    assert.equal(orderRow(SOLO).status, "shipped_back", "its package isn't delivered yet");
+    assert.deepEqual(eventsOf(PAGE, "status_updated").map((e) => e.description), [syncDelivered.DELIVERED_EVENT]);
+    assert.equal(out.packagesDelivered, 0);
+    // The ship queue: nothing per bag, no error (the page lists whole orders, as before)
+    const q = await queue.loadShipQueueBags(admin);
+    assert.deepEqual([q.ready, q.bags.length, q.orderIdsWithBags.size, q.error], [false, 0, 0, null]);
+    // Only the bag flow says it isn't set up yet
+    const bag = await svc.buyBagLabel(admin, { bagId: B_FAILS, by: "gavin" }, { shippo: port, preview: false });
+    assert.ok(!bag.ok && bag.status === 500 && bag.body.shipmentsReady === false && /isn't applied yet/.test(bag.body.error));
+  } finally {
+    console.warn = realWarn;
+    for (const [k, v] of [["NEXT_PUBLIC_SUPABASE_URL", env.url], ["SUPABASE_SERVICE_ROLE_KEY", env.key], ["CRON_SECRET", env.cron]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });

@@ -50,6 +50,8 @@ Screenshots (deviceScaleFactor 1) and `results.json` go to
 | File | What it is |
 | --- | --- |
 | `mock-supabase.mjs` | The fake Supabase: PostgREST, Storage, Auth, plus Resend's API. Library (`startMock`) or CLI (`--port`, `--https`). |
+| `mock-shippo.mjs` | A fake Shippo the mock serves under `/__shippo` (rates, label purchases, the label PDF). Off (401) until a scenario turns it on. |
+| `shippo-fetch.mjs` | Preloaded into `next dev` (`NODE_OPTIONS --import`): sends the app's requests to `api.goshippo.com` to the fake instead. |
 | `seed.mjs` | Fake data with fixed ids (`IDS`, `ORDER_NUMBERS`, `ADMIN_TOKEN`). |
 | `start.mjs` | Starts mock + `next dev`; Playwright helpers. |
 | `smoke.mjs` | Existing admin pages render with no server or browser errors. |
@@ -109,6 +111,26 @@ await h.stop();
 | `POST /__reset` | reseed (`{"seed":false}` empties everything) |
 | `POST /__rows/<table>` | insert raw rows (no defaults or constraints) |
 | `GET /__emails`, `GET /__requests` | captured emails; last 500 requests (method, path, status) |
+
+## Fake Shippo (`mock-shippo.mjs`)
+
+`start.mjs` gives `next dev` the preload `shippo-fetch.mjs` and
+`HARNESS_SHIPPO_URL=<mock>/__shippo`: every request the app makes to
+`https://api.goshippo.com` (the Shippo SDK and the plain `fetch` calls) goes to
+the mock instead; nothing in the app knows. The fake is OFF after every reset
+(401, as the real Shippo answers the placeholder key), so other scenarios see
+what they always did. Turn it on with `shippoConfig({ enabled: true })`
+(`start.mjs`; `POST /__shippo/__config`), optionally `transactionDelayMs` (a
+slow purchase, for two taps at once) and `failTransactions: n` (the next n
+purchases come back ERROR).
+
+On: `POST /shipments/` answers 3 rates (USPS Ground Advantage $5.40, USPS
+Priority Mail $9.85, UPS Ground $12.10; international: two USPS
+International rates), valid for the SDK's schemas; `POST /transactions/` buys
+a known rate (a tracking number `9400111202600000000001`, `…02`, …, the carrier
+tracking page, a label `<mock>/__shippo/labels/<id>.pdf`, a one-page 4x6 PDF);
+`GET /rates/<id>`. Every call is in `dump().shippo` (`shipments`,
+`transactions` with the rate, provider, service, amount, tracking number).
 
 ## PostgREST coverage
 
@@ -639,9 +661,10 @@ picker of desks). Fix them there.
 - Embeds are resolved from the FK map in `SCHEMA` plus `<singular>_id`
   naming; an unknown relation answers empty and is listed in
   `dump().unknown.tables`.
-- Stripe and Shippo calls fail (placeholder keys), so anything that buys a
-  label or refunds can't be tested here. Google fonts load through the network
-  on first compile.
+- Stripe calls fail (placeholder key), so refunds can't be tested here. Shippo
+  goes to the fake (below): off, it answers 401 as the real one did with the
+  placeholder key; on, labels can be bought end to end (the `pack-*`
+  scenarios). Google fonts load through the network on first compile.
 - Printing itself (QZ Tray, the Labelife app, the D520) is hardware: the
   harness checks the PDF only.
 - The first compile of each page takes 1-3 minutes (Turbopack, workspace root

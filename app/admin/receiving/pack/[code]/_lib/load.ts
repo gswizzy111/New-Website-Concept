@@ -5,7 +5,7 @@ import { codeKind, normalizeCode, openCodePath } from "@/lib/intake/codes";
 import { resolveCode } from "@/lib/intake/data";
 import { loadPacking } from "@/lib/intake/shipping/bag-shipments";
 import { paidServiceOf, returnAddress, type ReturnLabelOrder } from "@/lib/intake/shipping/bag-label";
-import { serviceName, type PackCardExtra, type PackExtras } from "@/lib/intake/shipping/packing-view";
+import { serviceName, shipToText, type PackCardExtra, type PackExtras } from "@/lib/intake/packing-view";
 import type { PackingResponse } from "@/lib/intake/shipping/types";
 import { thumbnail } from "@/lib/thumbnail";
 
@@ -38,13 +38,6 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const web = (u: unknown): u is string => typeof u === "string" && /^https?:\/\//i.test(u);
 /** The photo shown at 64 CSS px (the order of the Scan page's: receiving photo, the customer's, the catalog picture). */
 const PHOTO_PX = 64;
-
-/** "Philadelphia, PA, US" from the order's return address, or null. */
-export function shipToText(addr: Record<string, string> | null | undefined): string | null {
-  if (!addr) return null;
-  const text = [addr.city, addr.state, addr.country || (addr.street1 ? "US" : "")].map((x) => (x ?? "").trim()).filter(Boolean).join(", ");
-  return text || null;
-}
 
 function cardExtra(c: CardRow): PackCardExtra {
   const photo = [...(c.receiving_photo_urls ?? []), ...(c.photo_urls ?? []), c.catalog_image_url].find(web) ?? null;

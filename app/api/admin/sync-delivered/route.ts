@@ -40,24 +40,32 @@ export async function POST() {
     (ids) => markRestorationsDelivered(admin, ids, { onlyFrom: ["shipped_back"] }),
   );
 
-  // Match orders to Shippo tracking status and update the delivered ones
+  // Match orders to Shippo tracking status and update the delivered ones.
+  // Not when the bag shipments couldn't be read: an order shipped bag by bag
+  // carries only its last package's tracking, so it would be marked from that
+  // alone (the next run catches up)
   const delivered: string[] = [];
   const noMatch: string[] = [];
 
-  for (const order of orders) {
-    if (bags.bagOrderIds.has(order.id)) continue;
-    const status = trackingToStatus.get(order.tracking_number!);
-    if (!status) noMatch.push(order.order_number);
-    else if (status === "DELIVERED") delivered.push(order.id);
+  if (bags.failed) {
+    console.error("[sync-delivered] bag shipments unreadable: orders not checked by tracking number this run");
+  } else {
+    for (const order of orders) {
+      if (bags.bagOrderIds.has(order.id)) continue;
+      const status = trackingToStatus.get(order.tracking_number!);
+      if (!status) noMatch.push(order.order_number);
+      else if (status === "DELIVERED") delivered.push(order.id);
+    }
   }
 
   const updated = [...await markRestorationsDelivered(admin, delivered), ...bags.ordersDelivered];
 
   return Response.json({
     updated: updated.length,
-    checked: orders.length,
+    checked: bags.failed ? 0 : orders.length,
     results: updated.map((n) => ({ order_number: n, status: "updated" })),
     noMatch: noMatch.length,
     packagesDelivered: bags.shipmentsDelivered,
+    ...(bags.failed ? { bagSyncFailed: true, message: "The per-bag shipments couldn't be read, so orders weren't checked this time. Try again in a minute." } : {}),
   });
 }

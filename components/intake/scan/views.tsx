@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CircleCheck, CircleAlert, Info, MapPin, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { packCodePath } from "@/lib/intake/codes";
 import { dayText, dueHint } from "@/lib/intake/tracking-format";
 import type { TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary } from "@/lib/intake/tracking/types";
 import { fillText, placeSubtitle, sinceText, whereLine } from "./format";
@@ -242,7 +243,12 @@ export function SlotHeader({ slot, onOpenBag }: { slot: TrackSlotSummary; onOpen
   );
 }
 
-/** A bag's header: Bag ID big, customer, due date, how many done, links. */
+/**
+ * A bag's header: Bag ID big, customer, due date, how many done, links. A
+ * finished bag (every card that goes back is done) also offers "Pack and
+ * ship" (its packing page: the label, print, Mark shipped; a bag that has
+ * shipped shows its tracking there).
+ */
 export function BagHeader({ bag, shipHref }: { bag: TrackBagSummary; shipHref: string }) {
   return (
     <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
@@ -254,6 +260,14 @@ export function BagHeader({ bag, shipHref }: { bag: TrackBagSummary; shipHref: s
         {bag.location ? ` · bag on ${bag.location.name}` : ""}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
+        {bag.complete && bag.cardCount > 0 && (
+          <AdminLink
+            href={packCodePath(bag.code)}
+            className="min-h-11 px-3 rounded-xl bg-primary text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors inline-flex items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            Pack and ship
+          </AdminLink>
+        )}
         <AdminLink href={bag.photosUrl} className={smallButton}>Photos</AdminLink>
         <AdminLink href={`/admin/receiving/bag/${encodeURIComponent(bag.id)}`} className={smallButton}>Bag page</AdminLink>
         <AdminLink href={shipHref} className={smallButton}>Ship check</AdminLink>

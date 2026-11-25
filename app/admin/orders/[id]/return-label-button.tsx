@@ -36,6 +36,8 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
   const [printerName, setPrinterName] = useState<string>(() =>
     typeof window !== "undefined" ? (localStorage.getItem("qz_printer") ?? "D520") : "D520"
   );
+  // A purchase that never finished (409 staleClaim): the same purchase again, sent only after the warning
+  const [staleRetry, setStaleRetry] = useState<{ rate: Rate; insuranceCents: number } | null>(null);
   const [addInsurance, setAddInsurance] = useState(false);
   const [insuranceValue, setInsuranceValue] = useState("");
   const router = useRouter();
@@ -132,12 +134,13 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
     }
   }
 
-  async function purchaseLabel(rate: Rate | null = selectedRate) {
+  async function purchaseLabel(rate: Rate | null = selectedRate, retry?: { insuranceCents: number }) {
     const selectedRate = rate;
     if (!selectedRate) return;
     setState("purchasing");
+    setStaleRetry(null);
     // When customer paid for round-trip insurance, always apply their declared value — not overridable
-    const insuranceCents = hasRoundTripInsurance && insuranceDeclaredValueCents
+    const insuranceCents = retry ? retry.insuranceCents : hasRoundTripInsurance && insuranceDeclaredValueCents
       ? insuranceDeclaredValueCents
       : addInsurance && insuranceValue
         ? Math.round(parseFloat(insuranceValue) * 100)
@@ -149,9 +152,12 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
         body: JSON.stringify({
           rateObjectId: selectedRate.objectId,
           ...(insuranceCents > 0 ? { insuranceDeclaredValueCents: insuranceCents } : {}),
+          ...(retry ? { retryStaleClaim: true } : {}),
         }),
       });
       const data = await res.json();
+      // A purchase that started earlier never finished: offer the same purchase again, after the warning below
+      if (!res.ok && data.staleClaim) setStaleRetry({ rate: selectedRate, insuranceCents });
       if (!res.ok) throw new Error(data.error ?? "Purchase failed");
       setLabelUrl(data.labelUrl);
       if (data.notesEmailed === "failed") setNotice("The notes email to the customer failed. Click Save Notes on the order page to send it again.");
@@ -345,7 +351,20 @@ export function ReturnLabelButton({ orderId, existingLabelUrl, insuranceType, in
       {state === "error" && (
         <div className="flex items-center gap-2">
           <p className="text-xs text-red-600">{errorMsg}</p>
-          <button onClick={() => setState("idle")} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+          <button onClick={() => { setState("idle"); setStaleRetry(null); }} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+        </div>
+      )}
+      {state === "error" && staleRetry && (
+        <div role="alert" className="flex flex-col gap-2 p-3 bg-amber-50 border border-amber-300 rounded-lg">
+          <p className="text-xs font-semibold text-amber-900">
+            Only buy again if Shippo&apos;s label history has no label for this order. If the first purchase did go through, buying again buys a second label and you pay for both.
+          </p>
+          <button
+            onClick={() => purchaseLabel(staleRetry.rate, { insuranceCents: staleRetry.insuranceCents })}
+            className="w-fit text-xs font-bold px-3 py-1.5 bg-red-700 text-white rounded-lg hover:bg-red-800"
+          >
+            Buy again
+          </button>
         </div>
       )}
     </div>

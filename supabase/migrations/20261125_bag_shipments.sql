@@ -10,12 +10,20 @@
 -- labels. A purchase Shippo refuses marks the claim 'failed' (failed and
 -- voided rows don't count), so tapping again retries.
 --
+-- The order page's whole-order label claims the ORDER the same way: a row
+-- with no bag (bag_id null, one live per order), inserted before Shippo is
+-- called and deleted once the label is saved on the order. Each side checks
+-- for the other's claim after writing its own, so a bag label and a
+-- whole-order label are never both bought (and a double tap on the order
+-- page buys one). Such a row is only ever 'claimed' or 'failed'.
+--
 -- Compatibility: the old site (thecarddoc1.com, repo card-restoration) shares
 -- this database and only knows the order's single return label. The FIRST
 -- label of an order is also written to orders.return_label_url and the
--- outbound_* columns (order_label = true here); orders.tracking_number and
--- the status follow when the order is shipped back (every bag with live
--- cards shipped). A single-bag order ends exactly as it does today.
+-- outbound_* columns (order_label = true here); orders.tracking_number (the
+-- LAST package's) and the status follow when the order is shipped back
+-- (every bag with live cards shipped). A single-bag order ends exactly as it
+-- does today.
 --
 -- Additive and rerunnable ("if not exists", "drop trigger if exists",
 -- "create or replace"). RLS on with no policies: service role only. The
@@ -25,7 +33,8 @@
 
 create table if not exists bag_shipments (
   id uuid primary key default gen_random_uuid(),
-  bag_id uuid not null references tier_bags(id) on delete cascade,
+  -- null: the order page's claim on the whole-order label (see above)
+  bag_id uuid references tier_bags(id) on delete cascade,
   order_id uuid not null references orders(id) on delete cascade,
   status text not null default 'claimed'
     check (status in ('claimed', 'purchased', 'shipped', 'delivered', 'failed', 'voided')),
@@ -51,12 +60,17 @@ create table if not exists bag_shipments (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   -- A bought label has its file
-  constraint bag_shipments_label_shape check (status in ('claimed', 'failed', 'voided') or label_url is not null)
+  constraint bag_shipments_label_shape check (status in ('claimed', 'failed', 'voided') or label_url is not null),
+  -- The order page's claim is a lock, never a package: claimed or failed, never the order's label
+  constraint bag_shipments_order_claim_shape check (bag_id is not null or (status in ('claimed', 'failed') and not order_label))
 );
 
 -- One live shipment per bag: the claim that stops a second purchase
 create unique index if not exists bag_shipments_one_live_per_bag
   on bag_shipments (bag_id) where status in ('claimed', 'purchased', 'shipped', 'delivered');
+-- One live order-page claim per order: two taps on the order page buy one label
+create unique index if not exists bag_shipments_one_order_claim
+  on bag_shipments (order_id) where bag_id is null and status in ('claimed', 'purchased', 'shipped', 'delivered');
 -- One shipment per order carries the order's return_* fields
 create unique index if not exists bag_shipments_one_order_label
   on bag_shipments (order_id) where order_label;
@@ -65,13 +79,14 @@ create index if not exists bag_shipments_open_idx on bag_shipments (status) wher
 
 alter table bag_shipments enable row level security;
 
--- The bag must belong to the order; updated_at on every change
+-- The bag (when there is one) must belong to the order; updated_at on every change
 create or replace function bag_shipments_guard() returns trigger
 language plpgsql
 set search_path = ''
 as $$
 begin
-  if tg_op = 'INSERT' or new.bag_id is distinct from old.bag_id or new.order_id is distinct from old.order_id then
+  if new.bag_id is not null
+     and (tg_op = 'INSERT' or new.bag_id is distinct from old.bag_id or new.order_id is distinct from old.order_id) then
     if not exists (select 1 from public.tier_bags b where b.id = new.bag_id and b.order_id = new.order_id) then
       raise exception 'bag % is not a bag of order %', new.bag_id, new.order_id using errcode = '23514';
     end if;
@@ -86,7 +101,7 @@ create trigger bag_shipments_guard before insert or update on bag_shipments
   for each row execute function bag_shipments_guard();
 
 comment on table bag_shipments is
-  'One return label per tier bag (ship each bag when done). Claimed before Shippo is called; one live row per bag. The order''s first label is mirrored to orders.return_label_url / outbound_* (order_label).';
+  'One return label per tier bag (ship each bag when done). Claimed before Shippo is called; one live row per bag. The order''s first label is mirrored to orders.return_label_url / outbound_* (order_label). bag_id null: the order page''s claim on its whole-order label (one live per order).';
 
 -- ── Rollback (run by hand only if this has to be undone) ─────────────────────
 --   drop table if exists bag_shipments;

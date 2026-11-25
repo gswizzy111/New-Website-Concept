@@ -48,6 +48,14 @@ export type PackExtras = {
 
 export const cardsText = (n: number) => `${n} ${n === 1 ? "card" : "cards"}`;
 
+/** "Philadelphia, PA, US" from the order's return address (city, state, country), or null. */
+export function shipToText(addr: Record<string, string | null | undefined> | null | undefined): string | null {
+  if (!addr || typeof addr !== "object") return null;
+  const country = addr.country || (addr.street1 ? "US" : "");
+  const text = [addr.city, addr.state, country].map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).join(", ");
+  return text || null;
+}
+
 // ─── The check ──────────────────────────────────────────────────────────
 
 export type CheckTone = "ok" | "bad" | "warn" | "refunded";
@@ -128,7 +136,13 @@ export type PackState =
   | { kind: "buy" }
   | { kind: "print_and_ship"; shipment: BagShipment }
   | { kind: "shipped"; shipment: BagShipment; delivered: boolean }
-  | { kind: "wait"; reason: string; stale: boolean }
+  | {
+      kind: "wait";
+      reason: string;
+      stale: boolean;
+      /** A label Shippo sold that the bag didn't keep: show it and offer "Save this label" (POST {}: buys nothing). */
+      unsavedLabel: string | null;
+    }
   | { kind: "blocked"; reason: string; fixes: PackFix[] };
 
 /** Where to fix what stops the label, in the order the API checks it (lib/intake/shipping/bag-shipments.ts loadPacking). */
@@ -160,7 +174,13 @@ export function packState(p: PackingResponse, links: PackLinks, now: number): Pa
   if (p.next === "print_and_ship" && s) return { kind: "print_and_ship", shipment: s };
   if ((p.next === "shipped" || p.next === "delivered") && s) return { kind: "shipped", shipment: s, delivered: p.next === "delivered" };
   if (p.next === "wait") {
-    return { kind: "wait", reason: p.blocked ?? "This bag's label is being bought right now. Wait a few seconds, then try again.", stale: isStaleClaim(s, now) };
+    const unsaved = p.unsavedLabel?.labelUrl;
+    return {
+      kind: "wait",
+      reason: p.blocked ?? "This bag's label is being bought right now. Wait a few seconds, then try again.",
+      stale: isStaleClaim(s, now),
+      unsavedLabel: typeof unsaved === "string" && /^https?:\/\//i.test(unsaved) ? unsaved : null,
+    };
   }
   return { kind: "blocked", reason: p.blocked ?? "This bag can't ship yet.", fixes: blockFixes(p, links) };
 }

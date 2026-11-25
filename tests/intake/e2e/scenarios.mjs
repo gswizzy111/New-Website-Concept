@@ -9,6 +9,7 @@
 //   node tests/intake/e2e/scenarios.mjs --only 'desk-*'   the Desk: a heat press stack to the desk, the Desk page
 //   node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   what a bag / order QR opens: the person, "Move all N cards to my desk"
 //   node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   "Print labels" for any order (prepare-labels)
+//   node tests/intake/e2e/scenarios.mjs --only 'pack-*'   packing one bag: buy the label, print, Mark shipped (fake Shippo)
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -23,7 +24,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PDFDocument } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
-import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows, RUN_DIR } from "../harness/start.mjs";
+import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows, shippoConfig, RUN_DIR } from "../harness/start.mjs";
 import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS, BIG_CARD_TIERS, BIG_CUSTOMER_NAME, DEFAULT_PLACES } from "../harness/seed.mjs";
 import {
   LABELS_ANY_IDS, LABELS_ANY_ORDER_NUMBERS, LABELS_ANY_CUSTOMERS, buildLabelsAnySeed,
@@ -102,6 +103,14 @@ export const ROUTES = {
   // openCodePath): the customer, the order, "Move all N cards to my desk", a panel per card.
   // <code> is a Bag ID (CD-2549-P) or an order number (CD-2549), any case.
   open: (code) => `/admin/receiving/open/${code}`,
+
+  // ── Packing one bag (owner, Nov 25: "ship each bag when done"): the ship check by eye, then
+  // "Buy return label", "Print label", "Mark shipped" (contract: lib/intake/shipping/types.ts).
+  // <code> is a Bag ID, any case. Shippo is the harness's fake (harness/mock-shippo.mjs).
+  pack: (code) => `/admin/receiving/pack/${code}`,
+  shipLabelApi: (bagId, query = "") => `/api/admin/intake/bags/${bagId}/ship-label${query}`,
+  shippedApi: (bagId) => `/api/admin/intake/bags/${bagId}/shipped`,
+  shipQueue: "/admin/ship-queue?tab=restoration",
 
   // ── Print labels for any order (owner, Nov 24; contract: lib/intake/prepare-labels.ts) ──
   // GET -> PreparePlan { mode: ready | bag_in_shop | receive_first | not_allowed, toBag,
@@ -5247,6 +5256,487 @@ const LABELS_ANY_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, LABELS_ANY_SCENARIOS);
+
+// ─── Packing one bag (owner, Nov 25: "ship each bag when done") ────────────
+// /admin/receiving/pack/<Bag ID>: who and where, the bag's cards with a photo and a big ✓ / ✗ to
+// match by eye, then ONE button: "Buy return label" (POST {} = what the customer paid for),
+// "Print label" + "Mark shipped", or the tracking once it has shipped. Shippo is the harness's
+// fake (harness/mock-shippo.mjs, turned on in packSetup): USPS Ground Advantage $5.40, USPS
+// Priority Mail $9.85 (what CD-2549 paid for, set up here), UPS Ground $12.10.
+
+const PK_CUSTOMER = "Test Customer A";
+const PK_EMAIL = "test.customer.a@example.com";
+const PK_PLAT = ["CD-2549-07", "CD-2549-08", "CD-2549-09"];
+/** Gold in the two-bag setup: CD-2549-04 came in and was then refunded (listed apart, not in the package). */
+const PK_GOLD = ["CD-2549-01", "CD-2549-02", "CD-2549-03"];
+const PK_GOLD_REFUNDED = "CD-2549-04";
+const PK_PAID = { provider: "USPS", service: "Priority Mail", amount: "9.85", cents: 985 };
+const PK_LIVE = ["claimed", "purchased", "shipped", "delivered"];
+const PK_UI = {
+  buy: (page) => page.getByRole("button", { name: /^Buy return label$/ }),
+  chooseRate: (page) => page.getByRole("button", { name: /^Choose another rate$/ }),
+  rateRadio: (page, re) => page.getByRole("radio", { name: re }),
+  buyChosen: (page) => page.getByRole("button", { name: /^Buy this label$/ }),
+  print: (page) => page.getByRole("button", { name: /^Print label$/ }),
+  markShipped: (page) => page.getByRole("button", { name: /^Mark shipped$/ }),
+  yesShipped: (page) => page.getByRole("button", { name: /^Yes, mark shipped$/ }),
+  /** The step panel (its h2 names the state: Ready to ship, Label bought, Shipped, Not ready to ship). */
+  step: (page) => page.getByRole("region", { name: /^(Ready to ship|Label bought|Shipped|Delivered|Not ready to ship|Label being bought|The label purchase didn't finish|The order already has a label)$/ }),
+  row: (page, code) => page.locator(`li[data-card-code="${code}"]`),
+  packLink: (page, code) => page.locator(`a[href="${ROUTES.pack(code)}"]`),
+};
+
+const pkBagId = (t, code) => { const b = bagByCode(t, code); assert(b, `no bag ${code}`); return b.id; };
+const pkShipment = (t, bagId) => (t.bag_shipments ?? []).find((x) => x.bag_id === bagId && PK_LIVE.includes(x.status)) ?? null;
+const pkOrder = (t) => t.orders.find((o) => o.id === IDS.mailOrder);
+/** The customer's "on the way" emails (the shipped email, lib/intake/shipping/shipped-email.ts). */
+const pkShipEmails = (d) => d.emails.filter((e) => /on the way/i.test(e.subject ?? "") && [].concat(e.to).includes(PK_EMAIL));
+const pkGoodTx = (d) => (d.shippo?.transactions ?? []).filter((x) => x.status === "SUCCESS");
+
+/**
+ * CD-2549 received 2026-11-15 and every other card refunded, so the bags hold all its live cards:
+ * "one" = Platinum CD-2549-07..09 (bag CD-2549-P); "two" = also Gold 01-04 (bag CD-2549-G, 04 then
+ * refunded). The live cards are marked done (POST /api/admin/track/done) except `notDone`; a
+ * receiving photo each; the customer paid for USPS Priority Mail; the fake Shippo on.
+ */
+async function packSetup(ctx, mockUrl, { bags = "two", notDone = [] } = {}) {
+  const recv = bags === "one" ? [6, 7, 8] : [0, 1, 2, 3, 6, 7, 8];
+  await receiveViaApi(ctx, IDS.mailOrder, recv.map(mailCard), "2026-11-15");
+  const refund = [...Array(10).keys()].filter((i) => !recv.includes(i));
+  if (bags === "two") refund.push(3);
+  for (const i of refund) await mockUpdate(mockUrl, "cards", { status: "refunded" }, "id", mailCard(i));
+  await mockUpdate(mockUrl, "orders", { return_carrier: PK_PAID.provider, return_service_level: PK_PAID.service }, "id", IDS.mailOrder);
+  let t = await tables();
+  const live = cardsOf(t, IDS.mailOrder).filter((c) => c.status !== "refunded");
+  eq(sorted(live.map((c) => c.card_code)), bags === "one" ? PK_PLAT : sorted([...PK_GOLD, ...PK_PLAT]), "live cards");
+  const done = live.filter((c) => !notDone.includes(c.card_code)).map((c) => c.id);
+  await trackOk(ctx, ROUTES.trackDone, { cardIds: done });
+  await setReceivingPhotos(mockUrl, live.map((c) => c.id));
+  await shippoConfig({ enabled: true });
+  t = await tables();
+  eq(pkOrder(t).status, "received", "order status after receiving");
+  return t;
+}
+
+/** The packing page has rendered (its h1 is the customer's name). */
+async function packOpen(page, code) {
+  await goto(page, ROUTES.pack(code));
+  await page.getByRole("heading", { level: 1, name: PK_CUSTOMER }).waitFor({ timeout: 60_000 });
+}
+/** Wait until the step panel's title (its h2) matches `re` (the page asks the API again after each tap); the panel's text. */
+async function pkStepSays(page, re, ms = 30_000) {
+  const title = () => page.locator("#pack-step").innerText().then(flat).catch(() => "");
+  const got = await until(async () => (re.test(await title()) ? true : null), ms);
+  assert(got, `the step's title never matched ${re} (it reads "${await title()}")`);
+  return flat(await PK_UI.step(page).innerText());
+}
+/** Tap `button` and wait for the POST it makes to a URL containing `part`: { status, body, sent }. */
+async function pkTapPost(page, button, part, timeout = 120_000) {
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes(part) && r.request().method() === "POST", { timeout }),
+    button.click(),
+  ]);
+  let body = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  let sent = null;
+  try { sent = res.request().postDataJSON(); } catch { /* no body */ }
+  return { status: res.status(), body, sent };
+}
+/** Count the page's POSTs to URLs containing `part` from now on. */
+function pkCountPosts(page, part) {
+  const seen = [];
+  const on = (r) => { if (r.method() === "POST" && r.url().includes(part)) seen.push(r.url()); };
+  page.on("request", on);
+  return { count: () => seen.length, stop: () => page.off("request", on) };
+}
+/**
+ * "Print label" opens the label (no QZ Tray, no share sheet here: the PDF opens in a new tab);
+ * returns what it opened. window.open is recorded instead of followed (headless Chromium turns a
+ * PDF tab into a download, which leaves the popup without an address).
+ */
+async function pkPrint(page) {
+  await page.evaluate(() => {
+    window.__pkOpened = [];
+    window.open = (url) => { window.__pkOpened.push(String(url)); return null; };
+  });
+  await PK_UI.print(page).click();
+  const opened = await until(() => page.evaluate(() => window.__pkOpened?.[0] ?? null), 20_000);
+  assert(opened, '"Print label" opened nothing');
+  return opened;
+}
+/** Mark shipped on the page: the question (it says the customer is emailed), then "Yes, mark shipped". */
+async function pkMarkShipped(page) {
+  await PK_UI.markShipped(page).click();
+  const group = page.getByRole("group", { name: /^Yes, mark shipped$/ });
+  await group.waitFor({ timeout: 10_000 });
+  const question = flat(await group.innerText());
+  assert(/customer will be emailed the tracking/i.test(question) && question.includes(PK_EMAIL), `the question: "${question}"`);
+  const r = await pkTapPost(page, PK_UI.yesShipped(page), "/shipped");
+  return { ...r, question };
+}
+
+const PACK_SCENARIOS = {
+  // One bag, start to end: the check, Buy return label (the paid service), Print label, Mark
+  // shipped -> one email with that bag's tracking; the order is Shipped Back (its only bag)
+  async "pack-ship"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    let bagId = null;
+    let base = null;
+    await s.step("setup: CD-2549 Platinum 07-09 received and done (everything else refunded); paid for USPS Priority Mail; fake Shippo on", async () => {
+      t = await packSetup(ctx, mockUrl, { bags: "one" });
+      bagId = pkBagId(t, "CD-2549-P");
+      base = await dump();
+      return `bag ${bagId}`;
+    }, { critical: true, shot: false });
+    await s.step("the page (typed lower case): the customer's name big, CD-2549, Platinum, CD-2549-P, 3 cards, ships to Philadelphia, PA, US, paid for USPS Priority Mail", async () => {
+      await packOpen(page, "cd-2549-p");
+      const top = flat(await page.getByRole("region", { name: PK_CUSTOMER }).innerText());
+      const problems = [];
+      for (const want of ["CD-2549", "Platinum", "CD-2549-P", "3 cards", "Philadelphia, PA, US", "USPS Priority Mail"]) if (!top.includes(want)) problems.push(`no "${want}"`);
+      const size = await biggestText(page, PK_CUSTOMER);
+      if (!(size.name >= 30 && size.name >= size.other)) problems.push(`the name is ${size.name}px, "${size.otherText}" ${size.other}px`);
+      assert(!problems.length, `${problems.join(" | ")} (top: "${top.slice(0, 200)}")`);
+      return top.slice(0, 140);
+    }, { critical: true });
+    await s.step("the check: each card with a photo, its name, its Card ID and a big ✓ Done; All 3 done", async () => {
+      const problems = [];
+      for (const code of PK_PLAT) {
+        const row = PK_UI.row(page, code);
+        const txt = flat(await row.innerText().catch(() => ""));
+        const c = cardByCode(t, code);
+        if (!txt.includes(c.card_name)) problems.push(`${code}: no name`);
+        if (!txt.includes(code)) problems.push(`${code}: no Card ID`);
+        if (!/\bDone\b/.test(txt)) problems.push(`${code}: not "Done" ("${txt}")`);
+        if (!(await row.locator("img").count())) problems.push(`${code}: no photo`);
+      }
+      const summary = flat(await page.getByRole("region", { name: "Match the cards in the bag" }).innerText());
+      if (!/All 3 done/.test(summary)) problems.push(`summary: "${summary.slice(0, 80)}"`);
+      assert(!problems.length, problems.join(" | "));
+    }, { shot: false });
+    await s.step('ONE primary step: "Ready to ship" with one "Buy return label" (buys USPS Priority Mail, what the customer paid for); no Print / Mark shipped yet', async () => {
+      await pkStepSays(page, /^Ready to ship/);
+      eq(await PK_UI.buy(page).count(), 1, '"Buy return label" buttons');
+      eq(await PK_UI.print(page).count(), 0, '"Print label" buttons');
+      eq(await PK_UI.markShipped(page).count(), 0, '"Mark shipped" buttons');
+      const txt = flat(await PK_UI.step(page).innerText());
+      assert(txt.includes("Buys USPS Priority Mail, what the customer paid for."), `step: "${txt}"`);
+      const box = await PK_UI.buy(page).boundingBox();
+      assert(box && box.height >= 44, `the button is ${box ? Math.round(box.height) : "not"} px tall`);
+    });
+    let shipment = null;
+    await s.step("Buy return label: one POST {} -> 200; the fake Shippo sold ONE label, USPS Priority Mail ($9.85, not the $5.40 cheapest); the page shows it", async () => {
+      const r = await pkTapPost(page, PK_UI.buy(page), ROUTES.shipLabelApi(bagId));
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq(r.sent, {}, "body sent");
+      const d = await dump();
+      const tx = pkGoodTx(d);
+      eq(tx.length, 1, "labels bought at Shippo");
+      eq([tx[0].provider, tx[0].service, tx[0].amount], [PK_PAID.provider, PK_PAID.service, PK_PAID.amount], "the rate bought");
+      shipment = pkShipment(d.tables, bagId);
+      eq([shipment?.status, shipment?.tracking_number, shipment?.label_url], ["purchased", tx[0].trackingNumber, tx[0].labelUrl], "the bag's shipment");
+      const txt = await pkStepSays(page, /^Label bought/);
+      for (const want of ["USPS Priority Mail · $9.85", tx[0].trackingNumber]) assert(txt.includes(want), `no "${want}" in "${txt}"`);
+      eq(pkOrder(d.tables).return_label_url, tx[0].labelUrl, "the order's return label (its first label)");
+      eq(pkOrder(d.tables).status, "received", "order status (not shipped yet)");
+      eq(pkShipEmails(d).length, 0, "shipped emails so far");
+      return `${tx[0].trackingNumber}; "${r.body.message}"`;
+    }, { critical: true });
+    await s.step('"Print label" opens the label PDF (no QZ Tray or share sheet here)', async () => {
+      const url = await pkPrint(page);
+      eq(url, shipment.label_url, "opened");
+      return url;
+    });
+    await s.step("390: the label step, no sideways scroll", async () => {
+      const msg = await phoneShot(browser, appUrl, ROUTES.pack("CD-2549-P"), "pack-ship-label");
+      assert(!msg, msg);
+    }, { shot: false });
+    await s.step('Mark shipped -> "Yes, mark shipped" (the question says the customer is emailed the tracking): ONE email with this bag\'s tracking; the order is Shipped Back', async () => {
+      const r = await pkMarkShipped(page);
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      const d = await dump();
+      const mails = pkShipEmails(d);
+      eq(mails.length, 1, "shipped emails");
+      assert(mails[0].html.includes(shipment.tracking_number), "the email doesn't carry the bag's tracking number");
+      eq(pkShipment(d.tables, bagId)?.status, "shipped", "shipment status");
+      const o = pkOrder(d.tables);
+      eq([o.status, o.tracking_number], ["shipped_back", shipment.tracking_number], "order status, tracking number");
+      const txt = await pkStepSays(page, /^Shipped/);
+      assert(txt.includes(shipment.tracking_number), `no tracking in "${txt}"`);
+      const notice = flat(await page.getByRole("status").filter({ hasText: /Marked shipped/ }).first().innerText());
+      assert(/customer was emailed the tracking/i.test(notice), `notice: "${notice}"`);
+      eq(d.emails.length - base.emails.length, 1, "emails sent in all");
+      return `${r.body.message} | ${r.question}`;
+    }, { critical: true });
+    await s.step("reloaded: Shipped with the tracking and its link; nothing to press", async () => {
+      await packOpen(page, "CD-2549-P");
+      const txt = await pkStepSays(page, /^Shipped/);
+      assert(txt.includes(shipment.tracking_number), `no tracking in "${txt}"`);
+      const link = PK_UI.step(page).getByRole("link", { name: shipment.tracking_number });
+      eq(await link.getAttribute("href"), shipment.tracking_url, "tracking link");
+      for (const [what, b] of [["Buy", PK_UI.buy(page)], ["Print", PK_UI.print(page)], ["Mark shipped", PK_UI.markShipped(page)]]) eq(await b.count(), 0, `"${what}" buttons`);
+      eq(await PK_UI.step(page).getByRole("button").count(), 0, "buttons in the step");
+    });
+    await s.step("390: shipped, no sideways scroll", async () => {
+      const msg = await phoneShot(browser, appUrl, ROUTES.pack("CD-2549-P"), "pack-ship-shipped");
+      assert(!msg, msg);
+    }, { shot: false });
+  },
+
+  // Two taps never buy two labels nor send two emails: the page sends one request per tap and
+  // waits; two requests at once (two phones) buy one label; Mark shipped twice emails once
+  async "pack-double-tap"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    await s.step("setup: two bags (CD-2549-G, CD-2549-P) done; the fake Shippo takes 1.5 s per purchase", async () => {
+      t = await packSetup(ctx, mockUrl, { bags: "two" });
+      await shippoConfig({ enabled: true, transactionDelayMs: 1500 });
+    }, { critical: true, shot: false });
+    const pBag = () => pkBagId(t, "CD-2549-P");
+    const gBag = () => pkBagId(t, "CD-2549-G");
+    await s.step('double tap "Buy return label" on CD-2549-P: ONE POST from the page, ONE label at Shippo, the button waits meanwhile', async () => {
+      await packOpen(page, "CD-2549-P");
+      await pkStepSays(page, /^Ready to ship/);
+      const posts = pkCountPosts(page, ROUTES.shipLabelApi(pBag()));
+      const done = page.waitForResponse((r) => r.url().includes(ROUTES.shipLabelApi(pBag())) && r.request().method() === "POST", { timeout: 120_000 });
+      await PK_UI.buy(page).dblclick();
+      const busy = await page.getByRole("button", { name: /Buying the label/ }).isDisabled().catch(() => null);
+      const res = await done;
+      eq(res.status(), 200, "HTTP");
+      await pkStepSays(page, /^Label bought/);
+      await page.waitForTimeout(1500);
+      posts.stop();
+      eq(posts.count(), 1, "POSTs from the page");
+      const d = await dump();
+      eq(pkGoodTx(d).length, 1, "labels bought");
+      eq((d.tables.bag_shipments ?? []).filter((x) => x.bag_id === pBag()).length, 1, "shipment rows for the bag");
+      return `button disabled while buying: ${busy}`;
+    }, { critical: true });
+    await s.step("two POSTs at once for CD-2549-G (two phones): one label; the other answers 409 in progress (or the label already bought)", async () => {
+      const url = ROUTES.shipLabelApi(gBag());
+      const [a, b] = await Promise.all([api(ctx, "POST", url, {}), api(ctx, "POST", url, {})]);
+      const statuses = [a.status, b.status].sort();
+      const winners = [a, b].filter((r) => r.status === 200 && r.body?.existing === false);
+      eq(winners.length, 1, `new labels (answers ${JSON.stringify([a.body, b.body]).slice(0, 300)})`);
+      const other = [a, b].find((r) => r !== winners[0]);
+      assert((other.status === 409 && other.body?.inProgress) || (other.status === 200 && other.body?.existing === true), `the other answer: ${other.status} ${JSON.stringify(other.body).slice(0, 200)}`);
+      const d = await dump();
+      eq(pkGoodTx(d).length, 2, "labels bought in all (one per bag)");
+      eq((d.tables.bag_shipments ?? []).filter((x) => x.bag_id === gBag() && PK_LIVE.includes(x.status)).length, 1, "live shipments for CD-2549-G");
+      const again = await api(ctx, "POST", url, {});
+      eq([again.status, again.body?.existing], [200, true], "a third POST (label already bought)");
+      eq(pkGoodTx(await dump()).length, 2, "labels bought after the third POST");
+      return `answers ${statuses.join(", ")}; then ${again.body?.message}`;
+    });
+    await s.step('Mark shipped on CD-2549-P, "Yes, mark shipped" double tapped: ONE POST, ONE email', async () => {
+      await PK_UI.markShipped(page).click();
+      const posts = pkCountPosts(page, ROUTES.shippedApi(pBag()));
+      const done = page.waitForResponse((r) => r.url().includes(ROUTES.shippedApi(pBag())) && r.request().method() === "POST", { timeout: 120_000 });
+      await PK_UI.yesShipped(page).dblclick();
+      eq((await done).status(), 200, "HTTP");
+      await pkStepSays(page, /^Shipped/);
+      await page.waitForTimeout(1000);
+      posts.stop();
+      eq(posts.count(), 1, "POSTs from the page");
+      eq(pkShipEmails(await dump()).length, 1, "shipped emails");
+    });
+    await s.step("Mark shipped twice at once for CD-2549-G (API): one email; the order is Shipped Back once", async () => {
+      const url = ROUTES.shippedApi(gBag());
+      const [a, b] = await Promise.all([api(ctx, "POST", url), api(ctx, "POST", url)]);
+      eq([a.status, b.status], [200, 200], "HTTP");
+      eq([a.body?.alreadyShipped, b.body?.alreadyShipped].sort(), [false, true], "alreadyShipped");
+      const d = await dump();
+      eq(pkShipEmails(d).length, 2, "shipped emails in all (one per bag)");
+      eq(pkOrder(d.tables).status, "shipped_back", "order status");
+      const backEvents = d.tables.order_events.filter((e) => e.order_id === IDS.mailOrder && /Shipped Back/i.test(e.description ?? ""));
+      eq(backEvents.length, 1, '"Shipped Back" events');
+    });
+  },
+
+  // A split order: the first bag ships alone (the order stays in the shop), the ship queue keeps the
+  // second bag, the order page lists both packages; the order is Shipped Back after the last bag
+  async "pack-split"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    const tracking = {};
+    await s.step("setup: CD-2549-G (01-03, 04 refunded) and CD-2549-P (07-09), all done; fake Shippo on", async () => {
+      t = await packSetup(ctx, mockUrl, { bags: "two" });
+    }, { critical: true, shot: false });
+    const bagId = (code) => pkBagId(t, code);
+    await s.step("the ship queue lists BOTH bags (CD-2549 is in the shop, Received), each linking to its packing page", async () => {
+      await goto(page, ROUTES.shipQueue);
+      await PK_UI.packLink(page, "CD-2549-G").first().waitFor({ timeout: 60_000 });
+      eq(await PK_UI.packLink(page, "CD-2549-P").count(), 1, "links to CD-2549-P's packing page");
+      eq(await PK_UI.packLink(page, "CD-2549-G").count(), 1, "links to CD-2549-G's packing page");
+      const main = flat(await page.locator("main").first().innerText().catch(() => page.locator("body").innerText()));
+      for (const want of ["Bag CD-2549-G", "Bag CD-2549-P", "Ready to Ship"]) assert(main.includes(want), `no "${want}"`);
+    });
+    await s.step("CD-2549-P: buy, print, Mark shipped on its page -> 1 email with ITS tracking naming its 3 cards; the order stays Received; \"1 more bag … still to ship\"", async () => {
+      await packOpen(page, "CD-2549-P");
+      const r = await pkTapPost(page, PK_UI.buy(page), ROUTES.shipLabelApi(bagId("CD-2549-P")));
+      eq(r.status, 200, `buy: HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      tracking.P = r.body.shipment.trackingNumber;
+      await pkStepSays(page, /^Label bought/);
+      await pkPrint(page);
+      const m = await pkMarkShipped(page);
+      eq(m.status, 200, `shipped: HTTP (${JSON.stringify(m.body).slice(0, 200)})`);
+      assert(/1 more bag of this order still to ship/.test(m.body.message), `message: "${m.body.message}"`);
+      const d = await dump();
+      const mails = pkShipEmails(d);
+      eq(mails.length, 1, "shipped emails");
+      assert(mails[0].html.includes(tracking.P), "the email doesn't carry CD-2549-P's tracking");
+      for (const code of PK_PLAT) assert(mails[0].html.includes(cardByCode(t, code).card_name), `the email doesn't name ${code}`);
+      eq(pkOrder(d.tables).status, "received", "order status after the first bag");
+      eq(pkOrder(d.tables).tracking_number ?? null, null, "order tracking number after the first bag");
+      return m.body.message;
+    }, { critical: true });
+    await s.step("the ship queue now lists CD-2549-G only (the split order no longer drops off after its first label)", async () => {
+      await goto(page, ROUTES.shipQueue);
+      await PK_UI.packLink(page, "CD-2549-G").first().waitFor({ timeout: 60_000 });
+      eq(await PK_UI.packLink(page, "CD-2549-P").count(), 0, "links to CD-2549-P");
+    });
+    await s.step("the order page's Shipping card lists both packages: CD-2549-P Shipped with its tracking, CD-2549-G Ready to pack, each with its packing page", async () => {
+      await goto(page, ROUTES.order(IDS.mailOrder));
+      const card = page.locator("#shipping");
+      await card.getByText(/^Packages \(2, one label per bag\)$/).waitFor({ timeout: 60_000 });
+      const rowOf = (code) => card.locator("li").filter({ hasText: code });
+      const p = flat(await rowOf("CD-2549-P").innerText());
+      const g = flat(await rowOf("CD-2549-G").innerText());
+      assert(/Shipped/.test(p) && p.includes(tracking.P), `CD-2549-P row: "${p}"`);
+      assert(/Ready to pack/.test(g), `CD-2549-G row: "${g}"`);
+      eq(await card.locator(`a[href="${ROUTES.pack("CD-2549-P")}"]`).count(), 1, "CD-2549-P packing link");
+      eq(await card.locator(`a[href="${ROUTES.pack("CD-2549-G")}"]`).count(), 1, "CD-2549-G packing link");
+      return `${p} / ${g}`;
+    });
+    await s.step("CD-2549-G's page: 3 cards to match, CD-2549-04 listed apart as refunded; \"Package 1 of 2 … 1 of 2 packages shipped\"", async () => {
+      await packOpen(page, "CD-2549-G");
+      const check = page.getByRole("region", { name: "Match the cards in the bag" });
+      const inPackage = check.getByRole("list", { name: "Cards in this package" });
+      const codes = await inPackage.locator("li[data-card-code]").evaluateAll((els) => els.map((e) => e.getAttribute("data-card-code")));
+      eq(codes.sort(), PK_GOLD, "cards in the package");
+      const refunded = flat(await check.getByRole("list", { name: "Refunded cards" }).innerText());
+      assert(refunded.includes(PK_GOLD_REFUNDED) && /Refunded/.test(refunded), `refunded list: "${refunded}"`);
+      const top = flat(await page.getByRole("region", { name: PK_CUSTOMER }).innerText());
+      assert(/Package \d of 2 of this order/.test(top), `top: "${top}"`);
+      const pk = flat(await page.getByRole("region", { name: "This order's packages" }).innerText());
+      assert(pk.includes("CD-2549-P") && pk.includes(tracking.P) && /This bag/.test(pk) && /1 of 2 packages shipped/.test(pk), `packages: "${pk}"`);
+    });
+    await s.step('CD-2549-G: "Choose another rate" lists 3 rates (Priority Mail marked "Customer paid" and picked); UPS Ground chosen -> that label', async () => {
+      await PK_UI.chooseRate(page).click();
+      const paid = PK_UI.rateRadio(page, /USPS Priority Mail/);
+      await paid.waitFor({ timeout: 60_000 });
+      eq(await page.getByRole("radio").count(), 3, "rates offered");
+      assert(await paid.isChecked(), "the paid rate isn't picked first");
+      const paidRow = flat(await page.locator("label").filter({ has: paid }).innerText());
+      assert(/Customer paid/.test(paidRow), `paid row: "${paidRow}"`);
+      await PK_UI.rateRadio(page, /UPS Ground/).check();
+      const r = await pkTapPost(page, PK_UI.buyChosen(page), ROUTES.shipLabelApi(bagId("CD-2549-G")));
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      assert(typeof r.sent?.rateObjectId === "string" && r.sent.rateObjectId, `sent ${JSON.stringify(r.sent)}`);
+      tracking.G = r.body.shipment.trackingNumber;
+      const d = await dump();
+      const tx = pkGoodTx(d).at(-1);
+      eq([tx.rate, tx.provider, tx.service], [r.sent.rateObjectId, "UPS", "Ground"], "the rate bought");
+      const txt = await pkStepSays(page, /^Label bought/);
+      assert(txt.includes("UPS Ground · $12.10"), `step: "${txt}"`);
+      assert(tracking.G !== tracking.P, "the two bags got the same tracking number");
+      eq(pkOrder(d.tables).return_label_url, d.tables.bag_shipments.find((x) => x.bag_id === bagId("CD-2549-P")).label_url, "the order's return label stays the first bag's");
+    }, { critical: true });
+    await s.step("CD-2549-G: Mark shipped -> its email (\"the last package\"); NOW the order is Shipped Back, its tracking number the last package's", async () => {
+      const m = await pkMarkShipped(page);
+      eq(m.status, 200, `HTTP (${JSON.stringify(m.body).slice(0, 200)})`);
+      assert(/Every bag has shipped: the order is Shipped Back\./.test(m.body.message), `message: "${m.body.message}"`);
+      const d = await dump();
+      const mails = pkShipEmails(d);
+      eq(mails.length, 2, "shipped emails (one per bag)");
+      assert(mails[1].html.includes(tracking.G) && !mails[1].html.includes(tracking.P), "the second email doesn't carry only CD-2549-G's tracking");
+      assert(/last package of your order/.test(mails[1].html), "the second email doesn't say it's the last package");
+      const o = pkOrder(d.tables);
+      eq([o.status, o.tracking_number], ["shipped_back", tracking.G], "order status, tracking number (the last package's)");
+      eq(o.return_label_url, d.tables.bag_shipments.find((x) => x.bag_id === bagId("CD-2549-P")).label_url, "the order's return label (still the first)");
+      return m.body.message;
+    });
+    await s.step("the ship queue lists neither bag now", async () => {
+      await goto(page, ROUTES.shipQueue);
+      await page.getByRole("heading", { name: /Ship Queue/ }).waitFor({ timeout: 60_000 });
+      eq(await PK_UI.packLink(page, "CD-2549-G").count(), 0, "links to CD-2549-G");
+      eq(await PK_UI.packLink(page, "CD-2549-P").count(), 0, "links to CD-2549-P");
+    }, { shot: false });
+  },
+
+  // A card isn't done: no label can be bought; the page says why (the API's words) and where to fix
+  // it; the Scan page offers "Pack and ship" only for a finished bag
+  async "pack-blocked"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    let bagId = null;
+    await s.step("setup: CD-2549-P with CD-2549-09 NOT done (07, 08 done); fake Shippo on", async () => {
+      t = await packSetup(ctx, mockUrl, { bags: "one", notDone: ["CD-2549-09"] });
+      bagId = pkBagId(t, "CD-2549-P");
+    }, { critical: true, shot: false });
+    let said = null;
+    await s.step('"Not ready to ship" with the API\'s own sentence, links to fix it (ship check, the bag); no Buy button', async () => {
+      const g = await api(ctx, "GET", ROUTES.shipLabelApi(bagId));
+      eq([g.status, g.body?.next, g.body?.canBuy], [200, "blocked", false], "GET");
+      said = g.body.blocked;
+      await packOpen(page, "CD-2549-P");
+      const txt = await pkStepSays(page, /^Not ready to ship/);
+      assert(txt.includes(said), `the page doesn't say "${said}" ("${txt}")`);
+      eq(await PK_UI.buy(page).count(), 0, '"Buy return label" buttons');
+      const hrefs = await PK_UI.step(page).getByRole("link").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+      assert(hrefs.includes(`/admin/receiving/ship/${IDS.mailOrder}?bag=${bagId}`), `fix links: ${hrefs.join(", ")}`);
+      assert(hrefs.includes(ROUTES.open("CD-2549-P")), `fix links: ${hrefs.join(", ")}`);
+      return said;
+    }, { critical: true });
+    await s.step("CD-2549-09 shows a big ✗ Not done with \"Open card\"; the others ✓ Done; 2 of 3 ready", async () => {
+      const row = flat(await PK_UI.row(page, "CD-2549-09").innerText());
+      assert(/Not done/.test(row) && /Open card/.test(row), `CD-2549-09: "${row}"`);
+      eq(await PK_UI.row(page, "CD-2549-09").getByRole("link", { name: /Open card/ }).getAttribute("href"), `/admin/receiving/card/${cardIdOf(t, "CD-2549-09")}`, '"Open card" link');
+      for (const code of ["CD-2549-07", "CD-2549-08"]) assert(/\bDone\b/.test(flat(await PK_UI.row(page, code).innerText())), `${code} not Done`);
+      const summary = flat(await page.getByRole("region", { name: "Match the cards in the bag" }).innerText());
+      assert(/2 of 3 ready/.test(summary), `summary: "${summary.slice(0, 80)}"`);
+    }, { shot: false });
+    await s.step("POST ship-label anyway -> 409 with the same sentence; nothing bought, no shipment row", async () => {
+      const r = await api(ctx, "POST", ROUTES.shipLabelApi(bagId), {});
+      eq(r.status, 409, "HTTP");
+      eq(r.body?.error, said, "error");
+      const d = await dump();
+      eq((d.shippo?.transactions ?? []).length, 0, "Shippo purchases");
+      eq((d.tables.bag_shipments ?? []).length, 0, "bag_shipments rows");
+    }, { shot: false });
+    await s.step('the Scan page: the unfinished bag CD-2549-P has no "Pack and ship"', async () => {
+      await goto(page, ROUTES.scan);
+      await scanType(page, "CD-2549-P");
+      await page.getByText(/2 of 3 done/).first().waitFor({ timeout: 60_000 });
+      eq(await page.getByRole("link", { name: /^Pack and ship$/ }).count(), 0, '"Pack and ship" links');
+    });
+    await s.step("CD-2549-09 marked done -> the page offers \"Buy return label\"; the Scan page offers \"Pack and ship\" -> this page", async () => {
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, "CD-2549-09")] });
+      await packOpen(page, "CD-2549-P");
+      await pkStepSays(page, /^Ready to ship/);
+      eq(await PK_UI.buy(page).count(), 1, '"Buy return label" buttons');
+      await goto(page, ROUTES.scan);
+      await scanType(page, "CD-2549-P");
+      const link = page.getByRole("link", { name: /^Pack and ship$/ });
+      await link.waitFor({ timeout: 60_000 });
+      eq(await link.getAttribute("href"), ROUTES.pack("CD-2549-P"), '"Pack and ship" link');
+    });
+  },
+
+  // Codes that aren't a bag (an order number, a Bag ID nothing has, a place): "Bag not found"
+  // (notFound(); next dev streams the page, so the status can read 200, as on the scan landing)
+  async "pack-unknown"({ page, s }) {
+    for (const code of ["CD-2549", "CD-9999-P", "LOC-DONE"]) {
+      await s.step(`${ROUTES.pack(code)} -> "Bag not found", nobody's order shown`, async () => {
+        const res = await page.goto(ROUTES.pack(code), { waitUntil: "load", timeout: 240_000 });
+        assert(!new URL(page.url()).pathname.startsWith("/admin/login"), "sent to the sign-in page");
+        await page.getByRole("heading", { name: "Bag not found" }).waitFor({ timeout: 30_000 });
+        const text = flat(await page.locator("body").innerText());
+        assert(!text.includes(PK_CUSTOMER), "shows a customer");
+        eq(await PK_UI.buy(page).count(), 0, '"Buy return label" buttons');
+        return `HTTP ${res?.status()}`;
+      }, { shot: false });
+    }
+  },
+};
+Object.assign(SCENARIOS, PACK_SCENARIOS);
+
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export async function runScenarios({ only = null } = {}) {

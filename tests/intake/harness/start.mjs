@@ -1,7 +1,9 @@
 // Starts the fake Supabase (mock-supabase.mjs, seeded by seed.mjs) and
 // `next dev` against it, with placeholder keys only. No real database, no
 // real emails (Resend goes to the mock through RESEND_BASE_URL), no Stripe or
-// Shippo keys that work.
+// Shippo keys that work. Shippo requests go to the mock's fake Shippo
+// (mock-shippo.mjs, through the shippo-fetch.mjs preload): off by default,
+// a scenario turns it on (shippoConfig({ enabled: true })).
 //
 //   node tests/intake/harness/start.mjs            start both; Ctrl+C stops both
 //   node tests/intake/harness/smoke.mjs            start, smoke-test existing admin pages, stop
@@ -141,6 +143,8 @@ export const reset = () => mockFetch("/__reset", { method: "POST" });
 export const emails = () => mockFetch("/__emails");
 /** Insert raw rows into a mock table (no defaults or constraints), for test setup. */
 export const insertRows = (table, rows) => mockFetch(`/__rows/${table}`, { method: "POST", body: rows });
+/** The fake Shippo's switches: { enabled, transactionDelayMs, failTransactions } (mock-shippo.mjs). Off after every reset. */
+export const shippoConfig = (config) => mockFetch("/__shippo/__config", { method: "POST", body: config });
 
 function waitForReady(child, logFile, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -200,6 +204,10 @@ export async function startHarness({ appPort, mockPort, http = process.env.HARNE
     SUPABASE_SERVICE_ROLE_KEY: "placeholder-service",
     // emails go to the mock and are kept for assertions (GET /__emails)
     RESEND_BASE_URL: `${mock.url}/__resend`,
+    // Shippo goes to the mock's fake (mock-shippo.mjs) through a preload that redirects the app's
+    // requests to api.goshippo.com (shippo-fetch.mjs); the fake is off (401) until a scenario turns it on
+    HARNESS_SHIPPO_URL: `${mock.url}/__shippo`,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(path.join(HERE, "shippo-fetch.mjs")).href}`].filter(Boolean).join(" "),
     FROM_EMAIL: "orders@example.com",
     CONTACT_EMAIL: "harness-contact@example.com",
     ADMIN_NOTIFICATION_EMAIL: "harness-admin@example.com",

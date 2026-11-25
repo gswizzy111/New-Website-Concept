@@ -41,6 +41,7 @@ import { labelHref } from "@/lib/label-link";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { OrderBagsPanel } from "@/components/intake/order-bags-panel";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
+import { BagPackages } from "@/components/intake/bag-packages";
 import { paidOnlineLater } from "@/lib/show-dropoff-pricing";
 
 export const dynamic = "force-dynamic";
@@ -168,8 +169,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   ]);
 
   if (order.status === "shipped_back" && order.tracking_number) {
-    // Auto-advance to delivered if Shippo confirms delivery
-    if (returnTrack?.trackingStatus?.status === "DELIVERED") {
+    // Auto-advance to delivered if Shippo confirms delivery. Not while an order
+    // shipped bag by bag has a package still out: its tracking number is only
+    // the last package's (lib/intake/shipping/bag-shipments.ts)
+    const { bagShipmentsHoldDelivery } = await import("@/lib/intake/shipping/bag-shipments");
+    if (returnTrack?.trackingStatus?.status === "DELIVERED" && !(await bagShipmentsHoldDelivery(admin, id))) {
       await Promise.all([
         admin.from("orders").update({ status: "delivered" }).eq("id", id),
         admin.from("order_events").insert({
@@ -869,6 +873,8 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 insuranceType={order.insurance_type}
                 insuranceDeclaredValueCents={order.insurance_declared_value_cents}
               />
+              {/* Each bag's package when the order ships bag by bag (its packing page) */}
+              <BagPackages orderId={order.id} cards={cards ?? []} />
 
               {/* Live return tracking — shown once the return label is purchased */}
               {order.tracking_number && (

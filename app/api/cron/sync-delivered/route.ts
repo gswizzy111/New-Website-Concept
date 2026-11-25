@@ -53,8 +53,11 @@ export async function GET(request: Request) {
   );
   for (const n of bags.ordersDelivered) console.log(`[cron/sync-delivered] R${n} → delivered (every bag)`);
 
-  // Restoration orders — only DELIVERED transition
-  const restorations = await markRestorationsDelivered(
+  // Restoration orders — only DELIVERED transition. Skipped this run when the
+  // bag shipments couldn't be read: an order shipped bag by bag carries only
+  // its last package's tracking, so it would be marked from that alone
+  if (bags.failed) console.error("[cron/sync-delivered] bag shipments unreadable: restoration orders not checked by tracking number this run");
+  const restorations = bags.failed ? [] : await markRestorationsDelivered(
     admin,
     restorationOrders.filter((o) => !bags.bagOrderIds.has(o.id) && statusOf(o) === "DELIVERED").map((o) => o.id)
   );
@@ -77,5 +80,5 @@ export async function GET(request: Request) {
   const updated = restorations.length + bags.ordersDelivered.length + kitsDelivered.length + kitsShipped.length;
   const checked = restorationOrders.length + kitOrders.length;
   console.log(`[cron/sync-delivered] checked ${checked}, updated ${updated}, bag packages delivered ${bags.shipmentsDelivered}`);
-  return Response.json({ updated, checked, packagesDelivered: bags.shipmentsDelivered });
+  return Response.json({ updated, checked, packagesDelivered: bags.shipmentsDelivered, ...(bags.failed ? { bagSyncFailed: true } : {}) });
 }

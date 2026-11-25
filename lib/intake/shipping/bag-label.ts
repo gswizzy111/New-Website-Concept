@@ -32,6 +32,26 @@ export type ShippoPort = {
   createTransaction(body: Record<string, unknown>): Promise<{ httpStatus: number; body: Record<string, unknown> }>;
   /** GET /rates/<id>: provider, service and price; never throws. */
   rateInfo(rateId: string): Promise<{ provider: string | null; service: string | null; amount: string | null }>;
+  /**
+   * GET /transactions/?page=<n>&results=100 (newest first): finding a label
+   * a purchase bought when the answer never came back (`findLabelByMetadata`).
+   * Optional: without it a label can't be looked up, only bought.
+   */
+  listTransactions?(page: number): Promise<{ results: ShippoTransaction[]; next: boolean }>;
+};
+
+/** A Shippo transaction as listed (the fields a lost purchase is recognised by). */
+export type ShippoTransaction = {
+  objectId: string | null;
+  status: string | null;
+  labelUrl: string | null;
+  trackingNumber: string | null;
+  trackingUrlProvider: string | null;
+  metadata: string | null;
+  /** ISO time the transaction was created. */
+  objectCreated: string | null;
+  /** The rate's object id. */
+  rate: string | null;
 };
 
 export const liveShippo: ShippoPort = {
@@ -49,6 +69,22 @@ export const liveShippo: ShippoPort = {
     return { httpStatus: txRes.status, body: await txRes.json() as Record<string, unknown> };
   },
   rateInfo: shippoRateInfo,
+  async listTransactions(page) {
+    const list = await shippoSdk.transactions.list({ page, results: 100 });
+    return {
+      results: (list.results ?? []).map((tx) => ({
+        objectId: tx.objectId ?? null,
+        status: tx.status ?? null,
+        labelUrl: tx.labelUrl ?? null,
+        trackingNumber: tx.trackingNumber ?? null,
+        trackingUrlProvider: tx.trackingUrlProvider ?? null,
+        metadata: tx.metadata ?? null,
+        objectCreated: tx.objectCreated ? new Date(tx.objectCreated).toISOString() : null,
+        rate: typeof tx.rate === "string" ? tx.rate : tx.rate?.objectId ?? null,
+      })),
+      next: !!list.next,
+    };
+  },
 };
 
 /** The order fields a return label reads (an orders row). */
@@ -238,6 +274,9 @@ export type PurchaseResult =
       definite: boolean;
     };
 
+/** A label Shippo sold: what a purchase (or a lookup of a lost one) gives back. */
+export type BoughtLabel = Omit<Extract<PurchaseResult, { ok: true }>, "ok">;
+
 const toCents = (amount: unknown): number | null => {
   const n = typeof amount === "string" || typeof amount === "number" ? Number.parseFloat(String(amount)) : Number.NaN;
   return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
@@ -369,4 +408,74 @@ export async function purchaseReturnLabel(
 /** Shippo said no for certain: an ERROR transaction, or the request itself was refused (4xx). */
 function refused(httpStatus: number, transaction: Record<string, unknown>): boolean {
   return transaction.status === "ERROR" || (httpStatus >= 400 && httpStatus < 500);
+}
+
+/** What Shippo's history says about a purchase that never answered. */
+export type LabelLookup =
+  | { kind: "found"; label: BoughtLabel }
+  | { kind: "pending" }
+  | { kind: "none" }
+  | { kind: "unknown"; error: string };
+
+/** Pages of Shippo's history read (100 each, newest first) before giving up. */
+const LOOKUP_PAGES = 3;
+/** Clock slack between our servers and Shippo's. */
+const LOOKUP_SLACK_MS = 2 * 60_000;
+
+/**
+ * A label bought with this `metadata` ("Bag CD-5001-G", "Order CD-5001")
+ * since `sinceIso` (the claim's time), from Shippo's transaction history:
+ * `found` (SUCCESS, with its label), `pending` (Shippo is still making it),
+ * `none` (the history reaches back past `sinceIso` and has none: buying
+ * again is safe) or `unknown` (couldn't tell: Shippo unreachable, or the
+ * history is longer than the pages read). Labels in `exclude` (already
+ * saved on a shipment) don't count. Never throws.
+ */
+export async function findLabelByMetadata(
+  port: ShippoPort,
+  metadata: string,
+  sinceIso: string,
+  exclude: ReadonlySet<string> = new Set(),
+): Promise<LabelLookup> {
+  if (!port.listTransactions) return { kind: "unknown", error: "Shippo's label history can't be read here." };
+  const since = Date.parse(sinceIso) - LOOKUP_SLACK_MS;
+  if (!Number.isFinite(since)) return { kind: "unknown", error: "The purchase has no start time." };
+  const wanted = metadata.slice(0, 100);
+  let pending = false;
+  for (let page = 1; page <= LOOKUP_PAGES; page++) {
+    let list: { results: ShippoTransaction[]; next: boolean };
+    try {
+      list = await port.listTransactions(page);
+    } catch (e) {
+      return pending ? { kind: "pending" } : { kind: "unknown", error: `Shippo's label history couldn't be read (${e instanceof Error ? e.message : String(e)}).` };
+    }
+    let reachedOlder = false;
+    for (const tx of list.results) {
+      const created = tx.objectCreated ? Date.parse(tx.objectCreated) : Number.NaN;
+      if (Number.isFinite(created) && created < since) {
+        reachedOlder = true;
+        continue;
+      }
+      if (tx.metadata !== wanted) continue;
+      if (tx.status === "SUCCESS" && tx.labelUrl && !exclude.has(tx.labelUrl)) {
+        const info = tx.rate ? await port.rateInfo(tx.rate) : { provider: null, service: null, amount: null };
+        return {
+          kind: "found",
+          label: {
+            labelUrl: tx.labelUrl,
+            trackingNumber: tx.trackingNumber,
+            trackingUrl: tx.trackingUrlProvider,
+            carrier: { provider: info.provider, service: info.service },
+            transactionId: tx.objectId,
+            rateId: tx.rate ?? "",
+            amountCents: toCents(info.amount),
+            international: false,
+          },
+        };
+      }
+      if (tx.status === "QUEUED" || tx.status === "WAITING") pending = true;
+    }
+    if (reachedOlder || !list.next) return pending ? { kind: "pending" } : { kind: "none" };
+  }
+  return pending ? { kind: "pending" } : { kind: "unknown", error: `Shippo's label history is longer than the ${LOOKUP_PAGES * 100} labels read.` };
 }

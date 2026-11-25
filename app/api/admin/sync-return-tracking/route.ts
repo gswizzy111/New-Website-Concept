@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { shippo } from "@/lib/shippo";
 import { isAdmin } from "@/lib/admin-auth";
 import { fetchAll } from "@/lib/fetch-all";
-import { shipmentsMissingTracking } from "@/lib/intake/shipping/bag-shipments";
+import { latestShippedBags, shipmentsMissingTracking } from "@/lib/intake/shipping/bag-shipments";
 
 type LabelOrder = { id: string; order_number: string; return_label_url: string | null };
 
@@ -31,6 +31,11 @@ export async function POST() {
     return Response.json({ updated: 0, noLabel: 0, message: "Nothing to sync." });
   }
 
+  // Orders shipped bag by bag: return_label_url is their FIRST package's
+  // label, so their tracking comes from the LAST package to leave (both
+  // sites mark an order delivered from orders.tracking_number alone)
+  const bagOrders = await latestShippedBags(admin, ordersToFix.map((o) => o.id));
+
   // Also count orders with no label at all (can't auto-fix these)
   const { count: noLabelCount } = await admin
     .from("orders")
@@ -55,29 +60,11 @@ export async function POST() {
     }
   }
 
-  // Match and update each order
   const results: { order_number: string; tracking: string | null; status: "updated" | "no_match" }[] = [];
 
-  for (const order of ordersToFix) {
-    const tracking = order.return_label_url ? labelToTracking.get(order.return_label_url) ?? null : null;
-
-    if (tracking) {
-      await Promise.all([
-        admin.from("orders").update({ tracking_number: tracking }).eq("id", order.id),
-        admin.from("order_events").insert({
-          order_id: order.id,
-          event_type: "tracking_synced",
-          description: `Return tracking number synced from Shippo: ${tracking}`,
-          is_customer_visible: true,
-        }),
-      ]);
-      results.push({ order_number: order.order_number, tracking, status: "updated" });
-    } else {
-      results.push({ order_number: order.order_number, tracking: null, status: "no_match" });
-    }
-  }
-
-  // Bag labels (orders shipped bag by bag): the same match, on the bag's shipment
+  // Bag labels first (orders shipped bag by bag): the same match, on the bag's
+  // shipment; the order below then takes its last package's number
+  const filledBags = new Map<string, string>();
   if (bagsToFix.length > 0) {
     const numbers = new Map<string, string>();
     const orderIds = [...new Set(bagsToFix.map((s) => s.order_id))];
@@ -95,6 +82,7 @@ export async function POST() {
       const { data: filled, error } = await admin.from("bag_shipments")
         .update({ tracking_number: tracking }).eq("id", s.id).is("tracking_number", null).select("id");
       if (error || !filled?.length) continue;
+      filledBags.set(s.id, tracking);
       await admin.from("order_events").insert({
         order_id: s.order_id,
         event_type: "tracking_synced",
@@ -102,6 +90,38 @@ export async function POST() {
         is_customer_visible: s.status === "shipped",
       });
       results.push({ order_number: orderNumber, tracking, status: "updated" });
+    }
+  }
+
+  // Match and update each order
+  if (bagOrders.failed) console.error("[sync-return-tracking] bag shipments unreadable: orders not filled this run");
+  for (const order of bagOrders.failed ? [] : ordersToFix) {
+    let tracking: string | null;
+    if (bagOrders.byOrder.has(order.id)) {
+      const last = bagOrders.byOrder.get(order.id) ?? null;
+      tracking = last
+        ? last.tracking_number ?? filledBags.get(last.id) ?? (last.label_url ? labelToTracking.get(last.label_url) ?? null : null)
+        : null;
+    } else {
+      tracking = order.return_label_url ? labelToTracking.get(order.return_label_url) ?? null : null;
+    }
+
+    if (tracking) {
+      const { data: filled, error } = await admin.from("orders").update({ tracking_number: tracking })
+        .eq("id", order.id).is("tracking_number", null).select("id");
+      if (error || !filled?.length) {
+        results.push({ order_number: order.order_number, tracking: null, status: "no_match" });
+        continue;
+      }
+      await admin.from("order_events").insert({
+        order_id: order.id,
+        event_type: "tracking_synced",
+        description: `Return tracking number synced from Shippo: ${tracking}`,
+        is_customer_visible: true,
+      });
+      results.push({ order_number: order.order_number, tracking, status: "updated" });
+    } else {
+      results.push({ order_number: order.order_number, tracking: null, status: "no_match" });
     }
   }
 
