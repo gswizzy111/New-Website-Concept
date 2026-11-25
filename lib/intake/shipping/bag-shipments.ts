@@ -63,6 +63,7 @@ export function isMissingShipmentsTable(error: { code?: string; message?: string
 
 type OrderRow = ReturnLabelOrder & {
   id: string;
+  inbound_method?: string | null;
   order_number: string;
   status: string;
   return_label_url: string | null;
@@ -149,6 +150,12 @@ export function shipCheckBlock(check: ShipCheckResponse): string | null {
   return parts.join(" ") || "The ship check isn't passing yet.";
 }
 
+/** The route's words, plus why for a drop-off (the customer usually picks it up). */
+const noAddress = (order: { inbound_method?: unknown }) =>
+  order.inbound_method === "dropoff"
+    ? "No customer address on file: this is a drop-off order, so the customer may be picking it up."
+    : "No customer address on file";
+
 const tierNamer = (c: BagContext) => (tier: string) => tierDisplayName(tier, c.ctx.tierNames);
 const claimAge = (s: BagShipmentRow, now: Date) => now.getTime() - Date.parse(s.claimed_at);
 const atTime = (iso: string) =>
@@ -160,7 +167,7 @@ function claimMessage(s: BagShipmentRow, now: Date): { error: string; stale: boo
   }
   return {
     stale: true,
-    error: `A label purchase for this bag started at ${atTime(s.claimed_at)} and never finished, so it may or may not have been bought. Check Shippo's label history first; if this bag has no label there, buy again.`,
+    error: `A label purchase for this bag started at ${atTime(s.claimed_at)} and never finished, so it may or may not have been bought. Check Shippo's label history first; if this bag has no label there, buy again.${s.error ? ` (Last note: ${s.error})` : ""}`,
   };
 }
 
@@ -217,7 +224,7 @@ export async function loadPacking(
   else if (orderLabel) blocked = "This order's return label was already bought on the order page. It covers the whole order, so this bag doesn't need its own.";
   else if (statusBlock) blocked = statusBlock;
   else if (!check.ready) blocked = shipCheckBlock(check);
-  else if (!addr?.street1) blocked = "No customer address on file";
+  else if (!addr?.street1) blocked = noAddress(c.order);
   else next = "buy";
   const canBuy = next === "buy";
 
@@ -300,7 +307,7 @@ export async function buyBagLabel(
   const check = bagCheck(c);
   const block = shipCheckBlock(check);
   if (block) return refuse(409, block, { check });
-  if (!returnAddress(order)?.street1) return refuse(400, "No customer address on file");
+  if (!returnAddress(order)?.street1) return refuse(400, noAddress(order));
 
   // Claim first: the unique index lets one live row per bag exist
   const { data: claimed, error: claimErr } = await admin.from("bag_shipments")
@@ -395,6 +402,8 @@ export async function buyBagLabel(
   const savedRow = (saved as BagShipmentRow[] | null)?.[0];
   if (saveErr || !savedRow) {
     console.error("[bag label] label bought but not saved:", saveErr?.message ?? "claim no longer open", bought.labelUrl);
+    // Best effort: keep the link on the claim, so a later "buy again" shows it
+    await admin.from("bag_shipments").update({ error: `Bought but not saved: ${bought.labelUrl}` }).eq("id", claim.id).eq("status", "claimed");
     return refuse(500, `The label was bought but couldn't be saved on the bag (${saveErr?.message ?? "the purchase was released meanwhile"}). Don't buy another: open it here and keep the link: ${bought.labelUrl}`, { labelUrl: bought.labelUrl, unsaved: true });
   }
   let shipment = savedRow;

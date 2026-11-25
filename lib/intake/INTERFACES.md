@@ -183,6 +183,8 @@ The former body of `POST /api/admin/orders/[id]/status`, unchanged: order row,
 `Status updated to: <label>` event (customer visible), customer email, admin
 "Cards Arrived" email, completion notes email. `onlyIfCurrent` changes the
 status only while it still has that value (`skipped: true` otherwise).
+`customerEmail: false` skips only the customer status email (a bag's "Mark
+shipped" has just sent the shipped email with the tracking).
 
 ## Existing routes (contracts unchanged)
 
@@ -424,6 +426,82 @@ the tiers above, Card IDs, bags and card links (`applyOrderSetup`), the
 dates for dateless bags (`fillMissingDueDates`, logged). The Awaiting Cards
 path writes what the Receive button writes, nothing more. Idempotent: a repeat
 bags nothing new, sends nothing, and answers the same bags.
+
+## Packing (per-bag return labels)
+
+The owner's decision of Nov 25 2026: "Ship each bag when done". A mixed-tier
+order ships back bag by bag, each with its own Shippo return label. Code:
+`lib/intake/shipping/` (`types.ts` pure: shapes and rules, client components
+may import it; `bag-label.ts` the Shippo purchase moved unchanged out of the
+order page's return-label route, which now uses it too; `shipped-email.ts`
+the customer's "Your cards have been shipped!" email, also moved unchanged;
+`bag-shipments.ts` the services; `return-packages.ts` the customer pages).
+
+**Schema** (`supabase/migrations/20261125_bag_shipments.sql`, additive,
+rerunnable, RLS on, service role only): `bag_shipments` (bag_id, order_id,
+status `claimed | purchased | shipped | delivered | failed | voided`, carrier,
+service, tracking_number, tracking_url, label_url, shippo transaction / rate
+ids, cost_cents, insurance_cents, order_label, claimed_at, purchased_at,
+shipped_at, delivered_at, email_sent_at, created_by, shipped_by, error). One
+live row (claimed..delivered) per bag (partial unique index); one
+`order_label` row per order; a trigger checks the bag belongs to the order.
+
+**Rules**:
+
+- Claim before buying (as the Stripe webhook claims a session): the
+  `claimed` row is inserted before Shippo is called, so two taps buy one
+  label. Shippo refusing marks it `failed` (retry works); no clear answer
+  after the purchase was sent keeps the claim: 409 `inProgress` for 2
+  minutes, then 409 `staleClaim` until a POST with `retryStaleClaim: true`
+  (staff check Shippo first).
+- Refused when the bag's ship check fails (a card not done, still in a
+  holder, every card refunded), when the order has a whole-order label from
+  the order page or the old site (`orderLabel`: it covers every bag), or in
+  any order status but received, in progress, completed, shipped back.
+- Rate: the one chosen (`rateObjectId`), else the service the customer paid
+  for, else the cheapest (the order page's one tap). International: customs
+  (one bag: every card of the order, as the order page; several: the bag's
+  cards), the fresh shipment's matching rate else its cheapest, no
+  insurance, exactly as before. Insurance: the customer's paid return
+  insurance is the floor, split across the bags by their cards' declared
+  values (rounded up; the whole value per bag when a card has none).
+- The order's FIRST label is written to `orders.return_label_url` and
+  `outbound_*` when bought (conditional on return_label_url being empty), so
+  neither site sells a second whole-order label; `orders.tracking_number` and
+  the status change only when the order ships back, because both sites'
+  admin order pages auto-ship an order that has a label and a tracking number.
+  The order page's route refuses (409) while a bag label is live and not on
+  the order.
+- Mark shipped: `purchased -> shipped` (conditional: one email per bag): the
+  usual shipped email with this bag's tracking (a split order's email adds
+  one line naming the cards in the package), a `bag_shipped` event (customer
+  visible on a split order, staff only otherwise). When every bag with live
+  cards has shipped and no live card is outside a bag: `setOrderStatus`
+  shipped_back (`onlyIfCurrent`, `customerEmail: false`, tracking = the
+  first label's), from received / in progress / completed only. A
+  single-bag order ends exactly as the order page's label leaves it.
+- Delivered (`syncBagDeliveries`, from `/api/cron/sync-delivered` and the
+  admin Sync delivered button): each shipped package whose Shippo tracking is
+  DELIVERED becomes delivered; the order becomes Delivered (same event as
+  before, only from shipped_back) when every bag with live cards is
+  delivered. Orders with bag shipments are left out of the old
+  `orders.tracking_number` check. `sync-return-tracking` also fills a bag
+  label's missing tracking number by its label URL.
+- Customer pages (`/orders/<number>`, `/account/orders/<id>`): one "Return
+  Tracking: Package 1 of 2" panel per shipped package when the order ships
+  in several (`returnPackagesToShow`); single-bag orders keep the one panel.
+- Preview mode: the services refuse writes (503) before any claim or Shippo
+  call (and middleware answers every `/api/*` 503 anyway). Before the
+  migration: nothing is bought (500 `shipmentsReady: false`), GET says why.
+
+**API** (full admins only, the `adminName()` guard; 401 otherwise; bag id in
+the existing `bags/[id]` folder):
+
+| route | body / query | response |
+|---|---|---|
+| `GET /api/admin/intake/bags/<id>/ship-label` | `?rates=1` adds Shippo rates | `PackingResponse`: bag, order, `check` (`ShipCheckResponse`, scope bag), `shipment`, `lastFailure`, `orderLabel`, `packages`, `shipmentsReady`, `canBuy`, `blocked`, `next` (`buy`, `print_and_ship`, `shipped`, `delivered`, `blocked`, `wait`), `rates?`, `ratesError?`; 404, 500 |
+| `POST /api/admin/intake/bags/<id>/ship-label` | `{ rateObjectId?, insuranceDeclaredValueCents?, retryStaleClaim? }` (`{}` = one tap) | 200 `{ shipment, existing, orderLabel, message }`; 409 `{ error, check }` / `{ error, orderLabel }` / `{ error, inProgress }` / `{ error, staleClaim, claimedAt }` / `{ error }` (order status); 400 no address or bad body; 422 no rates; 500 `Label purchase failed: …` (retry works), `{ error, uncertain }`, `{ error, labelUrl, unsaved }`, `{ error, shipmentsReady: false }`; 503 preview |
+| `POST /api/admin/intake/bags/<id>/shipped` | none | 200 `MarkShippedResponse` { shipment, alreadyShipped, emailed, emailFailed?, orderShipped, orderStatus, notesEmailed?, packages, message }; 409 no label yet / still being bought; 404, 500, 503 |
 
 ## Tests
 
