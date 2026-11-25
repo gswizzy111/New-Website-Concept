@@ -40,6 +40,7 @@ import { cardGate, gateFacts, type GateCard } from "@/lib/work-gates";
 import { labelHref } from "@/lib/label-link";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { OrderBagsPanel } from "@/components/intake/order-bags-panel";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { paidOnlineLater } from "@/lib/show-dropoff-pricing";
 
 export const dynamic = "force-dynamic";
@@ -188,11 +189,11 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
   return (
     <div className="min-h-screen bg-secondary/30">
       <div className="max-w-5xl mx-auto px-6 py-10">
-        <div className="flex items-center justify-between gap-3 mb-8">
+        <div className="flex flex-col items-start gap-3 mb-8 sm:flex-row sm:items-center sm:justify-between">
           <AdminLink href="/admin" className="text-sm text-muted-foreground hover:text-primary transition-colors">
             ← All Orders
           </AdminLink>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {/* The order's Receiving workspace: tier bags, Card IDs, labels */}
             <AdminLink
               href={`/admin/receiving/${order.id}`}
@@ -200,6 +201,8 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             >
               📥 Receiving &amp; labels
             </AdminLink>
+            {/* One tap: fills missing tiers, bags the cards, prints every bag's label */}
+            <PrintOrderLabels orderId={order.id} orderNumber={order.order_number} status={order.status} paymentStatus={order.payment_status} size="sm" refreshAfterBagging />
             <ResendConfirmationButton orderId={order.id} />
             <AccountInviteButton orderId={order.id} customerEmail={order.customer_email} />
             <DeleteOrderButton orderId={order.id} orderNumber={order.order_number} />

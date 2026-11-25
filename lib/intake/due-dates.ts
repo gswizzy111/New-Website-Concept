@@ -135,6 +135,73 @@ export async function changeBagDueDate(
   return { ok: true, bag: updated as TierBagRow };
 }
 
+/**
+ * A bag that could get its due date now: saved with none (its tier had no
+ * turnaround setting then, e.g. Prep before PREP_TURNAROUND_KEY was set), not
+ * set by hand, and with a received day. Pure.
+ */
+export function lacksDueDate(bag: { dueDate: string | null; dueStatus: string | null; receivedOn: string | null }): boolean {
+  return !bag.dueDate && bag.dueStatus !== "manual" && !!bag.receivedOn && isDay(bag.receivedOn);
+}
+
+type DatelessBag = { id: string; bag_code: string; tier: string; received_on: string; due_status: string; turnaround_days: number | null; source: string | null };
+
+/**
+ * Give an order's dateless bags (lacksDueDate) the due date their tier's
+ * turnaround now gives, the way setBagReceivedOn works it out (computeDueDate,
+ * Historical Order Setup bags stay 'needs_review'). Saved due dates never
+ * change: only bags whose due_date is still null and not 'manual' are written
+ * (guarded in the update, so a repeat or a race writes nothing), and each fill
+ * is logged in tier_bag_due_changes. Bags whose tier still has no turnaround
+ * stay as they are. Used by "Print labels" (lib/intake/prepare-labels.ts), so
+ * the next label shows the date. Never throws: a failure is logged and the
+ * bag keeps no date.
+ */
+export async function fillMissingDueDates(
+  admin: SupabaseClient,
+  input: { orderId: string; by: string | null; holidays?: ReadonlySet<string>; turnarounds?: Record<string, number | null> },
+): Promise<{ filled: { bagId: string; bagCode: string; dueDate: string; dueStatus: DueStatus }[] }> {
+  const filled: { bagId: string; bagCode: string; dueDate: string; dueStatus: DueStatus }[] = [];
+  try {
+    const { data, error } = await admin.from("tier_bags")
+      .select("id, bag_code, tier, received_on, due_status, turnaround_days, source")
+      .eq("order_id", input.orderId)
+      .is("due_date", null)
+      .not("received_on", "is", null)
+      .neq("due_status", "manual");
+    if (error) throw new Error(error.message);
+    const bags = ((data ?? []) as DatelessBag[]).filter((b) => isDay(b.received_on));
+    if (!bags.length) return { filled };
+    const [turnarounds, holidays] = await Promise.all([
+      input.turnarounds ?? loadTurnarounds(admin),
+      input.holidays ?? loadHolidays(admin),
+    ]);
+    for (const bag of bags) {
+      const turnaround = bag.turnaround_days ?? turnarounds[normalizeTier(bag.tier) ?? ""] ?? null;
+      const due = computeDueDate({ receivedOn: bag.received_on, turnaroundDays: turnaround, holidays, historical: bag.source === "migration" });
+      if (!due.due_date) continue;
+      const { data: rows, error: upErr } = await admin.from("tier_bags")
+        .update(due)
+        .eq("id", bag.id)
+        .is("due_date", null)
+        .neq("due_status", "manual")
+        .select("id");
+      if (upErr) throw new Error(upErr.message);
+      if (!rows?.length) continue; // dated meanwhile (another tap, a manual date)
+      const { error: logErr } = await admin.from("tier_bag_due_changes").insert({
+        bag_id: bag.id, old_due: null, new_due: due.due_date,
+        reason: `Due date worked out from the tier's turnaround (${due.turnaround_days} business days from ${bag.received_on})`,
+        changed_by: input.by,
+      });
+      if (logErr) console.error("[intake] due change not logged:", logErr.message);
+      filled.push({ bagId: bag.id, bagCode: bag.bag_code, dueDate: due.due_date, dueStatus: due.due_status });
+    }
+  } catch (e) {
+    console.error("[intake] missing due dates not filled:", e instanceof Error ? e.message : e);
+  }
+  return { filled };
+}
+
 /** Midday in New York on `day` (17:00 UTC: 12:00 EST, 13:00 EDT), so it reads as that day everywhere. */
 export const receiptTimeFor = (day: string) => `${day}T17:00:00.000Z`;
 

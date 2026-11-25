@@ -1,5 +1,6 @@
 import { Camera, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { orderPhotosPath } from "@/lib/intake/codes";
 import type { BoardBag } from "./load-board";
 import { DoneBar, DUE_TEXT, LabelStatus, shortDay, StepSummary, TierBadge, type DueInfo } from "./_components/bag-bits";
@@ -106,8 +107,21 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
 
       {/* Label and links */}
       <div className="[grid-area:act] min-w-0 flex flex-col gap-2">
-        <div>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <LabelStatus printedAt={bag.labelPrintedAt} outdated={bag.labelOutdated} />
+          {/* This bag's label, prepared on the first tap (no pre-fetch for every row); none for a bag
+              with no live cards (all refunded): the label route has nothing to print */}
+          {bag.cardCount > 0 && (
+            <PrintOrderLabels
+              orderId={bag.orderId}
+              orderNumber={bag.orderNumber}
+              bags={[{ id: bag.id, code: bag.code }]}
+              size="sm"
+              variant={bag.labelPrintedAt && !bag.labelOutdated ? "secondary" : "primary"}
+            >
+              {bag.labelPrintedAt ? "Reprint label" : "Print label"}
+            </PrintOrderLabels>
+          )}
         </div>
         <div className="grid grid-cols-3 sm:flex sm:flex-wrap xl:grid xl:grid-cols-2 gap-2">
           <AdminLink href={bagHref} aria-label={`Open bag ${bag.code}`} className={`${button} xl:col-span-2 bg-primary text-primary-foreground border-primary hover:bg-primary/90`}>

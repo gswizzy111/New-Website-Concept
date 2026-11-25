@@ -18,6 +18,7 @@ node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
+node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -406,6 +407,125 @@ change.
   written); HEAT PRESS 01 takes 3 then 2 more, HUMIDOR 01 takes 3 and then HEAT
   PRESS 01's 5 by `move` (all 200); HEAT PRESS 02 set to capacity 1 in the mock
   (a slot made under the old default keeps it): 2 cards -> 409.
+
+### Print labels for any order (`labels-any-*`, the owner's request of Nov 24)
+
+One "Print labels" (`components/intake/print-order-labels.tsx`: the order
+page, Receiving search rows, the workspace) for ANY order, through
+`GET/POST /api/admin/intake/orders/<id>/prepare-labels` (types in
+`lib/intake/prepare-labels.ts`): cards in the shop get their missing tiers
+filled (card, order, signed checkout record, price paid, else one question
+with the best guess preselected) and go into tier bags with no status change
+and no customer email; an Awaiting Cards order asks "Cards arrived? Receive
+all and print" (the normal receive); an unpaid order gets no working button.
+The labels then print through the existing label routes.
+
+The orders are **extra seed rows, not in `buildSeed()`** (selftest counts the
+default seed's in-shop cards and 'Cards Received' events):
+`buildLabelsAnySeed()` in `seed.mjs` (`LABELS_ANY_IDS`,
+`LABELS_ANY_ORDER_NUMBERS`, `LABELS_ANY_CUSTOMERS`, per-order tiers and days).
+Each scenario inserts them after its reset with `seedLabelsAny()`
+(`scenarios.mjs`, exported; `POST /__rows/<table>`, once per reset). To look at
+them in a harness started by hand:
+`HARNESS_MOCK_URL=https://localhost:PORT node --input-type=module -e "await (await import('./tests/intake/e2e/scenarios.mjs')).seedLabelsAny()"`
+(a reset drops them again). All five were created before Receiving went live.
+
+| Order | State | Cards |
+| --- | --- | --- |
+| CD-2470 (`inShopOrder`), Test Customer H | in_progress, order tier Gold, 'Cards Received' 2026-11-05, stage history on 2 cards, no Card IDs, no bags | 5: Platinum, Gold, none, Platinum, none (`IN_SHOP_CARD_TIERS`) |
+| CD-2480 (`signedOrder`), I | received (2026-11-09), no tier on cards or order; a `master_terms` signature whose text (as `authorizedOrderText` writes it) and `card_snapshot` name Silver, Silver + slab removal, Platinum; card 2's `slab_removal` signature (no tier) | 3 (`SIGNED_CARD_TIERS`) |
+| CD-2490 (`unknownTierOrder`), J | in_progress (received 2026-11-10), no tier anywhere, no signature | 3: paid $99.99, $99.99 (Silver's price), $130.00 (no tier's) |
+| CD-2610 (`awaitingOrder`), K | awaiting_cards, created Nov 18, order tier Silver | 3: Silver, none, none |
+| CD-2620 (`unpaidOrder`), L | awaiting_payment, payment pending, Gold | 2 Gold |
+
+- `labels-any-in-shop` (API): plan `bag_in_shop`, `toBag` 5, no question,
+  `receivedOn` 2026-11-05 (`event`), no bags, nothing skipped; POST → 200,
+  `newlyBagged` 5, `emailed` / `orderStatusChanged` false, bags CD-2470-P (2)
+  and CD-2470-G (3) fastest first; in the mock: one bag per tier received
+  2026-11-05, each card in its tier's bag, cards 3 and 5 get `cards.tier`
+  Gold, Card IDs CD-2470-01..05; still in_progress, no 'Status updated' or
+  customer-visible event, no stage event, no customer email; card 3's tier
+  now locked (PATCH tier → 409); POST again → `newlyBagged` 0, same bags,
+  nothing written; plan `ready`; then the `labels` checks for the order (one
+  label per bag, the order PDF one page per bag, each bag's route).
+- `labels-any-signed` (API): every question `sure` / `signed` /
+  `needsAnswer: false`, guesses Silver, Silver, Platinum; POST without tiers →
+  200, CD-2480-P (1) + CD-2480-S (2), `cards.tier` written, received
+  2026-11-09, still received, no customer email.
+- `labels-any-unknown-tier` (API): `needsAnswers`; cards 1-2 one question,
+  guess Silver (`likely`, `price`), card 3 one with no guess (`unknown`); all
+  six tiers in `choices`; POST without tiers → 409 (`error`, `unanswered` = all
+  3, `needsConfirmReceive` false, the questions); an unknown key (`gold`) →
+  400; answering card 3 only → 409 `unanswered` = cards 1-2; nothing written
+  by any of them; every answer → 200, CD-2490-S (2) + CD-2490-B (1); plan
+  `ready`, no question left.
+- `labels-any-awaiting`: plan `receive_first`, `receivedOn` today; POST
+  without `confirmReceive` → 409 `needsConfirmReceive`, nothing written; on
+  the order page the button asks "Cards arrived?" and "Receive all and print"
+  POSTs `{ confirmReceive: true }` → 200 (fallback: the API): status received,
+  ONE 'Cards Received' event, exactly one customer email, CD-2610-S (3)
+  received today, `cards.tier` Silver; the second tap prints 1 page; POST
+  again → nothing new.
+- `labels-any-not-allowed`: plan `not_allowed` with a `reason`; POST (also
+  with `confirmReceive` and tiers) → 409 `{ error }`, nothing written; the
+  order page at 1440 and 390 shows the button disabled (`disabled` or
+  `aria-disabled`) with the reason next to it (the plan's, or "Not paid yet…");
+  a forced tap sends nothing.
+- `labels-any-order-page`: CD-2470's order page at 1440, then from a fresh
+  seed at 390: tap 1 POSTs (200) and bags the 5 cards as above (status and
+  emails untouched); tap 2 prints: a new tab / download / share sheet / label
+  request, the PDF it opens has one page per bag; both bags get
+  `label_printed_at`; 390 without sideways scroll (`labels-any-order-page-390.png`).
+- `labels-any-tier-dialog`: CD-2490's order page: the tap opens the question
+  (390 first, nothing saved; `labels-any-tier-dialog-390.png`); at 1440 one
+  tier list shows Silver preselected and one shows no tier; Bronze picked,
+  confirmed → one POST with `tiers` cards 1-2 `expedited`, card 3 `regular` →
+  200, CD-2490-S + CD-2490-B; the labels print (2 pages); no email.
+- `labels-any-workspace`: CD-2470's workspace shows exactly ONE "Print labels"
+  / "Print N labels" button, nothing ticked; tapped without ticking: bagged as
+  above; tap 2 prints; reloaded, the bags show and there is at most one such
+  button; 390 fits.
+- `labels-any-receiving-row`: searching CD-2470 on Receiving, the row has
+  "Print labels": tapped there (the page stays on Receiving), bagged, tap 2
+  prints; CD-2610's row asks "Cards arrived?" with "Receive all and print",
+  Cancel saves nothing; 390 fits.
+- `labels-any-unpaid-receive`: CD-2610 made unpaid in the mock: plan
+  `payment` `unpaid`; POST `{ confirmReceive: true }` → 409 `needsAllowUnpaid`,
+  `unpaid: true`, the receive route's `UNPAID_ERROR` (the receive route answers
+  the same); a body that isn't JSON → 400, no body → `{}` (409); on the order
+  page the question shows `UNPAID_CONFIRM` with a tick box, "Receive all and
+  print" without the tick sends nothing; ticked → `{ confirmReceive,
+  allowUnpaid }` → 200, received, one customer email, a `received_unpaid` line.
+- `labels-any-added-later`: a 6th CD-2470 card created 2026-11-20 (after
+  Cards Received): plan `toBag` 5 and a `reason` naming it; the workspace box
+  says 5 cards; the tap bags 5 and leaves it (no bag, not received); after X
+  the box is gone, the keyboard is on the Bags heading, the card keeps its
+  Arrived tick box.
+- `labels-any-empty-bag`: CD-2470 bagged, then both Platinum cards refunded in
+  the mock: the Bags board and the "Bags missing labels" queue show "Print
+  label" for CD-2470-G and none for CD-2470-P.
+- `labels-any-workspace-awaiting`: CD-2610's workspace shows a "Cards
+  arrived?" box (390 without sideways scroll) with "Receive all and print";
+  its question's confirm → 200, CD-2610-S, the bag's due-date shelf slot made
+  (`shelves` in the answer, a `LOC-SHELF-…` place), received, one email; the
+  label prints (1 page).
+
+The harness has no QZ Tray: `newAdminContext()` refuses its websockets
+(`localhost` / `localhost.qz.io`, ports 8181-8485). Without that, the sandbox's
+outbound proxy accepts `ws://localhost.qz.io:8182`, `qz.websocket.isActive()`
+turns true on pages that load QZ (the order page), and a label print takes the
+QZ path, fails, and never stamps `label_printed_at`.
+
+How a print is seen: `watchPrints()` wraps `window.open` and
+`navigator.share` (init script; the calls still go through) and records new
+tabs, downloads and GETs of `/api/admin/intake/labels/(order|bag)/…`;
+`checkPrintOutput()` then reads the PDF it opened (pdf-lib) or the label JSON.
+The second tap looks for "Print N labels" first (the button the first tap
+leaves where it was), then any print-label button. Wording is in `UI`
+(`prepareLabels`, `receiveAllAndPrint`, `confirmReceiveAll`, `printCounted`,
+`printPrepared`, `tierScope`, `tierControls`, `tierConfirm`, `notAllowedReason`,
+`receivingRow`), the route in `ROUTES.prepareLabelsApi`.
+The mock has no backlog triggers, so "no backlog noise" isn't checked here.
 
 Steps time out after 30 s (navigation 240 s for first compiles) instead of
 waiting forever for a missing button.

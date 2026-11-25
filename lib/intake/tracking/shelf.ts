@@ -49,6 +49,39 @@ export async function ensureShelfSlotRow(
   return { location: locationView(row), created: false };
 }
 
+/** A received bag's due-date shelf slot, as the receive answers list them. */
+export type BagShelf = { bagCode: string; dueDate: string | null; location: { code: string; name: string } | null };
+
+/**
+ * The shelf slot each just-received bag goes in (one per due date, made where
+ * missing with ensureShelfSlot). Used by every receipt: the Receive button
+ * (POST .../receive) and "Receive all and print" (lib/intake/prepare-labels.ts).
+ * Best effort: a failure never fails the receipt, its bag just gets location
+ * null (the receiving page shows the shelf box again on load). Bags without a
+ * due date are left out. Never throws.
+ */
+export async function shelvesFor(
+  admin: SupabaseClient,
+  bags: readonly { code: string; dueDate: string | null }[],
+  by: string | null,
+): Promise<BagShelf[]> {
+  const slots = new Map<string, Promise<{ code: string; name: string } | null>>();
+  const slot = (day: string) => {
+    let p = slots.get(day);
+    if (!p) {
+      p = ensureShelfSlot(admin, day, by)
+        .then((loc) => (loc ? { code: loc.code, name: loc.name } : null))
+        .catch((e: unknown) => {
+          console.error("[intake receive] shelf slot not made:", e instanceof Error ? e.message : e);
+          return null;
+        });
+      slots.set(day, p);
+    }
+    return p;
+  };
+  return Promise.all(bags.filter((b) => b.dueDate).map(async (b) => ({ bagCode: b.code, dueDate: b.dueDate, location: await slot(b.dueDate!) })));
+}
+
 /**
  * Put bags on their due-date shelf slot ("Put in shelf: DUE MON DEC 7"):
  * makes the slot if needed and sets tier_bags.location_id / located_at. Bags
