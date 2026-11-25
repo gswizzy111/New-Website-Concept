@@ -57,7 +57,8 @@ function Thumb({ card }: { card: IntakeCard }) {
 function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
   const st = card.stage;
   return (
-    <li className="py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+    // Closed, "Change step" sits beside the card; open, the picker takes the full row under it
+    <li className="py-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
       <AdminLink href={`/admin/receiving/card/${card.id}`} className="flex items-center gap-3 min-w-0 flex-1 rounded-lg hover:bg-secondary/40 -mx-1 px-1">
         <Thumb card={card} />
         <div className="min-w-0 flex-1">
@@ -66,7 +67,7 @@ function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
             <span className="font-mono">{card.code ?? "No Card ID"}</span>
             {card.set || card.number ? ` · ${[card.set, card.number ? `#${card.number}` : ""].filter(Boolean).join(" ")}` : ""}
           </p>
-          <div className="mt-1.5 flex items-center gap-2">
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <div className="w-28 shrink-0"><StageTrack state={st} variant="bar" /></div>
             <span className={`text-xs font-bold ${st.completed ? "text-green-700" : "text-purple-700"}`}>
               {st.currentLabel}
@@ -76,7 +77,7 @@ function CardRow({ card, orderId }: { card: IntakeCard; orderId: string }) {
         </div>
       </AdminLink>
       {!st.completed && !card.refunded && !card.awaitingArrival && (
-        <div className="sm:w-80 sm:shrink-0">
+        <div className="sm:w-48 sm:shrink-0 sm:has-[details[open]]:w-full">
           <StepPicker
             orderId={orderId}
             cards={[{ id: card.id, current: st.current }]}
@@ -151,6 +152,8 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
   // The bag's picker sets every card that arrived and isn't done yet
   const bagCards = live.filter((c) => !c.awaitingArrival).map((c) => ({ id: c.id, current: c.stage.current, completed: c.stage.completed }));
   const unfinished = bagCards.filter((c) => !c.completed).length;
+  // The cards not done are at different steps (done cards don't count: 1 done + 3 at Humidor is one step)
+  const openDiffer = new Set(bag.stageGroups.filter((g) => !g.completed).map((g) => g.stage)).size > 1;
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -208,7 +211,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
                 </div>
               )}
 
-              {bag.stagesDiffer && (
+              {openDiffer && (
                 <div className="mb-4">
                   <Notice tone="blue">
                     Cards at different steps: the buttons above set every card; a group below moves only its own cards, and each card can change on its own.
@@ -231,7 +234,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
                           <span className="ml-2 font-semibold text-muted-foreground">({groupCards.length})</span>
                         </h3>
                         {/* A group of one: its row's picker moves it; one group: the bag's picker above */}
-                        {!g.completed && movable.length > 1 && bag.stagesDiffer && (
+                        {!g.completed && movable.length > 1 && openDiffer && (
                           <div className="sm:w-80 w-full">
                             <StepPicker
                               orderId={order.id}
