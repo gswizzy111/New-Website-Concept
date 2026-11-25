@@ -29,7 +29,10 @@
 // (409 23505, 400 23502, 400 23514, 409 23503), ON DELETE cascade / set null /
 // no action (checked at the end of the statement, as in PostgreSQL),
 // and the triggers the app relies on (order numbers, updated_at, card
-// completed_at, cards done when an order ships, immutable due-change log).
+// completed_at, cards done when an order ships, immutable due-change log,
+// a bag shipment's bag belongs to its order). Partial unique indexes: a
+// unique set with `where`. store.missingTables (a Set) answers those tables
+// as PostgREST does before their migration (404 PGRST205).
 import http from "node:http";
 import https from "node:https";
 import crypto from "node:crypto";

@@ -335,9 +335,10 @@ export async function buyBagLabel(
     return refuse(500, msg);
   }
   const liveCount = liveBags(c.bags, c.ctx.cards).bags.length;
-  const bagValueCards = valueCards.filter((x) => x.bag_id === bag.id && x.status !== "refunded");
+  const liveValueCards = valueCards.filter((x) => x.status !== "refunded");
+  const bagValueCards = liveValueCards.filter((x) => x.bag_id === bag.id);
   const customsCards = async () => customsCardsFor(valueCards, bag.id, liveCount);
-  const insuranceCents = returnInsuranceCents(bagInsuranceFloorCents(order, bagValueCards, liveCount), input.insuranceDeclaredValueCents);
+  const insuranceCents = returnInsuranceCents(bagInsuranceFloorCents(order, bagValueCards, liveValueCards, liveCount), input.insuranceDeclaredValueCents);
 
   // The rate: the one chosen on the page, else (one tap) the service the customer paid for, else the cheapest
   let rateObjectId = typeof input.rateObjectId === "string" && input.rateObjectId.trim() ? input.rateObjectId.trim() : null;
@@ -548,10 +549,14 @@ export async function markBagShipped(
   }
 
   const left = packages(shipments).filter((p) => p.status !== "shipped" && p.status !== "delivered").length;
+  const loose = liveBags(c.bags, c.ctx.cards).looseCards.length;
   const message = [
     emailed ? "Marked shipped and the customer was emailed the tracking." : emailFailed ? "Marked shipped, but the customer's email didn't send." : "Marked shipped.",
     orderShipped && orderStatus === "shipped_back" && order.status !== "shipped_back" ? "Every bag has shipped: the order is Shipped Back." : "",
     !allShipped && left > 0 ? `${left === 1 ? "1 more bag" : `${left} more bags`} of this order still to ship.` : "",
+    !allShipped && left === 0 && loose > 0
+      ? `${loose === 1 ? "1 card" : `${loose} cards`} of this order ${loose === 1 ? "isn't" : "aren't"} in a bag (not received yet, or never bagged), so the order's status stays as it is.`
+      : "",
   ].filter(Boolean).join(" ");
 
   return {

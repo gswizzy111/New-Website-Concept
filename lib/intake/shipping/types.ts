@@ -168,14 +168,19 @@ export function orderStatusBlock(status: string): string | null {
 type CardLike = { id: string; bag_id: string | null; status: string | null; awaiting_arrival?: boolean | null; received_at?: string | null; completed?: boolean | null };
 type BagLike = { id: string; bag_code: string; tier: string };
 
-/** Bags with at least one non-refunded card ("non-refunded bags"), and live received cards in no bag. */
+/**
+ * Bags with at least one non-refunded card ("non-refunded bags"), and the
+ * non-refunded cards in no bag. A loose card keeps the order from being
+ * shipped back (or delivered) automatically: it is still part of the order,
+ * not yet bagged or still awaiting arrival, as it keeps the order from being
+ * completed. Staff settle it (receive, refund) or set the status by hand.
+ */
 export function liveBags<B extends BagLike>(bags: readonly B[], cards: readonly CardLike[]): { bags: B[]; looseCards: CardLike[] } {
   const live = cards.filter((c) => c.status !== "refunded");
   const withCards = new Set(live.map((c) => c.bag_id).filter(Boolean) as string[]);
   return {
     bags: bags.filter((b) => withCards.has(b.id)),
-    // Received through the shop but never bagged (awaiting cards never arrived: they don't ship)
-    looseCards: live.filter((c) => !c.bag_id && !c.awaiting_arrival),
+    looseCards: live.filter((c) => !c.bag_id),
   };
 }
 
@@ -203,7 +208,7 @@ export function packageSummaries<B extends BagLike>(
 
 /**
  * Whether the order has gone back: every bag with live cards has a shipped
- * (or delivered) shipment and no live, received card sits outside a bag.
+ * (or delivered) shipment and no live card sits outside a bag.
  */
 export function everyBagShipped(bags: readonly BagLike[], cards: readonly CardLike[], shipments: readonly BagShipmentRow[]): boolean {
   const { bags: live, looseCards } = liveBags(bags, cards);
@@ -220,23 +225,29 @@ export function everyBagDelivered(bags: readonly BagLike[], cards: readonly Card
 
 /**
  * The paid return insurance floor for one bag's label. The order's insured
- * value (round trip or return insurance) is the floor today; when the order
- * ships in several bags, each bag is insured for its own cards' declared
- * values (capped at the order's insured value), or for the whole value when
- * one of its cards has no declared value (never under-insured).
+ * value (round trip or return insurance) is the floor today. When the order
+ * ships in several bags, it is split across them by their cards' declared
+ * values (each share rounded up, so the bags together cover at least what
+ * the customer paid to insure), or each bag gets the whole value when a
+ * live card of the order has no declared value (never under-insured).
+ * `bagCards` / `orderCards`: the bag's and the order's non-refunded cards.
  */
 export function bagInsuranceFloorCents(
   order: { insurance_type?: string | null; insurance_declared_value_cents?: number | null },
   bagCards: readonly { estimated_value_cents?: number | null }[],
+  orderCards: readonly { estimated_value_cents?: number | null }[],
   liveBagCount: number,
 ): number {
   const paid = (order.insurance_type === "round_trip" || order.insurance_type === "return") && (order.insurance_declared_value_cents ?? 0) > 0
     ? (order.insurance_declared_value_cents as number)
     : 0;
   if (paid === 0 || liveBagCount <= 1 || bagCards.length === 0) return paid;
-  if (bagCards.some((c) => !(typeof c.estimated_value_cents === "number" && c.estimated_value_cents > 0))) return paid;
-  const sum = bagCards.reduce((s, c) => s + (c.estimated_value_cents as number), 0);
-  return Math.min(paid, sum);
+  const valued = (c: { estimated_value_cents?: number | null }) => typeof c.estimated_value_cents === "number" && c.estimated_value_cents > 0;
+  if (!orderCards.every(valued) || !bagCards.every(valued)) return paid;
+  const sum = (cs: readonly { estimated_value_cents?: number | null }[]) => cs.reduce((t, c) => t + (c.estimated_value_cents as number), 0);
+  const total = sum(orderCards);
+  if (total <= 0) return paid;
+  return Math.min(paid, Math.ceil((paid * sum(bagCards)) / total));
 }
 
 /**
