@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, LoaderCircle, PackageCheck, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, CircleAlert, CircleCheck, LoaderCircle, PackageCheck, RotateCcw, TriangleAlert, X } from "lucide-react";
+import { AdminLink } from "@/components/admin-ui/admin-link";
 import * as api from "@/components/intake/scan/api";
 import type { TrackActionResponse } from "@/lib/intake/tracking/types";
 import { failedOutcome, outcomeOf, settledIds, type Outcome } from "../_lib/outcome";
@@ -211,7 +212,7 @@ export function DeskBoard({ desk, cards, serverNow, empty }: Props) {
           <div role="group" aria-label="Picked cards" className="rounded-2xl border border-primary/30 bg-white/95 p-3 shadow-lg backdrop-blur">
             {bulkConfirm ? (
               <>
-                <p className="text-sm font-bold text-foreground">Mark {plural(bulkConfirm.ids.length, "card")} done? They go to the Done shelf.</p>
+                <p className="text-sm font-bold text-foreground">Mark {plural(bulkConfirm.ids.length, "card")} done? Then put each back in its bag.</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:flex">
                   <button type="button" onClick={() => void markDone(bulkConfirm.ids)} disabled={isBusy} className={`${deskButtons.primary} bg-green-700 hover:bg-green-800`}>
                     <PackageCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />
@@ -276,6 +277,20 @@ function OutcomeCard({ outcome, onUndo, onClose }: { outcome: Outcome; onUndo: (
         <div className="min-w-0 flex-1">
           <p className="font-bold break-words">{outcome.title}</p>
           {outcome.notes.map((n) => <p key={n} className="text-sm">{n}</p>)}
+          {/* The order completed (green), or why it didn't (amber) */}
+          {outcome.orderNotes?.map((n) => (
+            <p key={n.text} className={`mt-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-bold ${n.tone === "ok" ? "border-green-300 bg-white text-green-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>{n.text}</p>
+          ))}
+          {outcome.bagLinks && outcome.bagLinks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {outcome.bagLinks.map((l) => (
+                <AdminLink key={l.key} href={l.href} className={deskButtons.secondary}>
+                  {l.label}
+                  <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                </AdminLink>
+              ))}
+            </div>
+          )}
         </div>
         <button type="button" onClick={onClose} className={`-m-1.5 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}>
           <X className="size-4" strokeWidth={1.75} aria-hidden="true" />

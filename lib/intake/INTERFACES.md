@@ -164,7 +164,9 @@ the customer (one email per order per request, as before) and its event is
 customer visible; going back (even to a skipped step) or re-entering a step
 already reached sends no email and writes a staff-only event
 (`is_customer_visible: false`, so the customer's order page timeline only
-shows progress). A new round starts from nothing. Done never emails.
+shows progress). A new round starts from nothing. Done never sends a step
+email; but the order's last card done completes the order, and that sends
+the customer's usual completed email (`order-autocomplete.ts`, below).
 
 - `NOT_STARTED_LABEL`, `DONE_LABEL`, `stageIndex(stage)`, `nextStepAfter(stage | null): NextStep`.
 - `furthestStageIndex(cardId, round, events): number` (-1 none), `stepEmailsCustomer(target, furthest): boolean`.
@@ -175,9 +177,9 @@ shows progress). A new round starts from nothing. Done never emails.
 - `advanceCards(admin, { orderId, cardIds, fromStage?, fromStages?, toStage?, by }): AdvanceResult`
   - Puts the chosen cards at `toStage`: any stage name, earlier or later than now, or `"complete"` (done, like the Done toggle, from any step). Without `toStage`: the step after `fromStage` (the old one-tap advance; from Final Dry it marks the card done). Only cards still at the step the page showed move (`fromStages[id]`, else `fromStage`; null = not started).
   - Writes exactly what the stage buttons write: `order_events` `stage_update`, description `Stage: <stage> [card:<id>]`, metadata `{ card_id, stage, round, by, bulk }`; customer visible only when the step is new for the customer (`moved[].email`).
-  - ok: `{ target, moved: { cardId, stage, round, email }[], completed: cardId[], skipped: { cardId, reason, current }[], emailed, bagsCompleted: bagId[] }`. One customer email per call listing the moved cards with `email` (none for going back, re-entering or "done"). Show `skipped` to staff.
+  - ok: `{ target, moved: { cardId, stage, round, email }[], completed: cardId[], skipped: { cardId, reason, current }[], emailed, bagsCompleted: bagId[], orderCompletion?, bagPlaces? }` (done cards go back in their bag, out of any holder: `returnCardsToBags`; `bagPlaces` says where each bag is). One customer email per call listing the moved cards with `email` (none for going back, re-entering or "done"). Show `skipped` to staff.
   - Reads the order's cards and stage events in pages (`fetchAll`, events newest first by `created_at`, then `id`), so a big order's furthest step and the `fromStages` guard see every event.
-- `POST /api/admin/intake/stages` `{ orderId, cardIds, toStage?: <stage> | "done", fromStage?, fromStages?: { [cardId]: stage | null } }` -> `{ moved, completed, newStep (cardIds in the email), skipped, target, emailed, bagsCompleted }`; the old `{ orderId, cardIds, fromStage }` still advances one step.
+- `POST /api/admin/intake/stages` `{ orderId, cardIds, toStage?: <stage> | "done", fromStage?, fromStages?: { [cardId]: stage | null } }` -> `{ moved, completed, newStep (cardIds in the email), skipped, target, emailed, bagsCompleted, orderCompletion?, bagPlaces? }`; the old `{ orderId, cardIds, fromStage }` still advances one step.
 - `setCardStage(admin, { orderId, cardId, stage, by }): { ok: true, changed, email, emailed } | refusal`: one card to one of the 8 steps (the order page's Restoration Stages buttons, `POST /api/admin/orders/[id]/stage`), same email rule: customer visible and emailed only past the furthest step this round; going back or re-entering is staff only; a card already at that step writes nothing (`changed: false`). Done cards can still be given a step, as before. 400 unknown stage, 404 card not on the order.
 
 ## step-picker.ts (pure)
@@ -194,7 +196,10 @@ of 2 done + 3 at Humidor shows Humidor pressed; Done when every card is done),
 `pickerRequest(orderId, cards, target)` (null: nothing to move; the picker then
 says `pickerNothingToMove(target)`: "Already at Humidor." / "Already done."),
 `pickerNeedsConfirm`, `pickerOutcome(target, requested, response)` (the line
-after a tap), `groupPickerCards(stageGroups)`, `DONE_TARGET = "done"`.
+after a tap; after Done it adds where the cards go back, from the route's
+`bagPlaces`: "Marked done. Put it back in REYES's bag: Open bags box, under
+R.", and `notes`: the order's auto-complete line, green when it completed the
+order, amber otherwise), `groupPickerCards(stageGroups)`, `DONE_TARGET = "done"`.
 - `refreshBagCompletion(admin, bagIds): { completed: bagId[], reopened: bagId[] }`: never throws. Sets `completed_at` once every non-refunded card is done (keeps the earliest), clears it and `completion_seen_at` when a card reopens. Call it after anything that changes `cards.completed` or `bag_id`.
 - `refreshBagCompletionForCard(cardId, admin?)`: hook used by the existing `cards/[id]/complete` and `cards/[id]/round` routes.
 
@@ -220,13 +225,45 @@ status only while it still has that value (`skipped: true` otherwise).
 `customerEmail: false` skips only the customer status email (a bag's "Mark
 shipped" has just sent the shipped email with the tracking).
 
+## order-autocomplete.ts (server): the last card done completes the order
+
+Owner, Nov 25 2026 ("Do it automatically"). `completeOrderIfAllDone(admin,
+orderId, by): OrderAutoComplete` (never throws; `completeOrdersIfAllDone` for
+several orders, each once). Called once per order by every request that
+newly marked a card done: `advanceCards` (stages route, step picker),
+`markCardsDone` / assigning to the Done place (tracking `writePlan` step 7),
+and the order page's Done toggle (`toggleCardCompletion` in
+`card-completion.ts`, the former body of `POST /api/admin/cards/[id]/complete`).
+
+- Completes only when every non-refunded card is `completed` (at least one;
+  a card still on its way counts as not done), the order is `received` or
+  `in_progress` (`AUTO_COMPLETE_FROM`) and `payment_status` is `paid`.
+  Never from Awaiting Payment / Awaiting Cards / Cancelled, never again once
+  Completed / Shipped Back / Delivered; un-doing a card never un-completes.
+- Through `setOrderStatus({ status: "completed", onlyIfCurrent: <status read> })`:
+  the status button's event, customer email and held completion-notes
+  email; the conditional update means two requests finishing the last cards
+  at once send ONE email (the other gets `reason: "taken"`). Then a
+  staff-only `order_auto_completed` line: "Order completed automatically:
+  last card done by gavin." (metadata `{ auto, by, cards }`).
+- `OrderAutoComplete` = { orderId, orderNumber, customerName, completed,
+  emailed, reason? (`not_all_done | no_cards | already_done | wrong_status |
+  not_paid | taken | failed`), status, notesEmailed?, message?, error? }.
+  `message` is the staff line: "Order completed. Pat Collector emailed.",
+  "Order completed. No email sent: the order has no email address.", or
+  for `wrong_status` / `not_paid` / `failed` why it wasn't completed.
+- Responses (optional fields, present only when a card was newly marked
+  done): `POST /api/admin/intake/stages` and `POST /api/admin/cards/[id]/complete`
+  → `orderCompletion`; tracking `TrackActionResponse` (`done`, `assign` to
+  the Done place) → `orderCompletions` (one per order of the cards marked done).
+
 ## Existing routes (contracts unchanged)
 
 | route | body | response |
 |---|---|---|
 | `POST /api/admin/orders/[id]/status` | `{ status, tracking_number? }` | `{ ok: true, emailFailed?, notesEmailed? }`; 400 `Invalid status`, 404, 500 |
 | `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (`setCardStage`: emails only a step past the furthest this round; for bulk use `advanceCards`) |
-| `POST /api/admin/cards/[id]/complete` | none | `{ completed }` (toggles; now also refreshes the bag) |
+| `POST /api/admin/cards/[id]/complete` | none | `{ completed, orderCompletion?, bagPlaces?, unbinned? }` (toggles; refreshes the bag; a card marked done goes back in its bag like every Done (`bagPlaces`, "Put it back in REYES's bag: …"); the last card done completes the order, above; un-doing a card of a bag in the Ready to ship bin files the bag back in the Open bags box (`unbinned`); 500 "Marked done, but not put back in the bag: …" when the move or its history row can't be saved) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
 | `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
 | `PATCH /api/admin/orders/[id]/tier` | `{ tier }` | set the order's tier; 409 likewise when it would move bagged cards to another tier |
@@ -262,12 +299,24 @@ found", the /q wording).
 
 - **Shows**: the customer's name big; order number; a bag's tier, Bag ID and
   "Due Mon Dec 7" (an order code lists its bags); the card count (refunded not
-  counted); the order's customer notes; links "Open full order" and "All
+  counted: "4 cards", then "3 of 4 done"); where the bag is ("Bag: Open bags
+  box · R", "Bag: Shelf DUE MON DEC 7", "Bag: Ready to ship"); the order's customer notes; links "Open full order" and "All
   photos" (the photos page, `?bag=` for a bag code). Then one big "Move all N
   cards to my desk", and each card (photos with the photos page's viewer, name,
   year / set / #, Card ID, declared value, notes, known defects, "Where it is
-  now", the step read only, "Move to my desk"), grouped per bag for an order
+  now", the step read only, "Move to my desk" and "Done"), grouped per bag for an order
   code. Done, refunded and not-arrived cards are greyed, no button.
+- **Done** (done flow, Nov 25 2026): a card's "Done" (one tap) and, per bag
+  with 2+ cards to do, "Mark all N done" (asks "Mark all N cards done?":
+  "Yes, mark N done" / "Cancel"): `POST /api/admin/track/done` (200 cards per
+  request). The card goes back in its bag; its panel says the server's line
+  ("Done. Put it back in REYES's bag: Open bags box, under R.") and the
+  order's line when the order completed. A bag whose every card is done
+  shows ONE big step "Bag finished: put it in the Ready to ship bin" with
+  "It's in the Ready to ship bin" (`POST /api/admin/track/bag-ready`), then
+  "In the Ready to ship bin". `_lib/view.ts`: `canFinish`, `doneAllIds`,
+  `doneAllLabel`, `doneAllQuestion`, `doneOutcome`, `openBagsLine`,
+  `bagSteps`, `bagStepTitle`.
 - **Moves**: `POST /api/admin/track/assign { locationCode: <desk code>, cardIds }`
   (no new route): the place only, never the step, no email. N = cards received,
   not done, not refunded and not on that desk; then "N cards are on your desk" +
@@ -301,7 +350,11 @@ Every physical holder is a numbered **slot** with a QR label: each clamp, heat
 press spot, humidor spot and so on. Staff scan a slot on the Scan page
 (`/admin/scan`, phone camera or a handheld scanner), then pick the card(s) from
 a bag's QR or a search; the card is now in that slot and at its step. Bags wait
-on due-date shelf slots; `LOC-DONE` and `LOC-SHIP` are places too.
+on due-date shelf slots until a card comes out, then in the Open bags box
+(`LOC-OPEN-BAGS`); a finished bag goes in the Ready to ship bin (`LOC-SHIP`).
+A done card goes back in its bag (no place). `LOC-DONE` stays a place for
+anyone still scanning cards to it, but Done never uses it (see "Finished
+cards and bags" below).
 
 **Codes** (`codes.ts`: `codeKind()` → `"location"`, checked first;
 `isLocationCode`, `scanPathForLocation`): `LOC-` + an upper-case slug, at most
@@ -351,7 +404,10 @@ email per order per request (`tracking/stage-email.ts`, same email as
 reached this round (`stepEmailsCustomer`, `PlannedMove.email`; the other step
 events are staff only); refunded and not-received cards are refused; repeating a
 request changes nothing. Done marks the card done (as the Done toggle), frees
-its slot, puts it at `LOC-DONE` and refreshes bag completion; no email.
+its slot, puts it back in its bag (location null) and refreshes bag
+completion; no step email (the order's last card done completes the order,
+with its completed email: `orderCompletions`). A card that comes out of its
+bag files the bag in the Open bags box (below).
 
 **Schema** (`supabase/migrations/20261124_card_tracking.sql`, additive and
 rerunnable; apply before deploying the code):
@@ -382,7 +438,8 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `POST assign` | `{ locationCode, cardIds, force?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }` |
 | `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed); 409 full / empty |
 | `POST release` | `{ cardIds, sessionId? }` | "Take out": no place, step kept |
-| `POST done` | `{ cardIds, sessionId? }` | done, at LOC-DONE, `bagsCompleted` |
+| `POST done` | `{ cardIds, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
+| `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
 | `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards; a bag or order with each card's slot) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order |
 | `GET history` | `?code=` | last 50 moves, newest first |
@@ -401,6 +458,82 @@ print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).
+
+## Finished cards and bags (done flow)
+
+Owner, Nov 25 2026: a finished card goes back **in its own bag** (cards have
+no sticker, so a loose card on a shared Done pile can't be matched); the
+shared bin holds finished BAGS. Bags are found fast by one **Open bags box**
+with A-Z dividers by the customer's last name.
+
+- **Filing letter** (`lib/intake/filing-letter.ts`, pure): `filingLetter(name)`
+  = first letter of the customer's LAST name (the last word; suffixes such as
+  Jr., LLC, Inc., Co., Ltd skipped, Roman numerals II-IV only in capitals or
+  in a 3+ word name, so "Lee Iv" is I; "Reyes, Maria" keeps Reyes; accents
+  dropped and Ø Ł Æ Œ Đ ß Þ read as O L A O D S T), else the first letter of
+  the name, else `"#"`. `customerLastName(name)`. The bag label prints it in
+  a tab at the banner's top right; where even the smallest tab would make
+  the name smaller or hide every card (4 x 3 in), no tab and the kicker reads
+  "FILE UNDER R · THE CARD DOC" (`LabelFit.filing.inKicker`).
+- **Done** (tracking `POST done`, the Desk, the scan landing, the ship check,
+  and the step picker's Done through `advanceCards` → `returnCardsToBags`):
+  the card is marked done, leaves its holder or desk (location null, "In the
+  bag"; a `card_moves` 'done' row, written right after each holder's move:
+  a failed write answers 500, never a silent unlogged move) and the answer
+  says where the bag is:
+  `message` "Done. Put it back in REYES's bag: Open bags box, under R."
+  (TrackActionResponse `bags: TrackBagPlace[]`; the stages route
+  `bagPlaces`). The bag's last card adds "Bag finished: put it in the Ready
+  to ship bin." The order page's Done toggle does the same
+  (`toggleCardCompletion`). Bags of one customer (a mixed-tier order) in one
+  answer are named apart, with the cards for each: "Put each back in its
+  bag: CD-2549-07, CD-2549-08 in REYES's Platinum bag CD-2549-P (Open bags
+  box, under R); CD-2549-01 in REYES's Gold bag CD-2549-G (on shelf …)."
+  (`TrackBagPlace.tierName`, `returnedCodes`).
+- **Back in the bag** (`isBackInBag`, pure): a done card is in its bag with no
+  place or at a bag's place (a due-date shelf, the Open bags box, the Ready to
+  ship bin). One in a holder, on a desk or on the old Done shelf (LOC-DONE, a
+  loose pile) is still out: its bag isn't `finished`, the scan landing shows
+  it "Done · in CLAMP 07" with a Done that puts it back, and no bin step.
+- **Open bags box** (`LOC-OPEN-BAGS` "OPEN BAGS", kind 'other', made on first
+  use by `ensureOpenBags`, switched back on if off): every assign / move
+  (`settleBags` after `writePlan`) files in it the bag of any card that comes
+  OUT of its bag (it was in no place, on a shelf, at Done / Shipping or in the
+  box, and goes to a desk or work-station slot), unless the bag is there
+  already (`bagsToOpen`, pure). The answer's `message` ends "Put the bag in
+  the Open bags box, under R." (`bags[].opened`). A card moved holder to
+  holder files nothing. Best effort: a failure leaves the bag where it was.
+- **Ready to ship** (`POST /api/admin/track/bag-ready { bagId }`,
+  `putBagReadyToShip`): the finished bag's place becomes `LOC-SHIP` (made if
+  missing); refused (409) while a non-refunded card is still to do ("Not
+  every card in CD-2549-P is done yet (3 of 4 done)."), while a done card is
+  out of the bag ("CD-2549-03 is still in CLAMP 07: tap Done on it first."),
+  and for an order shipped back, delivered or cancelled ("CD-2549-P isn't
+  going in the Ready to ship bin: the order was shipped back already."; the
+  scan landing shows no bin step then). Un-doing a card reopens its bag
+  (`refreshBagCompletion`); a reopened bag in the bin goes back in the Open
+  bags box (`unbinReopenedBags`; the toggle says "Take REYES's bag out of
+  the Ready to ship bin: Open bags box, under R.").
+- **Words** (`lib/intake/tracking/bag-home.ts`, pure): `bagPlaceText(loc,
+  letter, compact?)` "Open bags box · R" (Bags board: "Open bags · R"),
+  "Shelf DUE MON DEC 7", "Ready to ship"; `bagPlacePhrase` "Open bags box,
+  under R" / "on shelf DUE MON DEC 7" / "in the Ready to ship bin";
+  `putBackSentence`, `doneText`, `openBagsSentence`, `finishedSentence`,
+  `bagSentences`, `doneCountText` ("4 cards", then "3 of 4 done"),
+  `orderCompletionNotes` (the order auto-complete lines, green / amber).
+  Exact strings: the done-flow ui-text (tests/intake/done-flow.test.ts).
+- **Pages**: the scan landing ("Bag: Open bags box · R", "3 of 4 done", a
+  card's Done, "Mark all N done", the one big "Bag finished" step with "It's
+  in the Ready to ship bin"), the Desk (Done says the same), the Scan page
+  (search rows and bag headers: "Bag: Open bags box · R"; after a Done the
+  order's line, green, or amber when it wasn't completed), the ship check
+  (the order's line under a card's Mark done), the Bags board (the bag's
+  place, "3 of 4 done"; below the open bags a "Ready to ship" section: the
+  finished bags not shipped yet, a Completed order's included, the ones not
+  in the bin first, each with "Open bag" to its scan landing), the step
+  picker (its Done line), the order page's Done toggle (the bag line and the
+  order's line).
+- `TrackCardSummary.bagLocation` (optional): where the card's bag is.
 
 ## Prepare labels (any order)
 

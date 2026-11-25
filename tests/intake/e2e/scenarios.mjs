@@ -10,6 +10,7 @@
 //   node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   what a bag / order QR opens: the person, "Move all N cards to my desk"
 //   node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   "Print labels" for any order (prepare-labels)
 //   node tests/intake/e2e/scenarios.mjs --only 'pack-*'   packing one bag: buy the label, print, Mark shipped (fake Shippo)
+//   node tests/intake/e2e/scenarios.mjs --only 'done-*'   a finished card: back in its bag, Open bags box A-Z, Ready to ship, order auto-complete
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -31,6 +32,7 @@ import {
   IN_SHOP_ORDER_TIER, IN_SHOP_CARD_TIERS, IN_SHOP_RECEIVED_ON, SIGNED_CARD_TIERS, SIGNED_RECEIVED_ON,
   UNKNOWN_TIER_RECEIVED_ON, AWAITING_ORDER_TIER, AWAITING_CARD_TIERS,
 } from "../harness/seed.mjs";
+import { DONE_IDS, DONE_ORDER_NUMBER, DONE_CUSTOMER, DONE_CARD_NAMES, buildDoneSeed } from "../harness/seed.mjs";
 import { placeholderPng } from "../harness/mock-supabase.mjs";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
@@ -120,6 +122,12 @@ export const ROUTES = {
   // PrepareConflict (the plan + error, needsConfirmReceive, unanswered) or { error }.
   prepareLabelsApi: (orderId) => `/api/admin/intake/orders/${orderId}/prepare-labels`,
   cardTierApi: (cardId) => `/api/admin/cards/${cardId}/tier`,
+
+  // ── Finished cards (done-*, owner Nov 25; lib/intake/tracking/types.ts BagReadyResponse) ──
+  // POST { bagId }: the finished bag is in the Ready to ship bin (LOC-SHIP) -> { bag, changed, message }
+  trackBagReady: "/api/admin/track/bag-ready",
+  // The order page's Done toggle (no body): { completed, orderCompletion? }
+  cardComplete: (cardId) => `/api/admin/cards/${cardId}/complete`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -362,6 +370,48 @@ export const UI = {
   // A Receiving search row (li / tr) of an order that carries the action
   receivingRow: (page, orderNumber) => page.locator("li, tr, [role='row'], article").filter({ hasText: orderNumber })
     .filter({ has: page.getByRole("button", { name: /print (\d+ )?labels|cards arrived|receive all/i }) }).last(),
+
+  // ── Finished cards (done-*): the DONE-FLOW agent's ui-text.md (lib/intake/tracking/bag-home.ts words it) ──
+  // A card's Done on the scan landing: shown "Done", named "Done: CD-2549-03" (the Desk's is UI.deskDone)
+  doneCard: (scope) => scope.getByRole("button", { name: /^done\b/i }).first(),
+  // The bag's "Mark all N done" ("Mark 1 card done"); it asks "Mark all N cards done?": "Yes, mark N done" / "Cancel"
+  doneAllRe: /^mark (all \d+|1 card) done$/i,
+  doneAll: (page) => page.getByRole("button", { name: UI.doneAllRe }).first(),
+  // A confirm's yes ("Yes, mark 2 done"), never Cancel
+  doneConfirmRe: /^(yes\b|confirm\b|tap again\b)/i,
+  // Header count: "3 cards" while none is done, then "1 of 3 done" (also "CD-2549-P · 3 of 3 done")
+  doneCount: (done, total) => new RegExp(`(^|[^0-9])${done} of ${total} done\\b`, "i"),
+  // "Done. Put it back in REYES's bag: Open bags box, under R." ("2 cards done. Put them back in …";
+  // the step picker's "Marked done. Put it back in …"); `place` a donePlaceIn pattern, "" for none
+  doneSentence: (lastName, place = "", lead = "done") =>
+    new RegExp(`\\b${lead}\\. put (it|them) back in ${esc(lastName.toUpperCase())}['’]s bag${place ? `: ${place}` : ""}`, "i"),
+  // Where the bag is, in a sentence
+  donePlaceIn: {
+    openBags: (letter) => `open bags box, under ${letter}(?![A-Za-z])`,
+    shelf: (day) => `on shelf ${shelfName(day)}(?!\\d)`,
+    ship: "in the ready to ship bin",
+  },
+  // Where the bag is, short ("Bag: Open bags box · R"; the Bags board "Open bags · R"): regexes
+  donePlace: {
+    openBags: (letter) => new RegExp(`open bags( box)?\\s*·\\s*${letter}(?![A-Za-z])`, "i"),
+    shelf: (day) => new RegExp(`shelf ${shelfName(day)}(?!\\d)`, "i"),
+    ship: /\bready to ship\b/i,
+  },
+  // The scan landing's / Scan page's line in front: "Bag: <place>"
+  doneBagLine: (placeRe) => new RegExp(`\\bbag:\\s*${placeRe.source}`, "i"),
+  // A card left its bag: "Put the bag in the Open bags box, under R."
+  putBagInOpenBags: (letter) => new RegExp(`put the bag in the open bags box, under ${letter}(?![A-Za-z])`, "i"),
+  // The bag's last card: "Bag finished: put it in the Ready to ship bin" (order code: "Bag CD-2549-P finished: …")
+  bagFinished: /\bbag( CD-\d+-[A-Z]\d*)? finished: put it in the ready to ship bin/i,
+  // Its button, then "In the Ready to ship bin" (not the prompt's "put it in the …")
+  readyToShipRe: /^it['’]s in the ready to ship bin$/i,
+  inShipBin: /(?<!\bput (it|them) )\bin the ready to ship bin\b/i,
+  // The order auto-complete line (lib/intake/order-autocomplete.ts): "Order completed. Test Customer Reyes emailed."
+  orderCompletedLine: (name) => new RegExp(`order completed\\. ${esc(name)} emailed\\.`, "i"),
+  // The Bags board's "Ready to ship" section (finished bags not shipped yet) and a bag's row in it
+  readySection: (page) => page.getByRole("region", { name: /^ready to ship\b/i }),
+  readyRow: (page, bagCode) => UI.readySection(page).locator("li").filter({ has: page.getByRole("link", { name: `Open bag ${bagCode}`, exact: true }) }),
+  notInBin: /\bnot in the bin yet\b/i,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -516,6 +566,16 @@ const isLabelPage = (p) => !!p && typeof p.width === "number" && typeof p.height
 const texts = (p) => p.elements.filter((e) => e.kind === "text" && String(e.text ?? "").trim());
 const qrs = (p) => p.elements.filter((e) => e.kind === "qr");
 const norm = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+/g, "");
+/**
+ * The filing tab's letter (the Open bags box's A-Z letter, top right of the banner: a white
+ * square with a black letter in it), as tests/intake/labels.test.ts finds it; null without one.
+ * It is big on purpose and never counts against "the name is the largest type".
+ */
+function filingTabLetter(p) {
+  const tile = p.elements.find((e) => e.kind === "rect" && e.fill === "paper");
+  if (!tile) return null;
+  return texts(p).find((t) => t.color === "ink" && t.x >= tile.x - 0.01 && t.x + t.width <= tile.x + tile.w + 0.01 && t.y >= tile.y && t.y <= tile.y + tile.h) ?? null;
+}
 /** What a bag's QR must hold: qrUrl(<BAG CODE>), i.e. the site's /Q/<BAG CODE> in upper case (the harness's site is the local app). */
 const bagQrData = (appUrl, bagCode) => [`${appUrl.replace(/\/+$/, "")}/q/${bagCode}`.toUpperCase(), `HTTPS://THECARDDOC1.COM/Q/${bagCode}`];
 /** The order's bags and, per bag, its received cards (bag_id set, not refunded) in card-number order. */
@@ -573,13 +633,15 @@ async function labelSteps(s, ctx, { appUrl, orderId, customerName, title }) {
     return `${qrs(entryOf(want[0].bag.id).labels[0])[0].data}; ${out.join(", ")}`;
   }, { shot: false });
 
-  await s.step(`${title}: the customer name is the largest type on every label`, async () => {
+  await s.step(`${title}: the customer name is the largest type on every label (the filing tab's letter aside)`, async () => {
     needJson();
     const full = norm(customerName);
     const isName = (e) => { const x = norm(String(e.text).replace(/…$/, "")); return x.includes(full) || (x.length >= 4 && full.includes(x)); };
     const out = [];
     for (const { bag } of want) {
-      const all = texts(entryOf(bag.id).labels[0]);
+      const label = entryOf(bag.id).labels[0];
+      const tab = filingTabLetter(label);
+      const all = texts(label).filter((e) => e !== tab);
       const name = all.filter(isName);
       assert(name.length, `${bag.bag_code}: customer name "${customerName}" not on the label`);
       const nameSize = Math.max(...name.map((e) => e.size));
@@ -732,7 +794,7 @@ async function setLabelStock(mockUrl, stock) {
   assert(!error, `label stock setting: ${error?.message}`);
 }
 /** Change cards or places directly in the mock (test setup: a refund, an old placement, a capacity). */
-async function mockUpdate(mockUrl, table, patch, column, value) {
+export async function mockUpdate(mockUrl, table, patch, column, value) {
   const { data, error } = await mockDb(mockUrl).from(table).update(patch).eq(column, value).select("*");
   assert(!error && data?.length, `${table} ${column}=${value}: ${error?.message ?? "no such row"}`);
   return data;
@@ -2616,20 +2678,21 @@ const SCENARIOS = {
       eq(cardsIn(t, "LOC-CLAMP-02"), [], "cards in CLAMP 02");
       eq(cardsIn(t, "LOC-HEAT-PRESS-02"), ["CD-2600-01"], "cards in HEAT PRESS 02");
     }, { shot: false });
-    await s.step("Done (CD-2549-07 + -08): done, at LOC-DONE; FINAL DRY 01 freed; bag CD-2549-P complete; no customer email", async () => {
+    // Done puts a card back in its own bag (owner, Nov 25 2026): no place, never LOC-DONE
+    await s.step("Done (CD-2549-07 + -08): done, back in the bag (no place, not LOC-DONE); FINAL DRY 01 freed; bag CD-2549-P complete; no customer email", async () => {
       const n = (await emails()).length;
       const body = await trackOk(ctx, ROUTES.trackDone, { cardIds: [mailCard(6), mailCard(7)] });
-      eq(body.location?.code, "LOC-DONE", "location.code");
+      eq(body.location ?? null, null, "location (in the bag)");
       const t = await tables();
-      const doneId = placeOf(t, "LOC-DONE").id;
       for (const code of ["CD-2549-07", "CD-2549-08"]) {
         const c = cardByCode(t, code);
         assert(c.completed && c.completed_at, `${code} not done`);
-        eq(c.location_id, doneId, `${code} location_id`);
-        const row = movesOf(t, c.id).find((m) => m.to_location_id === doneId);
-        assert(row, `${code}: no move row to LOC-DONE`);
-        eq([row.action, row.from_location_id, row.stage_before, row.stage_after], ["done", placeOf(t, "LOC-FINAL-DRY-01").id, "Final Dry", "done"], `${code} action, from, stage_before, stage_after`);
+        eq(c.location_id ?? null, null, `${code} location_id (in the bag)`);
+        const row = movesOf(t, c.id).find((m) => m.action === "done");
+        assert(row, `${code}: no 'done' move row`);
+        eq([row.action, row.from_location_id, row.to_location_id ?? null, row.stage_before, row.stage_after], ["done", placeOf(t, "LOC-FINAL-DRY-01").id, null, "Final Dry", "done"], `${code} action, from, to, stage_before, stage_after`);
       }
+      eq(cardsIn(t, "LOC-DONE"), [], "cards at LOC-DONE");
       eq(cardsIn(t, "LOC-FINAL-DRY-01"), [], "cards in FINAL DRY 01");
       assert(freedCodes(body).includes("LOC-FINAL-DRY-01"), `freed ${JSON.stringify(freedCodes(body))}`);
       const bag = bagByCode(t, "CD-2549-P");
@@ -3389,7 +3452,8 @@ const SCENARIOS = {
       assert(!problems.length, `${problems.join(", ")} (choices: ${choices.join(" | ").slice(0, 200)})`);
     }, { shot: false });
 
-    await s.step("CD-2549-02: Done (answering a second tap or Yes if asked): done, at LOC-DONE; no customer email", async () => {
+    // Done puts a card back in its own bag (owner, Nov 25 2026): off the desk, no place, never LOC-DONE
+    await s.step("CD-2549-02: Done (answering a second tap or Yes if asked): done, back in its bag (no place, not LOC-DONE); no customer email", async () => {
       const n = (await emails()).length;
       const panel = UI.deskPanel(page, "CD-2549-02", DESK_ALL);
       await tapToSave(page, UI.deskDone(panel), panel);
@@ -3397,7 +3461,8 @@ const SCENARIOS = {
       const t2 = await tables();
       const c = cardByCode(t2, "CD-2549-02");
       assert(c.completed, "not done");
-      eq(c.location_id, placeOf(t2, "LOC-DONE").id, "location (LOC-DONE)");
+      eq(c.location_id ?? null, null, "location (in the bag)");
+      eq(movesOf(t2, c.id).filter((m) => m.action === "done").map((m) => [m.from_location_id, m.to_location_id ?? null]), [[placeOf(t2, DESK).id, null]], "'done' rows (desk -> no place)");
       eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, 0, "emails to Test Customer A");
       msgs.done = await messageSeen(page, /\bdone\b/i);
     });
@@ -4010,14 +4075,15 @@ const SCENARIOS = {
     const DONE = "CD-2549-02", REFUNDED = "CD-2549-03";
     const FIVE = ["CD-2549-01", "CD-2549-04", ...BO_PLAT];
     let t = null;
-    await s.step(`setup: as bag-open-qr; ${DONE} marked done (POST done: at LOC-DONE), ${REFUNDED} refunded (in the mock); 05, 06, 10 not here yet`, async () => {
+    await s.step(`setup: as bag-open-qr; ${DONE} marked done (POST done: back in its bag, no place), ${REFUNDED} refunded (in the mock); 05, 06, 10 not here yet`, async () => {
       t = await bagOpenSetup(ctx, mockUrl);
       await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, DONE)] });
       await mockUpdate(mockUrl, "cards", { status: "refunded" }, "card_code", REFUNDED);
       t = await tables();
-      eq([cardByCode(t, DONE).completed, cardByCode(t, DONE).location_id], [true, placeOf(t, "LOC-DONE").id], `${DONE} done, at LOC-DONE`);
+      eq([cardByCode(t, DONE).completed, cardByCode(t, DONE).location_id ?? null], [true, null], `${DONE} done, in its bag (no place)`);
     }, { critical: true, shot: false });
-    await s.step(`bag CD-2549-G: 4 panels; ${DONE} "Done" and ${REFUNDED} "Refunded" without a move button; 01, 04 "In the bag" with one; "Move all 2 cards to my desk"; "3 cards" (refunded not counted)`, async () => {
+    // The count reads "N of M done" once a card is done (done flow, Nov 25 2026): "1 of 3 done" here, the refunded card not counted
+    await s.step(`bag CD-2549-G: 4 panels; ${DONE} "Done" and ${REFUNDED} "Refunded" without a move button; 01, 04 "In the bag" with one; "Move all 2 cards to my desk"; "1 of 3 done" (refunded not counted)`, async () => {
       await goto(page, ROUTES.open("CD-2549-G"));
       await openReady(page);
       eq(await openPanelsShown(page), BO_GOLD, "cards with a panel");
@@ -4036,7 +4102,7 @@ const SCENARIOS = {
         }
       }
       if ((await moveAllN(page)) !== 2) problems.push(`N is ${await moveAllN(page)}`);
-      if (!countShown((await mainText(page)).split(/cards in this bag/i)[0], 3)) problems.push('no "3 cards" (the refunded card not counted)');
+      if (!UI.doneCount(1, 3).test((await mainText(page)).split(/cards in this bag/i)[0])) problems.push('no "1 of 3 done" (the refunded card not counted)');
       assert(!problems.length, problems.slice(0, 5).join(" | "));
       // "shown greyed": reported, not asserted (how a panel is greyed is the page's choice)
       const look = async (code) => UI.openPanel(page, code, BO_ALL).evaluate((el) => { const st = getComputedStyle(el); return `opacity ${st.opacity}, filter ${st.filter}, bg ${st.backgroundColor}`; }).catch(() => "?");
@@ -4054,7 +4120,7 @@ const SCENARIOS = {
       if ((await moveAllN(page)) !== 5) problems.push(`N is ${await moveAllN(page)}`);
       assert(!problems.length, problems.slice(0, 5).join(" | "));
     }, { critical: true });
-    await s.step(`tap "Move all 5 cards to my desk": only ${FIVE.join(", ")} go to ${DESK}; ${DONE} stays done at LOC-DONE, ${REFUNDED} and the 3 not here stay put; no email`, async () => {
+    await s.step(`tap "Move all 5 cards to my desk": only ${FIVE.join(", ")} go to ${DESK}; ${DONE} stays done in its bag, ${REFUNDED} and the 3 not here stay put; no email`, async () => {
       const before = await dump();
       const tap = await openTapMove(page, UI.openMoveAll(page), allAt(FIVE, DESK));
       assert(tap.ok, `the 5 aren't at ${DESK} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"})`);
@@ -4062,7 +4128,7 @@ const SCENARIOS = {
       const after = await dump();
       const r = checkDeskMove(before, after, FIVE, DESK);
       const d = cardByCode(after.tables, DONE);
-      eq([d.completed, d.location_id], [true, placeOf(after.tables, "LOC-DONE").id], `${DONE} done, at LOC-DONE`);
+      eq([d.completed, d.location_id ?? null], [true, null], `${DONE} done, in its bag (no place)`);
       eq(cardByCode(after.tables, REFUNDED).status, "refunded", `${REFUNDED} status`);
       return r;
     }, { critical: true });
@@ -5737,6 +5803,1098 @@ const PACK_SCENARIOS = {
 };
 Object.assign(SCENARIOS, PACK_SCENARIOS);
 
+
+// ─── The finished-card flow (done-*: the owner's decisions of Nov 25) ──────────────────────────
+// A finished card goes back in its own bag (cards.location_id null, never LOC-DONE) and its holder
+// is freed; the bag keeps count ("1 of 3 done"); the first card out of a bag (to a desk or holder)
+// files the BAG in the Open bags box (LOC-OPEN-BAGS, A-Z by the customer's last name's first
+// letter: "Test Customer A" -> A, "Test Customer Reyes" -> R); the bag's last card -> "Bag
+// finished: put it in the Ready to ship bin" and "It's in the Ready to ship bin" puts the bag at
+// LOC-SHIP (POST /api/admin/track/bag-ready); the order's last non-refunded card -> the order
+// Completed through setOrderStatus with ONE customer email and the held notes email
+// (lib/intake/order-autocomplete.ts), from every Done: the scan landing, the Desk, the card page's
+// step picker, the order page's Done toggle. Wording: UI.done* (the DONE-FLOW agent's ui-text.md,
+// lib/intake/tracking/bag-home.ts).
+const OPEN_BAGS = "LOC-OPEN-BAGS";
+const SHIP_PLACE = "LOC-SHIP";
+/** CD-2549's customer "Test Customer A": the last word is "A", so the sentences say "A's bag" and file it under A. */
+const BO_LAST = "A";
+const BO_LETTER = "A";
+const DN = DONE_ORDER_NUMBER;
+const DONE_ORDER = DONE_IDS.doneOrder;
+/** CD-2700-01..05: Platinum 01-02 (bag CD-2700-P), Gold 03-05 (bag CD-2700-G); 05 is refunded by the setup. */
+const DONE_CODES = DONE_IDS.doneCards.map((_, i) => `${DN}-${nn(i + 1)}`);
+const DONE_P = `${DN}-P`;
+const DONE_G = `${DN}-G`;
+const DONE_REFUNDED = DONE_CODES[4];
+const COMPLETED_EVENT = "Status updated to: Completed";
+const AUTO_EVENT = "order_auto_completed";
+const NOTES_EMAILED_EVENT = "completion_notes_emailed";
+
+/**
+ * Puts the done order (CD-2700, Test Customer Reyes; seed.mjs buildDoneSeed) into the running mock,
+ * once per reset. For a harness started by hand: HARNESS_MOCK_URL=… node --input-type=module -e
+ * "await (await import('./tests/intake/e2e/scenarios.mjs')).seedDone()".
+ */
+export async function seedDone() {
+  const t = await tables();
+  if (t.orders.some((o) => o.id === DONE_ORDER)) return false;
+  for (const [table, rows] of Object.entries(buildDoneSeed().tables)) if (rows.length) await insertRows(table, rows);
+  return true;
+}
+/**
+ * The done order as the done-order-complete* scenarios start it: CD-2700's 5 cards received on
+ * 2026-11-20 through the API (bags CD-2700-P: 01-02, CD-2700-G: 03-05; status received, the
+ * customer's "Cards Received" email), 05 refunded in the mock (it stays in its bag), a receiving
+ * photo on 01-04; then the cards in `done` marked done through POST done, and `status` / `payment`
+ * written to the order in the mock. Returns the tables.
+ */
+export async function doneOrderSetup(ctx, mockUrl, { done = [], status = null, payment = null } = {}) {
+  await seedDone();
+  await receiveViaApi(ctx, DONE_ORDER, DONE_IDS.doneCards, "2026-11-20");
+  let t = await tables();
+  DONE_IDS.doneCards.forEach((cid, i) => eq(t.cards.find((c) => c.id === cid)?.card_code, DONE_CODES[i], `${DONE_CARD_NAMES[i]}'s Card ID`));
+  eq(bagCardCodes(t, DONE_P), DONE_CODES.slice(0, 2), `bag ${DONE_P}`);
+  eq(bagCardCodes(t, DONE_G), DONE_CODES.slice(2), `bag ${DONE_G}`);
+  const five = t.cards.find((c) => c.id === DONE_IDS.doneCards[4]);
+  await mockUpdate(mockUrl, "cards", { status: "refunded", refunded_cents: five.service_price_cents }, "id", five.id);
+  await setReceivingPhotos(mockUrl, DONE_IDS.doneCards.slice(0, 4));
+  // cards first (while the order is still received), then the status / payment the scenario wants
+  if (done.length) await trackOk(ctx, ROUTES.trackDone, { cardIds: done.map((code) => cardIdOf(t, code)) });
+  const patch = { ...(status ? { status } : {}), ...(payment ? { payment_status: payment } : {}) };
+  if (Object.keys(patch).length) await mockUpdate(mockUrl, "orders", patch, "id", DONE_ORDER);
+  t = await tables();
+  const o = t.orders.find((x) => x.id === DONE_ORDER);
+  assert(!DONE_STATUSES_E2E.includes(o.status), `${DN} is ${o.status} after the setup (not every card is done)`);
+  return t;
+}
+const DONE_STATUSES_E2E = ["completed", "shipped_back", "delivered"];
+const doneOrderOf = (t) => t.orders.find((o) => o.id === DONE_ORDER);
+/** The done order's scan landing has rendered (h1: the customer's name). */
+const doneReady = (page) => page.getByRole("heading", { name: DONE_CUSTOMER.name }).first().waitFor({ timeout: 30_000 });
+/** Where a bag is now: its place's code (tier_bags.location_id), or null. */
+function bagPlaceCode(t, bagCode) {
+  const b = bagByCode(t, bagCode);
+  return (b?.location_id && t.locations.find((l) => l.id === b.location_id)?.code) || null;
+}
+/** Rows of `table` that weren't there before (dump() before and after). */
+const newRows = (before, after, table) => {
+  const old = new Set((before.tables[table] ?? []).map((r) => r.id));
+  return (after.tables[table] ?? []).filter((r) => !old.has(r.id));
+};
+/** The customer's order-status email for Completed ("Update on your order — Completed") and the notes email ("Restoration complete — notes …"). */
+const completedMails = (list, email) => mailsTo(list, email).filter((m) => /\bcompleted\b/i.test(m.subject ?? ""));
+const notesMails = (list, email) => mailsTo(list, email).filter((m) => /\bnotes\b/i.test(m.subject ?? ""));
+/** A database check: the card is marked done. */
+const cardDone = (code) => async () => !!cardByCode(await tables(), code)?.completed;
+
+/**
+ * What marking a card done must do (`before`/`after`: dump() around it): done with completed_at,
+ * back in its bag (cards.location_id null: not LOC-DONE, not the desk or holder it was in), one
+ * new 'done' card_moves row from where it was to no place (a card that was already in its bag may
+ * have none). Returns the problems found.
+ */
+function doneInBagProblems(before, after, code, fromCode) {
+  const t = after.tables;
+  const c = cardByCode(t, code);
+  if (!c) return [`no card ${code}`];
+  const out = [];
+  if (!c.completed || !c.completed_at) out.push(`${code} not done (completed ${c.completed}, completed_at ${c.completed_at})`);
+  if ((c.location_id ?? null) !== null) out.push(`${code} is at ${t.locations.find((l) => l.id === c.location_id)?.code ?? c.location_id}, not back in its bag (no place)`);
+  const rows = newRows(before, after, "card_moves").filter((m) => m.card_id === c.id);
+  const from = fromCode ? (placeOf(t, fromCode)?.id ?? `?${fromCode}`) : null;
+  if (rows.length > 1 || (fromCode && rows.length !== 1)) out.push(`${code}: ${rows.length} new card_moves rows`);
+  for (const m of rows) {
+    if (m.action !== "done") out.push(`${code}: row action ${m.action}`);
+    if ((m.from_location_id ?? null) !== from) out.push(`${code}: row from ${m.from_location_id}, it was at ${fromCode ?? "no place"}`);
+    if ((m.to_location_id ?? null) !== null) out.push(`${code}: row to ${t.locations.find((l) => l.id === m.to_location_id)?.code ?? m.to_location_id} (back in its bag is no place)`);
+  }
+  return out;
+}
+
+/**
+ * The order became Completed exactly once (`before`/`after`: dump() around the last Done): status
+ * completed; exactly ONE customer email whose subject says Completed and ONE notes email (the
+ * held notes), no other customer email; one customer-visible "Status updated to: Completed"
+ * event; the notes logged as emailed once; at most one staff line (order_auto_completed).
+ */
+function checkOrderCompleted(before, after, { orderId = DONE_ORDER, email = DONE_CUSTOMER.email } = {}) {
+  const problems = [];
+  const o = after.tables.orders.find((x) => x.id === orderId);
+  if (o?.status !== "completed") problems.push(`status ${o?.status}`);
+  const fresh = after.emails.slice(before.emails.length);
+  const c = completedMails(fresh, email), n = notesMails(fresh, email);
+  const all = mailsTo(fresh, email);
+  if (c.length !== 1) problems.push(`${c.length} "Completed" emails to the customer`);
+  if (n.length !== 1) problems.push(`${n.length} notes emails`);
+  if (all.length !== c.length + n.length) problems.push(`other customer emails: ${all.filter((m) => !c.includes(m) && !n.includes(m)).map((m) => m.subject).join(" | ").slice(0, 160)}`);
+  const evs = newRows(before, after, "order_events").filter((e) => e.order_id === orderId);
+  const st = evs.filter((e) => e.description === COMPLETED_EVENT);
+  if (st.length !== 1) problems.push(`${st.length} "${COMPLETED_EVENT}" events`);
+  else if (!st[0].is_customer_visible) problems.push(`"${COMPLETED_EVENT}" isn't customer visible`);
+  const notesLogged = evs.filter((e) => e.event_type === NOTES_EMAILED_EVENT).length;
+  if (notesLogged !== 1) problems.push(`${notesLogged} ${NOTES_EMAILED_EVENT} events`);
+  const auto = evs.filter((e) => e.event_type === AUTO_EVENT);
+  if (auto.length > 1) problems.push(`${auto.length} ${AUTO_EVENT} events`);
+  if (auto.some((e) => e.is_customer_visible)) problems.push(`the ${AUTO_EVENT} line is customer visible`);
+  assert(!problems.length, `${problems.join(" | ")} (all customer emails: ${all.map((m) => m.subject).join(" | ").slice(0, 200)})`);
+  return `completed; "${c[0].subject}" + "${n[0].subject}"${auto.length ? `; staff line "${auto[0].description}"` : ""}`;
+}
+/** The order did NOT change (`status` kept): no status event, no customer email. */
+function checkOrderUnchanged(before, after, { orderId = DONE_ORDER, email = DONE_CUSTOMER.email } = {}) {
+  const was = before.tables.orders.find((x) => x.id === orderId)?.status;
+  const now = after.tables.orders.find((x) => x.id === orderId)?.status;
+  const problems = [];
+  if (now !== was) problems.push(`status ${was} -> ${now}`);
+  const evs = newRows(before, after, "order_events").filter((e) => e.order_id === orderId && e.event_type === "status_updated");
+  if (evs.length) problems.push(`status events: ${evs.map((e) => e.description).join(" | ")}`);
+  const mails = mailsTo(after.emails.slice(before.emails.length), email);
+  if (mails.length) problems.push(`customer emails: ${mails.map((m) => m.subject).join(" | ").slice(0, 160)}`);
+  assert(!problems.length, problems.join(" | "));
+  return `still ${now}, no email`;
+}
+
+/**
+ * Tap a button that saves and wait (2 min: a first compile) until `landed()`, a database check, is
+ * true. If nothing was sent within 6 s the button is asking first: a dialog's "Yes, mark N done" /
+ * "Yes" / "Confirm" is answered (or, in `scope`, "Tap again" / the same button again). Returns the
+ * first POST to /api/admin/: its path, JSON body, status and JSON answer, and every POST path.
+ */
+async function tapAndLand(page, button, landed, { scope = null, ms = 120_000 } = {}) {
+  const posts = [];
+  const onRequest = (r) => { if (r.method() === "POST" && r.url().includes("/api/admin/")) posts.push(r); };
+  page.on("request", onRequest);
+  try {
+    await button.click();
+    // a question ("Mark all 2 cards done?" with "Yes, mark 2 done"): in a dialog, else inline on the page
+    const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog"));
+    const inDialog = dlg.getByRole("button", { name: UI.doneConfirmRe }).first();
+    const inPage = page.locator("main").first().getByRole("button", { name: UI.doneConfirmRe }).first();
+    const asked = async () => (await inDialog.isVisible().catch(() => false)) || (await inPage.isVisible().catch(() => false));
+    await until(async () => posts.length > 0 || (await asked()) || (await landed()), 6_000, 200);
+    if (!posts.length && !(await landed())) {
+      if (await inDialog.isVisible().catch(() => false)) await inDialog.click({ timeout: 5_000 }).catch(() => {});
+      else if (await inPage.isVisible().catch(() => false)) await inPage.click({ timeout: 5_000 }).catch(() => {});
+      else if (scope) await UI.deskConfirm(scope).click({ timeout: 5_000 }).catch(() => {});
+    }
+    const ok = await until(landed, ms, 500);
+    const first = posts[0] ?? null;
+    let body = null;
+    try { body = first ? JSON.parse(first.postData() ?? "null") : null; } catch { /* not JSON */ }
+    const res = first ? await first.response().catch(() => null) : null;
+    let answer = null;
+    try { answer = res ? await res.json() : null; } catch { /* not JSON */ }
+    const pathOf = (r) => new URL(r.url()).pathname;
+    return { ok: !!ok, path: first ? pathOf(first) : null, body, status: res?.status() ?? null, answer, posts: posts.map(pathOf) };
+  } finally {
+    page.off("request", onRequest);
+  }
+}
+/** A line on the page (a status / alert / toast, else <main>'s text) matching `re` within `ms`: the text, or null. */
+async function saidOnPage(page, re, ms = 20_000) {
+  return until(async () => {
+    const live = await UI.liveRegions(page).evaluateAll((els) => els.filter((e) => !e.closest("dialog")).map((e) => (e.textContent || "").replace(/\s+/g, " ").trim()).filter(Boolean)).catch(() => []);
+    const hit = live.find((x) => re.test(x));
+    if (hit) return hit;
+    const txt = flat(await page.locator("main").first().innerText().catch(() => ""));
+    const m = re.exec(txt);
+    return m ? txt.slice(Math.max(0, m.index - 20), m.index + m[0].length + 40) : null;
+  }, ms);
+}
+/** <main>'s text before the first group of cards (the header: name, counts, the "Bag:" line, the big step). */
+const headText = async (page) => (await mainText(page)).split(/\n\s*(cards in this bag|(platinum|gold|silver|bronze|diamond|fast pass) · CD-)/i)[0];
+/** The scan landing of `code` for the done order (or CD-2549), loaded. */
+async function openDoneLanding(page, code) {
+  await goto(page, ROUTES.open(code));
+  if (code.startsWith(DN)) await doneReady(page);
+  else await openReady(page);
+}
+/** A Done button on the scan landing in the card's panel (none: 0). */
+const doneButtonsIn = (page, code, codes) => UI.doneCard(UI.openPanel(page, code, codes)).count();
+
+const DONE_SCENARIOS = {
+  // A done card put back in a holder (or left on the Done shelf) holds its bag back: no bin step, bag-ready 409,
+  // the card says "Done · in CLAMP 07" with a Done that puts it back; a shipped-back order gets no bin step at all
+  async "done-card-out"({ page, ctx, s, mockUrl }) {
+    const OUT = "CD-2549-08";
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CLAMP 01..07; ${BO_PLAT.join(", ")} all done (POST done); then ${OUT} (done) put in CLAMP 07 again`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await bulkSlots(ctx, "clamp", 7);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: BO_PLAT.map((c) => cardIdOf(t, c)) });
+      await assignOk(ctx, "LOC-CLAMP-07", [cardIdOf(t, OUT)]);
+      t = await tables();
+      eq([cardByCode(t, OUT).completed, cardsIn(t, "LOC-CLAMP-07")], [true, [OUT]], `${OUT} done, in CLAMP 07`);
+    }, { critical: true, shot: false });
+    await s.step(`POST bag-ready for ${BO_BAG}: refused "${OUT} is still in CLAMP 07: tap Done on it first."; the bag stays put`, async () => {
+      const was = bagPlaceCode(await tables(), BO_BAG);
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t, BO_BAG).id });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      eq(r.body?.error, `${OUT} is still in CLAMP 07: tap Done on it first.`, "error");
+      eq(bagPlaceCode(await tables(), BO_BAG), was, `${BO_BAG} place`);
+      return r.body.error;
+    }, { shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: "3 of 3 done" but NO "Bag finished" step; ${OUT} says "Done · in CLAMP 07" with ONE "Done" button`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (!(await textSeen(page, UI.doneCount(3, 3), 15_000))) problems.push('no "3 of 3 done"');
+      if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" shows while a card is in CLAMP 07');
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push("the Ready to ship button shows");
+      const txt = await openPanelText(page, OUT);
+      if (!/done · in CLAMP 07/i.test(txt)) problems.push(`${OUT}: "${txt.slice(0, 160)}"`);
+      if ((await doneButtonsIn(page, OUT, BO_ALL)) !== 1) problems.push(`${OUT}: ${await doneButtonsIn(page, OUT, BO_ALL)} Done buttons`);
+      for (const c of BO_PLAT.filter((c) => c !== OUT)) if (await doneButtonsIn(page, c, BO_ALL)) problems.push(`${c} (in its bag) has a Done button`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step(`tap ${OUT}'s "Done": back in its bag (no place, CLAMP 07 freed, one 'done' row); then the "Bag finished" step shows`, async () => {
+      const before = await dump();
+      const tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, OUT, BO_ALL)), async () => (cardByCode(await tables(), OUT)?.location_id ?? null) === null, { scope: UI.openPanel(page, OUT, BO_ALL) });
+      if (!tap.ok) await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, OUT)] });
+      const after = await dump();
+      const problems = doneInBagProblems(before, after, OUT, "LOC-CLAMP-07");
+      if (!tap.ok) problems.unshift(`the tap didn't put it back (POSTs: ${tap.posts.join(", ") || "none"}; done through the API instead)`);
+      const step = await saidOnPage(page, UI.bagFinished, 20_000);
+      if (!step) problems.push(`no "Bag finished" step after (the page says: "${flat(await mainText(page)).slice(0, 240)}")`);
+      assert(!problems.length, problems.join(" | "));
+      return tap.answer?.message ?? "";
+    });
+    await s.step(`the order shipped back (in the mock): reloaded, no "Bag finished" step; bag-ready refused "… the order was shipped back already."`, async () => {
+      await mockUpdate(mockUrl, "orders", { status: "shipped_back" }, "order_number", BO_ORDER);
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" shows for a shipped-back order');
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push("the Ready to ship button shows");
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t, BO_BAG).id });
+      if (r.status !== 409 || r.body?.error !== `${BO_BAG} isn't going in the Ready to ship bin: the order was shipped back already.`) problems.push(`bag-ready HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      assert(!problems.length, problems.join(" | "));
+      return r.body?.error;
+    });
+  },
+
+  // One card done on the scan landing: back in its bag, its holder freed, the bag counts it
+  async "done-one"({ page, ctx, s, mockUrl }) {
+    const C = BO_STEP.code; // CD-2549-07
+    const REST = BO_PLAT.filter((c) => c !== C);
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CLAMP 01..07; ${C} put in CLAMP 07 (Clamp Work), so ${BO_BAG} goes in the Open bags box`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await bulkSlots(ctx, "clamp", 7);
+      const r = await assignOk(ctx, "LOC-CLAMP-07", [cardIdOf(t, C)]);
+      t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-07"), [C], "cards in CLAMP 07");
+      eq(latestStage(t, cardIdOf(t, C)), "Clamp Work", `${C} step`);
+      return `${BO_BAG} at ${bagPlaceCode(t, BO_BAG) ?? "no place"}; "${r.message}"`;
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: "3 cards" (none done yet), "Bag: Open bags box · ${BO_LETTER}"; each card ONE "Done" (named "Done: <Card ID>"); ${C} "In CLAMP 07"`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+      const top = await headText(page);
+      const problems = [];
+      if (!countShown(top, 3)) problems.push('no "3 cards"');
+      if (!UI.doneBagLine(UI.donePlace.openBags(BO_LETTER)).test(flat(top))) problems.push(`no "Bag: Open bags box · ${BO_LETTER}"`);
+      for (const code of BO_PLAT) {
+        const n = await doneButtonsIn(page, code, BO_ALL);
+        if (n !== 1) problems.push(`${code}: ${n} Done buttons`);
+      }
+      if (!UI.openWhere.holder("CLAMP 07").test(await openPanelText(page, C))) problems.push(`${C} not "In CLAMP 07"`);
+      const name = await nameOf(UI.doneCard(UI.openPanel(page, C, BO_ALL))).catch(() => "");
+      if (!new RegExp(`^done\\b.*${esc(C)}`, "i").test(name)) problems.push(`${C}'s Done is named "${name}" (want "Done: ${C}")`);
+      assert(!problems.length, `${problems.join(" | ")} (head: "${flat(top).slice(0, 240)}")`);
+      return /bag:\s*[^\n]+/i.exec(top)?.[0] ?? "";
+    });
+
+    let before = null, tap = null;
+    await s.step(`tap ${C}'s "Done": the card is done (one tap; POST done)`, async () => {
+      before = await dump();
+      tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, C, BO_ALL)), cardDone(C), { scope: UI.openPanel(page, C, BO_ALL) });
+      assert(tap.ok, `${C} isn't done after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"}; ${tap.path ?? ""} ${tap.status ?? ""})`);
+      return `${tap.path} ${tap.status} ${JSON.stringify(tap.body ?? {}).slice(0, 120)}`;
+    });
+    if (!cardByCode(await tables(), C)?.completed) {
+      await s.step(`(fallback) Done on ${C} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, C)] }); }, { shot: false });
+    }
+    await s.step(`${C} back in its bag: done, no place (not LOC-DONE), CLAMP 07 empty and freed, one 'done' row CLAMP 07 -> no place; ${REST.join(", ")} untouched; ${BO_BAG} not finished, still in ${OPEN_BAGS}; order still received; no customer email`, async () => {
+      const after = await dump();
+      const t1 = after.tables;
+      const problems = doneInBagProblems(before, after, C, "LOC-CLAMP-07");
+      if (cardsIn(t1, "LOC-CLAMP-07").length) problems.push(`CLAMP 07 holds ${cardsIn(t1, "LOC-CLAMP-07").join(", ")}`);
+      if (tap?.answer && Array.isArray(tap.answer.freed) && !freedCodes(tap.answer).includes("LOC-CLAMP-07")) problems.push(`the answer's freed: ${JSON.stringify(freedCodes(tap.answer))}`);
+      for (const code of REST) {
+        const was = cardByCode(before.tables, code), now = cardByCode(t1, code);
+        if (!!now.completed !== !!was.completed || (now.location_id ?? null) !== (was.location_id ?? null)) problems.push(`${code} changed`);
+      }
+      if (bagByCode(t1, BO_BAG).completed_at) problems.push(`${BO_BAG} finished with 2 cards to go`);
+      if (bagPlaceCode(t1, BO_BAG) !== OPEN_BAGS) problems.push(`${BO_BAG} at ${bagPlaceCode(t1, BO_BAG)}, not ${OPEN_BAGS}`);
+      const was = before.tables.orders.find((o) => o.id === IDS.mailOrder).status, now = t1.orders.find((o) => o.id === IDS.mailOrder).status;
+      if (now !== was) problems.push(`order ${was} -> ${now}`);
+      const mails = mailsTo(after.emails.slice(before.emails.length), CUSTOMER_A);
+      if (mails.length) problems.push(`customer emails: ${mails.map((m) => m.subject).join(" | ")}`);
+      assert(!problems.length, problems.slice(0, 6).join(" | "));
+      return tap?.answer?.message ?? "";
+    }, { shot: false });
+    await s.step(`the page says "Done. Put it back in ${BO_LAST}'s bag: Open bags box, under ${BO_LETTER}." (the API's message too)`, async () => {
+      const re = UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER));
+      const msg = await saidOnPage(page, re);
+      assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      if (tap?.answer?.message) assert(re.test(tap.answer.message), `the API's message: "${tap.answer.message}"`);
+      return msg;
+    });
+    await s.step(`header "1 of 3 done"; ${C} reads Done with no Done or move button; ${REST.join(", ")} keep their Done button; the same after a reload`, async () => {
+      const check = async (when) => {
+        const problems = [];
+        if (!(await textSeen(page, UI.doneCount(1, 3), 20_000))) problems.push(`${when}: no "1 of 3 done"`);
+        const txt = await openPanelText(page, C);
+        if (!UI.openWhere.done.test(txt)) problems.push(`${when}: ${C} not "Done"`);
+        const btns = await UI.openPanel(page, C, BO_ALL).getByRole("button", { name: /^(done|move)\b/i }).count();
+        if (btns) problems.push(`${when}: ${C} has ${btns} Done/move buttons`);
+        for (const code of REST) if ((await doneButtonsIn(page, code, BO_ALL)) !== 1) problems.push(`${when}: ${code} has no Done button`);
+        return problems;
+      };
+      const p = await check("before a reload");
+      await openDoneLanding(page, BO_BAG);
+      p.push(...(await check("reloaded")));
+      assert(!p.length, p.join(" | "));
+    });
+    await s.step("the same Done request again changes nothing (no row, no email, still in its bag)", async () => {
+      const path = tap?.path ?? ROUTES.trackDone;
+      const body = tap?.body ?? { cardIds: [cardIdOf(t, C)] };
+      const t0 = await dump();
+      const r = await api(ctx, "POST", path, body);
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      const t1 = await dump();
+      eq(t1.tables.card_moves.length, t0.tables.card_moves.length, "card_moves rows");
+      eq(t1.emails.length, t0.emails.length, "emails");
+      eq(cardByCode(t1.tables, C).location_id ?? null, null, `${C} place`);
+      return `${path}: "${r.body?.message ?? ""}"`;
+    }, { shot: false });
+  },
+
+  // The first card out of a bag files the BAG in the Open bags box, under the last name's first letter
+  async "done-open-bags"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CLAMP 01..02; no ${OPEN_BAGS} yet`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await bulkSlots(ctx, "clamp", 2);
+      t = await tables();
+      assert(!placeOf(t, OPEN_BAGS), `${OPEN_BAGS} exists before any card left a bag`);
+      return `${BO_BAG} at ${bagPlaceCode(t, BO_BAG) ?? "no place"}, CD-2549-G at ${bagPlaceCode(t, "CD-2549-G") ?? "no place"} (as received)`;
+    }, { critical: true, shot: false });
+    let first = null;
+    await s.step(`${ROUTES.open(BO_BAG)}: CD-2549-08's "Move to my desk": the card at ${DESK}; its bag ${BO_BAG} in ${OPEN_BAGS} (made: kind other, "OPEN BAGS"); CD-2549-G where it was`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      const before = await tables();
+      first = await openTapMove(page, UI.openMoveOne(UI.openPanel(page, "CD-2549-08", BO_ALL)), allAt(["CD-2549-08"], DESK));
+      assert(first.ok, `CD-2549-08 isn't at ${DESK} after 2 minutes (POSTs: ${first.posts.join(", ") || "none"})`);
+      const t1 = await tables();
+      const boxes = t1.locations.filter((l) => l.code === OPEN_BAGS);
+      eq(boxes.length, 1, `${OPEN_BAGS} places`);
+      eq([boxes[0].kind, boxes[0].active], ["other", true], `${OPEN_BAGS} kind, active`);
+      assert(/^open bags$/i.test(boxes[0].name), `${OPEN_BAGS} is named "${boxes[0].name}"`);
+      eq(bagPlaceCode(t1, BO_BAG), OPEN_BAGS, `${BO_BAG} place`);
+      eq(bagPlaceCode(t1, "CD-2549-G"), bagPlaceCode(before, "CD-2549-G"), "CD-2549-G place (none of its cards came out)");
+      return `${first.path} ${first.status}; ${BO_BAG} located_at ${bagByCode(t1, BO_BAG).located_at ?? "(not set)"}`;
+    });
+    await s.step(`the page says "Put the bag in the Open bags box, under ${BO_LETTER}."`, async () => {
+      const msg = await saidOnPage(page, UI.putBagInOpenBags(BO_LETTER));
+      assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      return msg;
+    });
+    await s.step(`CD-2549-09's "Move to my desk" too: ${BO_BAG} stays in ${OPEN_BAGS}, still one ${OPEN_BAGS} place`, async () => {
+      const tap = await openTapMove(page, UI.openMoveOne(UI.openPanel(page, "CD-2549-09", BO_ALL)), allAt(["CD-2549-09"], DESK));
+      assert(tap.ok, `CD-2549-09 isn't at ${DESK} (POSTs: ${tap.posts.join(", ") || "none"})`);
+      const t1 = await tables();
+      eq(bagPlaceCode(t1, BO_BAG), OPEN_BAGS, `${BO_BAG} place`);
+      eq(t1.locations.filter((l) => l.code === OPEN_BAGS).length, 1, `${OPEN_BAGS} places`);
+    }, { shot: false });
+    await s.step(`a holder (API): CD-2549-01 into CLAMP 01: CD-2549-G in ${OPEN_BAGS}; the answer's bags[] names it (opened, letter ${BO_LETTER}) and its message says "Put the bag in the Open bags box, under ${BO_LETTER}."`, async () => {
+      const r = await assignOk(ctx, "LOC-CLAMP-01", [cardIdOf(t, "CD-2549-01")]);
+      eq(bagPlaceCode(await tables(), "CD-2549-G"), OPEN_BAGS, "CD-2549-G place");
+      const bag = (r.bags ?? []).find((b) => b.code === "CD-2549-G");
+      const problems = [];
+      if (!bag) problems.push(`no CD-2549-G in bags ${JSON.stringify(r.bags ?? null).slice(0, 160)}`);
+      else {
+        if (bag.opened !== true) problems.push(`opened ${bag.opened}`);
+        if (bag.letter !== BO_LETTER) problems.push(`letter ${bag.letter}`);
+        if (bag.location?.code !== OPEN_BAGS) problems.push(`location ${bag.location?.code}`);
+      }
+      if (!UI.putBagInOpenBags(BO_LETTER).test(r.message ?? "")) problems.push(`message "${r.message}"`);
+      assert(!problems.length, problems.join(" | "));
+      return r.message;
+    }, { shot: false });
+    await s.step(`resolve ${BO_BAG} and CD-2549-G: location ${OPEN_BAGS}; reloaded, the scan landing says "Bag: Open bags box · ${BO_LETTER}"`, async () => {
+      for (const code of [BO_BAG, "CD-2549-G"]) eq((await resolveVia(ctx, code, "bag")).location?.code ?? null, OPEN_BAGS, `${code} location`);
+      await openDoneLanding(page, BO_BAG);
+      const top = flat(await headText(page));
+      assert(UI.doneBagLine(UI.donePlace.openBags(BO_LETTER)).test(top), `no "Bag: Open bags box · ${BO_LETTER}": "${top.slice(0, 240)}"`);
+    });
+    await s.step(`the Bags board: the rows of ${BO_BAG} and CD-2549-G say "Open bags · ${BO_LETTER}"`, async () => {
+      await goto(page, ROUTES.bags);
+      const problems = [];
+      for (const code of [BO_BAG, "CD-2549-G"]) {
+        const row = UI.boardRow(page, code);
+        const txt = (await row.count()) ? flat(await row.first().innerText()) : "";
+        if (!UI.donePlace.openBags(BO_LETTER).test(txt)) problems.push(`${code}'s row: "${txt.slice(0, 160)}"`);
+      }
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step(`the done order ${DN} (${DONE_CUSTOMER.name}): ${ROUTES.open(DONE_P)} "Move all 2 cards to my desk": ${DONE_P} in ${OPEN_BAGS} under ${DONE_CUSTOMER.letter}; the page says "2 cards are on your desk" and "Put the bag in the Open bags box, under ${DONE_CUSTOMER.letter}."`, async () => {
+      await seedDone();
+      await receiveViaApi(ctx, DONE_ORDER, DONE_IDS.doneCards.slice(0, 4), "2026-11-20");
+      await openDoneLanding(page, DONE_P);
+      const tap = await openTapMove(page, UI.openMoveAll(page), allAt(DONE_CODES.slice(0, 2), DESK));
+      assert(tap.ok, `the 2 aren't at ${DESK} (POSTs: ${tap.posts.join(", ") || "none"})`);
+      eq(bagPlaceCode(await tables(), DONE_P), OPEN_BAGS, `${DONE_P} place`);
+      const moved = await saidOnPage(page, UI.openMoved(2));
+      const msg = await saidOnPage(page, UI.putBagInOpenBags(DONE_CUSTOMER.letter));
+      assert(moved && msg, `the page says: "${flat(await mainText(page)).slice(0, 300)}"`);
+      return msg;
+    });
+    await s.step(`the bag labels carry the filing letter: ${BO_BAG} "${BO_LETTER}", ${DONE_P} "${DONE_CUSTOMER.letter}" (a text of its own; its size and the name's reported)`, async () => {
+      const t1 = await tables();
+      const out = [];
+      for (const [code, letter, name] of [[BO_BAG, BO_LETTER, BO_CUSTOMER], [DONE_P, DONE_CUSTOMER.letter, DONE_CUSTOMER.name]]) {
+        const body = await labelJson(ctx, ROUTES.bagLabel(bagByCode(t1, code).id, "?format=json"));
+        const p = body.bags?.[0]?.labels?.[0];
+        assert(isLabelPage(p), `${code}: no label page in ${JSON.stringify(body).slice(0, 160)}`);
+        const all = texts(p);
+        const mark = all.filter((e) => String(e.text).trim() === letter);
+        assert(mark.length >= 1, `${code}: no "${letter}" on its label (texts: ${all.map((e) => e.text).join(" | ").slice(0, 200)})`);
+        // the name as printed (upper case, maybe over two lines), not the letter
+        const isName = (e) => { const x = norm(e.text); return x.length > 1 && norm(name).includes(x); };
+        const nameSize = Math.max(0, ...all.filter(isName).map((e) => e.size));
+        out.push(`${code}: "${letter}" ${Math.max(...mark.map((e) => e.size)).toFixed(0)} pt, name ${nameSize.toFixed(0)} pt`);
+      }
+      return out.join("; ");
+    }, { shot: false });
+  },
+
+  // The bag's last card done: "Bag finished: put it in the Ready to ship bin", one tap puts the bag at LOC-SHIP
+  async "done-bag-finished"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const LAST = "CD-2549-09";
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CD-2549-07 + -08 done (POST done: back in the bag, no place); ${LAST} on ${DESK} (${BO_BAG} -> ${OPEN_BAGS})`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: ["CD-2549-07", "CD-2549-08"].map((c) => cardIdOf(t, c)) });
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, LAST)]);
+      t = await tables();
+      for (const code of ["CD-2549-07", "CD-2549-08"]) eq([cardByCode(t, code).completed, cardByCode(t, code).location_id ?? null], [true, null], `${code} done, no place (in its bag)`);
+      eq(bagPlaceCode(t, BO_BAG), OPEN_BAGS, `${BO_BAG} place`);
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: "2 of 3 done"; ${LAST} "On your desk" with "Done"; no "Bag finished" yet`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (!(await textSeen(page, UI.doneCount(2, 3), 15_000))) problems.push('no "2 of 3 done"');
+      if (!UI.openWhere.desk.test(await openPanelText(page, LAST))) problems.push(`${LAST} not "On your desk"`);
+      if ((await doneButtonsIn(page, LAST, BO_ALL)) !== 1) problems.push(`${LAST}: no Done button`);
+      if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" already shows');
+      assert(!problems.length, problems.join(" | "));
+    });
+    let before = null;
+    await s.step(`tap ${LAST}'s "Done": done, back in its bag (off ${DESK}); ${BO_BAG} finished (completed_at) but NOT moved yet (still ${OPEN_BAGS}); order not completed (Gold bag open); no customer email`, async () => {
+      before = await dump();
+      let tap;
+      try {
+        tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, LAST, BO_ALL)), cardDone(LAST), { scope: UI.openPanel(page, LAST, BO_ALL) });
+      } catch (e) {
+        tap = { ok: false, posts: [`(the tap failed: ${String(e?.message ?? e).split("\n")[0].slice(0, 120)})`], answer: null };
+      }
+      if (!tap.ok) await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LAST)] });
+      const after = await dump();
+      const problems = doneInBagProblems(before, after, LAST, DESK);
+      if (!tap.ok) problems.unshift(`the tap didn't mark it done (POSTs: ${tap.posts.join(", ") || "none"}; done through the API instead)`);
+      const bag = bagByCode(after.tables, BO_BAG);
+      if (!bag.completed_at) problems.push(`${BO_BAG} not finished`);
+      if (bagPlaceCode(after.tables, BO_BAG) !== OPEN_BAGS) problems.push(`${BO_BAG} at ${bagPlaceCode(after.tables, BO_BAG)} before the Ready to ship tap`);
+      if (DONE_STATUSES_E2E.includes(after.tables.orders.find((o) => o.id === IDS.mailOrder).status)) problems.push("the order was completed");
+      if (mailsTo(after.emails.slice(before.emails.length), CUSTOMER_A).length) problems.push("a customer email went out");
+      if (tap.answer && !(tap.answer.bags ?? []).some((b) => b.code === BO_BAG && b.finished)) problems.push(`the answer's bags[] doesn't say ${BO_BAG} finished: ${JSON.stringify(tap.answer.bags ?? null).slice(0, 160)}`);
+      assert(!problems.length, problems.join(" | "));
+      return tap.answer?.message ?? "";
+    });
+    await s.step(`ONE big step: "Bag finished: put it in the Ready to ship bin" (sub line "${BO_BAG} · 3 of 3 done") with ONE "It's in the Ready to ship bin" (44+ px)`, async () => {
+      const msg = await saidOnPage(page, UI.bagFinished, 20_000);
+      assert(msg, `no "Bag finished: put it in the Ready to ship bin" (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      const btn = page.getByRole("button", { name: UI.readyToShipRe });
+      assert(await until(async () => (await btn.count()) === 1, 15_000), `${await btn.count()} "It's in the Ready to ship bin" buttons`);
+      const box = await btn.first().boundingBox();
+      assert(box && box.height >= 44, `the button is ${box ? Math.round(box.height) : "not"} px tall`);
+      const text = flat(await mainText(page));
+      assert(new RegExp(`${esc(BO_BAG)}\\s*·\\s*3 of 3 done`, "i").test(text) || UI.doneCount(3, 3).test(text), `no "${BO_BAG} · 3 of 3 done"`);
+      return msg;
+    });
+    let ready = null;
+    await s.step(`tap "It's in the Ready to ship bin": ${BO_BAG} at ${SHIP_PLACE} (POST bag-ready); its cards still in it (no place); the page says "In the Ready to ship bin"`, async () => {
+      const b0 = await dump();
+      ready = await tapAndLand(page, page.getByRole("button", { name: UI.readyToShipRe }).first(), async () => bagPlaceCode(await tables(), BO_BAG) === SHIP_PLACE);
+      assert(ready.ok, `the tap didn't put it at ${SHIP_PLACE} (POSTs: ${ready.posts.join(", ") || "none"}; ${ready.path ?? ""} ${ready.status ?? ""} ${JSON.stringify(ready.answer ?? null).slice(0, 160)})`);
+      const t1 = await tables();
+      for (const code of BO_PLAT) eq(cardByCode(t1, code).location_id ?? null, null, `${code} place (in its bag)`);
+      eq(mailsTo((await emails()).slice(b0.emails.length), CUSTOMER_A).length, 0, "customer emails");
+      const after = await saidOnPage(page, UI.inShipBin, 20_000);
+      assert(after, `no "In the Ready to ship bin" (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      return `${ready.path} ${ready.status}: "${ready.answer?.message ?? ""}"`;
+    });
+    if (bagPlaceCode(await tables(), BO_BAG) !== SHIP_PLACE) {
+      await s.step(`(fallback) POST bag-ready for ${BO_BAG}`, async () => {
+        const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(await tables(), BO_BAG).id });
+        assert(r.status === 200 && bagPlaceCode(await tables(), BO_BAG) === SHIP_PLACE, `HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+        return r.body?.message ?? "";
+      }, { critical: true, shot: false });
+    }
+    await s.step("tapping it again / the same request again changes nothing (changed false)", async () => {
+      const b0 = await dump();
+      const r = await api(ctx, "POST", ready?.path ?? ROUTES.trackBagReady, ready?.body ?? { bagId: bagByCode(b0.tables, BO_BAG).id });
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      if ("changed" in (r.body ?? {})) eq(r.body.changed, false, "changed");
+      const b1 = await dump();
+      eq(bagPlaceCode(b1.tables, BO_BAG), SHIP_PLACE, `${BO_BAG} place`);
+      eq(b1.emails.length, b0.emails.length, "emails");
+      return r.body?.message ?? "";
+    }, { shot: false });
+    await s.step(`reloaded: "3 of 3 done", "Bag: Ready to ship", no Done buttons, no "It's in the Ready to ship bin" button`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (!(await textSeen(page, UI.doneCount(3, 3), 15_000))) problems.push('no "3 of 3 done"');
+      if (!UI.doneBagLine(UI.donePlace.ship).test(flat(await headText(page)))) problems.push('no "Bag: Ready to ship"');
+      const dones = await page.locator("main").first().getByRole("button", { name: /^done\b/i }).count();
+      if (dones) problems.push(`${dones} Done buttons`);
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push('the "It\'s in the Ready to ship bin" button is back');
+      assert(!problems.length, `${problems.join(" | ")} ("${flat(await headText(page)).slice(0, 200)}")`);
+    });
+    await s.step(`POST bag-ready for CD-2549-G (cards not done): refused "Not every card in CD-2549-G is done yet (0 of 4 done).", the bag stays put`, async () => {
+      const t1 = await tables();
+      const was = bagPlaceCode(t1, "CD-2549-G");
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t1, "CD-2549-G").id });
+      assert(r.status >= 400 && r.status < 500, `HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      assert(/not every card in CD-2549-G is done yet \(0 of 4 done\)/i.test(r.body?.error ?? ""), `error "${r.body?.error}"`);
+      eq(bagPlaceCode(await tables(), "CD-2549-G"), was, "CD-2549-G place");
+      return `HTTP ${r.status}: ${r.body?.error}`;
+    }, { shot: false });
+    await s.step(`the Bags board says ${BO_BAG} is "Ready to ship" (its own row, or CD-2549-G's list of the order's other bags: "${BO_BAG} … (done · Ready to ship)"); CD-2549-G's row "0 of 4 done"; ship check of ${BO_BAG}: ready`, async () => {
+      await goto(page, ROUTES.bags);
+      const problems = [];
+      const rowG = UI.boardRow(page, "CD-2549-G");
+      const g = (await rowG.count()) ? flat(await rowG.first().innerText()) : "";
+      if (!g) problems.push("no row for CD-2549-G");
+      else if (!UI.doneCount(0, 4).test(g)) problems.push(`CD-2549-G's row: "${g.slice(0, 160)}"`);
+      const rowP = UI.boardRow(page, BO_BAG);
+      const p = (await rowP.count()) ? flat(await rowP.first().innerText()) : "";
+      const own = !!p && UI.donePlace.ship.test(p);
+      const listed = new RegExp(`${esc(BO_BAG)}[^()]*\\(done · ready to ship\\)`, "i").test(g);
+      if (!own && !listed) problems.push(`"Ready to ship" for ${BO_BAG} neither in its own row ("${p.slice(0, 100)}") nor in CD-2549-G's ("${g.slice(0, 160)}")`);
+      const chk = await shipCheckVia(ctx, BO_BAG);
+      if (chk.ready !== true) problems.push(`ship check ready ${chk.ready}`);
+      // Finished bags waiting to ship: their own section, the bag's row saying it's in the bin
+      const ready = UI.readyRow(page, BO_BAG);
+      const r = (await ready.count()) ? flat(await ready.first().innerText()) : "";
+      if (!r) problems.push(`${BO_BAG} not under "Ready to ship"`);
+      else if (!UI.inShipBin.test(r)) problems.push(`${BO_BAG}'s Ready to ship row: "${r.slice(0, 160)}"`);
+      if (await UI.readyRow(page, "CD-2549-G").count()) problems.push('CD-2549-G (0 of 4 done) under "Ready to ship"');
+      const href = (await ready.count()) ? await ready.first().getByRole("link", { name: `Open bag ${BO_BAG}`, exact: true }).getAttribute("href") : null;
+      if (r && href !== ROUTES.open(BO_BAG)) problems.push(`its "Open bag" goes to ${href}, not the scan landing`);
+      assert(!problems.length, problems.join(" | "));
+      const w = await phoneShot(browser, appUrl, ROUTES.bags, "done-bag-finished-board");
+      assert(!w, w);
+      return own ? `${BO_BAG}'s own row: "${p.slice(0, 80)}"` : `in CD-2549-G's row: "${g.slice(0, 120)}"`;
+    });
+  },
+
+  // The order's last card done on the scan landing ("Mark all N done"): Completed, ONE email, the held notes
+  async "done-order-complete"({ page, ctx, s, mockUrl }) {
+    const LEFT = DONE_CODES.slice(2, 4); // CD-2700-03, -04
+    let t = null;
+    await s.step(`setup: ${DN} (${DONE_CUSTOMER.name}) received (bags ${DONE_P}: 01-02, ${DONE_G}: 03-05), ${DONE_REFUNDED} refunded; ${DONE_P}'s 01 + 02 done (POST done): the order NOT completed, no Completed email`, async () => {
+      const b0 = await dump();
+      t = await doneOrderSetup(ctx, mockUrl);
+      const b1 = await dump();
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: DONE_CODES.slice(0, 2).map((c) => cardIdOf(t, c)) });
+      const after = await dump();
+      t = after.tables;
+      eq(doneOrderOf(t).status, "received", `${DN} status`);
+      eq(completedMails(after.emails.slice(b1.emails.length), DONE_CUSTOMER.email).length, 0, "Completed emails");
+      return `${mailsTo(after.emails.slice(b0.emails.length), DONE_CUSTOMER.email).map((m) => m.subject).join(" | ")}`;
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(DONE_G)}: "2 cards" (refunded not counted); ${DONE_REFUNDED} "Refunded" without a Done button; ONE "Mark all 2 done"`, async () => {
+      await openDoneLanding(page, DONE_G);
+      const problems = [];
+      eq(await openPanelsShown(page, DONE_CODES), DONE_CODES.slice(2), "cards with a panel");
+      if (!countShown(await headText(page), 2)) problems.push('no "2 cards"');
+      if (!UI.openWhere.refunded.test(await openPanelText(page, DONE_REFUNDED, DONE_CODES))) problems.push(`${DONE_REFUNDED} not "Refunded"`);
+      if (await doneButtonsIn(page, DONE_REFUNDED, DONE_CODES)) problems.push(`${DONE_REFUNDED} has a Done button`);
+      const all = page.getByRole("button", { name: UI.doneAllRe });
+      if ((await all.count()) !== 1) problems.push(`${await all.count()} "Mark all" buttons`);
+      else if (!/^mark all 2 done$/i.test(await nameOf(all.first()))) problems.push(`it reads "${await nameOf(all.first())}"`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    let before = null, tap = null;
+    await s.step(`tap "Mark all 2 done" (confirm "Mark all 2 cards done?" -> "Yes, mark 2 done"): 03 and 04 done, back in their bag`, async () => {
+      before = await dump();
+      tap = await tapAndLand(page, UI.doneAll(page), async () => { const t1 = await tables(); return LEFT.every((c) => cardByCode(t1, c)?.completed); });
+      assert(tap.ok, `not both done after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"})`);
+      if (Array.isArray(tap.body?.cardIds)) eq(sorted(tap.body.cardIds), sorted(LEFT.map((c) => cardIdOf(t, c))), "cardIds sent (03, 04: not the refunded 05)");
+      const after = await dump();
+      const problems = LEFT.flatMap((c) => doneInBagProblems(before, after, c, null));
+      assert(!problems.length, problems.join(" | "));
+      return `${tap.path} ${tap.status}`;
+    });
+    if (!(await tables()).cards.filter((c) => LEFT.includes(c.card_code)).every((c) => c.completed)) {
+      await s.step("(fallback) 03 and 04 done through the API", async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: LEFT.map((c) => cardIdOf(t, c)) }); }, { shot: false });
+    }
+    await s.step(`the order is Completed: ONE "Completed" email to ${DONE_CUSTOMER.email} and ONE notes email (held notes), one "${COMPLETED_EVENT}" event; ${DONE_REFUNDED} (refunded) still not done`, async () => {
+      const after = await dump();
+      const r = checkOrderCompleted(before, after);
+      const five = cardByCode(after.tables, DONE_REFUNDED);
+      eq([five.status, !!five.completed], ["refunded", false], `${DONE_REFUNDED} status, done`);
+      return r;
+    }, { shot: false });
+    await s.step(`the page says "${DONE_G} … Bag finished: put it in the Ready to ship bin" and the order's line ("Order completed. ${DONE_CUSTOMER.name} emailed.")`, async () => {
+      const finished = await saidOnPage(page, UI.bagFinished);
+      const done = await saidOnPage(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 5_000);
+      assert(finished, `no "Bag finished: put it in the Ready to ship bin" (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      assert(done, `no "Order completed. ${DONE_CUSTOMER.name} emailed." (the page says: "${flat(await mainText(page)).slice(0, 300)}"; the answer: ${JSON.stringify(tap?.answer?.orderCompletions ?? null).slice(0, 200)})`);
+      return `${finished} | ${done}`;
+    });
+    await s.step(`the Bags board: the Completed order's bags ${DONE_P} and ${DONE_G} are off the open bags and under "Ready to ship", each "Not in the bin yet"`, async () => {
+      await goto(page, ROUTES.bags);
+      const problems = [];
+      for (const code of [DONE_P, DONE_G]) {
+        const row = UI.readyRow(page, code);
+        const txt = (await row.count()) ? flat(await row.first().innerText()) : "";
+        if (!txt) problems.push(`${code} not under "Ready to ship"`);
+        else if (!UI.notInBin.test(txt)) problems.push(`${code}'s row: "${txt.slice(0, 160)}"`);
+        if (await page.getByRole("list", { name: "Open bags" }).locator("li").filter({ has: page.getByRole("link", { name: `Open bag ${code}`, exact: true }) }).count()) problems.push(`${code} still among the open bags`);
+      }
+      assert(!problems.length, problems.join(" | "));
+      return flat(await UI.readySection(page).innerText()).slice(0, 200);
+    });
+    await s.step("the same Mark-all request again: nothing new (no email, no event)", async () => {
+      const b0 = await dump();
+      const r = await api(ctx, "POST", tap?.path ?? ROUTES.trackDone, tap?.body ?? { cardIds: LEFT.map((c) => cardIdOf(t, c)) });
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      const b1 = await dump();
+      eq(b1.emails.length, b0.emails.length, "emails");
+      eq(newRows(b0, b1, "order_events").filter((e) => e.order_id === DONE_ORDER).map((e) => e.description), [], "new order events");
+    }, { shot: false });
+    await s.step(`un-doing ${LEFT[0]} later (the order page's toggle, POST cards/<id>/complete) does NOT un-complete the order; no email`, async () => {
+      const b0 = await dump();
+      const r = await api(ctx, "POST", ROUTES.cardComplete(cardIdOf(t, LEFT[0])), {});
+      eq([r.status, r.body?.completed], [200, false], "toggle answer (HTTP, completed)");
+      const b1 = await dump();
+      eq(cardByCode(b1.tables, LEFT[0]).completed, false, `${LEFT[0]} done`);
+      return `${checkOrderUnchanged(b0, b1)}; ${DONE_G} completed_at ${bagByCode(b1.tables, DONE_G).completed_at ?? "cleared (reopened)"}`;
+    }, { shot: false });
+    await s.step(`marking ${LEFT[0]} done again (POST done): still Completed, no second Completed email, no new status event`, async () => {
+      const b0 = await dump();
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LEFT[0])] });
+      const b1 = await dump();
+      eq(cardByCode(b1.tables, LEFT[0]).completed, true, `${LEFT[0]} done`);
+      return checkOrderUnchanged(b0, b1);
+    }, { shot: false });
+  },
+
+  // The order's last card done on the Desk page (order In Progress): Completed, ONE email; the back-in-its-bag sentence names REYES
+  async "done-order-complete-desk"({ page, ctx, s, mockUrl }) {
+    const LAST = DONE_CODES[3];
+    let t = null;
+    await s.step(`setup: ${DN} received, ${DONE_REFUNDED} refunded, the order In Progress (in the mock); 01-03 done; ${LAST} on ${DESK} (${DONE_G} -> ${OPEN_BAGS})`, async () => {
+      t = await doneOrderSetup(ctx, mockUrl, { status: "in_progress", done: DONE_CODES.slice(0, 3) });
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, LAST)]);
+      t = await tables();
+      eq(doneOrderOf(t).status, "in_progress", `${DN} status`);
+      eq(bagPlaceCode(t, DONE_G), OPEN_BAGS, `${DONE_G} place`);
+    }, { critical: true, shot: false });
+    await s.step(`the Desk page (?desk=${DESK}): ${LAST}'s panel`, async () => {
+      await goto(page, ROUTES.deskAt(DESK));
+      eq(await waitPanels(page, [LAST], DONE_CODES), [LAST], "cards with a panel");
+    });
+    let before = null;
+    await s.step(`${LAST}: "Done" (its "Mark it done? Then put it back in its bag." answered): done, back in its bag (off the desk)`, async () => {
+      before = await dump();
+      const panel = UI.deskPanel(page, LAST, DONE_CODES);
+      await tapToSave(page, UI.deskDone(panel), panel);
+      await until(cardDone(LAST), 15_000);
+      const problems = doneInBagProblems(before, await dump(), LAST, DESK);
+      assert(!problems.length, problems.join(" | "));
+    });
+    if (!cardByCode(await tables(), LAST)?.completed) {
+      await s.step(`(fallback) Done on ${LAST} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LAST)] }); }, { shot: false });
+    }
+    await s.step(`the order (In Progress) is Completed: ONE Completed email, ONE notes email, one status event`, async () => checkOrderCompleted(before, await dump()), { shot: false });
+    await s.step(`the Desk says "Done. Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}.", "Bag finished: put it in the Ready to ship bin." with "Open REYES's bag", and "Order completed. ${DONE_CUSTOMER.name} emailed."; ${LAST}'s panel is gone`, async () => {
+      const sentence = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)));
+      const finished = await saidOnPage(page, UI.bagFinished, 5_000);
+      const ordered = await saidOnPage(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 5_000);
+      const problems = [];
+      if (!sentence) problems.push(`no "Done. Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag: Open bags box, under ${DONE_CUSTOMER.letter}."`);
+      if (!finished) problems.push('no "Bag finished: put it in the Ready to ship bin."');
+      if (!ordered) problems.push(`no "Order completed. ${DONE_CUSTOMER.name} emailed."`);
+      const link = page.getByRole("link", { name: new RegExp(`^open ${esc(DONE_CUSTOMER.lastName)}['’]s bag$`, "i") }).first();
+      if (!(await link.count())) problems.push(`no "Open ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag" link`);
+      else {
+        const href = new URL(await link.getAttribute("href"), "http://x");
+        if (decodeURIComponent(href.pathname).toUpperCase() !== ROUTES.open(DONE_G).toUpperCase()) problems.push(`the link goes to ${href.pathname}`);
+      }
+      if (await UI.deskPanel(page, LAST, DONE_CODES).count()) problems.push(`${LAST}'s panel is still there`);
+      assert(!problems.length, `${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      return sentence;
+    });
+  },
+
+  // The order's last card done with the card page's step picker "Done": Completed, ONE email
+  async "done-order-complete-card-page"({ page, ctx, s, mockUrl }) {
+    const LAST = DONE_CODES[3];
+    let t = null, before = null;
+    await s.step(`setup: ${DN} received, ${DONE_REFUNDED} refunded; 01-03 done`, async () => {
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 3) });
+    }, { critical: true, shot: false });
+    await s.step(`${LAST}'s card page: the step picker's "Done" (POST /api/admin/intake/stages): done; the line "Marked done. Put it back in REYES's bag…"`, async () => {
+      await goto(page, ROUTES.card(cardIdOf(t, LAST)));
+      before = await dump();
+      const res = await clickForApi(page, UI.markDone(page), "/api/admin/intake/stages");
+      assert(res.status() < 300, `stages answered ${res.status()}: ${await res.text()}`);
+      assert(cardByCode(await tables(), LAST).completed, `${LAST} not done`);
+      const body = await res.json().catch(() => null);
+      const line = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, "", "marked done"), 10_000);
+      return `${line ?? "(no \"Marked done. Put it back in …\" line)"}; orderCompletion ${JSON.stringify(body?.orderCompletion ?? null).slice(0, 160)}`;
+    });
+    if (!cardByCode(await tables(), LAST)?.completed) {
+      await s.step(`(fallback) ${LAST} done through the stages API`, async () => {
+        before = before ?? (await dump());
+        const r = await api(ctx, "POST", ROUTES.stagesApi, { orderId: DONE_ORDER, cardIds: [cardIdOf(t, LAST)], toStage: "done", fromStages: { [cardIdOf(t, LAST)]: null } });
+        assert(r.status < 300, `stages: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      }, { shot: false });
+    }
+    await s.step("the order is Completed: ONE Completed email, ONE notes email, one status event", async () => checkOrderCompleted(before, await dump()), { shot: false });
+  },
+
+  // The order's last card done with the order page's Done toggle ("Mark Done"): Completed, ONE email
+  async "done-order-complete-admin"({ page, ctx, s, mockUrl }) {
+    const LAST = DONE_CODES[3];
+    const NAME = DONE_CARD_NAMES[3];
+    let t = null, before = null;
+    await s.step(`setup: ${DN} received, ${DONE_REFUNDED} refunded; 01-03 done; ${LAST} on ${DESK} (${DONE_G} -> ${OPEN_BAGS})`, async () => {
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 3) });
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, LAST)]);
+      t = await tables();
+      eq(cardByCode(t, LAST).location_id, placeOf(t, DESK).id, `${LAST} place`);
+    }, { critical: true, shot: false });
+    // The order page's toggle ends like every Done: the card back in its bag (off the desk), where the bag is said
+    const putBack = new RegExp(`put it back in ${esc(DONE_CUSTOMER.lastName.toUpperCase())}['’]s bag: ${UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)}`, "i");
+    await s.step(`the order page: "${NAME}"'s "Mark Done" (POST cards/<id>/complete): done, back in its bag (off ${DESK}, one 'done' row); the toggle says "Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}." and "Order completed. ${DONE_CUSTOMER.name} emailed."`, async () => {
+      await goto(page, ROUTES.order(DONE_ORDER));
+      before = await dump();
+      const toggle = UI.cardRow(page, NAME, page.getByRole("button", { name: /^mark done$/i })).getByRole("button", { name: /^mark done$/i }).first();
+      const res = await clickForApi(page, toggle, `/api/admin/cards/${cardIdOf(t, LAST)}/complete`);
+      assert(res.status() < 300, `complete answered ${res.status()}: ${await res.text()}`);
+      const body = await res.json().catch(() => null);
+      eq(body?.completed, true, "completed");
+      eq(body?.orderCompletion?.completed, true, "orderCompletion.completed");
+      const problems = doneInBagProblems(before, await dump(), LAST, DESK);
+      if (!(body?.bagPlaces ?? []).some((b) => b.code === DONE_G && b.finished && b.returned === 1)) problems.push(`bagPlaces: ${JSON.stringify(body?.bagPlaces ?? null).slice(0, 200)}`);
+      const back = await messageSeen(page, putBack, 10_000);
+      if (!back) problems.push(`no "Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag: Open bags box, under ${DONE_CUSTOMER.letter}."`);
+      const note = await messageSeen(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 10_000);
+      if (!note) problems.push(`no "Order completed. ${DONE_CUSTOMER.name} emailed." (the answer: ${JSON.stringify(body?.orderCompletion ?? null).slice(0, 200)})`);
+      assert(!problems.length, problems.join(" | "));
+      return `${back} | ${note}`;
+    });
+    if (!cardByCode(await tables(), LAST)?.completed) {
+      await s.step(`(fallback) ${LAST} done through POST cards/<id>/complete`, async () => {
+        before = before ?? (await dump());
+        const r = await api(ctx, "POST", ROUTES.cardComplete(cardIdOf(t, LAST)), {});
+        eq([r.status, r.body?.completed], [200, true], "toggle answer");
+      }, { shot: false });
+    }
+    await s.step("the order is Completed: ONE Completed email, ONE notes email, one status event", async () => checkOrderCompleted(before, await dump()), { shot: false });
+    await s.step(`the order page shows Completed; un-doing ${LAST} there (toggle again) keeps it Completed, no email`, async () => {
+      const b0 = await dump();
+      const r = await api(ctx, "POST", ROUTES.cardComplete(cardIdOf(t, LAST)), {});
+      eq([r.status, r.body?.completed], [200, false], "toggle answer");
+      eq(r.body?.orderCompletion, undefined, "orderCompletion on un-doing");
+      const out = checkOrderUnchanged(b0, await dump());
+      await goto(page, ROUTES.order(DONE_ORDER));
+      assert(/\bcompleted\b/i.test(await page.locator("main").first().innerText()), 'the order page doesn\'t say "Completed"');
+      return out;
+    }, { shot: false });
+  },
+
+  // Two Done requests at once: still ONE Completed email (the conditional status change)
+  async "done-order-complete-race"({ page, ctx, s, mockUrl }) {
+    const ids = (t, codes) => codes.map((c) => cardIdOf(t, c));
+    let t = null;
+    await s.step(`setup: ${DN} received, ${DONE_REFUNDED} refunded; 01-03 done`, async () => {
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 3) });
+    }, { critical: true, shot: false });
+    await s.step(`the last card (${DONE_CODES[3]}) in two POST done requests at once: both 200; ONE Completed email, ONE notes email, one status event`, async () => {
+      const before = await dump();
+      const rs = await Promise.all([0, 1].map(() => api(ctx, "POST", ROUTES.trackDone, { cardIds: ids(t, [DONE_CODES[3]]) })));
+      eq(rs.map((r) => r.status), [200, 200], "HTTP");
+      return checkOrderCompleted(before, await dump());
+    }, { shot: false });
+    await s.step(`fresh seed; 01-02 done; the last two (03, 04) in two requests at once, one card each: ONE Completed email`, async () => {
+      await reset();
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 2) });
+      const before = await dump();
+      const rs = await Promise.all([DONE_CODES[2], DONE_CODES[3]].map((c) => api(ctx, "POST", ROUTES.trackDone, { cardIds: ids(t, [c]) })));
+      eq(rs.map((r) => r.status), [200, 200], "HTTP");
+      return checkOrderCompleted(before, await dump());
+    }, { shot: false });
+    await s.step(`fresh seed; 01-02 done; the scan landing's Done on 03 and on 04 tapped back to back: ONE Completed email`, async () => {
+      await reset();
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 2) });
+      await openDoneLanding(page, DONE_G);
+      const before = await dump();
+      const a = UI.doneCard(UI.openPanel(page, DONE_CODES[2], DONE_CODES));
+      const b = UI.doneCard(UI.openPanel(page, DONE_CODES[3], DONE_CODES));
+      await Promise.all([a.click(), b.click()]);
+      const landed = async () => { const t1 = await tables(); return DONE_CODES.slice(2, 4).every((c) => cardByCode(t1, c)?.completed); };
+      if (!(await until(landed, 120_000, 500))) await trackOk(ctx, ROUTES.trackDone, { cardIds: ids(t, DONE_CODES.slice(2, 4)) });
+      await sleep(2_000);
+      return checkOrderCompleted(before, await dump());
+    });
+    await s.step(`fresh seed; 01-03 done; the scan landing's Done on ${DONE_CODES[3]} double-tapped: ONE Completed email`, async () => {
+      await reset();
+      t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 3) });
+      await openDoneLanding(page, DONE_G);
+      const before = await dump();
+      await UI.doneCard(UI.openPanel(page, DONE_CODES[3], DONE_CODES)).click({ clickCount: 2 });
+      if (!(await until(cardDone(DONE_CODES[3]), 120_000, 500))) await trackOk(ctx, ROUTES.trackDone, { cardIds: ids(t, [DONE_CODES[3]]) });
+      await sleep(2_000);
+      return checkOrderCompleted(before, await dump());
+    });
+  },
+
+  // Never for a cancelled or refunded order; refunded cards don't count
+  async "done-order-complete-not-allowed"({ ctx, s, mockUrl }) {
+    const last = (t) => [cardIdOf(t, DONE_CODES[3])];
+    for (const [what, opts, why] of [
+      ["cancelled", { status: "cancelled" }, /cancelled/i],
+      ["refunded (payment_status refunded)", { payment: "refunded" }, /isn.t paid|not paid/i],
+    ]) {
+      await s.step(`a ${what} order: the last card done (POST done) -> the order stays as it was, no status event, no customer email; the answer says why`, async () => {
+        await reset();
+        const t = await doneOrderSetup(ctx, mockUrl, { ...opts, done: DONE_CODES.slice(0, 3) });
+        const before = await dump();
+        const r = await api(ctx, "POST", ROUTES.trackDone, { cardIds: last(t) });
+        const after = await dump();
+        const out = checkOrderUnchanged(before, after);
+        const said = JSON.stringify(r.body?.orderCompletions ?? r.body ?? null);
+        return `HTTP ${r.status}; ${out}; ${why.test(said) ? "the answer says why" : `the answer: ${said.slice(0, 160)}`}`;
+      }, { shot: false });
+    }
+    await s.step("04 refunded too (05 already is): 01-02 done, then 03 (POST done) completes the order (refunded cards don't count)", async () => {
+      await reset();
+      const t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 2) });
+      await mockUpdate(mockUrl, "cards", { status: "refunded" }, "card_code", DONE_CODES[3]);
+      const before = await dump();
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, DONE_CODES[2])] });
+      return checkOrderCompleted(before, await dump());
+    }, { shot: false });
+  },
+
+  // The Desk page's Done: back in its bag with the same sentence as the scan landing
+  async "done-desk"({ page, ctx, s, mockUrl }) {
+    const C = "CD-2549-07";
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CD-2549-07 + -08 on ${DESK} (API): ${BO_BAG} -> ${OPEN_BAGS}`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, ["CD-2549-07", "CD-2549-08"].map((c) => cardIdOf(t, c)));
+      t = await tables();
+      eq(cardsIn(t, DESK), ["CD-2549-07", "CD-2549-08"], `cards at ${DESK}`);
+      eq(bagPlaceCode(t, BO_BAG), OPEN_BAGS, `${BO_BAG} place`);
+    }, { critical: true, shot: false });
+    await s.step("the Desk page: 2 panels", async () => {
+      await goto(page, ROUTES.deskAt(DESK));
+      eq(await waitPanels(page, ["CD-2549-07", "CD-2549-08"], BO_ALL), ["CD-2549-07", "CD-2549-08"], "cards with a panel");
+    });
+    let before = null;
+    await s.step(`${C}: "Done" (the confirm answered): done, back in its bag (no place: not LOC-DONE, not the desk); one 'done' row from the desk; no customer email; ${BO_BAG} not finished`, async () => {
+      before = await dump();
+      const panel = UI.deskPanel(page, C, BO_ALL);
+      await tapToSave(page, UI.deskDone(panel), panel);
+      await until(cardDone(C), 15_000);
+      const after = await dump();
+      const problems = doneInBagProblems(before, after, C, DESK);
+      if (mailsTo(after.emails.slice(before.emails.length), CUSTOMER_A).length) problems.push("a customer email went out");
+      if (bagByCode(after.tables, BO_BAG).completed_at) problems.push(`${BO_BAG} finished`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    if (!cardByCode(await tables(), C)?.completed) {
+      await s.step(`(fallback) Done on ${C} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, C)] }); }, { shot: false });
+    }
+    await s.step(`the Desk says "Done. Put it back in ${BO_LAST}'s bag: Open bags box, under ${BO_LETTER}." (as the scan landing); only CD-2549-08 is left`, async () => {
+      const msg = await saidOnPage(page, UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER)));
+      assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+      eq(await waitPanels(page, ["CD-2549-08"], BO_ALL), ["CD-2549-08"], "cards with a panel");
+      return msg;
+    });
+    await s.step(`reloaded: the desk lists only CD-2549-08; ${C} isn't at ${DESK} or LOC-DONE (database)`, async () => {
+      await goto(page, ROUTES.deskAt(DESK));
+      eq(await waitPanels(page, ["CD-2549-08"], BO_ALL), ["CD-2549-08"], "cards with a panel");
+      const t1 = await tables();
+      eq(cardsIn(t1, DESK), ["CD-2549-08"], `cards at ${DESK}`);
+      eq(cardsIn(t1, "LOC-DONE"), [], "cards at LOC-DONE");
+    });
+  },
+
+  // The Scan page's search (name, order number) says where each bag is
+  async "done-search"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    const SILVER = "CD-2549-S";
+    const places = {};
+    await s.step(`setup: as bag-open-qr + Silver 05-06 (${SILVER}, on its due-date shelf); CD-2549-07 on ${DESK} (${BO_BAG} -> ${OPEN_BAGS}); CD-2549-G's 01-04 done and the bag in the Ready to ship bin (POST bag-ready)`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await receiveViaApi(ctx, IDS.mailOrder, [mailCard(4), mailCard(5)], "2026-11-15");
+      t = await tables();
+      const silver = bagByCode(t, SILVER);
+      assert(silver, `no ${SILVER}`);
+      let shelfHow = "put there on receipt";
+      if (!silver.location_id) {
+        const slot = placeOf(t, shelfCode(silver.due_date));
+        assert(slot, `no shelf slot ${shelfCode(silver.due_date)} (the receipt makes it)`);
+        await mockUpdate(mockUrl, "tier_bags", { location_id: slot.id, located_at: new Date().toISOString() }, "id", silver.id);
+        shelfHow = "set in the mock (the receipt left it unplaced)";
+      }
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, "CD-2549-07")]);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: BO_GOLD.map((c) => cardIdOf(t, c)) });
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t, "CD-2549-G").id });
+      assert(r.status === 200, `bag-ready: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      t = await tables();
+      eq([bagPlaceCode(t, BO_BAG), bagPlaceCode(t, "CD-2549-G"), bagPlaceCode(t, SILVER)], [OPEN_BAGS, SHIP_PLACE, shelfCode(silver.due_date)], "places of P, G, S");
+      places[BO_BAG] = UI.donePlace.openBags(BO_LETTER);
+      places["CD-2549-G"] = UI.donePlace.ship;
+      places[SILVER] = UI.donePlace.shelf(silver.due_date);
+      return `${SILVER}: ${shelfName(silver.due_date)} (${shelfHow}); bag-ready: "${r.body?.message ?? ""}"`;
+    }, { critical: true, shot: false });
+    const bagCodes = [BO_BAG, "CD-2549-G", SILVER];
+    /**
+     * Each bag's place shown with it: a block naming that bag (its Bag ID or one of its Card IDs, and
+     * no other bag's) with the place's words ("Bag: Open bags box · A" on a bag's line or a card's row).
+     */
+    const checkPlaces = async (where) => {
+      const main = page.locator("main").first();
+      const t1 = await tables();
+      const idsOf = (code) => [code, ...bagCardCodes(t1, code)];
+      const anyOf = (codes) => new RegExp(codes.map((c) => `${esc(c)}(?![A-Z0-9])`).join("|"));
+      const problems = [];
+      for (const code of bagCodes) {
+        const others = bagCodes.filter((c) => c !== code).flatMap(idsOf);
+        const hit = main.locator("li, article, section, div, tr, p, [role='listitem']")
+          .filter({ hasText: anyOf(idsOf(code)) })
+          .filter({ hasText: places[code] })
+          .filter({ hasNotText: anyOf(others) });
+        if (!(await until(async () => (await hit.count()) > 0, 10_000))) problems.push(`${code}: no "${places[code].source}" next to it`);
+      }
+      assert(!problems.length, `${where}: ${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
+    };
+    await s.step(`Scan page, type "${BO_CUSTOMER}" + Enter: ${BO_BAG} "Open bags box · ${BO_LETTER}", CD-2549-G "Ready to ship", ${SILVER} "Shelf DUE …"`, async () => {
+      await goto(page, ROUTES.scan);
+      await scanType(page, BO_CUSTOMER);
+      await checkPlaces("search by name");
+    });
+    await s.step(`Scan page, type "${BO_ORDER}" + Enter (the order): the same places`, async () => {
+      await goto(page, ROUTES.scan);
+      await scanType(page, BO_ORDER);
+      await checkPlaces("the order");
+    });
+    await s.step("the search API: each card's bagLocation is its bag's place", async () => {
+      const body = await searchVia(ctx, BO_CUSTOMER);
+      const problems = [];
+      for (const [code, want] of [[BO_BAG, OPEN_BAGS], ["CD-2549-G", SHIP_PLACE], [SILVER, shelfCode(bagByCode(t, SILVER).due_date)]]) {
+        const cards = body.cards.filter((c) => c.bagCode === code);
+        if (!cards.length) problems.push(`no card of ${code}`);
+        for (const c of cards) if ((c.bagLocation?.code ?? null) !== want) problems.push(`${c.code}: bagLocation ${c.bagLocation?.code ?? null}`);
+      }
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+      return `${body.cards.length} cards`;
+    }, { shot: false });
+  },
+
+  // 390 and 1440: no sideways scroll; the Done buttons, "Mark all", and the bag-finished step on screen
+  async "done-layout"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CD-2549-07 done (POST done); CD-2549-04 on ${DESK}`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, "CD-2549-07")] });
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, "CD-2549-04")]);
+    }, { critical: true, shot: false });
+    const layout = async (p, label, { first }) => {
+      const w = await sidewaysScroll(p);
+      assert(w <= 1, `${label}: scrolls sideways by ${w}px`);
+      const b = await onScreenUnscrolled(p, first);
+      assert(b.top >= 0 && b.bottom <= b.vh && !b.covered, `${label}: the primary button is at ${b.top}-${b.bottom}px of ${b.vh}px${b.covered ? ", covered" : ""}`);
+      assert(b.height >= 44, `${label}: the primary button is ${b.height}px tall`);
+      return `${label}: ${b.width}x${b.height} at y ${b.top}`;
+    };
+    const doneButtonsTall = async (p, codes) => {
+      const out = [];
+      for (const code of codes) {
+        const box = await UI.doneCard(UI.openPanel(p, code, BO_ALL)).boundingBox().catch(() => null);
+        if (!box || box.height < 44) out.push(`${code}: Done ${box ? Math.round(box.height) : "not shown"} px`);
+      }
+      return out;
+    };
+    await s.step(`1440 px, ${BO_BAG} (1 of 3 done): no sideways scroll; the big button on screen; Done buttons 44+ px; done-layout-1440-bag.png`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      await page.screenshot({ path: path.join(OUT, "done-layout-1440-bag.png"), fullPage: true });
+      const note = await layout(page, "1440", { first: UI.openMoveAll(page) });
+      const short = await doneButtonsTall(page, ["CD-2549-08", "CD-2549-09"]);
+      assert(!short.length, short.join(" | "));
+      return note;
+    }, { shot: false });
+    await s.step(`390 px (iPhone 13), ${BO_BAG}: no sideways scroll; the big button fully on the first screen, 44+ px; Done buttons 44+ px; "Mark all 2 done" on the page; no browser errors; done-layout-390-bag.png`, async () => {
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        await openDoneLanding(phone.page, BO_BAG);
+        await phone.page.screenshot({ path: path.join(OUT, "done-layout-390-bag.png"), fullPage: true });
+        const note = await layout(phone.page, "390", { first: UI.openMoveAll(phone.page) });
+        const short = await doneButtonsTall(phone.page, ["CD-2549-08", "CD-2549-09"]);
+        assert(!short.length, short.join(" | "));
+        assert(await UI.doneAll(phone.page).count(), 'no "Mark all 2 done"');
+        assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+        return note;
+      } finally { await phone.ctx.close(); }
+    }, { shot: false });
+    await s.step(`390 px, the Desk page with CD-2549-04: no sideways scroll; its Done 44+ px on screen; done-layout-390-desk.png`, async () => {
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        await goto(phone.page, ROUTES.deskAt(DESK));
+        eq(await waitPanels(phone.page, ["CD-2549-04"], BO_ALL), ["CD-2549-04"], "cards with a panel");
+        await phone.page.screenshot({ path: path.join(OUT, "done-layout-390-desk.png"), fullPage: true });
+        const w = await sidewaysScroll(phone.page);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        const btn = UI.deskDone(UI.deskPanel(phone.page, "CD-2549-04", BO_ALL));
+        await btn.scrollIntoViewIfNeeded();
+        const box = await btn.boundingBox();
+        assert(box && box.height >= 44, `Done is ${box ? Math.round(box.height) : "not"} px tall`);
+        assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+        return `Done ${Math.round(box.width)}x${Math.round(box.height)}`;
+      } finally { await phone.ctx.close(); }
+    }, { shot: false });
+    await s.step(`${BO_BAG} finished (08, 09 done through the API): "It's in the Ready to ship bin" fully on the first screen at 1440 and 390, 44+ px, not covered; no sideways scroll; done-layout-{1440,390}-finished.png`, async () => {
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: ["CD-2549-08", "CD-2549-09"].map((c) => cardIdOf(t, c)) });
+      await openDoneLanding(page, BO_BAG);
+      await page.screenshot({ path: path.join(OUT, "done-layout-1440-finished.png"), fullPage: true });
+      const notes = [await layout(page, "1440", { first: page.getByRole("button", { name: UI.readyToShipRe }).first() })];
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        await openDoneLanding(phone.page, BO_BAG);
+        await phone.page.screenshot({ path: path.join(OUT, "done-layout-390-finished.png"), fullPage: true });
+        await phone.page.screenshot({ path: path.join(OUT, "done-layout-390-finished-first-screen.png") });
+        notes.push(await layout(phone.page, "390", { first: phone.page.getByRole("button", { name: UI.readyToShipRe }).first() }));
+        assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+      } finally { await phone.ctx.close(); }
+      return notes.join("; ");
+    }, { shot: false });
+  },
+};
+Object.assign(SCENARIOS, DONE_SCENARIOS);
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export async function runScenarios({ only = null } = {}) {

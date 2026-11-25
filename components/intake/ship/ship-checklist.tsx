@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, CircleAlert, CircleCheck, LoaderCircle, PackageCheck, PackageX, TriangleAlert, Truck } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
 import { readyToShip, shipCounts } from "./rules";
 import type { ShipGroup, ShipRow } from "./ship-types";
 import { markCardsDone, takeCardsOut } from "./track-client";
@@ -75,11 +76,14 @@ function RowActions({ row, onSaved, orderId, trackPlaces }: { row: ShipRow; onSa
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  // The order's line after Done finished it ("Order completed. Maria Reyes emailed."), amber when it wasn't completed
+  const [orderNotes, setOrderNotes] = useState<ToneLine[]>([]);
   const label = row.code ?? row.name;
 
   async function run(action: "done" | "out") {
     setBusy(true);
     setError("");
+    setOrderNotes([]);
     const out = action === "done" ? await markCardsDone([row.id]) : await takeCardsOut([row.id]);
     setBusy(false);
     setConfirming(false);
@@ -88,6 +92,7 @@ function RowActions({ row, onSaved, orderId, trackPlaces }: { row: ShipRow; onSa
       return;
     }
     setNote(out.message || (action === "done" ? `${label} marked done.` : `${label} taken out.`));
+    setOrderNotes(orderCompletionNotes(out.response.orderCompletions));
     onSaved();
   }
 
@@ -133,7 +138,14 @@ function RowActions({ row, onSaved, orderId, trackPlaces }: { row: ShipRow; onSa
         </button>
       )}
       {error && <p role="alert" className="mt-1.5 text-sm text-red-700">{error}</p>}
-      {note && !error && <p role="status" className="mt-1.5 text-sm text-green-800">{note}</p>}
+      {note && !error && (
+        <div role="status" className="mt-1.5 text-sm">
+          <p className="text-green-800">{note}</p>
+          {orderNotes.map((n) => (
+            <p key={n.text} className={`mt-1 font-bold ${n.tone === "ok" ? "text-green-800" : "text-amber-800"}`}>{n.text}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

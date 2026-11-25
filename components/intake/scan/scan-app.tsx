@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRightLeft, CircleCheckBig, LayoutGrid, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { filingLetter } from "@/lib/intake/filing-letter";
+import { bagPlaceText, orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
 import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type {
   CapacityConflict,
@@ -137,15 +139,23 @@ function placeable(cards: readonly TrackCardSummary[]) {
 }
 
 /** A card list with these cards now in `to` (null: taken out). */
+/** Where the request's bags are now (a card out of its bag files the bag in the Open bags box). */
+function bagPlaces(res: TrackActionResponse): Map<string, LocationRef | null> {
+  return new Map((res.bags ?? []).map((b) => [b.id, b.location]));
+}
+
 function patchCards(cards: TrackCardSummary[], res: TrackActionResponse, to: LocationRef | null, done = false): TrackCardSummary[] {
   const changed = new Map(res.results.filter((r) => r.ok).map((r) => [r.cardId, r]));
-  if (!changed.size) return cards;
+  const bagAt = bagPlaces(res);
+  if (!changed.size && !bagAt.size) return cards;
   const at = new Date().toISOString();
   return cards.map((c) => {
     const r = changed.get(c.id);
-    if (!r) return c;
+    const moved = c.bagId && bagAt.has(c.bagId) ? { bagLocation: bagAt.get(c.bagId) ?? null } : {};
+    if (!r) return { ...c, ...moved };
     return {
       ...c,
+      ...moved,
       location: to,
       locatedAt: at,
       stageLabel: done ? "Done" : r.stageLabel ?? c.stageLabel,
@@ -156,13 +166,15 @@ function patchCards(cards: TrackCardSummary[], res: TrackActionResponse, to: Loc
 }
 
 function patchView(view: View, res: TrackActionResponse, to: LocationRef | null, done = false): View {
-  if (view.type === "bag") return { ...view, bag: { ...view.bag, cards: patchCards(view.bag.cards, res, to, done) } };
+  const bagAt = bagPlaces(res);
+  const placeOf = <B extends { id: string; location: LocationRef | null }>(b: B) => (bagAt.has(b.id) ? bagAt.get(b.id) ?? null : b.location);
+  if (view.type === "bag") return { ...view, bag: { ...view.bag, location: placeOf(view.bag), cards: patchCards(view.bag.cards, res, to, done) } };
   if (view.type === "order") {
     return {
       ...view,
       order: {
         ...view.order,
-        bags: view.order.bags.map((b) => ({ ...b, cards: patchCards(b.cards, res, to, done) })),
+        bags: view.order.bags.map((b) => ({ ...b, location: placeOf(b), cards: patchCards(b.cards, res, to, done) })),
         looseCards: patchCards(view.order.looseCards, res, to, done),
       },
     };
@@ -190,6 +202,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [confirmDone, setConfirmDone] = useState(false);
   /** The desk cards were last put on (a link to its page stays until the next save elsewhere). */
   const [deskNote, setDeskNote] = useState<{ code: string; text: string } | null>(null);
+  /** The order's line after a Done finished it ("Order completed. Maria Reyes emailed."; amber when it wasn't completed), until the next save. */
+  const [orderNotes, setOrderNotes] = useState<ToneLine[]>([]);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = useRef(0);
   const gate = useRef(createScanGate(2000));
@@ -263,6 +277,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     (res: TrackActionResponse, fallback: string) => {
       const problem = api.partialProblem(res);
       const text = res.message || fallback;
+      // The order auto-complete line (a Done that finished the order, or why it wasn't completed)
+      const notes = orderCompletionNotes(res.orderCompletions);
+      setOrderNotes(notes);
+      for (const n of notes) addLogItem(n.tone === "ok" ? "ok" : "warn", n.text);
       if (problem && res.results.some((r) => r.ok)) {
         beep("error", soundStore.get());
         show("error", `${text} ${problem}`);
@@ -780,6 +798,23 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
               </button>
             </div>
           )}
+          {orderNotes.length > 0 && (
+            <div role="status" className="flex items-start gap-3 rounded-2xl border border-border bg-white px-4 py-3">
+              <div className="min-w-0 flex-1 flex flex-col gap-1">
+                {orderNotes.map((n) => (
+                  <p key={n.text} className={`text-base font-bold break-words ${n.tone === "ok" ? "text-green-800" : "text-amber-900"}`}>{n.text}</p>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => setOrderNotes([])}
+                aria-label="Hide"
+                className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {conflict && (
             <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
               <p className="text-lg font-black">{conflict.text}</p>
@@ -975,6 +1010,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                 <div key={bag.id} className="border-t border-border">
                   <p className="px-4 pt-3 text-sm font-bold text-foreground">
                     <span className="font-mono">{bag.code}</span> · {bag.tierName} · {bag.doneCount} of {bag.cardCount} done
+                    {bag.location ? ` · Bag: ${bagPlaceText(bag.location, filingLetter(bag.customer))}` : ""}
                   </p>
                   <ul>
                     {bag.cards.map((card) => (

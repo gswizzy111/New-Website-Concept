@@ -170,8 +170,12 @@ test("assign: over capacity is a 409 with what's inside; force adds anyway; step
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (!r.ok) return;
   assert.equal(r.location?.code, "LOC-HEAT-PRESS-01");
-  assert.equal(r.message, "2 cards in HEAT PRESS 01. Step: Heat Press.");
+  // The first cards out of the bag file it in the Open bags box (made on first use), under C for Collector
+  assert.equal(r.message, "2 cards in HEAT PRESS 01. Step: Heat Press. Put the bag in the Open bags box, under C.");
   assert.equal(r.changed, 2);
+  assert.deepEqual([loc("LOC-OPEN-BAGS").name, loc("LOC-OPEN-BAGS").kind], ["OPEN BAGS", "other"]);
+  assert.equal(mock.store.table("tier_bags").find((b) => b.id === BAG)!.location_id, loc("LOC-OPEN-BAGS").id);
+  assert.deepEqual(r.bags?.map((b) => [b.code, b.letter, b.location?.code, b.opened, b.doneCount, b.cardCount]), [["CD-4001-G", "C", "LOC-OPEN-BAGS", true, 0, 4]]);
   assert.deepEqual(r.emailedOrders, [ORDER]);
   assert.deepEqual(stageEvents(ORDER).filter((e) => (e.metadata as Row).stage === "Heat Press").map((e) => [e.description, (e.metadata as Row).bulk, (e.metadata as Row).by, e.is_customer_visible]), [
     [`Stage: Heat Press [card:${C(1)}]`, true, "gavin", true],
@@ -319,18 +323,24 @@ test("take out: the card has no place, its step stays, the slot frees up", async
   assert.ok(again.ok && again.changed === 0 && again.message === "Not in a slot.");
 });
 
-test("done: cards marked done go to Done, their slots free up, the bag completes, no email", async () => {
+test("done: cards marked done go back in their bag (no place), their slots free up, the bag completes, no email", async () => {
   const emails = sent.length;
   const r = await svc.moves.markCardsDone(admin, { cardIds: [C(1), C(2), C(3), C(4)], by: "gavin" });
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (!r.ok) return;
-  assert.equal(r.location?.code, "LOC-DONE");
+  assert.equal(r.location, null, "in the bag, not on the Done shelf");
   assert.deepEqual(r.bagsCompleted, [BAG], "card 5 is refunded, card 6 is in no bag");
   assert.deepEqual(r.freed.map((l) => l.code), ["LOC-CLAMP-02"], "CLAMP 01 still holds order 2's cards");
   for (const n of [1, 2, 3, 4]) {
     assert.equal(cardRow(C(n)).completed, true);
-    assert.equal(cardRow(C(n)).location_id, loc("LOC-DONE").id);
+    assert.equal(cardRow(C(n)).location_id, null);
+    assert.equal(cardRow(C(n)).located_at, null);
   }
+  assert.equal(r.message, "4 cards done. Put them back in COLLECTOR's bag: Open bags box, under C. Bag finished: put it in the Ready to ship bin.");
+  assert.deepEqual(r.bags?.map((b) => [b.code, b.location?.code, b.opened, b.returned, b.finished, b.doneCount, b.cardCount]), [
+    ["CD-4001-G", "LOC-OPEN-BAGS", false, 4, true, 4, 4],
+  ]);
+  assert.equal(mock.store.table("tier_bags").find((b) => b.id === BAG)!.location_id, loc("LOC-OPEN-BAGS").id, "Done never moves the bag");
   assert.equal(sent.length, emails);
   assert.ok(mock.store.table("tier_bags").find((b) => b.id === BAG)!.completed_at);
   assert.deepEqual(moves().slice(-4).map((m) => [m.action, m.stage_after]), Array(4).fill(["done", "done"]));
@@ -353,8 +363,8 @@ test("resolve: a slot with its cards and capacity; a bag and an order with their
   if (!b.ok || b.response.kind !== "bag") return;
   assert.deepEqual([b.response.bag.cardCount, b.response.bag.doneCount, b.response.bag.complete, b.response.bag.tierName], [4, 4, true, "Gold"]);
   assert.deepEqual(b.response.bag.cards.map((c) => [c.code, c.location?.code ?? null, c.done, c.refunded]), [
-    ["CD-4001-01", "LOC-DONE", true, false], ["CD-4001-02", "LOC-DONE", true, false], ["CD-4001-03", "LOC-DONE", true, false],
-    ["CD-4001-04", "LOC-DONE", true, false], ["CD-4001-05", null, false, true],
+    ["CD-4001-01", null, true, false], ["CD-4001-02", null, true, false], ["CD-4001-03", null, true, false],
+    ["CD-4001-04", null, true, false], ["CD-4001-05", null, false, true],
   ]);
 
   const o = await svc.resolve.resolveTrackCode(admin, "cd-4002");
@@ -416,8 +426,8 @@ test("history: a card's moves newest first, with places and step labels; a slot'
   assert.ok(h.ok, h.ok ? "" : h.error);
   if (!h.ok) return;
   assert.deepEqual(h.response.moves.map((m) => [m.action, m.from?.name ?? null, m.to?.name ?? null, m.stageBeforeLabel, m.stageAfterLabel]), [
-    ["assign", "Done", "CLAMP 03", "Done", "Done"],
-    ["done", null, "Done", "Heat Press", "Done"],
+    ["assign", null, "CLAMP 03", "Done", "Done"],
+    ["done", null, null, "Heat Press", "Done"],
     ["release", "HEAT PRESS 02", null, "Heat Press", "Heat Press"],
     ["move", "FINAL DRY 01", "HEAT PRESS 02", "Final Dry", "Heat Press"],
     ["move", "CLAMP 03", "FINAL DRY 01", "Clamp Work", "Final Dry"],

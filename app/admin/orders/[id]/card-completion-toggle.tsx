@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { bagSentences, orderCompletionNotes, outOfBinSentence, type ToneLine } from "@/lib/intake/tracking/bag-home";
+import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 export function CardCompletionToggle({
   cardId,
@@ -20,20 +22,35 @@ export function CardCompletionToggle({
   }
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // After Done: where its bag is ("Put it back in REYES's bag: Open bags box, under R.")
+  const [bagLine, setBagLine] = useState<string | null>(null);
+  // The order's last card done: the order was completed ("Order completed. Pat emailed.")
+  const [notes, setNotes] = useState<ToneLine[]>([]);
   const router = useRouter();
 
   async function toggle() {
     setLoading(true);
     setErr(null);
+    setBagLine(null);
+    setNotes([]);
     try {
       const res = await fetch(`/api/admin/cards/${cardId}/complete`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setCompleted(data.completed);
+        if (data.completed === true) {
+          setBagLine(bagSentences(Array.isArray(data.bagPlaces) ? (data.bagPlaces as TrackBagPlace[]) : [], 1) || null);
+          setNotes(orderCompletionNotes([data.orderCompletion]));
+        } else if (Array.isArray(data.unbinned)) {
+          // Un-done: its finished bag came out of the Ready to ship bin
+          setBagLine(outOfBinSentence(data.unbinned as TrackBagPlace[]) || null);
+        }
         // Refresh so the done counts and the other sections update
         router.refresh();
       } else {
         setErr(data.error ?? "Failed");
+        // The card may be done all the same (marked, then not put back in its bag): show what's saved
+        router.refresh();
       }
     } catch {
       setErr("Network error");
@@ -67,6 +84,12 @@ export function CardCompletionToggle({
         {loading ? "…" : completed ? "Done" : "Mark Done"}
       </button>
       {err && <p className="text-xs text-red-500 max-w-[180px] text-right">{err}</p>}
+      {(bagLine || notes.length > 0) && (
+        <div role="status" className="flex flex-col items-end gap-0.5 max-w-[220px] text-right text-xs font-semibold">
+          {bagLine && <p className="text-foreground">{bagLine}</p>}
+          {notes.map((n) => <p key={n.text} className={n.tone === "ok" ? "text-green-700" : "text-amber-700"}>{n.text}</p>)}
+        </div>
+      )}
     </div>
   );
 }

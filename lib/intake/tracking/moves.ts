@@ -3,10 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCode } from "@/lib/intake/codes";
 import { cardStageState, furthestStageIndex } from "@/lib/intake/stage-plan";
 import { refreshBagCompletion } from "@/lib/intake/stages";
+import { completeOrdersIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
 import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
 import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
-import { DONE_LOCATION_CODE, isSlot, locationRef } from "@/lib/intake/tracking/places";
+import { withBagSentences } from "@/lib/intake/tracking/bag-home";
+import { settleBags } from "@/lib/intake/tracking/bag-places";
+import { isSlot, locationRef } from "@/lib/intake/tracking/places";
 import { loadCardSummaries } from "@/lib/intake/tracking/resolve";
 import { sendStageUpdateEmail } from "@/lib/intake/tracking/stage-email";
 import { isReceived, isRefunded, type TrackCardRow } from "@/lib/intake/tracking/summaries";
@@ -30,7 +33,13 @@ import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActio
  *   4. cards marked done (as POST /api/admin/cards/[id]/complete);
  *   5. at most ONE customer email per order, listing only the cards at a new
  *      step for the customer (none for going back, re-entering, or done);
- *   6. bag completion refresh for cards marked done.
+ *   6. bag completion refresh for cards marked done;
+ *   7. orders whose last cards were just marked done become Completed
+ *      (completeOrderIfAllDone: the status button's event and emails, once);
+ *   8. bags (settleBags in bag-places.ts, best effort): a card that came out
+ *      of its bag to a desk or holder files the bag in the Open bags box, and
+ *      the answer says where each touched bag is (Done: "Put it back in
+ *      REYES's bag: Open bags box, under R.").
  * A failed write stops there and answers 500; doing it again is safe (cards
  * already there at that step are left alone; a card already in its new slot
  * still gets its step). Capacity is checked before writing, so two phones
@@ -184,19 +193,17 @@ export async function releaseCards(admin: SupabaseClient, input: Common & { card
 
 /**
  * POST /api/admin/track/done: mark cards done (as the card's Done toggle);
- * they leave their slot and go to the Done place (LOC-DONE; nowhere if it is
- * missing or switched off). Bags whose last card this was become complete.
+ * they leave their holder or desk and go back IN THEIR BAG (no place: owner,
+ * Nov 25 2026, cards carry no sticker, so a loose card on a shared Done pile
+ * can't be matched). The answer's message says where the bag is ("Done. Put
+ * it back in REYES's bag: Open bags box, under R."). Bags whose last card
+ * this was become complete. LOC-DONE stays a place for anyone scanning cards
+ * to it (assign), but Done never uses it.
  */
 export async function markCardsDone(admin: SupabaseClient, input: Common & { cardIds: readonly string[] }): Promise<TrackResult> {
   const bad = cardIdsProblem(input.cardIds);
   if (bad) return { ok: false, status: 400, error: bad };
-  let done: LocationRow | null;
-  try {
-    done = await getLocationByCode(admin, DONE_LOCATION_CODE);
-  } catch (e) {
-    return { ok: false, status: 500, error: `Couldn't read the Done place. Nothing was changed. (${errText(e)})` };
-  }
-  return planAndRun(admin, "done", done?.active === false ? null : done, input.cardIds, input, []);
+  return planAndRun(admin, "done", null, input.cardIds, input, []);
 }
 
 /**
@@ -257,9 +264,12 @@ async function planAndRun(
   const results = plan.results.map((r) => (lost.has(r.cardId)
     ? { cardId: r.cardId, code: r.code, name: r.name, ok: false, changed: false, message: MOVED_MEANWHILE }
     : r));
-  const message = !lost.size ? plan.message
+  const line = !lost.size ? plan.message
     : plan.results.length === 1 ? MOVED_MEANWHILE
     : `${plan.message} ${lost.size === 1 ? "1 card was" : `${lost.size} cards were`} moved by someone else just now: scan again.`;
+  // Bags: a card out files its bag in the Open bags box; Done puts cards back in their bag (bag-places.ts)
+  const settled = await settleBags(admin, { action, target, moves: plan.moves.filter((m) => !lost.has(m.cardId)), ctx, by: input.by });
+  const message = withBagSentences(line, settled.bags, settled.returned);
   return {
     ok: true,
     location: target ? locationRef(target) : null,
@@ -269,6 +279,8 @@ async function planAndRun(
     emailedOrders: run.emailedOrders,
     bagsCompleted: run.bagsCompleted,
     freed: run.freed,
+    ...(run.orderCompletions.length ? { orderCompletions: run.orderCompletions } : {}),
+    ...(settled.bags.length ? { bags: settled.bags } : {}),
   };
 }
 
@@ -280,8 +292,8 @@ async function writePlan(
   ctx: OrdersContext,
   target: LocationRow | null,
   input: Common,
-): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[] } | { ok: false; status: number; error: string }> {
-  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[] };
+): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[]; orderCompletions: OrderAutoComplete[] } | { ok: false; status: number; error: string }> {
+  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[], orderCompletions: [] as OrderAutoComplete[] };
   if (!plan.moves.length) return out;
   const by = input.by;
   const sessionId = input.sessionId && UUID.test(input.sessionId) ? input.sessionId : null;
@@ -366,6 +378,12 @@ async function writePlan(
   if (completed.length) {
     const bagIds = [...new Set(ctx.cards.filter((c) => completed.includes(c.id) && c.bag_id).map((c) => c.bag_id as string))];
     out.bagsCompleted = (await refreshBagCompletion(admin, bagIds)).completed;
+  }
+
+  // 7. Orders whose last cards were just marked done: Completed, once each
+  if (completed.length) {
+    const orderIds = ctx.cards.filter((c) => completed.includes(c.id)).map((c) => c.order_id);
+    out.orderCompletions = await completeOrdersIfAllDone(admin, orderIds, by);
   }
 
   // Slots left empty (best effort: the move itself is saved)
