@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { STAGE_INFO, friendlyStage } from "@/lib/restoration-stages";
 import { escapeHtml, sendOrderUpdateEmail } from "@/lib/customer-email";
-import { bagCompletionPatch, cardStageState, planAdvance, type AdvanceCard, type SkipReason } from "@/lib/intake/stage-plan";
+import { bagCompletionPatch, cardStageState, planAdvance, type AdvanceCard, type AdvancePlan, type SkipReason } from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
 
 /**
@@ -12,17 +12,20 @@ import type { NextStep, StageEventRow } from "@/lib/intake/types";
  * (cardStageState, planAdvance, stageGroups, isBagComplete) are in
  * lib/intake/stage-plan.ts and re-exported here.
  */
-export { cardStageState, isBagComplete, nextStepAfter, planAdvance, stageGroups, stageIndex } from "@/lib/intake/stage-plan";
+export {
+  cardStageState, furthestStageIndex, isBagComplete, nextStepAfter, planAdvance, stageGroups, stageIndex, stepEmailsCustomer,
+} from "@/lib/intake/stage-plan";
 export type { AdvanceCard, AdvancePlan, SkipReason } from "@/lib/intake/stage-plan";
 
 export type AdvanceResult =
   | {
       ok: true;
       target: NextStep;
-      moved: { cardId: string; stage: string; round: number }[];
+      /** `email`: a new step for the customer (in the email, customer visible); false: staff only, no email. */
+      moved: AdvancePlan["moves"];
       completed: string[];
       skipped: { cardId: string; reason: SkipReason; current: string | null }[];
-      /** The one customer email for this move was sent. */
+      /** The one customer email for this move was sent (only moves with `email` go in it). */
       emailed: boolean;
       /** Bags that became complete with this move (show the alert). */
       bagsCompleted: string[];
@@ -30,17 +33,31 @@ export type AdvanceResult =
   | { ok: false; status: number; error: string };
 
 /**
- * Move the chosen cards of an order from `fromStage` (null = not started) to
- * the next step (or `toStage`), exactly as the existing stage buttons record
- * it: one 'stage_update' event per card ("Stage: <stage> [card:<id>]",
- * metadata { card_id, stage, round, by, bulk }, customer visible). Cards at
- * another step are skipped and reported, never overwritten. From Final Dry
- * the next step marks the card done (like POST /api/admin/cards/[id]/complete).
- * One customer email lists every card that moved (none for "done", as before).
+ * Put the chosen cards of an order at `toStage`: any of the 8 steps, earlier
+ * or later than now, or "complete" (done, like POST
+ * /api/admin/cards/[id]/complete). Without `toStage`: the step after
+ * `fromStage` (the old one-tap advance; from Final Dry it marks the card
+ * done). Rules (guard, skips, already there) are planAdvance's: a card moves
+ * only while it is still at the step the page showed (`fromStages[id]`, else
+ * `fromStage`), so two people tapping at once never clobber each other.
+ * Recorded exactly as the existing stage buttons record it: one
+ * 'stage_update' event per card ("Stage: <stage> [card:<id>]", metadata
+ * { card_id, stage, round, by, bulk }). The customer email rule
+ * (stepEmailsCustomer): one email lists every card that moved to a step past
+ * the furthest it reached this round (customer visible events); going back or
+ * re-entering a step sends nothing and its event is staff only. No email for
+ * "done", as before.
  */
 export async function advanceCards(
   admin: SupabaseClient,
-  input: { orderId: string; cardIds: string[]; fromStage: string | null; toStage?: string | "complete"; by: string | null },
+  input: {
+    orderId: string;
+    cardIds: string[];
+    fromStage?: string | null;
+    fromStages?: Record<string, string | null>;
+    toStage?: string | "complete";
+    by: string | null;
+  },
 ): Promise<AdvanceResult> {
   const [{ data: order, error: oErr }, { data: cards, error: cErr }, { data: events, error: eErr }] = await Promise.all([
     admin.from("orders").select("customer_email, customer_name, order_number").eq("id", input.orderId).maybeSingle(),
@@ -63,9 +80,12 @@ export async function advanceCards(
       refunded: c.status === "refunded",
       awaiting: !!c.awaiting_arrival,
       round: st.round,
+      furthest: st.furthestIndex,
     };
   });
-  const planned = planAdvance({ cards: advanceCardsIn, cardIds: input.cardIds, fromStage: input.fromStage, toStage: input.toStage });
+  const planned = planAdvance({
+    cards: advanceCardsIn, cardIds: input.cardIds, fromStage: input.fromStage, fromStages: input.fromStages, toStage: input.toStage,
+  });
   if (!planned.ok) return planned;
   const { plan } = planned;
   const bulk = new Set(input.cardIds).size > 1;
@@ -76,7 +96,8 @@ export async function advanceCards(
       event_type: "stage_update",
       description: `Stage: ${m.stage} [card:${m.cardId}]`,
       metadata: { card_id: m.cardId, stage: m.stage, round: m.round, by: input.by, bulk },
-      is_customer_visible: true,
+      // Going back (or to a step it already reached) isn't news for the customer
+      is_customer_visible: m.email,
     })));
     if (error) return { ok: false, status: 500, error: `Couldn't save the step. Nothing was changed. (${error.message})` };
   }
@@ -92,11 +113,12 @@ export async function advanceCards(
     completed = (data ?? []).map((r) => r.id as string);
   }
 
-  // One email for the whole move
+  // One email for the whole move: only the cards at a new step for the customer
   let emailed = false;
-  if (plan.moves.length) {
+  const news = plan.moves.filter((m) => m.email);
+  if (news.length) {
     const nameOf = new Map(rows.map((c) => [c.id as string, (c.card_name as string | null) ?? "Your card"]));
-    const lines = plan.moves.map((m) => ({ name: nameOf.get(m.cardId) ?? "Your card", stage: m.stage, friendly: friendlyStage(m.stage, m.round) }));
+    const lines = news.map((m) => ({ name: nameOf.get(m.cardId) ?? "Your card", stage: m.stage, friendly: friendlyStage(m.stage, m.round) }));
     const friendlies = [...new Set(lines.map((l) => l.friendly))];
     const stages = [...new Set(lines.map((l) => l.stage))];
     const box = (stage: string, friendly: string) => `

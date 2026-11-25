@@ -64,24 +64,26 @@ test("an order code resolves to its order, exactly, in any letter case and from 
   assert.equal(await resolveCode(admin, "CD-9999"), null, "unknown order");
   assert.deepEqual(await resolveCode(admin, "CD-3000"), { kind: "order", id: ORDER3, code: "CD-3000", orderId: ORDER3 }, "stored in lower case");
   const found = (await resolveCode(admin, qrUrl("CD-2549")))!;
-  assert.equal(codeTargetPath(found.kind, found.id, found.orderId), `/admin/receiving/${ORDER}/photos`);
+  assert.equal(codeTargetPath(found.kind, found.id, found.orderId, found.code), "/admin/receiving/open/CD-2549", "the scan landing");
+  assert.equal(codeTargetPath(found.kind, found.id, found.orderId), `/admin/receiving/${ORDER}/photos`, "without the code: the photos page");
 });
 
-test("a bag QR resolves to its bag and order, and opens that bag's photos", async () => {
+test("a bag QR resolves to its bag and order, and opens the scan landing for that bag", async () => {
   const bag = await resolveCode(admin, qrUrl("CD-2549-P"));
   assert.deepEqual(bag, { kind: "bag", id: BAG, code: "CD-2549-P", orderId: ORDER });
-  assert.equal(codeTargetPath(bag!.kind, bag!.id, bag!.orderId), `/admin/receiving/${ORDER}/photos?bag=${BAG}`);
+  assert.equal(codeTargetPath(bag!.kind, bag!.id, bag!.orderId, bag!.code), "/admin/receiving/open/CD-2549-P");
+  assert.equal(codeTargetPath(bag!.kind, bag!.id, bag!.orderId), `/admin/receiving/${ORDER}/photos?bag=${BAG}`, "without the code: the bag's photos");
   // A later batch of the same tier is its own bag
   const bag2 = await resolveCode(admin, "https://thecarddoc1.com/q/cd-2549-p2");
   assert.deepEqual(bag2, { kind: "bag", id: BAG2, code: "CD-2549-P2", orderId: ORDER });
-  assert.equal(codeTargetPath(bag2!.kind, bag2!.id, bag2!.orderId), `/admin/receiving/${ORDER}/photos?bag=${BAG2}`);
+  assert.equal(codeTargetPath(bag2!.kind, bag2!.id, bag2!.orderId, bag2!.code), "/admin/receiving/open/CD-2549-P2");
   assert.equal(await resolveCode(admin, "CD-2549-G"), null, "unknown bag of a known order");
 });
 
 test("card codes keep resolving to their card page, never to the order or a bag", async () => {
   const card = await resolveCode(admin, "cd-2549-03");
   assert.deepEqual(card, { kind: "card", id: CARD, code: "CD-2549-03" });
-  assert.equal(codeTargetPath(card!.kind, card!.id, card!.orderId), `/admin/receiving/card/${CARD}`);
+  assert.equal(codeTargetPath(card!.kind, card!.id, card!.orderId, card!.code), `/admin/receiving/card/${CARD}`);
   assert.equal(await resolveCode(admin, "CD-2549-04"), null, "unknown card of a known order");
 });
 

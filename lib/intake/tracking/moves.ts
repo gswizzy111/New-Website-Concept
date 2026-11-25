@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCode } from "@/lib/intake/codes";
-import { cardStageState } from "@/lib/intake/stage-plan";
+import { cardStageState, furthestStageIndex } from "@/lib/intake/stage-plan";
 import { refreshBagCompletion } from "@/lib/intake/stages";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
 import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
@@ -22,12 +22,14 @@ import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActio
  *      card, or the same request sent twice, finds it gone and writes nothing
  *      for it (no second step event, history row or email);
  *   2. card_moves rows (history);
- *   3. stage_update events for cards going into a slot at a later step:
- *      exactly what the stage buttons and advanceCards() write ("Stage:
- *      <stage> [card:<id>]", metadata { card_id, stage, round, by, bulk },
- *      customer visible);
+ *   3. stage_update events for cards going into a slot at another step
+ *      (later or earlier): exactly what the stage buttons and advanceCards()
+ *      write ("Stage: <stage> [card:<id>]", metadata { card_id, stage, round,
+ *      by, bulk }); customer visible only for a step new to the customer
+ *      (the move's `email`, stepEmailsCustomer), staff only otherwise;
  *   4. cards marked done (as POST /api/admin/cards/[id]/complete);
- *   5. at most ONE customer email per order (step changes only, none for done);
+ *   5. at most ONE customer email per order, listing only the cards at a new
+ *      step for the customer (none for going back, re-entering, or done);
  *   6. bag completion refresh for cards marked done.
  * A failed write stops there and answers 500; doing it again is safe (cards
  * already there at that step are left alone; a card already in its new slot
@@ -71,7 +73,8 @@ const planLocation = (l: LocationRow): PlanLocation => ({ id: l.id, code: l.code
 
 /** A card as the planner sees it (its step from the order's stage events). */
 export function planCardOf(c: TrackCardRow, ctx: Pick<OrdersContext, "events">): PlanCard {
-  const st = cardStageState({ id: c.id, completed: c.completed, current_round: c.current_round }, ctx.events.get(c.order_id) ?? []);
+  const events = ctx.events.get(c.order_id) ?? [];
+  const st = cardStageState({ id: c.id, completed: c.completed, current_round: c.current_round }, events);
   return {
     id: c.id,
     code: c.card_code,
@@ -84,6 +87,7 @@ export function planCardOf(c: TrackCardRow, ctx: Pick<OrdersContext, "events">):
     completed: st.completed,
     current: st.current,
     round: st.round,
+    furthest: furthestStageIndex(c.id, st.round, events),
   };
 }
 
@@ -124,7 +128,7 @@ async function capacityCheck(admin: SupabaseClient, loc: LocationRow, plan: Card
 /**
  * POST /api/admin/track/assign: put cards (by id) in the slot or place
  * `locationCode`. Each card leaves its old slot; in a slot its step becomes
- * the slot's step (forward only). Over the slot's capacity it answers 409
+ * the slot's step (later or earlier). Over the slot's capacity it answers 409
  * with the cards already in it, unless `force`.
  */
 export async function assignCards(
@@ -330,7 +334,8 @@ async function writePlan(
       event_type: "stage_update",
       description: `Stage: ${m.stageEvent.stage} [card:${m.cardId}]`,
       metadata: { card_id: m.cardId, stage: m.stageEvent.stage, round: m.stageEvent.round, by, bulk: (stagedPerOrder.get(m.orderId)?.length ?? 0) > 1 },
-      is_customer_visible: true,
+      // Going back (or to a step it already reached) isn't news for the customer
+      is_customer_visible: m.email,
     })));
     if (error) return { ok: false, status: 500, error: `Couldn't save the step. (${error.message})` };
   }
@@ -344,11 +349,12 @@ async function writePlan(
     completed.push(...(data ?? []).map((r) => r.id as string));
   }
 
-  // 5. One email per order for the steps
+  // 5. One email per order, for the cards at a step new to the customer
   const names = new Map(ctx.cards.map((c) => [c.id, c.card_name]));
-  for (const [orderId, orderMoves] of stagedPerOrder) {
+  for (const [orderId, staged] of stagedPerOrder) {
+    const orderMoves = staged.filter((m) => m.email);
     const order = ctx.orders.get(orderId);
-    if (!order) continue;
+    if (!order || !orderMoves.length) continue;
     const sent = await sendStageUpdateEmail(
       { customer_email: order.customer_email, customer_name: order.customer_name, order_number: order.order_number },
       orderMoves.map((m) => ({ name: names.get(m.cardId) ?? null, stage: m.stageEvent.stage, round: m.stageEvent.round })),

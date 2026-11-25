@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   TIER_LETTERS, bagCode, cardCode, codeKind, codeTargetPath, effectiveTier, nextCardSeqs, normalizeCode, normalizeTier,
-  orderPhotosPath, qrPath, qrUrl, tierDisplayName, tierLetter,
+  openCodePath, orderPhotosPath, qrPath, qrUrl, tierDisplayName, tierLetter,
 } from "@/lib/intake/codes";
 
 test("tier letters", () => {
@@ -97,14 +97,26 @@ test("order codes, Card IDs and Bag IDs never read as each other", () => {
   for (const c of [order, ...cards, ...bags]) assert.equal(normalizeCode(qrUrl(c)), c, c);
 });
 
-test("a scanned code opens: order -> its photos, bag -> that bag's photos, card -> card page", () => {
+test("a scanned code opens: order and bag -> the scan landing, card -> card page", () => {
   const order = "00000000-0000-4000-8000-000000000001";
   const bag = "00000000-0000-4000-8000-0000000000b1";
   const card = "00000000-0000-4000-8000-0000000000c1";
+  // With the code (what /q passes): the scan landing, /admin/receiving/open/<code>
+  assert.equal(codeTargetPath("order", order, order, "CD-2549"), "/admin/receiving/open/CD-2549");
+  assert.equal(codeTargetPath("bag", bag, order, "CD-2549-P"), "/admin/receiving/open/CD-2549-P");
+  assert.equal(codeTargetPath("bag", bag, order, "cd-2549-p2"), "/admin/receiving/open/CD-2549-P2", "normalized");
+  assert.equal(codeTargetPath("bag", bag, null, "CD-2549-P"), "/admin/receiving/open/CD-2549-P", "a bag's order isn't needed");
+  assert.equal(openCodePath("cd 2549"), "/admin/receiving/open/CD-2549");
+  assert.equal(openCodePath(qrUrl("CD-2549-P")), "/admin/receiving/open/CD-2549-P", "from its QR link");
+  // A code of another kind is never trusted: the photos pages as before
+  assert.equal(codeTargetPath("bag", bag, order, "CD-2549"), `/admin/receiving/${order}/photos?bag=${bag}`);
+  assert.equal(codeTargetPath("order", order, order, "CD-2549-P"), `/admin/receiving/${order}/photos`);
+  // Without the code: the photos pages as before
   assert.equal(codeTargetPath("order", order, order), `/admin/receiving/${order}/photos`);
   assert.equal(codeTargetPath("order", order), `/admin/receiving/${order}/photos`);
   assert.equal(codeTargetPath("bag", bag, order), `/admin/receiving/${order}/photos?bag=${bag}`);
   assert.equal(codeTargetPath("bag", bag), `/admin/receiving/bag/${bag}`, "a bag without a known order: its bag page");
+  assert.equal(codeTargetPath("card", card, order, "CD-2549-03"), `/admin/receiving/card/${card}`, "a Card ID keeps its card page");
   assert.equal(codeTargetPath("card", card, order), `/admin/receiving/card/${card}`);
   assert.equal(codeTargetPath("card", card), `/admin/receiving/card/${card}`);
   assert.equal(orderPhotosPath(order), `/admin/receiving/${order}/photos`);

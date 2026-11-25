@@ -149,18 +149,34 @@ export function orderPhotosPath(orderId: string, bagId?: string | null): string 
 }
 
 /**
+ * The page a bag or order QR opens (owner, Nov 25 2026: "a page that is very
+ * simple"): the customer, their order and its cards, with "Move all N cards
+ * to my desk" (app/admin/receiving/open/[code]). `code` is the Bag ID or the
+ * order number: /admin/receiving/open/CD-2549-P, /admin/receiving/open/CD-2549.
+ */
+export function openCodePath(code: string): string {
+  return `/admin/receiving/open/${encodeURIComponent(normalizeCode(code) || code.trim().toUpperCase())}`;
+}
+
+/**
  * The admin page a scanned code opens (app/q/[code]/route.ts), from what
  * resolveCode found: `id` is the order's, card's or bag's id, `orderId` its
- * order's.
- *   Order code  CD-2549     -> the order's photos      /admin/receiving/<orderId>/photos
- *   Bag ID      CD-2549-P   -> that bag's photos       /admin/receiving/<orderId>/photos?bag=<bagId>
- *                              (the bag page, /admin/receiving/bag/<bagId>, if its order is unknown)
+ * order's, `code` the normalized code.
+ *   Order code  CD-2549     -> the scan landing        /admin/receiving/open/CD-2549
+ *   Bag ID      CD-2549-P   -> the scan landing        /admin/receiving/open/CD-2549-P
+ *                              (without `code`: the photos pages as before, /admin/receiving/<orderId>/photos[?bag=<bagId>],
+ *                              or the bag page, /admin/receiving/bag/<bagId>, if its order is unknown too)
  *   Card ID     CD-2549-03  -> the card page           /admin/receiving/card/<cardId>
  *   Place       LOC-HUMIDOR -> the Scan page, at that place  /admin/scan?loc=LOC-HUMIDOR
  *                              (`code` is the place code; `id` is used when it's missing)
+ * Labels already printed open the scan landing with no reprint: their QR is /q/<Bag ID>.
  */
 export function codeTargetPath(kind: CodeKind, id: string, orderId?: string | null, code?: string | null): string {
   if (kind === "location") return scanPathForLocation(code || id);
+  if (kind === "order" || kind === "bag") {
+    const c = normalizeCode(code);
+    if (c && codeKind(c) === kind) return openCodePath(c);
+  }
   if (kind === "order") return orderPhotosPath(orderId || id);
   if (kind === "bag") return orderId ? orderPhotosPath(orderId, id) : `/admin/receiving/bag/${encodeURIComponent(id)}`;
   return `/admin/receiving/card/${encodeURIComponent(id)}`;

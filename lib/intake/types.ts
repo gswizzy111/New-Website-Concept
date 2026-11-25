@@ -112,7 +112,7 @@ export type StageHistoryEntry = {
   bulk: boolean;           // moved together with other cards of the bag
 };
 
-/** What the next one-tap step does for a card. */
+/** A step to move a card to: one of the 8 stages, or done. */
 export type NextStep =
   | { kind: "stage"; stage: string; label: string }
   | { kind: "complete"; label: string };
@@ -127,11 +127,16 @@ export type CardStageState = {
   current: string | null;
   /** Admin label: "Not started", "Drying", "Done". */
   currentLabel: string;
-  /** Steps before the current one (all 8 when done). */
+  /**
+   * Steps reached this round other than the current one, in STAGES order (all
+   * 8 when done). Steps are taken in any order, so a skipped step isn't here.
+   */
   doneStages: string[];
-  /** Steps after the current one (all 8 when not started, none when done). */
+  /** Steps not reached this round, other than the current one (all 8 when not started, none when done). */
   remainingStages: string[];
-  /** The next step, or null when done. */
+  /** Index in STAGES of the furthest step reached this round (-1 none): the customer email rule's mark (stepEmailsCustomer). */
+  furthestIndex: number;
+  /** The step after the current one in STAGES order, or null when done (staff may pick any step instead). */
   next: NextStep | null;
   /** Time of the latest stage event of this round (or completion), if any. */
   updatedAt: string | null;

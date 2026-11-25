@@ -165,7 +165,8 @@ test("bulk advance: one email, cards at another step skipped; Final Dry -> done 
   assert.ok(bulk.ok);
   if (!bulk.ok) return;
   assert.equal(bulk.moved.length, 2);
-  assert.deepEqual(bulk.skipped.map((s) => [s.cardId, s.reason, s.current]), [[plat[0].id, "different_stage", "Humidor"]]);
+  // The card that moved ahead is at the bulk move's target already
+  assert.deepEqual(bulk.skipped.map((s) => [s.cardId, s.reason, s.current]), [[plat[0].id, "already_there", "Humidor"]]);
   // The card that is ahead moves on alone: the bag's cards are now at different steps
   const ahead = await svc.stages.advanceCards(admin, { orderId: ORDER, cardIds: ids(plat.slice(0, 1)), fromStage: "Humidor", by: "sam" });
   assert.ok(ahead.ok && ahead.moved[0].stage === "Humidity Press");
@@ -338,4 +339,69 @@ test("entering a historical bag's received date gives its cards a receipt for th
   if (!intake.ok) return;
   assert.equal(intake.intake.counts.received, 3);
   assert.equal(intake.intake.counts.missingReceivedDate, 0);
+});
+
+test("steps in any order (the step picker): skip ahead, go back, come back; only a step past the furthest emails", async () => {
+  const [a, b] = cardsOf(ORDER2).sort((x, y) => String(x.card_code).localeCompare(String(y.card_code))).map((c) => c.id as string);
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  const stageEventsOf = (id: string) => events().filter((e) => e.event_type === "stage_update" && (e.metadata as Row).card_id === id);
+  const to = async (cardIds: string[], fromStages: Record<string, string | null>, toStage: string) => {
+    await tick();
+    const r = await svc.stages.advanceCards(admin, { orderId: ORDER2, cardIds, fromStages, toStage, by: "gavin" });
+    assert.ok(r.ok, r.ok ? "" : r.error);
+    return r.ok ? r : null!;
+  };
+  const sent0 = mock.store.emails.length;
+
+  // Not started -> Clamp Work (skipping 5 steps): news, one email
+  const clamp = await to([a], { [a]: null }, "Clamp Work");
+  assert.deepEqual([clamp.moved, clamp.emailed], [[{ cardId: a, stage: "Clamp Work", round: 1, email: true }], true]);
+  assert.equal(mock.store.emails.length, sent0 + 1);
+  assert.equal(mock.store.emails.at(-1)!.subject, "Update on your card — Clamp work (Order #CD-3002)");
+  assert.equal(stageEventsOf(a).at(-1)!.is_customer_visible, true);
+
+  // Back to Humidor: the step changes, staff-only event, no email
+  const back = await to([a], { [a]: "Clamp Work" }, "Humidor");
+  assert.deepEqual([back.moved[0].stage, back.moved[0].email, back.emailed], ["Humidor", false, false]);
+  assert.equal(stageEventsOf(a).at(-1)!.is_customer_visible, false);
+  // On to Heat Press: never reached, but still behind Clamp Work, so no email either
+  const heat = await to([a], { [a]: "Humidor" }, "Heat Press");
+  assert.deepEqual([heat.moved[0].email, heat.emailed], [false, false]);
+  assert.equal(mock.store.emails.length, sent0 + 1, "no email going back");
+  const lc = await svc.data.loadCard(admin, a);
+  assert.ok(lc.ok);
+  if (!lc.ok) return;
+  assert.deepEqual([lc.card.stage.current, lc.card.stage.furthestIndex, lc.card.stage.doneStages], ["Heat Press", 5, ["Humidor", "Clamp Work"]]);
+
+  // Final Dry: past Clamp Work, so the customer hears about it
+  const final = await to([a], { [a]: "Heat Press" }, "Final Dry");
+  assert.deepEqual([final.moved[0].email, final.emailed], [true, true]);
+  assert.equal(mock.store.emails.at(-1)!.subject, "Update on your card — Final drying (Order #CD-3002)");
+
+  // A stale tap (the page still showed Heat Press) and the same tap again change nothing
+  const eventsBefore = stageEventsOf(a).length;
+  const stale = await to([a], { [a]: "Heat Press" }, "Book");
+  assert.deepEqual([stale.moved, stale.skipped], [[], [{ cardId: a, reason: "different_stage", current: "Final Dry" }]]);
+  const repeat = await to([a], { [a]: "Heat Press" }, "Final Dry");
+  assert.deepEqual([repeat.moved, repeat.skipped, repeat.emailed], [[], [{ cardId: a, reason: "already_there", current: "Final Dry" }], false]);
+  assert.equal(stageEventsOf(a).length, eventsBefore);
+
+  // The whole bag to Humidor: a goes back (quiet), b is new (in the one email, alone)
+  const sent1 = mock.store.emails.length;
+  const both = await to([a, b], { [a]: "Final Dry", [b]: null }, "Humidor");
+  assert.deepEqual(both.moved.map((m) => [m.cardId, m.email]), [[a, false], [b, true]]);
+  assert.equal(mock.store.emails.length, sent1 + 1, "one email for the request");
+  assert.equal(mock.store.emails.at(-1)!.subject, "Update on your card — Humidity treatment (Order #CD-3002)");
+  assert.deepEqual(stageEventsOf(a).at(-1)!.metadata, { card_id: a, stage: "Humidor", round: 1, by: "gavin", bulk: true });
+
+  // Done from any step; no email
+  const done = await to([b], { [b]: "Humidor" }, "complete");
+  assert.deepEqual([done.completed, done.emailed], [[b], false]);
+  assert.equal(cardRow(b).completed, true);
+  assert.equal(mock.store.emails.length, sent1 + 1);
+
+  // The old request shape (one step on from fromStage) still works, under the same email rule
+  await tick();
+  const legacy = await svc.stages.advanceCards(admin, { orderId: ORDER2, cardIds: [a], fromStage: "Humidor", by: "gavin" });
+  assert.ok(legacy.ok && legacy.moved[0].stage === "Humidity Press" && legacy.moved[0].email === false && !legacy.emailed);
 });

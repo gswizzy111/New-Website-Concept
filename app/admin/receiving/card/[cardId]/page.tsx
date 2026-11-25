@@ -12,8 +12,7 @@ import { loadCard } from "@/lib/intake/data";
 import { isMissingIntakeSchema } from "@/lib/intake/completed";
 import { dayText, dueHint, daysUntil, nyDateTime } from "@/lib/intake/tracking-format";
 import type { BagSummary, IntakeCard, StageHistoryEntry } from "@/lib/intake/types";
-import { StageTrack } from "@/components/intake/stage-track";
-import { AdvanceButton, StageCorrection } from "@/components/intake/tracking-actions";
+import { StepPicker } from "@/components/intake/tracking-actions";
 import { BagLabelPrint } from "@/components/intake/bag-label-panel";
 import { getLabelSettings } from "@/lib/intake/labels/data";
 import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
@@ -159,8 +158,8 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
 
   const { card, order, bag } = result;
   const st = card.stage;
-  const canAdvance = !card.refunded && !card.awaitingArrival && !st.completed && st.next !== null;
-  const advanceText = st.next?.kind === "complete" ? "Mark card done" : `Move to ${st.next?.label ?? ""}`;
+  // Any step, in any order; a done card is reopened from the order page (new round or the Done toggle)
+  const canMove = !card.refunded && !card.awaitingArrival && !st.completed;
   const due = bag?.dueDate ?? null;
   const overdue = (daysUntil(due) ?? 0) < 0 && !st.completed;
 
@@ -210,7 +209,7 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* Where it is now, and the one big button */}
+            {/* Where it is now, and every step to pick from */}
             <section className={panel} aria-labelledby="current-step">
               <p id="current-step" className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current step</p>
               <p className={`font-heading font-black text-3xl mt-0.5 ${st.completed ? "text-green-700" : "text-foreground"}`}>
@@ -233,15 +232,23 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
                   </Notice>
                 )}
                 {card.refunded && <Notice tone="amber">This card was refunded, so it isn&apos;t worked on.</Notice>}
-                {canAdvance && <AdvanceButton orderId={order.id} cardIds={[card.id]} fromStage={st.current} label={advanceText} />}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground mb-1.5">
+                    {canMove ? "Tap any step to move the card there, in any order." : "The 8 steps"}
+                  </p>
+                  <StepPicker
+                    orderId={order.id}
+                    cards={[{ id: card.id, current: st.current, completed: st.completed }]}
+                    reached={st.doneStages}
+                    label={`Step for ${card.name}`}
+                    disabled={!canMove}
+                  />
+                </div>
                 {st.completed && (
                   <p className="text-sm text-muted-foreground">
                     To rework it, start the next round from the{" "}
                     <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">order page</AdminLink>.
                   </p>
-                )}
-                {!card.refunded && !st.completed && (
-                  <StageCorrection orderId={order.id} cardId={card.id} currentStage={st.current} />
                 )}
               </div>
             </section>
@@ -300,11 +307,6 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
                   </div>
                 )}
               </dl>
-            </section>
-
-            <section className={panel} aria-labelledby="steps">
-              <h2 id="steps" className="font-heading font-black text-base text-foreground mb-3">The 8 steps</h2>
-              <StageTrack state={st} />
             </section>
 
             <section className={panel} aria-labelledby="history">

@@ -240,14 +240,19 @@ test("move: a slot's cards go to the next slot, the old slot frees up, the step 
   assert.ok(!same.ok && same.status === 400);
 });
 
-test("never backwards: back into a heat press (an earlier step) keeps Clamp Work, says so, no event, no email", async () => {
+test("backwards: into a heat press (an earlier step) the step is Heat Press; a staff-only event, no email", async () => {
   await tick();
   const before = { events: stageEvents().length, emails: sent.length };
   const r = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-02", toCode: "LOC-HEAT-PRESS-02", cardIds: [C(1)], by: "gavin" });
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (!r.ok) return;
-  assert.equal(r.results[0].message, "In HEAT PRESS 02. Step stays Clamp Work (past Heat Press).");
-  assert.deepEqual({ events: stageEvents().length, emails: sent.length }, before);
+  assert.equal(r.results[0].message, "In HEAT PRESS 02. Step: Heat Press.");
+  assert.deepEqual(r.emailedOrders, []);
+  assert.deepEqual({ events: stageEvents().length, emails: sent.length }, { ...before, events: before.events + 1 });
+  const back = stageEvents(ORDER).at(-1)!;
+  assert.deepEqual([back.description, (back.metadata as Row).stage, back.is_customer_visible], [`Stage: Heat Press [card:${C(1)}]`, "Heat Press", false]);
+  const loaded = await svc.data.loadCard(admin, C(1));
+  assert.ok(loaded.ok && loaded.card.stage.current === "Heat Press" && loaded.card.stage.furthestIndex === 5);
   assert.equal(cardRow(C(1)).location_id, loc("LOC-HEAT-PRESS-02").id);
   assert.equal(cardRow(C(2)).location_id, loc("LOC-CLAMP-02").id, "only the card asked for");
   assert.deepEqual(r.freed, [], "card 2 is still in CLAMP 02");
@@ -257,8 +262,32 @@ test("never backwards: back into a heat press (an earlier step) keeps Clamp Work
   assert.deepEqual(notInside.results.map((x) => [x.cardId, x.ok, x.message]), [
     [C(2), true, "In CLAMP 03."], [C(1), false, "Not in CLAMP 02 any more."],
   ]);
-  const back = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-03", toCode: "LOC-CLAMP-02", by: "gavin" });
-  assert.ok(back.ok && back.changed === 1);
+  const backAgain = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-03", toCode: "LOC-CLAMP-02", by: "gavin" });
+  assert.ok(backAgain.ok && backAgain.changed === 1);
+});
+
+test("coming back to Clamp Work (reached before this round) and skipping on to Final Dry: only the new step emails", async () => {
+  await tick();
+  const before = { events: stageEvents().length, emails: sent.length };
+  const again = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-02", toCode: "LOC-CLAMP-03", cardIds: [C(1)], by: "gavin" });
+  assert.ok(again.ok && again.results[0].message === "In CLAMP 03. Step: Clamp Work.", again.ok ? again.message : again.error);
+  assert.deepEqual({ events: stageEvents().length, emails: sent.length }, { ...before, events: before.events + 1 });
+  assert.equal(stageEvents(ORDER).at(-1)!.is_customer_visible, false);
+  await tick();
+  const fd = await svc.locations.createSlots(admin, { station: "final-dry", count: 1, by: "gavin" });
+  assert.ok(fd.ok);
+  const on = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-03", toCode: "LOC-FINAL-DRY-01", cardIds: [C(1)], by: "gavin" });
+  assert.ok(on.ok, on.ok ? "" : on.error);
+  if (!on.ok) return;
+  assert.deepEqual(on.emailedOrders, [ORDER]);
+  assert.equal(sent.length, before.emails + 1);
+  assert.equal(sent.at(-1)!.subject, "Update on your card — Final drying (Order #CD-4001)");
+  assert.equal(stageEvents(ORDER).at(-1)!.is_customer_visible, true);
+  // Back where the rest of this file expects it: HEAT PRESS 02, at Heat Press, no email
+  await tick();
+  const home = await svc.moves.moveSlot(admin, { fromCode: "LOC-FINAL-DRY-01", toCode: "LOC-HEAT-PRESS-02", cardIds: [C(1)], by: "gavin" });
+  assert.ok(home.ok && home.changed === 1 && home.emailedOrders.length === 0);
+  assert.equal(sent.length, before.emails + 1);
 });
 
 test("refunded and not-arrived cards are refused; nothing is written for them", async () => {
@@ -285,7 +314,7 @@ test("take out: the card has no place, its step stays, the slot frees up", async
   assert.deepEqual(r.freed.map((l) => l.code), ["LOC-HEAT-PRESS-02"]);
   assert.equal(cardRow(C(1)).location_id, null);
   assert.equal(cardRow(C(1)).located_at, null);
-  assert.deepEqual([moves().at(-1)!.action, moves().at(-1)!.to_location_id, moves().at(-1)!.stage_after], ["release", null, "Clamp Work"]);
+  assert.deepEqual([moves().at(-1)!.action, moves().at(-1)!.to_location_id, moves().at(-1)!.stage_after], ["release", null, "Heat Press"]);
   const again = await svc.moves.releaseCards(admin, { cardIds: [C(1)], by: "gavin" });
   assert.ok(again.ok && again.changed === 0 && again.message === "Not in a slot.");
 });
@@ -388,9 +417,12 @@ test("history: a card's moves newest first, with places and step labels; a slot'
   if (!h.ok) return;
   assert.deepEqual(h.response.moves.map((m) => [m.action, m.from?.name ?? null, m.to?.name ?? null, m.stageBeforeLabel, m.stageAfterLabel]), [
     ["assign", "Done", "CLAMP 03", "Done", "Done"],
-    ["done", null, "Done", "Clamp Work", "Done"],
-    ["release", "HEAT PRESS 02", null, "Clamp Work", "Clamp Work"],
-    ["move", "CLAMP 02", "HEAT PRESS 02", "Clamp Work", "Clamp Work"],
+    ["done", null, "Done", "Heat Press", "Done"],
+    ["release", "HEAT PRESS 02", null, "Heat Press", "Heat Press"],
+    ["move", "FINAL DRY 01", "HEAT PRESS 02", "Final Dry", "Heat Press"],
+    ["move", "CLAMP 03", "FINAL DRY 01", "Clamp Work", "Final Dry"],
+    ["move", "HEAT PRESS 02", "CLAMP 03", "Heat Press", "Clamp Work"],
+    ["move", "CLAMP 02", "HEAT PRESS 02", "Clamp Work", "Heat Press"],
     ["move", "HEAT PRESS 01", "CLAMP 02", "Heat Press", "Clamp Work"],
     ["assign", null, "HEAT PRESS 01", "Not started", "Heat Press"],
   ]);

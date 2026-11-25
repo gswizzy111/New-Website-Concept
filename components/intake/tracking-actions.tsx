@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
+import { DONE_TARGET, pickerChips, pickerNeedsConfirm, pickerOutcome, pickerRequest, type PickerCard } from "@/lib/intake/step-picker";
 
-// The buttons of the card, bag and Completed pages (/admin/receiving/card,
-// /bag, /completed). Each one saves, then refreshes the page's server data.
-
-const count = (x: unknown) => (Array.isArray(x) ? x.length : Number(x) || 0);
+// The buttons of the card, bag and Completed pages and the Bags board
+// (/admin/receiving/card, /bag, /completed, /bags). Each one saves, then
+// refreshes the page's server data.
 
 async function post(url: string, body: unknown, method = "POST") {
   const res = await fetch(url, {
@@ -19,134 +18,147 @@ async function post(url: string, body: unknown, method = "POST") {
   return { ok: res.ok, data };
 }
 
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+
+const CHIP_TONE = {
+  current: "bg-purple-600 border-purple-600 text-white",
+  currentDone: "bg-green-600 border-green-600 text-white",
+  reached: "bg-purple-50 border-purple-200 text-purple-900 hover:border-purple-400",
+  open: "bg-white border-border text-foreground hover:border-primary/50",
+  done: "bg-white border-green-300 text-green-800 hover:border-green-500",
+} as const;
+
 /**
- * Moves cards that are at `fromStage` (null = not started) to the next step,
- * or marks them done from Final Dry (POST /api/admin/intake/stages). Cards
- * that are at another step by now are left alone and reported.
+ * The step picker: all 8 steps and Done as buttons in order, the current one
+ * highlighted; one tap puts the cards at that step, in any order (skip ahead,
+ * go back; POST /api/admin/intake/stages with `toStage`). `cards`: the cards
+ * it sets, each with the step the page shows (a card someone else moved
+ * meanwhile is left alone and reported). Done for several cards asks once
+ * more. `collapsed`: behind a disclosure whose summary reads that text
+ * (bag rows, groups, the Bags board). `reached`: one card's steps reached
+ * this round, marked with a check.
  */
-export function AdvanceButton({
+export function StepPicker({
   orderId,
-  cardIds,
-  fromStage,
+  cards,
   label,
-  size = "big",
+  reached = [],
+  disabled = false,
+  collapsed,
 }: {
   orderId: string;
-  cardIds: string[];
-  fromStage: string | null;
+  cards: PickerCard[];
+  /** Accessible name of the group, e.g. "Step for Charizard", "Step for every card in this bag". */
   label: string;
-  size?: "big" | "small";
+  reached?: string[];
+  disabled?: boolean;
+  collapsed?: string;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [outcome, setOutcome] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const chips = pickerChips(cards, reached);
+  const several = cards.length > 1;
+  const open = cards.filter((c) => !c.completed).length;
 
-  async function advance() {
-    setBusy(true);
+  // Done for several cards waits for "Yes, mark done" (a second tap on Done doesn't count)
+  async function pick(target: string, confirmed = false) {
     setError("");
-    setNotice("");
+    setOutcome(null);
+    if (pickerNeedsConfirm(target, cards) && !confirmed) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    const body = pickerRequest(orderId, cards, target);
+    if (!body) return;
+    setBusy(target);
     try {
-      const { ok, data } = await post("/api/admin/intake/stages", { orderId, cardIds, fromStage });
+      const { ok, data } = await post("/api/admin/intake/stages", body);
       if (!ok) {
-        setError(data.error ?? "Nothing was moved. Try again.");
+        setError(data.error ?? "Nothing was changed. Try again.");
         return;
       }
-      const moved = count(data.moved);
-      const skipped = count(data.skipped);
-      if (skipped > 0) {
-        setNotice(
-          moved === 0
-            ? `Nothing moved: ${cardIds.length === 1 ? "the card is" : "these cards are"} no longer at this step (or not received yet). The page now shows where things are.`
-            : `${skipped} card${skipped === 1 ? " was" : "s were"} no longer at this step and ${skipped === 1 ? "was" : "were"} left as ${skipped === 1 ? "it was" : "they were"}.`,
-        );
-      }
+      setOutcome(pickerOutcome(target, body.cardIds.length, data));
       router.refresh();
     } catch {
       setError("Network error. Reload to check what was saved.");
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  return (
-    <div className={size === "big" ? "w-full" : ""}>
-      <button
-        type="button"
-        onClick={advance}
-        disabled={busy || cardIds.length === 0}
-        className={
-          size === "big"
-            ? "w-full min-h-14 px-5 rounded-xl bg-primary text-primary-foreground text-lg font-black hover:bg-primary/90 active:scale-[0.99] transition disabled:opacity-50"
-            : "min-h-11 px-3 rounded-lg border border-primary/40 text-primary text-sm font-bold hover:bg-primary/5 transition-colors disabled:opacity-50"
-        }
-      >
-        {busy ? "Saving…" : label}
-      </button>
+  const picker = (
+    <div>
+      <div className="flex flex-col gap-2">
+        <div role="group" aria-label={label} aria-busy={busy !== null} className="grid grid-cols-3 gap-1.5">
+          {chips.map((c) => {
+            const isDone = c.target === DONE_TARGET;
+            const tone = c.current ? (isDone ? CHIP_TONE.currentDone : CHIP_TONE.current) : c.reached ? CHIP_TONE.reached : isDone ? CHIP_TONE.done : CHIP_TONE.open;
+            return (
+              <button
+                key={c.target}
+                type="button"
+                onClick={() => pick(c.target)}
+                aria-pressed={c.current}
+                disabled={disabled || c.current || busy !== null || (isDone ? open === 0 : false)}
+                className={`min-h-11 rounded-lg border px-2 py-1 flex items-center gap-1 text-left text-xs sm:text-[13px] leading-tight font-bold transition-colors disabled:cursor-default ${tone} ${
+                  !c.current && (disabled || busy !== null) ? "opacity-50" : ""
+                } ${focusRing}`}
+              >
+                {/* The step's number (a check once reached this round): narrow, so two-word names fit on a phone */}
+                <span
+                  aria-hidden
+                  className={`w-3.5 shrink-0 text-center text-[11px] font-black tabular-nums ${
+                    c.current ? "text-white/85" : c.reached ? "text-purple-600" : isDone ? "text-green-700" : "text-muted-foreground"
+                  }`}
+                >
+                  {isDone || c.reached ? "✓" : c.number}
+                </span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">
+                  {busy === c.target ? "Saving…" : c.label}
+                  {c.reached && <span className="sr-only"> (done this round)</span>}
+                  {several && c.count > 0 && <span className="sr-only">{`, ${c.count} card${c.count === 1 ? "" : "s"} here`}</span>}
+                </span>
+                {several && c.count > 0 && (
+                  <span aria-hidden className={`ml-auto shrink-0 text-[11px] font-black tabular-nums ${c.current ? "text-white/90" : "text-muted-foreground"}`}>
+                    {c.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {confirming && (
+          <div className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-3">
+            <p className="text-sm text-green-900">Mark all {open} cards done?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => pick(DONE_TARGET, true)} disabled={busy !== null} className={`min-h-11 flex-1 rounded-lg bg-green-600 text-white text-sm font-bold hover:bg-green-700 disabled:opacity-50 ${focusRing}`}>
+                {busy ? "Saving…" : "Yes, mark done"}
+              </button>
+              <button type="button" onClick={() => setConfirming(false)} disabled={busy !== null} className={`min-h-11 px-4 rounded-lg border border-border bg-white text-sm font-bold ${focusRing}`}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
       {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
-      {notice && <p role="status" className="mt-2 text-sm text-amber-700">{notice}</p>}
+      {/* Always in the page, so the line after a tap is read out */}
+      <p role="status" className={outcome ? `mt-2 text-sm ${outcome.tone === "warn" ? "text-amber-700" : "text-muted-foreground"}` : "sr-only"}>{outcome?.text ?? ""}</p>
     </div>
   );
-}
 
-/**
- * "Set a different step": a correction through the order page's existing
- * stage route (POST /api/admin/orders/[id]/stage), which also emails the
- * customer, exactly as the order page's stage buttons do.
- */
-export function StageCorrection({ orderId, cardId, currentStage }: { orderId: string; cardId: string; currentStage: string | null }) {
-  const router = useRouter();
-  const [stage, setStage] = useState(currentStage ?? STAGES[0]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  async function save() {
-    setBusy(true);
-    setError("");
-    try {
-      const { ok, data } = await post(`/api/admin/orders/${orderId}/stage`, { stage, card_id: cardId });
-      if (!ok) {
-        setError(data.error ?? "The step wasn't saved. Try again.");
-        return;
-      }
-      router.refresh();
-    } catch {
-      setError("Network error. Reload to check what was saved.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  if (!collapsed) return picker;
   return (
-    <details className="group rounded-lg border border-border bg-white">
-      <summary className="min-h-11 px-3 flex items-center text-sm font-semibold text-muted-foreground cursor-pointer select-none hover:text-foreground">
-        Set a different step
+    <details className="group rounded-lg border border-border bg-white" onToggle={() => { setOutcome(null); setConfirming(false); }}>
+      <summary className={`min-h-11 px-3 flex items-center gap-2 text-sm font-bold text-primary cursor-pointer select-none hover:bg-primary/5 rounded-lg list-none [&::-webkit-details-marker]:hidden ${focusRing}`}>
+        <span aria-hidden className="text-xs transition-transform motion-reduce:transition-none group-open:rotate-90">▶</span>
+        {collapsed}
       </summary>
-      <div className="px-3 pb-3 flex flex-col gap-2">
-        <p className="text-xs text-muted-foreground">For corrections. The customer is emailed, as with the stage buttons on the order page.</p>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <label className="sr-only" htmlFor={`stage-${cardId}`}>Step</label>
-          <select
-            id={`stage-${cardId}`}
-            value={stage}
-            onChange={(e) => setStage(e.target.value)}
-            className="min-h-11 flex-1 rounded-lg border border-border bg-white px-3 text-sm"
-          >
-            {STAGES.map((s, i) => (
-              <option key={s} value={s}>{`${i + 1}. ${adminStageLabel(s)}`}</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={save}
-            disabled={busy || stage === currentStage}
-            className="min-h-11 px-4 rounded-lg bg-foreground text-background text-sm font-bold disabled:opacity-50"
-          >
-            {busy ? "Saving…" : "Save step"}
-          </button>
-        </div>
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-      </div>
+      <div className="px-2 pb-2">{picker}</div>
     </details>
   );
 }

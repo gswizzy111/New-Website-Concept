@@ -18,6 +18,7 @@ node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
+node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -227,12 +228,20 @@ still say whether the backend is right.
   the bag's photos.
 - `card-page`: Card ID, customer, order, tier, received and due dates, stage,
   customer photo; phone width.
-- `bag-bulk-advance`: one card already at Humidor; bulk "Move … to Ready for
-  Slab Crack" moves only the 3 not-started cards, leaves it alone, sends one
-  customer email; a stale API request skips it too; one card moved alone.
-- `complete-bag`: Final Dry → done → bag `completed_at`, order not completed,
-  Completed section lists the bag with "New", workspace shows "Partially
-  completed".
+- `bag-bulk-advance`: one card already at Humidor; the Not started group's
+  "Move these 3 cards" step picker, Ready for Slab Crack, moves only the 3
+  not-started cards, leaves it alone, sends one customer email; a stale API
+  request (old `{ fromStage }` shape) skips it too; one card moved alone from
+  its row's "Change step".
+- `complete-bag`: card page picker Final Dry → Done → bag `completed_at`, order
+  not completed, Completed section lists the bag with "New", workspace shows
+  "Partially completed".
+- `steps-any-order`: steps in any order (the owner, Nov 25): CD-2549-01 on its
+  card page's picker Clamp Work → Humidor → Final Dry, CD-2549-07 by slot
+  scans (assign CLAMP 01, move to HUMIDOR 01, move to FINAL DRY 01); each jump
+  is one stage event; only Clamp Work and Final Dry email (going back is a
+  staff-only event, no email); the picker shows the current step pressed and
+  the steps reached this round checked; 390 px.
 - `labels` (one label per tier bag, design "B · Name banner", no reusable tag): before anything
   is received the order's `?format=json` lists no bags; then CD-2549 with bags
   of 4 and 1 cards, CD-2600 with one bag of 16, then (same day, same bag) a
@@ -299,8 +308,8 @@ mock (`mockUpdate()`), not left to the station type's default.
   new step, no email); a scanned link as the slot; refunded card refused;
   unknown slot / no cards refused.
 - `track-move`: CLAMP 01 → HEAT PRESS 02 (capacity 1): 409, then `force`: CLAMP
-  01 empty and `freed`, step stays Clamp Work (Heat Press is an earlier step:
-  never backwards), no email, `move` rows; two of three cards on to FINAL DRY 01:
+  01 empty and `freed`, step back to Heat Press (any order: staff-only events),
+  no email, `move` rows; two of three cards on to FINAL DRY 01:
   step Final Dry, one email; from an empty slot / a card not in the slot
   refused; Done: cards done at LOC-DONE, slot freed, bag CD-2549-P complete,
   no email, `done` rows (stage_after 'done'); Take out: no place, slot freed,
@@ -389,7 +398,7 @@ change.
   kept, a `release` row; without a reload 5 panels are left and a
   message (status, alert or toast) followed each action; tick CD-2600-01 and
   -02, "Put selected in…", type `humidor 1` -> both in HUMIDOR 01 (no 409), step
-  stays Heat Press (Humidor is earlier), no email; 3 panels and a message naming
+  back to Humidor (any order), no email; 3 panels and a message naming
   HUMIDOR 01; reloaded, still those 3; 390 px. A failed UI action is redone
   through the API ("(fallback)") so the later steps still run.
 - `desk-scan` (iPhone 13, 390 px): `/q/LOC-DESK`, `/Q/LOC-DESK`, `/q/loc-desk`
@@ -406,6 +415,84 @@ change.
   written); HEAT PRESS 01 takes 3 then 2 more, HUMIDOR 01 takes 3 and then HEAT
   PRESS 01's 5 by `move` (all 200); HEAT PRESS 02 set to capacity 1 in the mock
   (a slot made under the old default keeps it): 2 cards -> 409.
+
+### Scan landing (`bag-open-*`, the owner's request of Nov 25)
+
+A bag label's QR (`/q/CD-2549-P`) and an order code (`/q/CD-2549`) now open
+one simple page, `/admin/receiving/open/<Bag ID or order number>` (any case):
+the customer's name big, the order, the bag's tier and due date, the card
+count, the customer's notes, "Open full order" and "All photos"; ONE big
+"Move all N cards to my desk"; then a panel per card (photos, name, year · set
+· #, Card ID, where it is now, step, declared value, notes, "Move to my
+desk"). An order code groups its cards under "Platinum · CD-2549-P" headings.
+Moving goes through `POST /api/admin/track/assign` to the desk: place only,
+never the step, no email. Wording: the builder's UI text (`UI.open*`).
+
+The setup (`bagOpenSetup()`): CD-2549 Gold 01-04 (bag CD-2549-G, due Mon Dec
+14) and Platinum 07-09 (bag CD-2549-P, due Mon Dec 7) received on 2026-11-15,
+so 05, 06 and 10 are not here yet (awaiting_arrival, no bag); CD-2549-07 gets a
+known defect, a $2,500.00 declared value and step Humidor (stage events), and
+every received card a receiving photo. No seed change: everything else is made
+through the API (slots, desks, Done) or written to the mock (a refund).
+
+- `bag-open-qr`: `/q/CD-2549-P`, `/Q/…`, lower case -> the page; signed out ->
+  sign in with `next=/q/CD-2549-P` (and the page itself with `next=<page>`);
+  the browser lands there; the h1 is Test Customer A in the largest type,
+  CD-2549, Platinum, CD-2549-P, "Due Mon Dec 7", "3 cards"; the "Customer's
+  notes" box; "Open full order" -> `/admin/orders/<id>`, "All photos" -> the
+  photos page `?bag=<bagId>`; ONE "Move all 3 cards to my desk" (44+ px), no
+  desk picker with one desk; exactly 07-09 (one panel each, no other Card ID);
+  each panel: photo, name, 1999 / Base Set / #, Card ID, "In the bag", one
+  "Move to my desk"; 07: $2,500.00, its defect, Humidor, receiving + customer
+  photos, and no Gold card's note on the page; a photo opens full screen; no
+  stage track, date input or print-label button; the lower-case URL works.
+- `bag-open-order`: `/q/CD-2549`, `/Q/…`, lower case -> the page; signed out ->
+  `next=/q/CD-2549`; a card count; the "Bags" list (Platinum CD-2549-P Due Mon
+  Dec 7 3 cards, Gold CD-2549-G Due Mon Dec 14 4 cards); notes; "All photos"
+  without `?bag=`; "Move all 7 cards to my desk"; all 10 panels, each under its
+  group heading (07-09 "Platinum · CD-2549-P", 01-04 "Gold · CD-2549-G", 05, 06,
+  10 "Not here yet" or "Not in a bag"); those 3 say "Not here yet" with no
+  button.
+- `bag-open-move-all`: no `LOC-DESK` before; tap the big button: the 3 at
+  `LOC-DESK` (made on first use, kind other); one card_moves row each (bag ->
+  desk, step before = after), 07 still Humidor, no step events, nothing else
+  moved, no email; "3 cards are on your desk" + "Open my desk" ->
+  `/admin/receiving/desk?desk=LOC-DESK`; pressing again: no button left, and the
+  same request sent again changes nothing; reloaded: "All on your desk", no
+  move buttons, each "On your desk"; "Open my desk" opens the Desk page with
+  the 3.
+- `bag-open-move-one`: CD-2549-08's own button: only it moves (same checks);
+  its panel "On your desk" without a button, 07 and 09 still "In the bag"; the
+  big button "Move all 2 cards to my desk" + "1 already on your desk", also
+  after a reload.
+- `bag-open-from-holder`: CLAMP 01..07 made, 07 in CLAMP 07 (Clamp Work): its
+  panel "In CLAMP 07", the big button counts it (3); its button: at the desk,
+  CLAMP 07 empty, step still Clamp Work, the row from CLAMP 07; "On your desk".
+- `bag-open-states`: CD-2549-02 Done (POST done), -03 refunded: bag CD-2549-G
+  shows them greyed ("Done", "Refunded", no button), "3 cards", "Move all 2
+  cards"; the order page: 05, 06, 10 "Not here yet" without a button, "Move all
+  5 cards"; tapping it moves exactly 01, 04, 07, 08, 09 (02 stays done at
+  LOC-DONE); "5 cards are on your desk"; reloaded "All on your desk".
+- `bag-open-desks`: LOC-DESK and DESK GAVIN (`LOC-DESK-GAVIN`): a "Desk"
+  picker (DESK first); picking DESK GAVIN and tapping moves the 3 there (none to
+  LOC-DESK), "Open my desk" -> `?desk=LOC-DESK-GAVIN`; reloaded the picker
+  still says DESK GAVIN (localStorage) and "All on your desk"; picking DESK the
+  cards read "On DESK GAVIN" and the button counts 3; the Desk page for DESK
+  GAVIN lists them.
+- `bag-open-unknown`: `/admin/receiving/open/` CD-0000-99, CD-2549-Z,
+  CD-2549-S (no such bag), HELLO, a Card ID and a place code -> "Code not
+  found" (the HTTP status is reported, not asserted: `app/admin/loading.tsx`
+  streams, so `notFound()` may answer 200), no customer, no button;
+  `/q/CD-0000-99` -> 404.
+- `bag-open-layout`: the bag and the order page at 1440 px and on an iPhone 13
+  (390 x 664): no sideways scroll; the big button fully on the first screen
+  (unscrolled, not covered, 44+ px); at 390 a photo opens full screen; no
+  browser errors. Screenshots `bag-open-1440-{bag,order}.png`,
+  `bag-open-390-{bag,order}.png` (+ `-first-screen`), `bag-open-viewer-*.png`.
+
+The older `qr` and `track-q` steps that expect a bag or order code to open the
+photos page predate this change: a bag or order code now opens the scan
+landing (the photos page stays one tap away, "All photos").
 
 Steps time out after 30 s (navigation 240 s for first compiles) instead of
 waiting forever for a missing button.

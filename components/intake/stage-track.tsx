@@ -1,17 +1,20 @@
 import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
 import type { CardStageState } from "@/lib/intake/types";
 
-type TrackState = Pick<CardStageState, "currentIndex" | "completed" | "round" | "currentLabel">;
+type TrackState = Pick<CardStageState, "currentIndex" | "completed" | "round" | "currentLabel" | "doneStages">;
 
 /**
  * The 8 restoration steps of one card (STAGES in lib/restoration-stages.ts)
  * as done, current or remaining, from the card's stage state
- * (cardStageState() in lib/intake/stage-plan.ts). "list" is the full track
- * on a card page; "bar" is 8 small segments for a row in a list.
+ * (cardStageState() in lib/intake/stage-plan.ts). Steps are taken in any
+ * order, so "done" is a step reached this round (doneStages), not every step
+ * before the current one. "list" is the full track; "bar" is 8 small
+ * segments for a row in a list.
  */
 export function StageTrack({ state, variant = "list" }: { state: TrackState; variant?: "list" | "bar" }) {
   // currentIndex: -1 not started, 0-7 the current step, 8 (STAGES.length) done
-  const status = (i: number) => (i < state.currentIndex ? "done" : i === state.currentIndex ? "current" : "remaining");
+  const status = (i: number) =>
+    i === state.currentIndex ? "current" : state.completed || state.doneStages.includes(STAGES[i]) ? "done" : "remaining";
 
   if (variant === "bar") {
     const where = state.completed

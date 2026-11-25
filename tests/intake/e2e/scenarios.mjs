@@ -7,6 +7,7 @@
 //   node tests/intake/e2e/scenarios.mjs --only qr,labels,photos-page,print-step
 //   node tests/intake/e2e/scenarios.mjs --only 'track-*'  card tracking with serial-numbered slots
 //   node tests/intake/e2e/scenarios.mjs --only 'desk-*'   the Desk: a heat press stack to the desk, the Desk page
+//   node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   what a bag / order QR opens: the person, "Move all N cards to my desk"
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -90,6 +91,11 @@ export const ROUTES = {
   deskAt: (code) => `/admin/receiving/desk?desk=${encodeURIComponent(code)}`,
   // Where a desk panel's "Open order" goes: the full order page
   order: (orderId) => `/admin/orders/${orderId}`,
+
+  // ── The scan landing (owner, Nov 25): what a bag or order QR opens now (codeTargetPath ->
+  // openCodePath): the customer, the order, "Move all N cards to my desk", a panel per card.
+  // <code> is a Bag ID (CD-2549-P) or an order number (CD-2549), any case.
+  open: (code) => `/admin/receiving/open/${code}`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -113,10 +119,19 @@ export const UI = {
   addCardTier: (page) => page.locator("form").filter({ hasText: "Add a card" }).getByLabel(/tier/i),
   addCardChoosePhoto: (page) => page.locator("form").filter({ hasText: "Add a card" }).getByRole("button", { name: /^choose photo$/i }),
   addCardSubmit: (page) => page.getByRole("button", { name: /^add and receive card$/i }),
-  // Stage moves: "Move to Humidor", "Move 3 cards to Ready for Slab Crack", …
-  advanceTo: (scope, stage) => scope.getByRole("button", { name: new RegExp(`^Move\\b.*\\bto ${esc(stage)}$`, "i") }).first(),
-  // "Mark done", "Mark card done" (card page), "Mark this card done" / "Mark these 3 cards done" (bag page)
-  markDone: (scope) => scope.getByRole("button", { name: /^mark (this card |these \d+ cards |cards? |\d+ cards? |all )?done$/i }).first(),
+  // Step picker (StepPicker in components/intake/tracking-actions.tsx; any step in any order, the owner,
+  // Nov 25): a group named "Step for …" of 9 buttons named by the step ("Ready for Slab Crack" …
+  // "Drying" … "Final Dry", then "Done"; several cards: "…, 2 cards here"), the current one pressed.
+  // Open on the card page and for the whole bag on the bag page ("Step for every card in bag …");
+  // behind a summary for a card row ("Change step"), a group ("Move these 3 cards") and a Bags board
+  // row ("Set the step"): openSteps first. Done for several cards asks "Yes, mark done".
+  stepPicker: (scope) => scope.getByRole("group", { name: /^step for\b/i }).first(),
+  advanceTo: (scope, stage) => UI.stepPicker(scope).getByRole("button", { name: new RegExp(`^${esc(stage)}\\b`, "i") }),
+  markDone: (scope) => UI.stepPicker(scope).getByRole("button", { name: /^done\b/i }),
+  openSteps: async (scope, summary) => {
+    const s = scope.locator("summary").filter({ hasText: summary }).first();
+    if (!(await s.evaluate((el) => el.parentElement.open))) await s.click();
+  },
   differentSteps: (page) => page.getByText(/cards at different steps/i).first(),
   newChip: (page, bagCode) => page.locator("li, tr, article, section div").filter({ hasText: bagCode }).getByText(/^New$/).first(),
   setupSelectAll: (page) => page.getByRole("checkbox", { name: /select all/i }).first(),
@@ -240,6 +255,56 @@ export const UI = {
   openDeskPage: (page) => page.getByRole("link", { name: /^open (the )?desk( page)?\b/i }).first(),
   // Where the pages say what a save did: status / alert / live regions and toasts
   liveRegions: (page) => page.locator('[role="status"], [role="alert"], [aria-live="polite"], [aria-live="assertive"], [data-sonner-toast]'),
+
+  // ── The scan landing (/admin/receiving/open/<code>): wording from the builder's ui-text.md ──
+  // The one big button: "Move all 3 cards to my desk" (N >= 2) / "Move 1 card to my desk"
+  openMoveAllRe: /^move\s+(all\s+\d+\s+cards|\d+\s+cards?)\s+to\b/i,
+  openMoveAll: (page) => page.getByRole("button", { name: UI.openMoveAllRe }).first(),
+  // A card's own button: shown "Move to my desk", named "Move CD-2549-08 to my desk" (aria-label)
+  openMoveOne: (scope) => scope.getByRole("button", { name: /^move\b(?!\s+all\b)(?!\s+\d+\s+cards?\b).*\bdesk\b/i }).first(),
+  // After it works (role=status): "3 cards are on your desk" / "1 card is on your desk" + "Open my desk"
+  openMoved: (n) => new RegExp(`(^|[^0-9])${n} cards? (are|is) on your desk`, "i"),
+  // Nothing left to move, some on the chosen desk
+  openAllThere: /\ball on your desk\b/i,
+  // Under the button: "2 already on your desk"
+  openAlready: (n) => new RegExp(`(^|[^0-9])${n} already on your desk`, "i"),
+  openMyDesk: (page) => page.getByRole("link", { name: /^open my desk\b/i }).first(),
+  openFullOrder: (page) => page.getByRole("link", { name: /^open full order\b/i }).first(),
+  openAllPhotos: (page) => page.getByRole("link", { name: /^all photos\b/i }).first(),
+  // The desk picker: a <select> inside a <label> "Desk", only when 2+ desks are switched on (a select
+  // inside its label is named "Desk" + the chosen option, e.g. "Desk DESK GAVIN")
+  openDeskPicker: (page) => page.getByRole("combobox", { name: /^desk\b/i }),
+  // The customer's notes box title
+  openNotesTitle: /customer.s notes/i,
+  // Order code: the "Bags" list (one row per bag: tier, Bag ID, due, count)
+  openBagsList: (page) => page.getByRole("list", { name: /^bags$/i }).first(),
+  // Group headings over the cards: "Platinum · CD-2549-P", "Cards in this bag", "Not here yet", "Not in a bag"
+  openGroupHeading: /\bCD-\d+-[A-Z]\d*(?![A-Z0-9-])|\bnot here yet\b|\bnot in a bag\b|\bcards in this bag\b/i,
+  /**
+   * One card's panel: the OUTERMOST <li>/<article> in <main> holding its Card ID and a heading (h3:
+   * the card's name), no other Card ID of `codes` and no group heading (so not a bag's group).
+   */
+  openPanel: (page, code, codes) => {
+    const others = codes.filter((c) => c !== code);
+    let loc = page.locator("main").first().locator("li, article, [role='listitem']")
+      .filter({ hasText: code })
+      .filter({ has: page.locator("h2, h3, h4, [role='heading']") })
+      .filter({ hasNot: page.getByRole("heading", { name: UI.openGroupHeading }) });
+    if (others.length) loc = loc.filter({ hasNotText: new RegExp(others.map(esc).join("|")) });
+    return loc.first();
+  },
+  // "Where it is now" and the greyed panels' pills
+  openWhere: {
+    bag: /\bin the bag\b/i,
+    desk: /\bon your desk\b/i,
+    holder: (name) => new RegExp(`\\bin ${esc(name)}(?!\\d)`, "i"),
+    otherDesk: (name) => new RegExp(`\\bon ${esc(name)}(?![A-Z0-9])`, "i"),
+    done: /\bdone\b/i,
+    refunded: /\brefunded\b/i,
+    away: /\bnot here yet\b/i,
+  },
+  // The segment's not-found page (h1 "Code not found"), or Next.js's plain 404
+  openNotFound: /code not found|could not be found/i,
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -997,6 +1062,263 @@ async function tickPanel(panel) {
   await sel.check({ timeout: 5_000 }).catch(() => sel.check({ force: true, timeout: 5_000 }));
 }
 
+// ─── Scan landing helpers (bag-open-*): what a bag or order QR opens ────────
+// The setup (bagOpenSetup): CD-2549 Gold 01-04 (bag CD-2549-G) and Platinum 07-09 (bag CD-2549-P)
+// received on 2026-11-15; Silver 05-06 and the no-tier 10 are then "not here yet" (awaiting_arrival,
+// no bag). Platinum is due Mon Dec 7, Gold Mon Dec 14.
+const BO_ORDER = ORDER_NUMBERS.mailOrder;
+const BO_BAG = "CD-2549-P";
+const BO_GOLD = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"];
+const BO_PLAT = ["CD-2549-07", "CD-2549-08", "CD-2549-09"];
+const BO_AWAY = ["CD-2549-05", "CD-2549-06", "CD-2549-10"];
+const BO_ALL = sorted([...BO_GOLD, ...BO_PLAT, ...BO_AWAY]);
+const BO_CUSTOMER = "Test Customer A";
+/** CD-2549's customer_notes (seed). */
+const BO_NOTE = "Test note: the Gold cards have soft corners, please handle gently.";
+/** CD-2549-04's own note (seed), in the Gold bag: never on the Platinum bag's page. */
+const BO_CARD_NOTE = { code: "CD-2549-04", text: "Test instruction: crease near the bottom edge." };
+/** Added by the setup on CD-2549-07: a known defect and a declared value ($2,500.00). */
+const BO_DEFECT = { code: "CD-2549-07", text: "Test defect: light scratch on the holo." };
+const BO_VALUE = { code: "CD-2549-07", cents: 250000, re: /\$2,500(?:\.00)?(?!\d)/ };
+/** The setup puts CD-2549-07 at Humidor (stage events), so "the step stays" is checked on a real step. */
+const BO_STEP = { code: "CD-2549-07", stage: "Humidor" };
+const BO_GAVIN = { code: "LOC-DESK-GAVIN", name: "DESK GAVIN" };
+
+/** Card codes of a bag (by Bag ID), sorted. */
+const bagCardCodes = (t, code) => { const b = bagByCode(t, code); return b ? sorted(t.cards.filter((c) => c.bag_id === b.id).map((c) => c.card_code)) : []; };
+/**
+ * The scan landing setup (see BO_*): receive, check the codes and bags, CD-2549-07 at Humidor with
+ * a known defect and a $2,500 declared value, a receiving photo per received card. Returns the tables.
+ */
+async function bagOpenSetup(ctx, mockUrl) {
+  await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7, 8].map(mailCard), "2026-11-15");
+  const t = await tables();
+  for (const code of BO_ALL) eq(cardByCode(t, code)?.id, mailCard(Number(code.slice(-2)) - 1), `${code} (the seed's card ${code.slice(-2)})`);
+  eq(bagCardCodes(t, "CD-2549-G"), BO_GOLD, "bag CD-2549-G");
+  eq(bagCardCodes(t, BO_BAG), BO_PLAT, `bag ${BO_BAG}`);
+  for (const code of BO_AWAY) { const c = cardByCode(t, code); assert(c.awaiting_arrival && !c.bag_id, `${code} should be not here yet (awaiting_arrival, no bag)`); }
+  await mockUpdate(mockUrl, "cards", { known_defects: BO_DEFECT.text, estimated_value_cents: BO_VALUE.cents }, "card_code", BO_DEFECT.code);
+  await insertRows("order_events", stageRows(IDS.mailOrder, cardIdOf(t, BO_STEP.code), BO_STEP.stage));
+  await setReceivingPhotos(mockUrl, [...BO_GOLD, ...BO_PLAT].map((c) => cardIdOf(t, c)));
+  const out = await tables();
+  eq(latestStage(out, cardIdOf(out, BO_STEP.code)), BO_STEP.stage, `${BO_STEP.code} step`);
+  return out;
+}
+/** Where a signed-in scan of `url` lands (following a /Q -> /q hop first). */
+async function scanTarget(ctx, appUrl, url) {
+  const r = await api(ctx, "GET", url);
+  assert([301, 302, 303, 307, 308].includes(r.status), `${url}: HTTP ${r.status}`);
+  let loc = new URL(r.headers.location ?? "/", appUrl);
+  if (loc.pathname.startsWith("/q/")) loc = new URL((await api(ctx, "GET", loc.pathname)).headers.location ?? "/", appUrl);
+  return loc;
+}
+/** A signed-out visit to `url`: must go to /admin/login; returns its ?next= (following a /Q -> /q hop first). */
+async function signInNext(anon, appUrl, url) {
+  let r = await anon.request.fetch(url, { maxRedirects: 0, failOnStatusCode: false });
+  assert([301, 302, 303, 307, 308].includes(r.status()), `${url}: HTTP ${r.status()}`);
+  let loc = new URL(r.headers().location ?? "/", appUrl);
+  if (loc.pathname.startsWith("/q/")) {
+    r = await anon.request.fetch(loc.pathname, { maxRedirects: 0, failOnStatusCode: false });
+    loc = new URL(r.headers().location ?? "/", appUrl);
+  }
+  eq(loc.pathname, "/admin/login", `${url} redirect`);
+  return loc.searchParams.get("next");
+}
+const mainText = async (page) => (await page.locator("main").first().innerText()).replace(/[ \t]+/g, " ");
+/** The scan landing has rendered: its h1 (the customer's name) is there. */
+const openReady = (page) => page.getByRole("heading", { name: BO_CUSTOMER }).first().waitFor({ timeout: 30_000 });
+const flat = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+/** A button's accessible name as written (aria-label, else its text). */
+const nameOf = async (loc) => flat((await loc.getAttribute("aria-label")) || (await loc.innerText()));
+/** "Due Mon Dec 7" for a YYYY-MM-DD day, and a regex for it (", 2027" may follow; no commas needed). */
+function dueParts(day) {
+  const d = new Date(`${day}T12:00:00Z`);
+  return { wd: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()], mon: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()], d: d.getUTCDate() };
+}
+const dueText = (day) => { const p = dueParts(day); return `Due ${p.wd} ${p.mon} ${p.d}`; };
+const dueRe = (day) => { const p = dueParts(day); return new RegExp(`\\bdue:?\\s+${p.wd}[a-z]*\\.?,?\\s+${p.mon}[a-z]*\\.?\\s+${p.d}(?!\\d)`, "i"); };
+/** A count line ("3 cards", "Due Mon Dec 7 · 3 cards"), not the big button nor a desk message. */
+const countShown = (text, n) => text.split("\n").some((l) => !/^\s*move\b|on your desk/i.test(l) && new RegExp(`(^|[^0-9])${n} cards?\\b`, "i").test(l));
+/** A card panel's text: what it shows, then its textContent (adjacent elements run together there). */
+async function openPanelText(page, code, codes = BO_ALL) {
+  const panel = UI.openPanel(page, code, codes);
+  const [shown, all] = await Promise.all([panel.innerText({ timeout: 10_000 }), panel.textContent({ timeout: 10_000 })]);
+  return `${shown}\n${all ?? ""}`.replace(/\s+/g, " ");
+}
+/** The Card IDs (of `codes`) with a panel on the page now, sorted. */
+async function openPanelsShown(page, codes = BO_ALL) {
+  const out = [];
+  for (const code of codes) if (await UI.openPanel(page, code, codes).count()) out.push(code);
+  return out.sort();
+}
+/** The big button's N (NaN when there is no such button). */
+async function moveAllN(page) {
+  const btn = UI.openMoveAll(page);
+  if (!(await btn.count())) return NaN;
+  return Number(/(\d+)\s+cards?/i.exec(await nameOf(btn))?.[1] ?? NaN);
+}
+/** Wait until main's text matches `re` (the page refreshes itself after a move); the match, or null. */
+async function textSeen(page, re, ms = 20_000) {
+  return until(async () => {
+    const txt = flat(await page.locator("main").first().innerText().catch(() => ""));
+    return re.exec(txt)?.[0] ?? null;
+  }, ms);
+}
+/** The h1's font size against the largest other text in <main> (svg, dialogs and sr-only text left out). */
+async function biggestText(page, name) {
+  return page.locator("main").first().evaluate((main, name) => {
+    const out = { name: 0, other: 0, otherText: "" };
+    for (const el of main.querySelectorAll("*")) {
+      if (el.closest("svg, dialog, [role='dialog'], .sr-only")) continue;
+      const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join(" ").replace(/\s+/g, " ").trim();
+      if (!own || !el.getClientRects().length || getComputedStyle(el).visibility === "hidden") continue;
+      const fs = parseFloat(getComputedStyle(el).fontSize) || 0;
+      if (own.includes(name)) out.name = Math.max(out.name, fs);
+      else if (fs > out.other) { out.other = fs; out.otherText = own.slice(0, 40); }
+    }
+    return out;
+  }, name);
+}
+/**
+ * Which group heading each card sits under (order code): for each Card ID, the last heading before
+ * it in the page that matches UI.openGroupHeading ("Platinum · CD-2549-P", "Not in a bag"); "" none.
+ */
+async function groupsOf(page, codes) {
+  return page.locator("main").first().evaluate((main, { codes, src }) => {
+    const re = new RegExp(src, "i");
+    const all = [...main.querySelectorAll("*")];
+    const isHeading = (el) => /^H[1-6]$/.test(el.tagName) || el.getAttribute("role") === "heading";
+    const out = {};
+    for (const code of codes) {
+      const at = all.findIndex((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes(code)));
+      if (at < 0) { out[code] = null; continue; }
+      let h = "";
+      for (let i = at - 1; i >= 0; i--) {
+        if (isHeading(all[i]) && re.test(all[i].textContent ?? "") && !all[i].contains(all[at])) { h = all[i].textContent.replace(/\s+/g, " ").trim(); break; }
+      }
+      out[code] = h;
+    }
+    return out;
+  }, { codes, src: UI.openGroupHeading.source });
+}
+/**
+ * Tap a move button on the scan landing and wait (up to 2 min: a first compile) until `landed()`, a
+ * database check, is true (a confirm dialog, if one shows, is answered yes). Returns what the page
+ * sent: the /api/admin/track/* POST's path, JSON body and status, and every POST path.
+ */
+async function openTapMove(page, button, landed, ms = 120_000) {
+  const posts = [];
+  const onRequest = (r) => { if (r.method() === "POST") posts.push(r); };
+  page.on("request", onRequest);
+  try {
+    await button.click();
+    let ok = await until(landed, 6_000);
+    if (!ok) {
+      const yes = UI.deskConfirm(page.getByRole("dialog"));
+      if (await yes.count()) await yes.click({ timeout: 5_000 }).catch(() => {});
+      ok = await until(landed, ms, 500);
+    }
+    const track = posts.find((r) => r.url().includes("/api/admin/track/"));
+    let body = null;
+    try { body = track ? JSON.parse(track.postData() ?? "null") : null; } catch { /* not JSON */ }
+    const res = track ? await track.response().catch(() => null) : null;
+    const pathOf = (r) => new URL(r.url()).pathname;
+    return { ok: !!ok, path: track ? pathOf(track) : null, body, status: res?.status() ?? null, posts: posts.map(pathOf) };
+  } finally {
+    page.off("request", onRequest);
+  }
+}
+/** A database check for openTapMove: every card of `codes` is at `deskCode`. */
+const allAt = (codes, deskCode) => async () => {
+  const t = await tables();
+  const d = placeOf(t, deskCode);
+  return !!d && codes.every((c) => cardByCode(t, c)?.location_id === d.id);
+};
+/**
+ * What a move to a desk must have done (`before`/`after`: dump() around the tap): `codes` at
+ * `deskCode` (an active place of kind other); one new card_moves row each (assign or move) from
+ * where the card was to the desk, step before = after, with its order and bag; steps, done flags
+ * and every other card's place unchanged; no new step events; no email. Returns a summary.
+ */
+function checkDeskMove(before, after, codes, deskCode) {
+  const t0 = before.tables, t = after.tables;
+  const desk = placeOf(t, deskCode);
+  assert(desk, `no ${deskCode}`);
+  eq([desk.kind, desk.active], ["other", true], `${deskCode} kind, active`);
+  const oldIds = new Set(t0.card_moves.map((m) => m.id));
+  const fresh = t.card_moves.filter((m) => !oldIds.has(m.id));
+  const problems = [];
+  for (const c of t.cards) {
+    const was = t0.cards.find((x) => x.id === c.id);
+    if (!was) continue;
+    if (!codes.includes(c.card_code)) {
+      if ((c.location_id ?? null) !== (was.location_id ?? null)) problems.push(`${c.card_code ?? c.id} moved too`);
+      continue;
+    }
+    if (c.location_id !== desk.id) problems.push(`${c.card_code} not at ${deskCode}`);
+    if (latestStage(t, c.id) !== latestStage(t0, c.id)) problems.push(`${c.card_code} step ${latestStage(t0, c.id)} -> ${latestStage(t, c.id)}`);
+    if (!!c.completed !== !!was.completed) problems.push(`${c.card_code} done ${was.completed} -> ${c.completed}`);
+    const rows = fresh.filter((m) => m.card_id === c.id);
+    if (rows.length !== 1) { problems.push(`${c.card_code}: ${rows.length} new card_moves rows`); continue; }
+    const m = rows[0];
+    if (m.to_location_id !== desk.id) problems.push(`${c.card_code}: row to ${m.to_location_id}`);
+    if ((m.from_location_id ?? null) !== (was.location_id ?? null)) problems.push(`${c.card_code}: row from ${m.from_location_id}, was at ${was.location_id}`);
+    if (!["assign", "move"].includes(m.action)) problems.push(`${c.card_code}: action ${m.action}`);
+    if ((m.stage_before ?? null) !== (m.stage_after ?? null)) problems.push(`${c.card_code}: row stage ${m.stage_before} -> ${m.stage_after}`);
+    if (m.order_id !== c.order_id || (m.bag_id ?? null) !== (c.bag_id ?? null)) problems.push(`${c.card_code}: row order/bag ${m.order_id}/${m.bag_id}`);
+  }
+  if (fresh.length !== codes.length) problems.push(`${fresh.length} new card_moves rows for ${codes.length} cards`);
+  if (stageEventCount(t) !== stageEventCount(t0)) problems.push(`${stageEventCount(t) - stageEventCount(t0)} new step events`);
+  const mails = after.emails.slice(before.emails.length);
+  if (mails.length) problems.push(`emails: ${mails.map((x) => `${JSON.stringify(x.to)} ${x.subject}`).join("; ").slice(0, 160)}`);
+  assert(!problems.length, problems.slice(0, 5).join(" | "));
+  return `${codes.length} at ${deskCode}, ${fresh.length} ${[...new Set(fresh.map((m) => m.action))].join("/")} rows, no step change, no email`;
+}
+/** The "Open my desk" link's target, checked: /admin/receiving/desk?desk=<deskCode>. */
+async function checkOpenMyDesk(page, appUrl, deskCode) {
+  const link = UI.openMyDesk(page);
+  await link.waitFor({ timeout: 20_000 });
+  const href = new URL(await link.getAttribute("href"), appUrl);
+  eq([href.pathname, href.searchParams.get("desk")], [ROUTES.desk, deskCode], '"Open my desk" link');
+  return `${href.pathname}${href.search}`;
+}
+/** Pick a desk in the "Desk" picker by its name; returns the options it offered. */
+async function chooseDesk(page, name) {
+  const sel = UI.openDeskPicker(page).first();
+  await sel.waitFor({ timeout: 15_000 });
+  const options = await sel.locator("option").evaluateAll((els) => els.map((o) => ({ value: o.value, label: (o.textContent ?? "").replace(/\s+/g, " ").trim() })));
+  const hit = options.find((o) => o.label.toUpperCase() === name.toUpperCase()) ?? options.find((o) => nameRe(name, "i").test(o.label));
+  assert(hit, `no "${name}" in the Desk picker (${options.map((o) => o.label).join(", ")})`);
+  await sel.selectOption(hit.value);
+  return options.map((o) => o.label);
+}
+const pickedDesk = (page) => UI.openDeskPicker(page).first().evaluate((el) => (el.selectedOptions?.[0]?.textContent ?? "").replace(/\s+/g, " ").trim());
+/** A locator on screen at the top of the page, unscrolled, and not under anything (a sticky bar). */
+async function onScreenUnscrolled(page, locator) {
+  await locator.waitFor({ timeout: 30_000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(300);
+  return locator.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width), height: Math.round(r.height),
+      vh: window.innerHeight, vw: window.innerWidth, scrollY: window.scrollY, covered: !(hit && (hit === el || el.contains(hit))),
+    };
+  });
+}
+/** A page that must be "not found": the not-found text, none of the order. Returns its HTTP status. */
+async function checkNotFoundPage(page, url) {
+  const res = await page.goto(url, { waitUntil: "load", timeout: 240_000 });
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+  assert(!new URL(page.url()).pathname.startsWith("/admin/login"), `${url}: sent to the sign-in page`);
+  const text = flat(await page.locator("body").innerText());
+  assert(UI.openNotFound.test(text), `${url}: HTTP ${res?.status()}, no "Code not found": "${text.slice(0, 160)}"`);
+  assert(!text.includes(BO_CUSTOMER), `${url}: shows the customer`);
+  eq(await UI.openMoveAll(page).count(), 0, `${url}: move buttons`);
+  return res?.status() ?? 0;
+}
+
 // ─── Runner ─────────────────────────────────────────────────────────────────
 class Scenario {
   constructor(name, page, results) {
@@ -1438,8 +1760,11 @@ const SCENARIOS = {
       await UI.differentSteps(page).waitFor({ timeout: 5_000 });
     }, { critical: true });
     const mailsBefore = (await emails()).length;
-    await s.step("bulk: move the 3 not-started cards to Ready for Slab Crack", async () => {
-      const res = await clickForApi(page, UI.advanceTo(page, "Ready for Slab Crack"), "/api/admin/intake/stages");
+    await s.step("bulk: the Not started group's \"Move these 3 cards\" picker, Ready for Slab Crack", async () => {
+      const group = page.locator("div").filter({ has: page.getByRole("heading", { name: /^Not started\b/ }) })
+        .filter({ has: page.locator("summary", { hasText: "Move these 3 cards" }) }).last();
+      await UI.openSteps(group, "Move these 3 cards");
+      const res = await clickForApi(page, UI.advanceTo(group, "Ready for Slab Crack"), "/api/admin/intake/stages");
       assert(res.status() < 300, `stages answered ${res.status()}: ${await res.text()}`);
     });
     await s.step("the 3 moved; Gold Two still at Humidor with no new event", async () => {
@@ -1459,9 +1784,10 @@ const SCENARIOS = {
       for (const id of [gold[0], gold[2], gold[3]]) eq(latestStage(t, id), "Ready for Slab Crack", `stage of ${id} after stale request`);
       return `HTTP ${r.status}, skipped ${JSON.stringify(r.body?.skipped ?? null).slice(0, 120)}`;
     }, { shot: false });
-    await s.step("one card alone: move Gold Two to Humidity Press from its card row", async () => {
+    await s.step("one card alone: move Gold Two to Humidity Press from its card row (\"Change step\")", async () => {
       await goto(page, ROUTES.bag(bag.id));
-      const row = UI.cardRow(page, MAIL_NAMES[1], UI.moveButton(page));
+      const row = UI.cardRow(page, MAIL_NAMES[1], page.locator("summary", { hasText: "Change step" }));
+      await UI.openSteps(row, "Change step");
       const res = await clickForApi(page, UI.advanceTo(row, "Humidity Press"), "/api/admin/intake/stages");
       assert(res.status() < 300, `stages answered ${res.status()}`);
       const t = await tables();
@@ -1505,6 +1831,86 @@ const SCENARIOS = {
     await s.step("order workspace shows Partially completed", async () => {
       await goto(page, ROUTES.receivingOrder(IDS.mailOrder));
       await page.getByText(/partially completed/i).first().waitFor({ timeout: 5_000 });
+    });
+  },
+
+  // Steps in ANY order (the owner, Nov 25: "I can randomly skip around them all"): Clamp Work ->
+  // Humidor -> Final Dry, once with the card page's step picker and once by slot scans (assign, then
+  // move: what the Scan page sends). Every jump is a stage event; only the steps past the furthest
+  // one reached this round email the customer (Clamp Work, Final Dry), going back is staff only.
+  async "steps-any-order"({ page, ctx, s, browser, appUrl }) {
+    const ONE = mailCard(0), SEVEN = mailCard(6);
+    const stagesOf = (t, id) => t.order_events.filter((e) => e.event_type === "stage_update" && e.metadata?.card_id === id)
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+    const pressed = (stage) => until(async () => (await UI.advanceTo(page, stage).getAttribute("aria-pressed").catch(() => null)) === "true", 15_000);
+    await s.step("setup: receive CD-2549 (01-04, 07-08); make CLAMP 01, HUMIDOR 01, FINAL DRY 01", async () => {
+      await trackSetup(ctx, { clamp: 1, humidor: 1, "final-dry": 1 });
+    }, { critical: true, shot: false });
+
+    await s.step("card page of CD-2549-01: a picker with all 8 steps and Done, nothing pressed (not started)", async () => {
+      await goto(page, ROUTES.card(ONE));
+      const names = await UI.stepPicker(page).getByRole("button").evaluateAll((els) => els.map((el) => [el.textContent.replace(/\s+/g, " ").trim(), el.getAttribute("aria-pressed")]));
+      eq(names.map(([n]) => n.replace(/^\d\s*|^✓\s*/, "")), ["Ready for Slab Crack", "Humidor", "Humidity Press", "Drying", "Heat Press", "Clamp Work", "Book with Weights", "Final Dry", "Done"], "picker buttons");
+      eq(names.filter(([, p]) => p === "true").length, 0, "pressed buttons");
+    }, { critical: true });
+    const picks = [
+      ["Clamp Work", 1, true],   // skips 5 steps: new for the customer
+      ["Humidor", 0, false],     // back: staff only, no email
+      ["Final Dry", 1, true],    // past Clamp Work: new again
+    ];
+    for (const [stage, mails, visible] of picks) {
+      await s.step(`card page: tap ${stage}: step ${stage}, ${mails ? "one email to A" : "no email"}${visible ? "" : ", staff-only event"}`, async () => {
+        const n = (await emails()).length;
+        const before = stagesOf(await tables(), ONE).length;
+        const res = await clickForApi(page, UI.advanceTo(page, stage), "/api/admin/intake/stages");
+        assert(res.status() < 300, `stages answered ${res.status()}: ${await res.text()}`);
+        const t = await tables();
+        eq(latestStage(t, ONE), stage, "step");
+        const evs = stagesOf(t, ONE);
+        eq(evs.length - before, 1, "new stage events");
+        eq(evs.at(-1).is_customer_visible, visible, "customer visible");
+        const fresh = mailsTo((await emails()).slice(n), CUSTOMER_A);
+        eq(fresh.length, mails, "emails to Test Customer A");
+        assert(await pressed(stage), `${stage} isn't shown as the current step after the page refreshed`);
+        if (!mails) await page.getByText(/no customer email/i).first().waitFor({ timeout: 10_000 });
+        return fresh.map((m) => m.subject).join(" | ");
+      });
+    }
+    await s.step("CD-2549-01's history: Clamp Work, Humidor, Final Dry; the customer heard about Clamp work and Final drying only", async () => {
+      const t = await tables();
+      eq(stagesOf(t, ONE).map((e) => e.metadata.stage), ["Clamp Work", "Humidor", "Final Dry"], "stage events");
+      const subjects = mailsTo((await emails()), CUSTOMER_A).map((m) => m.subject).filter((x) => /Update on your card/.test(x));
+      assert(subjects.some((x) => /Clamp work/.test(x)) && subjects.some((x) => /Final drying/.test(x)), `subjects: ${subjects.join(" | ")}`);
+      assert(!subjects.some((x) => /Humidity treatment/.test(x)), `a "Humidity treatment" email went out: ${subjects.join(" | ")}`);
+    }, { shot: false });
+
+    const scans = [
+      ["assign CD-2549-07 to CLAMP 01", ROUTES.trackAssign, { locationCode: "LOC-CLAMP-01", cardIds: [SEVEN] }, "Clamp Work", 1],
+      ["move CLAMP 01 -> HUMIDOR 01 (back)", ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HUMIDOR-01" }, "Humidor", 0],
+      ["move HUMIDOR 01 -> FINAL DRY 01", ROUTES.trackMove, { fromCode: "LOC-HUMIDOR-01", toCode: "LOC-FINAL-DRY-01" }, "Final Dry", 1],
+    ];
+    for (const [what, route, body, stage, mails] of scans) {
+      await s.step(`slot scan: ${what}: step ${stage}, ${mails ? "one email to A" : "no email"}`, async () => {
+        const n = (await emails()).length;
+        const r = await trackOk(ctx, route, body);
+        const t = await tables();
+        eq(latestStage(t, SEVEN), stage, "step");
+        eq(resultOf(r, SEVEN)?.stage, stage, "result stage");
+        eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, mails, "emails to Test Customer A");
+        eq((r.emailedOrders ?? []).length, mails, "emailedOrders");
+        eq(stagesOf(t, SEVEN).at(-1).is_customer_visible, mails === 1, "customer visible");
+        return r.message;
+      }, { shot: false });
+    }
+    await s.step("CD-2549-07's card page: Final Dry pressed, Clamp Work and Humidor checked as done this round; 390 px no sideways scroll", async () => {
+      eq(stagesOf(await tables(), SEVEN).map((e) => e.metadata.stage), ["Clamp Work", "Humidor", "Final Dry"], "stage events");
+      await goto(page, ROUTES.card(SEVEN));
+      assert(await pressed("Final Dry"), "Final Dry not pressed");
+      for (const st of ["Clamp Work", "Humidor"]) {
+        eq(await UI.stepPicker(page).getByRole("button", { name: `${st} (done this round)` }).count(), 1, `${st} checked`);
+      }
+      const w = await phoneShot(browser, appUrl, ROUTES.card(SEVEN), "steps-any-order-card");
+      assert(!w, w);
     });
   },
 
@@ -2083,7 +2489,7 @@ const SCENARIOS = {
     }, { shot: false });
   },
 
-  // MOVE a slot's cards to another slot (capacity, the step never goes backwards), then Done and Take out
+  // MOVE a slot's cards to another slot (capacity; the step follows the slot, back too, with no email), then Done and Take out
   async "track-move"({ ctx, s, mockUrl }) {
     const three = ["CD-2549-07", "CD-2549-08", "CD-2600-01"];
     let t0 = null;
@@ -2104,7 +2510,7 @@ const SCENARIOS = {
       eq(t.card_moves.length, before.card_moves.length, "card_moves rows");
       return msg;
     }, { shot: false });
-    await s.step("again with force: all 3 in HEAT PRESS 02, CLAMP 01 empty (freed); step stays Clamp Work (Heat Press is earlier); no email", async () => {
+    await s.step("again with force: all 3 in HEAT PRESS 02, CLAMP 01 empty (freed); step back to Heat Press (staff-only events); no email", async () => {
       const before = await dump();
       const body = await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HEAT-PRESS-02", force: true });
       eq(body.location?.code, "LOC-HEAT-PRESS-02", "location.code");
@@ -2114,14 +2520,16 @@ const SCENARIOS = {
       eq(cardsIn(t, "LOC-HEAT-PRESS-02"), [...three].sort(), "cards in HEAT PRESS 02");
       eq(cardsIn(t, "LOC-CLAMP-01"), [], "cards in CLAMP 01");
       assert(freedCodes(body).includes("LOC-CLAMP-01"), `freed ${JSON.stringify(freedCodes(body))}`);
-      for (const code of three) eq(latestStage(t, cardIdOf(t, code)), "Clamp Work", `${code} step (never backwards)`);
-      eq(stageEventCount(t), stageEventCount(before.tables), "stage_update events");
+      for (const code of three) eq(latestStage(t, cardIdOf(t, code)), "Heat Press", `${code} step (back to Heat Press)`);
+      eq(stageEventCount(t) - stageEventCount(before.tables), 3, "new stage_update events");
+      const backEvents = t.order_events.filter((e) => e.event_type === "stage_update" && !before.tables.order_events.some((b) => b.id === e.id));
+      eq(backEvents.map((e) => e.is_customer_visible), [false, false, false], "customer visible (going back: staff only)");
       eq(after.emails.length, before.emails.length, "emails");
       const from = placeOf(t, "LOC-CLAMP-01").id, to = placeOf(t, "LOC-HEAT-PRESS-02").id;
       for (const code of three) {
         const row = movesOf(t, cardIdOf(t, code)).find((m) => m.to_location_id === to);
         assert(row, `${code}: no move row to HEAT PRESS 02`);
-        eq([row.action, row.from_location_id, row.stage_before, row.stage_after], ["move", from, "Clamp Work", "Clamp Work"], `${code} action, from, stage_before, stage_after`);
+        eq([row.action, row.from_location_id, row.stage_before, row.stage_after], ["move", from, "Clamp Work", "Heat Press"], `${code} action, from, stage_before, stage_after`);
       }
       return body.message;
     }, { critical: true, shot: false });
@@ -2133,7 +2541,7 @@ const SCENARIOS = {
       eq(cardsIn(t, "LOC-HEAT-PRESS-02"), ["CD-2600-01"], "left in HEAT PRESS 02");
       assert(!freedCodes(body).includes("LOC-HEAT-PRESS-02"), "HEAT PRESS 02 reported empty, but CD-2600-01 is still in it");
       for (const cid of [mailCard(6), mailCard(7)]) eq(latestStage(t, cid), "Final Dry", `${cid} step`);
-      eq(latestStage(t, IDS.bigCards[0]), "Clamp Work", "CD-2600-01 step");
+      eq(latestStage(t, IDS.bigCards[0]), "Heat Press", "CD-2600-01 step");
       const fresh = (await emails()).slice(n);
       eq([mailsTo(fresh, CUSTOMER_A).length, mailsTo(fresh, CUSTOMER_G).length], [1, 0], "emails to A, G");
       return body.message;
@@ -2174,7 +2582,7 @@ const SCENARIOS = {
       eq(mailsTo((await emails()).slice(n), CUSTOMER_A).length, 0, "customer emails for done (none, as before)");
       return body.message;
     }, { shot: false });
-    await s.step("Take out (release) CD-2600-01: in no place, HEAT PRESS 02 freed, step still Clamp Work, a 'release' row", async () => {
+    await s.step("Take out (release) CD-2600-01: in no place, HEAT PRESS 02 freed, step still Heat Press, a 'release' row", async () => {
       const before = await dump();
       const body = await trackOk(ctx, ROUTES.trackRelease, { cardIds: [IDS.bigCards[0]] });
       eq(body.location ?? null, null, "location");
@@ -2182,7 +2590,7 @@ const SCENARIOS = {
       eq(cardByCode(t, "CD-2600-01").location_id ?? null, null, "location_id");
       eq(cardsIn(t, "LOC-HEAT-PRESS-02"), [], "cards in HEAT PRESS 02");
       assert(freedCodes(body).includes("LOC-HEAT-PRESS-02"), `freed ${JSON.stringify(freedCodes(body))}`);
-      eq(latestStage(t, IDS.bigCards[0]), "Clamp Work", "step");
+      eq(latestStage(t, IDS.bigCards[0]), "Heat Press", "step");
       const rows = movesOf(t, IDS.bigCards[0]).filter((m) => m.action === "release");
       eq(rows.length, 1, "release rows");
       eq([rows[0].from_location_id, rows[0].to_location_id ?? null], [placeOf(t, "LOC-HEAT-PRESS-02").id, null], "from, to");
@@ -2963,7 +3371,7 @@ const SCENARIOS = {
     });
 
     let multi = false;
-    await s.step('tick CD-2600-01 and CD-2600-02, "Put selected in…", type "humidor 1": both in HUMIDOR 01 (no 409), step stays Heat Press, no email', async () => {
+    await s.step('tick CD-2600-01 and CD-2600-02, "Put selected in…", type "humidor 1": both in HUMIDOR 01 (no 409), step back to Humidor, no email', async () => {
       const n = (await emails()).length;
       for (const code of ["CD-2600-01", "CD-2600-02"]) await tickPanel(UI.deskPanel(page, code, DESK_ALL));
       await UI.deskPutSelected(page).click();
@@ -2974,7 +3382,7 @@ const SCENARIOS = {
       await until(async () => cardsIn(await tables(), "LOC-HUMIDOR-01").length >= 2, 10_000);
       const t2 = await tables();
       eq(cardsIn(t2, "LOC-HUMIDOR-01"), ["CD-2600-01", "CD-2600-02"], "cards in HUMIDOR 01");
-      for (const code of ["CD-2600-01", "CD-2600-02"]) eq(latestStage(t2, id(code)), "Heat Press", `${code} step (Humidor is earlier)`);
+      for (const code of ["CD-2600-01", "CD-2600-02"]) eq(latestStage(t2, id(code)), "Humidor", `${code} step (back to Humidor, any order)`);
       eq(mailsTo((await emails()).slice(n), CUSTOMER_G).length, 0, "emails to Test Customer G");
       msgs.multi = await messageSeen(page, nameRe("HUMIDOR 01", "i"));
       assert(box, `no box to type the holder in (${how})`);
@@ -3178,6 +3586,560 @@ const SCENARIOS = {
       eq(t.card_moves.length, before.card_moves.length, "card_moves rows");
       return msg;
     }, { shot: false });
+  },
+
+  // ── The scan landing (owner, Nov 25): a bag or order QR opens one simple page: the person, their
+  // order, "Move all N cards to my desk", a panel per card (/admin/receiving/open/<code>) ──
+
+  // A bag QR: /q/CD-2549-P -> the page; who it is, the bag's cards, nothing else
+  async "bag-open-qr"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step("setup: CD-2549 Gold 01-04 + Platinum 07-09 received 2026-11-15 (05, 06, 10 not here yet); CD-2549-07 at Humidor, a known defect, $2,500 declared; receiving photos", async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      return `${BO_BAG}: ${bagCardCodes(t, BO_BAG).join(", ")}, due ${bagByCode(t, BO_BAG).due_date}`;
+    }, { critical: true, shot: false });
+    for (const url of [ROUTES.qr(BO_BAG), ROUTES.qrUpper(BO_BAG), ROUTES.qr(BO_BAG.toLowerCase())]) {
+      await s.step(`signed in: ${url} -> ${ROUTES.open(BO_BAG)}`, async () => {
+        const loc = await scanTarget(ctx, appUrl, url);
+        eq(decodeURIComponent(loc.pathname), ROUTES.open(BO_BAG), "redirect");
+        return `${loc.pathname}${loc.search}`;
+      }, { shot: false });
+    }
+    await s.step(`signed out: /q/${BO_BAG.toLowerCase()} and /Q/${BO_BAG} -> sign in with next=/q/${BO_BAG}; the page itself -> sign in with next=<the page>`, async () => {
+      const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
+      try {
+        eq(await signInNext(anon, appUrl, ROUTES.qr(BO_BAG.toLowerCase())), `/q/${BO_BAG}`, "next (/q, lower case)");
+        eq(await signInNext(anon, appUrl, ROUTES.qrUpper(BO_BAG)), `/q/${BO_BAG}`, "next (/Q)");
+        eq(await signInNext(anon, appUrl, ROUTES.open(BO_BAG)), ROUTES.open(BO_BAG), "next (the page)");
+      } finally { await anon.close(); }
+    }, { shot: false });
+    await s.step(`the bag label's QR (…/Q/${BO_BAG}) in the signed-in browser lands on the page`, async () => {
+      await goto(page, ROUTES.qrUpper(BO_BAG));
+      eq(decodeURIComponent(new URL(page.url()).pathname), ROUTES.open(BO_BAG), "landed on");
+      await openReady(page);
+    }, { critical: true });
+    await s.step(`the person: ${BO_CUSTOMER} as the h1 in the largest type, order ${BO_ORDER}, Platinum, ${BO_BAG}, Due Mon Dec 7, 3 cards`, async () => {
+      const bag = bagByCode(t, BO_BAG);
+      const top = (await mainText(page)).split(/cards in this bag/i)[0];
+      const problems = [];
+      const h1 = flat(await page.locator("main h1").first().innerText().catch(() => ""));
+      if (!h1.includes(BO_CUSTOMER)) problems.push(`the h1 reads "${h1}"`);
+      const size = await biggestText(page, BO_CUSTOMER);
+      if (!(size.name >= 24 && size.name >= size.other)) problems.push(`the name is ${size.name}px, "${size.otherText}" ${size.other}px`);
+      if (!orderNumberRe(BO_ORDER).test(top)) problems.push(`no order number ${BO_ORDER}`);
+      if (!tierShown(top, "Platinum")) problems.push("no tier Platinum");
+      if (!top.includes(BO_BAG)) problems.push(`no Bag ID ${BO_BAG}`);
+      if (!dueRe(bag.due_date).test(flat(top))) problems.push(`no "${dueText(bag.due_date)}" (due_date ${bag.due_date})`);
+      if (!countShown(top, 3)) problems.push('no "3 cards"');
+      assert(!problems.length, problems.join(" | "));
+      return `name ${size.name}px (next biggest "${size.otherText}" ${size.other}px), ${dueText(bag.due_date)}`;
+    });
+    await s.step(`the customer's notes in a "Customer's notes" box; "Open full order" -> /admin/orders/<id>; "All photos" -> this bag's photos`, async () => {
+      const bag = bagByCode(t, BO_BAG);
+      const box = page.locator("main").first().locator("section, div, aside, figure, blockquote, dl")
+        .filter({ hasText: UI.openNotesTitle }).filter({ hasText: BO_NOTE })
+        .filter({ hasNot: page.locator("h1") }).filter({ hasNotText: /CD-\d+-\d{2}/ });
+      assert(await box.count(), `no box titled "Customer's notes" holding "${BO_NOTE}" (apart from the name and the cards)`);
+      const full = new URL(await UI.openFullOrder(page).getAttribute("href"), appUrl);
+      eq(full.pathname, ROUTES.order(IDS.mailOrder), '"Open full order"');
+      const photos = new URL(await UI.openAllPhotos(page).getAttribute("href"), appUrl);
+      eq(photos.pathname, ROUTES.photos(IDS.mailOrder), '"All photos"');
+      eq(photos.searchParams.get("bag"), bag.id, '"All photos" ?bag=');
+      return `${full.pathname} · ${photos.pathname}${photos.search}`;
+    }, { shot: false });
+    await s.step('ONE big button "Move all 3 cards to my desk", 44+ px tall; no desk picker (one desk)', async () => {
+      const btns = page.getByRole("button", { name: UI.openMoveAllRe });
+      eq(await btns.count(), 1, "big move buttons");
+      const name = await nameOf(btns.first());
+      eq(await moveAllN(page), 3, `N in "${name}"`);
+      const box = await btns.first().boundingBox();
+      assert(box && box.height >= 44, `the button is ${box ? Math.round(box.height) : "not"} px tall`);
+      eq(await UI.openDeskPicker(page).count(), 0, '"Desk" pickers with one desk');
+      return `"${name}" ${Math.round(box.width)}x${Math.round(box.height)}`;
+    }, { shot: false });
+    await s.step(`the bag's cards only: ${BO_PLAT.join(", ")}, one panel each (no Gold card, none of those not here yet)`, async () => {
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+      eq([...new Set((await mainText(page)).match(/CD-\d+-\d{2,}(?!\d)/g) ?? [])].sort(), BO_PLAT, "Card IDs on the page");
+    }, { critical: true });
+    await s.step('each panel: a photo, the card name, year · set · #number, its Card ID, "In the bag", one "Move to my desk" button', async () => {
+      const problems = [];
+      for (const code of BO_PLAT) {
+        const c = cardByCode(t, code);
+        const panel = UI.openPanel(page, code, BO_ALL);
+        const txt = await openPanelText(page, code);
+        for (const [what, want] of [["card name", c.card_name], ["year", c.card_year], ["set", c.card_set], ["number", c.card_number]]) {
+          if (!txt.includes(want)) problems.push(`${code}: no ${what} "${want}"`);
+        }
+        if (!UI.openWhere.bag.test(txt)) problems.push(`${code}: not "In the bag"`);
+        if ((await panel.locator("img").count()) < 1) problems.push(`${code}: no photo`);
+        const n = await panel.getByRole("button", { name: /^move\b/i }).count();
+        if (n !== 1 || !(await UI.openMoveOne(panel).count())) problems.push(`${code}: ${n} move buttons`);
+      }
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+    }, { shot: false });
+    await s.step(`${BO_VALUE.code}: declared value $2,500.00, its known defect, step ${BO_STEP.stage}, its receiving and customer photos; no other card's notes`, async () => {
+      const panel = UI.openPanel(page, BO_VALUE.code, BO_ALL);
+      const txt = await openPanelText(page, BO_VALUE.code);
+      const problems = [];
+      if (!BO_VALUE.re.test(txt)) problems.push("no declared value $2,500.00");
+      if (!txt.includes(BO_DEFECT.text)) problems.push(`no known defect "${BO_DEFECT.text}"`);
+      if (!new RegExp(`\\b${BO_STEP.stage}\\b`, "i").test(txt)) problems.push(`no step ${BO_STEP.stage}`);
+      if (!(await panel.locator(`img[src*="${RECEIVING_PHOTO_STEM}"], img[srcset*="${RECEIVING_PHOTO_STEM}"]`).count())) problems.push("no receiving photo");
+      if (!(await panel.locator('img[src*="seed-a-card07-"], img[srcset*="seed-a-card07-"]').count())) problems.push("no customer photo");
+      for (const code of ["CD-2549-08", "CD-2549-09"]) if ((await openPanelText(page, code)).includes(BO_DEFECT.text)) problems.push(`${code} shows ${BO_DEFECT.code}'s defect`);
+      if ((await mainText(page)).includes(BO_CARD_NOTE.text)) problems.push(`shows ${BO_CARD_NOTE.code}'s note (a Gold card)`);
+      assert(!problems.length, problems.join(" | "));
+    }, { shot: false });
+    await s.step(`tapping ${BO_VALUE.code}'s photo opens it full screen; Close closes it`, () => photoViewerCheck(page, UI.openPanel(page, BO_VALUE.code, BO_ALL), "bag-open-viewer-1440"), { shot: false });
+    await s.step("plain words: no stage track, no due-date editor, no label printing", async () => {
+      const main = page.locator("main").first();
+      const text = await mainText(page);
+      const steps = STAGES.filter((st) => new RegExp(`\\b${esc(st)}\\b`, "i").test(text));
+      assert(steps.length < 3, `a stage track? (${steps.join(", ")})`);
+      eq(await main.locator('input[type="date"]').count(), 0, "date inputs");
+      eq(await UI.printButton(main).count(), 0, "print-label buttons");
+    }, { shot: false });
+    await s.step(`typed in lower case (${ROUTES.open(BO_BAG.toLowerCase())}): the same bag`, async () => {
+      await goto(page, ROUTES.open(BO_BAG.toLowerCase()));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+    });
+  },
+
+  // An order QR: /q/CD-2549 -> the same page for the whole order, cards grouped per bag
+  async "bag-open-order"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step("setup: as bag-open-qr (bags CD-2549-G: 01-04, CD-2549-P: 07-09; 05, 06, 10 not here yet)", async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+    }, { critical: true, shot: false });
+    for (const url of [ROUTES.qr(BO_ORDER), ROUTES.qrUpper(BO_ORDER), ROUTES.qr(BO_ORDER.toLowerCase())]) {
+      await s.step(`signed in: ${url} -> ${ROUTES.open(BO_ORDER)}`, async () => {
+        const loc = await scanTarget(ctx, appUrl, url);
+        eq(decodeURIComponent(loc.pathname), ROUTES.open(BO_ORDER), "redirect");
+        return `${loc.pathname}${loc.search}`;
+      }, { shot: false });
+    }
+    await s.step(`signed out: /q/${BO_ORDER.toLowerCase()} and /Q/${BO_ORDER} -> sign in with next=/q/${BO_ORDER}`, async () => {
+      const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
+      try {
+        eq(await signInNext(anon, appUrl, ROUTES.qr(BO_ORDER.toLowerCase())), `/q/${BO_ORDER}`, "next (/q, lower case)");
+        eq(await signInNext(anon, appUrl, ROUTES.qrUpper(BO_ORDER)), `/q/${BO_ORDER}`, "next (/Q)");
+      } finally { await anon.close(); }
+    }, { shot: false });
+    await s.step(`the order code's QR (…/Q/${BO_ORDER}) in the signed-in browser lands on the page`, async () => {
+      await goto(page, ROUTES.qrUpper(BO_ORDER));
+      eq(decodeURIComponent(new URL(page.url()).pathname), ROUTES.open(BO_ORDER), "landed on");
+      await openReady(page);
+    }, { critical: true });
+    await s.step(`the person: ${BO_CUSTOMER} (h1), ${BO_ORDER}, a card count, and a "Bags" list: Platinum ${BO_BAG} Due Mon Dec 7 3 cards, Gold CD-2549-G Due Mon Dec 14 4 cards`, async () => {
+      const text = await mainText(page);
+      const problems = [];
+      const h1 = flat(await page.locator("main h1").first().innerText().catch(() => ""));
+      if (!h1.includes(BO_CUSTOMER)) problems.push(`the h1 reads "${h1}"`);
+      if (!orderNumberRe(BO_ORDER).test(text)) problems.push(`no order number ${BO_ORDER}`);
+      const total = [10, 7].find((n) => countShown(text, n));
+      if (!total) problems.push('no card count ("10 cards" or "7 cards")');
+      const list = UI.openBagsList(page);
+      const hasList = (await list.count()) > 0;
+      if (!hasList) problems.push('no list labelled "Bags"');
+      for (const [code, tier, n] of [[BO_BAG, "Platinum", 3], ["CD-2549-G", "Gold", 4]]) {
+        const bag = bagByCode(t, code);
+        const row = hasList ? flat(await list.locator("li").filter({ hasText: code }).first().innerText().catch(() => "")) : flat(text);
+        if (!row.includes(code)) { problems.push(`no row for ${code}`); continue; }
+        if (!tierShown(row, tier)) problems.push(`${code}: no tier ${tier}`);
+        if (!dueRe(bag.due_date).test(row)) problems.push(`${code}: no "${dueText(bag.due_date)}"`);
+        if (!new RegExp(`(^|[^0-9])${n} cards?\\b`).test(row)) problems.push(`${code}: no "${n} cards"`);
+      }
+      assert(!problems.length, problems.join(" | "));
+      return `count "${total} cards"`;
+    });
+    await s.step(`the customer's notes box; "Open full order" -> /admin/orders/<id>; "All photos" -> the whole order's photos`, async () => {
+      const box = page.locator("main").first().locator("section, div, aside, figure, blockquote, dl")
+        .filter({ hasText: UI.openNotesTitle }).filter({ hasText: BO_NOTE })
+        .filter({ hasNot: page.locator("h1") }).filter({ hasNotText: /CD-\d+-\d{2}/ });
+      assert(await box.count(), `no box titled "Customer's notes" holding "${BO_NOTE}"`);
+      eq(new URL(await UI.openFullOrder(page).getAttribute("href"), appUrl).pathname, ROUTES.order(IDS.mailOrder), '"Open full order"');
+      const photos = new URL(await UI.openAllPhotos(page).getAttribute("href"), appUrl);
+      eq([photos.pathname, photos.searchParams.get("bag")], [ROUTES.photos(IDS.mailOrder), null], '"All photos" (no ?bag=)');
+    }, { shot: false });
+    await s.step('"Move all 7 cards to my desk" (the cards that are here: not the 3 not here yet)', async () => {
+      eq(await page.getByRole("button", { name: UI.openMoveAllRe }).count(), 1, "big move buttons");
+      eq(await moveAllN(page), 7, "N");
+    }, { shot: false });
+    await s.step(`every card has a panel, grouped: 07-09 under "Platinum · ${BO_BAG}", 01-04 under "Gold · CD-2549-G", 05, 06, 10 under "Not in a bag" / "Not here yet"`, async () => {
+      eq(await openPanelsShown(page), BO_ALL, "cards with a panel");
+      const g = await groupsOf(page, BO_ALL);
+      const problems = [];
+      for (const code of BO_PLAT) if (!(g[code] ?? "").includes(BO_BAG) || !/platinum/i.test(g[code])) problems.push(`${code} under "${g[code]}"`);
+      for (const code of BO_GOLD) if (!(g[code] ?? "").includes("CD-2549-G") || !/gold/i.test(g[code])) problems.push(`${code} under "${g[code]}"`);
+      for (const code of BO_AWAY) if (!/not here yet|not in a bag/i.test(g[code] ?? "")) problems.push(`${code} under "${g[code]}"`);
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+      return [...new Set(Object.values(g))].join(" | ");
+    });
+    await s.step('05, 06, 10 read "Not here yet" with no move button; the 7 others "In the bag" with one each', async () => {
+      const problems = [];
+      for (const code of BO_ALL) {
+        const panel = UI.openPanel(page, code, BO_ALL);
+        const txt = await openPanelText(page, code);
+        const moves = await panel.getByRole("button", { name: /^move\b/i }).count();
+        if (BO_AWAY.includes(code)) {
+          if (!UI.openWhere.away.test(txt)) problems.push(`${code}: not "Not here yet"`);
+          if (moves) problems.push(`${code}: has a move button`);
+        } else {
+          if (!UI.openWhere.bag.test(txt)) problems.push(`${code}: not "In the bag"`);
+          if (moves !== 1) problems.push(`${code}: ${moves} move buttons`);
+        }
+      }
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+    }, { shot: false });
+  },
+
+  // "Move all N cards to my desk": location only, LOC-DESK made on first use, no email; again: nothing
+  async "bag-open-move-all"({ page, ctx, s, appUrl, mockUrl }) {
+    await s.step(`setup: as bag-open-qr; no desk yet (${DESK} is made on first use)`, async () => {
+      const t = await bagOpenSetup(ctx, mockUrl);
+      assert(!placeOf(t, DESK), `${DESK} exists before anything used it`);
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: the 3 panels, "Move all 3 cards to my desk"`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+      eq(await moveAllN(page), 3, "N");
+    }, { critical: true });
+    let before = null, tap = null;
+    await s.step(`tap "Move all 3 cards to my desk": the 3 are at ${DESK} (kind other, made if missing)`, async () => {
+      before = await dump();
+      tap = await openTapMove(page, UI.openMoveAll(page), allAt(BO_PLAT, DESK));
+      assert(tap.ok, `the 3 aren't at ${DESK} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"}; ${tap.path ?? ""} ${tap.status ?? ""})`);
+      const desk = placeOf(await tables(), DESK);
+      eq([desk.kind, desk.active], ["other", true], `${DESK} kind, active`);
+      return `${tap.path ?? tap.posts.join(", ")} ${tap.status ?? ""} ${JSON.stringify(tap.body ?? {}).slice(0, 160)}`;
+    }, { critical: true });
+    await s.step(`location only: one card_moves row each (bag -> desk, step before = after), ${BO_STEP.code} still at ${BO_STEP.stage}, no step events, the other cards untouched, no customer email`, async () => {
+      return checkDeskMove(before, await dump(), BO_PLAT, DESK);
+    }, { shot: false });
+    await s.step(`the page says "3 cards are on your desk" with "Open my desk" -> ${ROUTES.deskAt(DESK)}`, async () => {
+      const msg = (await messageSeen(page, UI.openMoved(3), 20_000)) ?? (await textSeen(page, UI.openMoved(3), 1_000));
+      assert(msg, `no "3 cards are on your desk" (the page says: "${flat(await mainText(page)).slice(0, 240)}")`);
+      return `"${msg.slice(0, 80)}" · ${await checkOpenMyDesk(page, appUrl, DESK)}`;
+    });
+    await s.step("pressing again moves nothing more: no move-all button left (or pressing it changes nothing), and the same request sent again changes nothing", async () => {
+      const t0 = await dump();
+      const notes = [];
+      const btn = UI.openMoveAll(page);
+      // the page refreshes itself after the answer (router.refresh): give the button a moment to go
+      await until(async () => !(await btn.isVisible().catch(() => false)) || !(await btn.isEnabled().catch(() => true)), 15_000);
+      if ((await btn.isVisible().catch(() => false)) && (await btn.isEnabled().catch(() => false))) {
+        notes.push(`pressed "${await nameOf(btn)}" again`);
+        await btn.click();
+        await sleep(5_000);
+      } else notes.push("no move-all button left");
+      if (tap?.path && tap.body) {
+        const r = await api(ctx, "POST", tap.path, tap.body);
+        eq(r.status, 200, `the same request again: HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+        notes.push(`same request again: "${r.body?.message ?? `changed ${r.body?.changed}`}"`);
+      }
+      const t1 = await dump();
+      eq(t1.tables.card_moves.length, t0.tables.card_moves.length, "card_moves rows");
+      eq(cardsIn(t1.tables, DESK), BO_PLAT, `cards at ${DESK}`);
+      eq(t1.emails.length, t0.emails.length, "emails");
+      return notes.join("; ");
+    }, { shot: false });
+    await s.step(`reloaded: "All on your desk" + "Open my desk", no move buttons; each card "On your desk", ${BO_STEP.code} still ${BO_STEP.stage}`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      assert(await textSeen(page, UI.openAllThere, 15_000), `no "All on your desk": "${flat(await mainText(page)).slice(0, 240)}"`);
+      await checkOpenMyDesk(page, appUrl, DESK);
+      eq(await page.locator("main").first().getByRole("button", { name: /^move\b/i }).count(), 0, "move buttons");
+      const problems = [];
+      for (const code of BO_PLAT) if (!UI.openWhere.desk.test(await openPanelText(page, code))) problems.push(`${code}: not "On your desk"`);
+      if (!new RegExp(`\\b${BO_STEP.stage}\\b`, "i").test(await openPanelText(page, BO_STEP.code))) problems.push(`${BO_STEP.code}: step not ${BO_STEP.stage}`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step(`"Open my desk" opens the Desk page (?desk=${DESK}), which lists the 3`, async () => {
+      await Promise.all([page.waitForURL((u) => u.pathname === ROUTES.desk, { timeout: 240_000 }), UI.openMyDesk(page).click()]);
+      await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+      eq(new URL(page.url()).searchParams.get("desk"), DESK, "?desk=");
+      eq(await waitPanels(page, BO_PLAT, BO_ALL), BO_PLAT, "cards on the Desk page");
+    });
+  },
+
+  // A card's own "Move to my desk": only that card; the big button then counts the rest
+  async "bag-open-move-one"({ page, ctx, s, mockUrl }) {
+    const ONE = "CD-2549-08";
+    const REST = BO_PLAT.filter((c) => c !== ONE);
+    let t = null;
+    await s.step("setup: as bag-open-qr", async () => { t = await bagOpenSetup(ctx, mockUrl); }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: the 3 panels, "Move all 3 cards to my desk"`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+      eq(await moveAllN(page), 3, "N");
+    }, { critical: true });
+    await s.step(`${ONE}'s "Move to my desk": only ${ONE} goes to ${DESK} (location only, no email)`, async () => {
+      const before = await dump();
+      const tap = await openTapMove(page, UI.openMoveOne(UI.openPanel(page, ONE, BO_ALL)), allAt([ONE], DESK));
+      assert(tap.ok, `${ONE} isn't at ${DESK} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"})`);
+      if (Array.isArray(tap.body?.cardIds)) eq(tap.body.cardIds, [cardIdOf(t, ONE)], "cardIds sent");
+      return checkDeskMove(before, await dump(), [ONE], DESK);
+    }, { critical: true });
+    await s.step(`${ONE}'s panel says "On your desk" with no move button; ${REST.join(", ")} still "In the bag" with theirs`, async () => {
+      const ok = await until(async () => UI.openWhere.desk.test(await openPanelText(page, ONE).catch(() => "")), 20_000);
+      assert(ok, `${ONE} doesn't say "On your desk": "${(await openPanelText(page, ONE).catch(() => "")).slice(0, 200)}"`);
+      eq(await UI.openPanel(page, ONE, BO_ALL).getByRole("button", { name: /^move\b/i }).count(), 0, `${ONE} move buttons`);
+      const problems = [];
+      for (const code of REST) {
+        if (!UI.openWhere.bag.test(await openPanelText(page, code))) problems.push(`${code}: not "In the bag"`);
+        if (!(await UI.openMoveOne(UI.openPanel(page, code, BO_ALL)).count())) problems.push(`${code}: no move button`);
+      }
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step('the big button counts 2 ("Move all 2 cards to my desk") with "1 already on your desk"; the same after a reload', async () => {
+      assert(await until(async () => (await moveAllN(page)) === 2, 20_000), `N is ${await moveAllN(page)}`);
+      assert(await textSeen(page, UI.openAlready(1), 5_000), 'no "1 already on your desk"');
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      eq(await moveAllN(page), 2, "N after a reload");
+      assert(await textSeen(page, UI.openAlready(1), 10_000), 'no "1 already on your desk" after a reload');
+    });
+  },
+
+  // A card in a holder (CLAMP 07) goes to the desk from there: the holder is freed, the step stays
+  async "bag-open-from-holder"({ page, ctx, s, mockUrl }) {
+    const C = BO_STEP.code;
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CLAMP 01..07 made; ${C} put in CLAMP 07 (step Clamp Work)`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await bulkSlots(ctx, "clamp", 7);
+      await assignOk(ctx, "LOC-CLAMP-07", [cardIdOf(t, C)]);
+      t = await tables();
+      eq(cardsIn(t, "LOC-CLAMP-07"), [C], "cards in CLAMP 07");
+      eq(latestStage(t, cardIdOf(t, C)), "Clamp Work", `${C} step`);
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: ${C} reads "In CLAMP 07" (step Clamp Work) with its "Move to my desk"; the big button counts it ("Move all 3 cards")`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_PLAT, "cards with a panel");
+      const txt = await openPanelText(page, C);
+      assert(UI.openWhere.holder("CLAMP 07").test(txt), `${C} doesn't say "In CLAMP 07": "${txt.slice(0, 200)}"`);
+      assert(/\bclamp work\b/i.test(txt), `${C}: no step Clamp Work`);
+      assert(await UI.openMoveOne(UI.openPanel(page, C, BO_ALL)).count(), `${C}: no move button`);
+      eq(await moveAllN(page), 3, "N");
+    }, { critical: true });
+    await s.step(`${C}'s "Move to my desk": at ${DESK}, CLAMP 07 freed, step still Clamp Work, one row CLAMP 07 -> desk; no email`, async () => {
+      const before = await dump();
+      const tap = await openTapMove(page, UI.openMoveOne(UI.openPanel(page, C, BO_ALL)), allAt([C], DESK));
+      assert(tap.ok, `${C} isn't at ${DESK} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"})`);
+      const after = await dump();
+      const r = checkDeskMove(before, after, [C], DESK);
+      eq(cardsIn(after.tables, "LOC-CLAMP-07"), [], "cards in CLAMP 07");
+      eq(latestStage(after.tables, cardIdOf(after.tables, C)), "Clamp Work", `${C} step`);
+      const row = after.tables.card_moves.filter((m) => m.card_id === cardIdOf(after.tables, C)).at(-1);
+      eq(row?.from_location_id, placeOf(after.tables, "LOC-CLAMP-07").id, "the row's from (CLAMP 07)");
+      return `${tap.path ?? ""} ${r}`;
+    }, { critical: true });
+    await s.step(`${C}'s panel says "On your desk", no longer "In CLAMP 07"`, async () => {
+      const ok = await until(async () => UI.openWhere.desk.test(await openPanelText(page, C).catch(() => "")), 20_000);
+      const txt = await openPanelText(page, C);
+      assert(ok, `doesn't say "On your desk": "${txt.slice(0, 200)}"`);
+      assert(!UI.openWhere.holder("CLAMP 07").test(txt), 'still says "In CLAMP 07"');
+    });
+  },
+
+  // Done, refunded and not-arrived cards: shown, no move button, not counted
+  async "bag-open-states"({ page, ctx, s, mockUrl }) {
+    const DONE = "CD-2549-02", REFUNDED = "CD-2549-03";
+    const FIVE = ["CD-2549-01", "CD-2549-04", ...BO_PLAT];
+    let t = null;
+    await s.step(`setup: as bag-open-qr; ${DONE} marked done (POST done: at LOC-DONE), ${REFUNDED} refunded (in the mock); 05, 06, 10 not here yet`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, DONE)] });
+      await mockUpdate(mockUrl, "cards", { status: "refunded" }, "card_code", REFUNDED);
+      t = await tables();
+      eq([cardByCode(t, DONE).completed, cardByCode(t, DONE).location_id], [true, placeOf(t, "LOC-DONE").id], `${DONE} done, at LOC-DONE`);
+    }, { critical: true, shot: false });
+    await s.step(`bag CD-2549-G: 4 panels; ${DONE} "Done" and ${REFUNDED} "Refunded" without a move button; 01, 04 "In the bag" with one; "Move all 2 cards to my desk"; "3 cards" (refunded not counted)`, async () => {
+      await goto(page, ROUTES.open("CD-2549-G"));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_GOLD, "cards with a panel");
+      const problems = [];
+      const state = { [DONE]: ["Done", UI.openWhere.done], [REFUNDED]: ["Refunded", UI.openWhere.refunded] };
+      for (const code of BO_GOLD) {
+        const panel = UI.openPanel(page, code, BO_ALL);
+        const txt = await openPanelText(page, code);
+        const moves = await panel.getByRole("button", { name: /^move\b/i }).count();
+        if (state[code]) {
+          if (!state[code][1].test(txt)) problems.push(`${code}: not "${state[code][0]}"`);
+          if (moves) problems.push(`${code}: has a move button`);
+        } else {
+          if (!UI.openWhere.bag.test(txt)) problems.push(`${code}: not "In the bag"`);
+          if (moves !== 1) problems.push(`${code}: ${moves} move buttons`);
+        }
+      }
+      if ((await moveAllN(page)) !== 2) problems.push(`N is ${await moveAllN(page)}`);
+      if (!countShown((await mainText(page)).split(/cards in this bag/i)[0], 3)) problems.push('no "3 cards" (the refunded card not counted)');
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+      // "shown greyed": reported, not asserted (how a panel is greyed is the page's choice)
+      const look = async (code) => UI.openPanel(page, code, BO_ALL).evaluate((el) => { const st = getComputedStyle(el); return `opacity ${st.opacity}, filter ${st.filter}, bg ${st.backgroundColor}`; }).catch(() => "?");
+      return `${DONE}: ${await look(DONE)}; CD-2549-01: ${await look("CD-2549-01")}`;
+    });
+    await s.step(`order ${BO_ORDER}: 05, 06, 10 "Not here yet" and ${DONE}, ${REFUNDED} without a move button; "Move all 5 cards to my desk"`, async () => {
+      await goto(page, ROUTES.open(BO_ORDER));
+      await openReady(page);
+      eq(await openPanelsShown(page), BO_ALL, "cards with a panel");
+      const problems = [];
+      for (const code of [...BO_AWAY, DONE, REFUNDED]) {
+        if (await UI.openPanel(page, code, BO_ALL).getByRole("button", { name: /^move\b/i }).count()) problems.push(`${code}: has a move button`);
+        if (BO_AWAY.includes(code) && !UI.openWhere.away.test(await openPanelText(page, code))) problems.push(`${code}: not "Not here yet"`);
+      }
+      if ((await moveAllN(page)) !== 5) problems.push(`N is ${await moveAllN(page)}`);
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+    }, { critical: true });
+    await s.step(`tap "Move all 5 cards to my desk": only ${FIVE.join(", ")} go to ${DESK}; ${DONE} stays done at LOC-DONE, ${REFUNDED} and the 3 not here stay put; no email`, async () => {
+      const before = await dump();
+      const tap = await openTapMove(page, UI.openMoveAll(page), allAt(FIVE, DESK));
+      assert(tap.ok, `the 5 aren't at ${DESK} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"})`);
+      if (Array.isArray(tap.body?.cardIds)) eq(sorted(tap.body.cardIds), sorted(FIVE.map((c) => cardIdOf(t, c))), "cardIds sent (the 5 only)");
+      const after = await dump();
+      const r = checkDeskMove(before, after, FIVE, DESK);
+      const d = cardByCode(after.tables, DONE);
+      eq([d.completed, d.location_id], [true, placeOf(after.tables, "LOC-DONE").id], `${DONE} done, at LOC-DONE`);
+      eq(cardByCode(after.tables, REFUNDED).status, "refunded", `${REFUNDED} status`);
+      return r;
+    }, { critical: true });
+    await s.step('"5 cards are on your desk"; reloaded: "All on your desk", no move buttons, the done / refunded / not-here cards as before', async () => {
+      const msg = (await messageSeen(page, UI.openMoved(5), 20_000)) ?? (await textSeen(page, UI.openMoved(5), 1_000));
+      assert(msg, `no "5 cards are on your desk": "${flat(await mainText(page)).slice(0, 240)}"`);
+      await goto(page, ROUTES.open(BO_ORDER));
+      await openReady(page);
+      assert(await textSeen(page, UI.openAllThere, 15_000), `no "All on your desk": "${flat(await mainText(page)).slice(0, 240)}"`);
+      eq(await page.locator("main").first().getByRole("button", { name: /^move\b/i }).count(), 0, "move buttons");
+      const problems = [];
+      for (const code of FIVE) if (!UI.openWhere.desk.test(await openPanelText(page, code))) problems.push(`${code}: not "On your desk"`);
+      if (!UI.openWhere.done.test(await openPanelText(page, DONE))) problems.push(`${DONE}: not "Done"`);
+      if (!UI.openWhere.refunded.test(await openPanelText(page, REFUNDED))) problems.push(`${REFUNDED}: not "Refunded"`);
+      for (const code of BO_AWAY) if (!UI.openWhere.away.test(await openPanelText(page, code))) problems.push(`${code}: not "Not here yet"`);
+      assert(!problems.length, problems.slice(0, 5).join(" | "));
+    });
+  },
+
+  // Several desks: a "Desk" picker; choosing DESK GAVIN moves the cards there (and is remembered)
+  async "bag-open-desks"({ page, ctx, s, appUrl, mockUrl }) {
+    await s.step(`setup: as bag-open-qr; two desks: ${DESK} (as the Desk page makes it) and ${BO_GAVIN.name} (${BO_GAVIN.code}, as Places adds it)`, async () => {
+      await bagOpenSetup(ctx, mockUrl);
+      await ensureDesk(ctx);
+      const r = await api(ctx, "POST", ROUTES.trackLocations(), { name: BO_GAVIN.name, kind: "other" });
+      assert([200, 201].includes(r.status), `add ${BO_GAVIN.name}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      eq(r.body?.location?.code, BO_GAVIN.code, "code");
+    }, { critical: true, shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: a "Desk" picker offering DESK and ${BO_GAVIN.name} (DESK picked at first); "Move all 3 cards to my desk"`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      const sel = UI.openDeskPicker(page);
+      eq(await sel.count(), 1, '"Desk" pickers');
+      const labels = (await sel.first().locator("option").allTextContents()).map(flat);
+      assert(labels.some((l) => /^desk$/i.test(l)) && labels.some((l) => l.toUpperCase() === BO_GAVIN.name), `options: ${labels.join(", ")}`);
+      eq((await pickedDesk(page)).toUpperCase(), "DESK", "picked at first");
+      eq(await moveAllN(page), 3, "N");
+      return labels.join(", ");
+    }, { critical: true });
+    await s.step(`pick ${BO_GAVIN.name}, tap "Move all 3 cards to my desk": the 3 go to ${BO_GAVIN.code}, none to ${DESK}; location only, no email`, async () => {
+      await chooseDesk(page, BO_GAVIN.name);
+      assert(await until(async () => (await pickedDesk(page)).toUpperCase() === BO_GAVIN.name, 5_000), `picked: ${await pickedDesk(page)}`);
+      eq(await moveAllN(page), 3, `N with ${BO_GAVIN.name} picked`);
+      const before = await dump();
+      const tap = await openTapMove(page, UI.openMoveAll(page), allAt(BO_PLAT, BO_GAVIN.code));
+      assert(tap.ok, `the 3 aren't at ${BO_GAVIN.code} after 2 minutes (POSTs: ${tap.posts.join(", ") || "none"}; sent ${JSON.stringify(tap.body ?? {}).slice(0, 120)})`);
+      if (tap.body && "locationCode" in tap.body) eq(tap.body.locationCode, BO_GAVIN.code, "locationCode sent");
+      const after = await dump();
+      eq(cardsIn(after.tables, DESK), [], `cards at ${DESK}`);
+      return checkDeskMove(before, after, BO_PLAT, BO_GAVIN.code);
+    }, { critical: true });
+    await s.step(`"3 cards are on your desk", "Open my desk" -> ${ROUTES.deskAt(BO_GAVIN.code)}`, async () => {
+      const msg = (await messageSeen(page, UI.openMoved(3), 20_000)) ?? (await textSeen(page, UI.openMoved(3), 1_000));
+      assert(msg, `no "3 cards are on your desk": "${flat(await mainText(page)).slice(0, 240)}"`);
+      return checkOpenMyDesk(page, appUrl, BO_GAVIN.code);
+    });
+    await s.step(`reloaded: the picker still says ${BO_GAVIN.name} (remembered on this phone); "All on your desk", "Open my desk" -> ?desk=${BO_GAVIN.code}`, async () => {
+      await goto(page, ROUTES.open(BO_BAG));
+      await openReady(page);
+      const kept = await until(async () => ((await pickedDesk(page).catch(() => "")).toUpperCase() === BO_GAVIN.name), 10_000);
+      assert(kept, `the picker says "${await pickedDesk(page).catch(() => "?")}" after a reload`);
+      assert(await textSeen(page, UI.openAllThere, 15_000), `no "All on your desk": "${flat(await mainText(page)).slice(0, 240)}"`);
+      return checkOpenMyDesk(page, appUrl, BO_GAVIN.code);
+    });
+    await s.step(`picking DESK: the cards read "On ${BO_GAVIN.name}" and the button counts them again ("Move all 3 cards to my desk")`, async () => {
+      await chooseDesk(page, "DESK");
+      assert(await until(async () => (await moveAllN(page)) === 3, 10_000), `N is ${await moveAllN(page)} with DESK picked`);
+      const problems = [];
+      for (const code of BO_PLAT) if (!UI.openWhere.otherDesk(BO_GAVIN.name).test(await openPanelText(page, code))) problems.push(`${code}: not "On ${BO_GAVIN.name}"`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step(`the Desk page ?desk=${BO_GAVIN.code} lists the 3`, async () => {
+      await goto(page, ROUTES.deskAt(BO_GAVIN.code));
+      eq(await waitPanels(page, BO_PLAT, BO_ALL), BO_PLAT, "cards on DESK GAVIN");
+    });
+  },
+
+  // A code that isn't a bag or an order of ours: the plain "not found"
+  async "bag-open-unknown"({ page, ctx, s, mockUrl }) {
+    await s.step("setup: as bag-open-qr (CD-2549 has bags G and P)", () => bagOpenSetup(ctx, mockUrl).then(() => ""), { critical: true, shot: false });
+    for (const [code, what] of [
+      ["CD-0000-99", "an order number nobody has"],
+      ["CD-2549-Z", "a Bag ID that doesn't exist"],
+      ["CD-2549-S", "a bag CD-2549 doesn't have (its Silver cards aren't here)"],
+      ["HELLO", "not a code"],
+      ["CD-2549-01", "a Card ID (cards keep their own page)"],
+      ["LOC-CLAMP-01", "a place code"],
+    ]) {
+      await s.step(`${ROUTES.open(code)} (${what}): "Code not found", nothing of the order, no move button`, async () => `HTTP ${await checkNotFoundPage(page, ROUTES.open(code))}`);
+    }
+    await s.step("/q/CD-0000-99 (an unknown code scanned): 404 Code not found", async () => {
+      const res = await ctx.request.get(ROUTES.qr("CD-0000-99"), { failOnStatusCode: false, maxRedirects: 0 });
+      eq(res.status(), 404, "HTTP");
+      assert(UI.openNotFound.test(await res.text()), 'no "Code not found"');
+    }, { shot: false });
+  },
+
+  // Phone first: 390 px and 1440 px, no sideways scroll, the big button on the first screen
+  async "bag-open-layout"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    await s.step("setup: as bag-open-qr", () => bagOpenSetup(ctx, mockUrl).then(() => ""), { critical: true, shot: false });
+    for (const [code, label, n] of [[BO_BAG, "bag", 3], [BO_ORDER, "order", 7]]) {
+      await s.step(`1440 px, the ${label} page (${code}): no sideways scroll, "Move all ${n} cards to my desk" on screen unscrolled; bag-open-1440-${label}.png`, async () => {
+        await goto(page, ROUTES.open(code));
+        await openReady(page);
+        await page.screenshot({ path: path.join(OUT, `bag-open-1440-${label}.png`), fullPage: true });
+        const w = await sidewaysScroll(page);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        eq(await moveAllN(page), n, "N");
+        const b = await onScreenUnscrolled(page, UI.openMoveAll(page));
+        assert(b.top >= 0 && b.bottom <= b.vh && !b.covered, `the button is at ${b.top}-${b.bottom}px of ${b.vh}px${b.covered ? ", covered" : ""}`);
+        return `button ${b.width}x${b.height} at y ${b.top}`;
+      }, { shot: false });
+      await s.step(`390 px (iPhone 13), the ${label} page: no sideways scroll; "Move all ${n} cards to my desk" fully on the first screen, not covered, 44+ px tall${label === "bag" ? "; a photo opens full screen" : ""}; bag-open-390-${label}.png`, async () => {
+        const phone = await phoneContext(browser, appUrl);
+        try {
+          await goto(phone.page, ROUTES.open(code));
+          await openReady(phone.page);
+          await phone.page.screenshot({ path: path.join(OUT, `bag-open-390-${label}.png`), fullPage: true });
+          await phone.page.screenshot({ path: path.join(OUT, `bag-open-390-${label}-first-screen.png`) });
+          const w = await sidewaysScroll(phone.page);
+          assert(w <= 1, `scrolls sideways by ${w}px`);
+          const b = await onScreenUnscrolled(phone.page, UI.openMoveAll(phone.page));
+          assert(b.top >= 0 && b.bottom <= b.vh, `the button is at ${b.top}-${b.bottom}px on a ${b.vh}px screen: it needs a scroll`);
+          assert(!b.covered, "the button is covered (a sticky bar?)");
+          assert(b.height >= 44, `the button is ${b.height}px tall`);
+          let note = `button ${b.width}x${b.height} at y ${b.top}-${b.bottom} of ${b.vh}`;
+          if (label === "bag") note += `; ${await photoViewerCheck(phone.page, UI.openPanel(phone.page, BO_VALUE.code, BO_ALL), "bag-open-viewer-390")}`;
+          const w2 = await sidewaysScroll(phone.page);
+          assert(w2 <= 1, `scrolls sideways by ${w2}px (after the viewer)`);
+          assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+          return note;
+        } finally {
+          await phone.ctx.close();
+        }
+      }, { shot: false });
+    }
   },
 };
 
