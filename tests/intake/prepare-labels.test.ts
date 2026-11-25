@@ -103,9 +103,9 @@ test("plan: in the shop, the received day is the order's own; cards added later 
   assert.match(plan.reason ?? "", /1 card was added after the order arrived, so it is left for Receiving/);
 });
 
-test("in-shop setup plan: a chosen day wins; with nothing on record, today is used for the new cards only", () => {
-  const chosen = pure.inShopSetupPlan(setupInput({ cards: [setupCard("b", { tier: "premium" })] }), { chosenDay: "2026-11-03", now: new Date("2026-11-24T20:00:00Z") });
-  assert.deepEqual([chosen.source, chosen.plan.receivedOn, chosen.plan.newBags[0].receivedOn], ["chosen", "2026-11-03", "2026-11-03"]);
+test("in-shop setup plan: the order's own record wins; with nothing on record, today is used for the new cards only", () => {
+  const own = pure.inShopSetupPlan(setupInput({ cards: [setupCard("b", { tier: "premium" })] }), { now: new Date("2026-11-24T20:00:00Z") });
+  assert.deepEqual([own.source, own.plan.receivedOn, own.plan.newBags[0].receivedOn], ["event", "2026-11-05", "2026-11-05"]);
 
   // An earlier setup bag still missing its received date keeps asking for it
   const input = setupInput({
@@ -120,6 +120,70 @@ test("in-shop setup plan: a chosen day wins; with nothing on record, today is us
   assert.deepEqual(today.plan.bagFills, [], "the old bag's date isn't invented");
   assert.deepEqual(today.plan.receivedAtFills, ["new"]);
   assert.equal(today.plan.receivedAt, now.toISOString());
+});
+
+const setupBag = (id: string, tier: string, code: string, receivedOn: string | null) => ({
+  id, tier, batch: 1, bag_code: code, received_on: receivedOn, due_date: null, due_status: receivedOn ? "needs_review" : "missing_received_date",
+  turnaround_days: 20, completed_at: null, source: "migration",
+});
+
+test("nothing on record: day 1's 'today' never becomes a recorded day; a card created after the first bags is left for Receiving", () => {
+  const day1 = pure.inShopSetupPlan(
+    setupInput({ receivedEventAt: null, cards: [setupCard("a", { tier: "premium" }), setupCard("b", { tier: "expedited" })] }),
+    { now: new Date("2026-11-24T20:00:00Z") },
+  );
+  assert.equal(day1.source, "today");
+  assert.deepEqual(day1.plan.newBags.map((b) => [b.bagCode, b.receivedOn]), [["CD-2549-G", "2026-11-24"], ["CD-2549-S", "2026-11-24"]]);
+
+  // Day 2: day 1's bags exist (made 2026-11-24 20:00); an older dateless setup bag too. Card c (created long
+  // ago, never bagged) turns up; card d was created after the first bags (an add-cards checkout: maybe still in the mail).
+  const firstBag = "2026-11-24T20:00:00.000Z";
+  const input = setupInput({
+    receivedEventAt: null,
+    bags: [setupBag("g", "premium", "CD-2549-G", "2026-11-24"), setupBag("s", "expedited", "CD-2549-S", "2026-11-24"), setupBag("b", "regular", "CD-2549-B", null)],
+    cards: [
+      setupCard("a", { tier: "premium", bag_id: "g", received_at: "2026-11-24T20:00:00Z", card_seq: 1, card_code: "CD-2549-01" }),
+      setupCard("b", { tier: "expedited", bag_id: "s", received_at: "2026-11-24T20:00:00Z", card_seq: 2, card_code: "CD-2549-02" }),
+      setupCard("old", { tier: "regular", bag_id: "b", card_seq: 3, card_code: "CD-2549-03" }),
+      setupCard("c", { tier: "ultra_premium" }),
+      setupCard("d", { tier: "premium", created_at: "2026-11-25T10:00:00Z" }),
+    ],
+  });
+  const day2 = pure.inShopSetupPlan(input, { now: new Date("2026-11-25T20:00:00Z"), firstBagAt: firstBag });
+  assert.equal(day2.source, "today", "day 1's bag day is not taken as the order's record");
+  assert.deepEqual(day2.late, ["d"]);
+  assert.deepEqual(day2.plan.links.map((l) => l.cardId), ["c"]);
+  assert.deepEqual(day2.plan.newBags.map((b) => [b.bagCode, b.receivedOn]), [["CD-2549-P", "2026-11-25"]]);
+  assert.deepEqual(day2.plan.bagFills, [], "the old dateless bag isn't given day 1 (or day 2)");
+
+  // The GET's plan says the same
+  const bags = [{ id: "g", createdAt: firstBag, cardCount: 1 }, { id: "s", createdAt: firstBag, cardCount: 1 }, { id: "b", createdAt: "2026-11-01T12:00:00.000Z", cardCount: 1 }] as unknown as BagSummary[];
+  const built = pure.buildPreparePlan({
+    order: pOrder({ status: "in_progress" }), cards: input.cards.map((c) => pCard(c.id, { tier: c.tier, bag_id: c.bag_id, received_at: c.received_at })),
+    bags: [{ ...bags[2], createdAt: firstBag }, bags[0], bags[1]] as BagSummary[], today: "2026-11-25", now: new Date("2026-11-25T20:00:00Z"), setupInput: input, guesses: {},
+  });
+  assert.deepEqual([built.plan.mode, built.toBagIds, built.plan.receivedOn, built.plan.receivedOnSource], ["bag_in_shop", ["c"], "2026-11-25", "today"]);
+  assert.match(built.plan.reason ?? "", /1 card was added after the order arrived/);
+});
+
+test("received by the 'Cards Received' event: a card created later that same day is left for Receiving (to the second)", () => {
+  const input = setupInput({
+    cards: [setupCard("before", { tier: "premium", created_at: "2026-11-05T15:00:00Z" }), setupCard("after", { tier: "premium", created_at: "2026-11-05T18:00:00Z" })],
+  });
+  const r = pure.inShopSetupPlan(input, { now: new Date("2026-11-24T20:00:00Z") });
+  assert.deepEqual([r.source, r.late, r.plan.links.map((l) => l.cardId)], ["event", ["after"], ["before"]]);
+  // A finished order's later cards were worked and shipped: bagged
+  const done = pure.inShopSetupPlan({ ...input, order: { ...input.order, status: "delivered" } }, { now: new Date("2026-11-24T20:00:00Z") });
+  assert.deepEqual([done.late, done.plan.links.map((l) => l.cardId).sort()], [[], ["after", "before"]]);
+  // A drop-off's cards are typed in with the order (up to an hour after it was entered)
+  const drop = setupInput({
+    receivedEventAt: null,
+    dropoffAt: "2026-11-01T18:00:00Z",
+    order: { id: "o1", order_number: "CD-2549", status: "received", inbound_method: "dropoff", created_at: "2026-11-03T15:00:00Z", restoration_tier: null },
+    cards: [setupCard("typed", { tier: "premium", created_at: "2026-11-03T15:00:05Z" }), setupCard("weekLater", { tier: "premium", created_at: "2026-11-10T15:00:00Z" })],
+  });
+  const d = pure.inShopSetupPlan(drop, { now: new Date("2026-11-24T20:00:00Z") });
+  assert.deepEqual([d.source, d.late, d.plan.links.map((l) => l.cardId)], ["dropoff", ["weekLater"], ["typed"]]);
 });
 
 // ── End to end (in-memory Supabase) ─────────────────────────────────────────
@@ -295,6 +359,9 @@ test("received: refunded and not-arrived cards are left alone", async () => {
   assert.equal(cardRow(B[3].id).bag_id ?? null, null);
   assert.equal(cardRow(B[3].id).awaiting_arrival, true);
   assert.equal(orderRow(O.B).status, "received");
+  // The order's tier (Gold) is written onto the bagged cards; the others keep none
+  assert.deepEqual([B[0], B[1], B[2], B[3]].map((c) => cardRow(c.id).tier ?? null), ["premium", "premium", null, null]);
+  assert.equal(orderRow(O.B).restoration_tier, "premium");
 });
 
 test("Awaiting Cards: asks first, then receives all exactly like the Receive button (status + customer email)", async () => {
@@ -345,11 +412,9 @@ test("cancelled: refused with the reason", async () => {
   assert.ok(!r.ok && r.status === 409 && !("conflict" in r && r.conflict));
 });
 
-test("no received day on record: today; a chosen day can't be in the future; unknown tiers are refused", async () => {
+test("no received day on record: today; unknown tiers are refused", async () => {
   const p = await plan(O.F);
   assert.deepEqual([p.receivedOn, p.receivedOnSource], [nyToday(), "today"]);
-  const future = await pure.prepareLabels(admin, { orderId: O.F, receivedOn: "2099-01-01", by: "gavin" });
-  assert.ok(!future.ok && future.status === 400);
   const bad = await pure.prepareLabels(admin, { orderId: O.F, tiers: { [F[0].id as string]: "gold" }, by: "gavin" });
   assert.ok(!bad.ok && bad.status === 400 && bad.error === 'Unknown tier "gold".');
   const r = await pure.prepareLabels(admin, { orderId: O.F, by: "gavin" });
@@ -360,7 +425,8 @@ test("no received day on record: today; a chosen day can't be in the future; unk
 test("a hand-made order with nothing on record: asked with no guess; the answer is saved and bagged", async () => {
   const p = await plan(O.G);
   assert.deepEqual(p.tierQuestions.map((q) => [q.guess, q.confidence, q.needsAnswer]), [[null, "unknown", true]]);
-  const r = await pure.prepareLabels(admin, { orderId: O.G, tiers: { [G[0].id as string]: "prep" }, receivedOn: "2026-11-12", by: "gavin" });
+  // Received 2026-11-12 (its 'Cards Received' event): the bag's day
+  const r = await pure.prepareLabels(admin, { orderId: O.G, tiers: { [G[0].id as string]: "prep" }, by: "gavin" });
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (r.ok) assert.deepEqual(r.response.bags.map((b) => [b.code, b.tierName]), [["CD-4007-R", "Prep"]]);
   assert.equal(cardRow(G[0].id).tier, "prep");
@@ -432,3 +498,23 @@ test("a bag saved without a due date gets one once its tier has a turnaround (Pr
   assert.equal((await plan(O.G)).dueDatesToFill, 0);
   assert.equal(changes().length, before);
 });
+
+test("tiers are written only once the receipt can go ahead: a refused Awaiting Cards receipt changes nothing", async () => {
+  // 501 cards, no tier anywhere: the Receive button takes at most 500 at a time
+  const big = id(9);
+  mock.store.table("orders").push(order(big, "CD-4009", "awaiting_cards"));
+  const bigCards = Array.from({ length: 501 }, (_, i) => card(big, `Bulk ${i + 1}`));
+  for (const c of bigCards) mock.store.table("cards").push(c);
+  const p = await plan(big);
+  assert.deepEqual([p.mode, p.toBag, p.needsAnswers], ["receive_first", 501, true]);
+  const eventsBefore = eventsOf(big).length;
+  const r = await pure.prepareLabels(admin, {
+    orderId: big, confirmReceive: true, by: "gavin",
+    tiers: Object.fromEntries(bigCards.map((c) => [c.id as string, "regular"])),
+  });
+  assert.ok(!r.ok && r.status === 400, r.ok ? "went ahead" : r.error);
+  if (!r.ok) assert.match(r.error, /at most 500 cards.*Nothing was changed\./);
+  assert.equal(bigCards.filter((c) => cardRow(c.id).tier != null).length, 0, "no tier written");
+  assert.deepEqual([orderRow(big).status, bagsOf(big).length, eventsOf(big).length], ["awaiting_cards", 0, eventsBefore]);
+});
+

@@ -185,3 +185,90 @@ test("prices: the admin's and the built-in ones; Diamond by rate", () => {
   assert.deepEqual([byTier.elite.prices, byTier.elite.rate, byTier.elite.minValueCents], [[], 0.07, 500000]);
   assert.equal(byTier.regular.maxValueCents, 100000);
 });
+
+// ── Bounded search, one-to-one signatures, Prep only from what was bought (review, Nov 24 2026) ──
+
+const MIXED5 = "Bronze + Silver + Platinum + Gold + Diamond - Full Restoration & PSA Prep";
+const MIXED5_EVENT = "Checkout session created — mixed tiers: regular, expedited, ultra_premium, premium, elite";
+// CD-2021's 12 declared values (dollars), then more cards of the same kind
+const CD2021 = [225, 1800, 2300, 2000, 2900, 2200, 11800, 245, 840, 750, 4900, 300];
+const MORE = [500, 600, 700, 400, 350, 450, 520, 610];
+
+test("a real 12-card mixed checkout with Diamond (CD-2021): every card likely, quickly", () => {
+  const t0 = performance.now();
+  const g = guess({ cards: cards(...CD2021), services: [line(MIXED5, 191095, 1, null)], checkoutEvents: [MIXED5_EVENT], subtotalCents: 191095 });
+  const ms = performance.now() - t0;
+  assert.ok(ms < 200, `${ms.toFixed(0)} ms`);
+  assert.ok(Object.values(g).every((x) => x.confidence === "likely" && x.source === "price"), tiers(g).join(" "));
+  assert.equal(g.c7.tier, "elite", "the $11,800 card is the Diamond one");
+});
+
+test("16 to 20 cards that don't add up (values edited since): bounded, under 200 ms, never Diamond under $5,000", () => {
+  for (const n of [16, 18, 20]) {
+    const values = [...CD2021, ...MORE].slice(0, n);
+    values[6] = 11000; // the Diamond card's value edited: the paid amount no longer adds up
+    const total = 191095 + (n - 12) * 7499;
+    const t0 = performance.now();
+    const g = guess({ cards: cards(...values), services: [line(MIXED5, total, 1, null)], checkoutEvents: [MIXED5_EVENT], subtotalCents: total });
+    const ms = performance.now() - t0;
+    assert.ok(ms < 200, `${n} cards: ${ms.toFixed(0)} ms`);
+    for (const [id, x] of Object.entries(g)) {
+      const value = values[Number(id.slice(1)) - 1] * 100;
+      if (value < 500000) assert.notEqual(x.tier, "elite", `${id} ($${value / 100}) guessed Diamond`);
+      assert.notEqual(x.confidence, "sure");
+    }
+  }
+});
+
+test("signed entries match one-to-one: a second Charizard never inherits the first one's signature", () => {
+  const signed = signedCardsFromSignature({ cards: [{ card_name: "Charizard", card_set: "Base", declared_value_cents: 50000, services: [{ name: "Gold - Full Restoration & PSA Prep" }] }] }, null);
+  // The signed card already has its tier; the other (added later by staff, no tier) is not signed
+  const g = guess({ signed, cards: [
+    { id: "a", card_name: "Charizard", card_set: "Base", estimated_value_cents: 50000, tier: "premium" },
+    { id: "b", card_name: "Charizard", card_set: "Jungle", estimated_value_cents: 20000, tier: null },
+  ] });
+  assert.notEqual(g.b.confidence, "sure");
+  assert.notEqual(g.b.source, "signed");
+  // Two untiered Charizards, one signature: neither is sure
+  const two = guess({ signed, cards: [
+    { id: "a", card_name: "Charizard", estimated_value_cents: 50000, tier: null },
+    { id: "b", card_name: "Charizard", estimated_value_cents: 50000, tier: null },
+  ] });
+  assert.ok(Object.values(two).every((x) => x.source !== "signed"), tiers(two).join(" "));
+  // Two signed, two untiered: each its own (by declared value)
+  const both = signedCardsFromSignature({ cards: [
+    { card_name: "Charizard", declared_value_cents: 50000, services: [{ name: "Gold - Full Restoration & PSA Prep" }] },
+    { card_name: "Charizard", declared_value_cents: 20000, services: [{ name: "Silver - Full Restoration & PSA Prep" }] },
+  ] }, null);
+  const pair = guess({ signed: both, cards: [
+    { id: "a", card_name: "Charizard", estimated_value_cents: 20000, tier: null },
+    { id: "b", card_name: "Charizard", estimated_value_cents: 50000, tier: null },
+  ] });
+  assert.deepEqual([pair.a.tier, pair.a.source, pair.b.tier, pair.b.source], ["expedited", "signed", "premium", "signed"]);
+});
+
+test("a restoration line with no tier plus PSA Prep lines (CD-1060): the restoration card is never guessed Prep from the Prep lines", () => {
+  const g = guess({
+    cards: cards(200, 200, 200),
+    services: [line("Full Card Restoration", 10000, 1, "697e7ed7-3cbf-4e14-8ebe-1be612ca3710"), line("PSA Prep", 3500, 2, "697e7ed7-3cbf-4e14-8ebe-1be612ca3710")],
+    checkoutEvents: ["Checkout session created"],
+    subtotalCents: 17000,
+  });
+  const prepLikely = Object.values(g).filter((x) => x.tier === "prep" && x.confidence !== "unknown").length;
+  assert.ok(prepLikely <= 2, `${prepLikely} cards likely Prep: ${tiers(g).join(" ")}`);
+  assert.ok(Object.values(g).every((x) => x.confidence !== "sure"));
+});
+
+test("what was paid for the card itself (cards.service_price_cents): exactly one tier's price is likely; another price falls through", () => {
+  const g = guess({ cards: [
+    { id: "a", card_name: "A", service_price_cents: 9999, tier: null },
+    { id: "b", card_name: "B", service_price_cents: 13000, tier: null },
+    { id: "c", card_name: "C", estimated_value_cents: 600000, service_price_cents: 42000, tier: null },
+    { id: "d", card_name: "D", service_price_cents: 7500, tier: null },
+  ] });
+  assert.deepEqual([g.a.tier, g.a.confidence, g.a.source, g.a.why], ["expedited", "likely", "price", "Paid $99.99, the Silver price."]);
+  assert.deepEqual([g.b.tier, g.b.confidence], [null, "unknown"]);
+  assert.deepEqual([g.c.tier, g.c.confidence], ["elite", "likely"], "7% of $6,000");
+  assert.deepEqual([g.d.tier, g.d.confidence], ["regular", "likely"], "Bronze's built-in $75.00");
+});
+

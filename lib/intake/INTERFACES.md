@@ -337,8 +337,8 @@ Code: `lib/intake/prepare-labels.ts` (types at the top; client components may
 
 | route | body | response |
 |---|---|---|
-| `GET /api/admin/intake/orders/[orderId]/prepare-labels` | none | `PreparePlan` (read-only): `mode`, `reason?`, `payment`, `bags`, `toBag`, `tierQuestions`, `needsAnswers`, `dueDatesToFill`, `receivedOn` + `receivedOnSource` (`event`, `dropoff`, `bag`, `today`), `skipped` { refunded, awaitingArrival }; 404 / 500 `{ error }` |
-| `POST` same | `{ tiers?: { [cardId]: tierKey }, confirmReceive?, allowUnpaid?, receivedOn? }` (empty = `{}`) | 200 `PrepareResponse` { bags (every bag with live cards, fastest tier first: the labels to print), newlyBagged, emailed, orderStatusChanged, shelves, dueDatesFilled, message }; 409 `PrepareConflict` (the plan + `error`, `needsConfirmReceive`, `needsAllowUnpaid`, `unpaid?`, `unanswered` card ids; nothing written); 409 `{ error }` not allowed; 400 bad body, unknown tier (`Unknown tier "gold".`), bad or future `receivedOn`; 500 |
+| `GET /api/admin/intake/orders/[orderId]/prepare-labels` | none | `PreparePlan` (read-only): `mode`, `reason?`, `payment`, `bags`, `toBag`, `tierQuestions`, `needsAnswers`, `dueDatesToFill`, `receivedOn` + `receivedOnSource` (`event`, `dropoff` or `today`; `bag` is no longer produced), `skipped` { refunded, awaitingArrival }; 404 / 500 `{ error }` |
+| `POST` same | `{ tiers?: { [cardId]: tierKey }, confirmReceive?, allowUnpaid? }` (an empty body is `{}`; one that isn't JSON or is over 40 KB is 400, as on the receive route; there is no received-day override) | 200 `PrepareResponse` { bags (every bag with live cards, fastest tier first: the labels to print), newlyBagged, emailed, orderStatusChanged, shelves, dueDatesFilled, message }; 409 `PrepareConflict` (the plan + `error`, `needsConfirmReceive`, `needsAllowUnpaid`, `unpaid?`, `unanswered` card ids; nothing written); 409 `{ error }` not allowed; 400 bad body, unknown tier (`Unknown tier "gold".`); 400 / 409 when the receipt or bagging can't go ahead (checked with the answers in memory first: "… Nothing was changed."); 500 |
 
 Then the labels print through the existing paths: `GET /api/admin/intake/labels/order/<orderId>?bags=<ids>`
 (PDF, one page per bag, design B) or the Katasymbol path (`LabelPrintButton`).
@@ -350,11 +350,16 @@ Then the labels print through the existing paths: `GET /api/admin/intake/labels/
   Historical Order Setup's own plan (`planOrderSetup` / `applyOrderSetup`,
   source `migration`, due date from the received day + the tier's max
   turnaround marked `needs_review`, finished orders' bags created completed
-  and seen). Received day: the order's first "Status updated to: Cards
-  Received" day, else the drop-off day, else a day already on its bags, else
-  today (then only for the cards bagged now), or `receivedOn` when sent.
-  Cards added to the order after it arrived are left for Receiving (`reason`
-  says so). Orders from before `INTAKE_START` are included.
+  and seen). GET and POST share one rule (`inShopSetupPlan`). Received day:
+  the order's first "Status updated to: Cards Received" day, else the
+  drop-off day, else today, and then only for the cards bagged now (bags
+  missing their date keep asking for it; a day an earlier tap put on a bag is
+  never taken as the arrival day of later cards). On an open order, cards
+  created after the cards were known to be here (`arrivedBy`: the event's
+  time; a drop-off's hand-over, or the order's entry plus an hour when
+  later; with neither, the order's first bag), to the second, not in a bag
+  and not received, are left for Receiving (`reason` says so); a finished
+  order's are bagged. Orders from before `INTAKE_START` are included.
 - `receive_first`: Awaiting Cards. POST needs `confirmReceive: true` ("Cards
   arrived? Receive all and print"); an order that isn't paid also needs
   `allowUnpaid: true` after the dialog's tick on the Receive button's
@@ -380,20 +385,37 @@ Then the labels print through the existing paths: `GET /api/admin/intake/labels/
 2. The signed checkout record (`signatures` master_terms `card_snapshot` /
    `document_text`, i.e. `authorizedOrderText`) or the signed show drop-off
    form: `confidence: "sure"`, filled in without asking (`needsAnswer: false`,
-   listed in the dialog for information).
-3. What was paid (service lines, checkout events, subtotal) against the tier
-   prices (`restoration_settings`): `"likely"` when only one tier fits; a card
-   name saying Prep: `"likely"` Prep.
-4. Otherwise `"unknown"` with a best guess (e.g. "Paid for 4 Gold and 2
+   listed in the dialog for information). Matched one-to-one: cards that
+   already have a tier claim their signed entries first, and an untiered card
+   is matched only when the entries left under its name are at least as many
+   as the order's untiered cards with that name (two Charizards, one
+   signature: neither is sure).
+3. What was paid for the card itself (`cards.service_price_cents`): `"likely"`
+   when it is exactly one tier's price (Diamond: its rate on the declared
+   value). In production every recorded card price matches its tier; cards
+   with no tier have none today.
+4. What was paid for the order (service lines, checkout events, subtotal)
+   against the tier prices (`restoration_settings`): `"likely"` when only one
+   tier fits; a card name saying Prep: `"likely"` Prep. Diamond's $5,000 minimum always holds; a
+   paid line naming no tier ("Full Card Restoration") is never read as the
+   other lines' tiers (a PSA Prep line doesn't make that card Prep). The
+   search is bounded (`GUESS_WORK_BUDGET` steps, a 20-card mixed checkout in
+   well under 100 ms); past it the guess comes from the declared values only,
+   and staff confirm it.
+5. Otherwise `"unknown"` with a best guess (e.g. "Paid for 4 Gold and 2
    Silver, but not which card is which": the most valuable cards get the faster
    tier) or `guess: null`.
 
 `likely` and `unknown` questions need one confirm tap (`needsAnswer: true`):
 the dialog preselects `guess`, shows `why` under the select, and has "Set each
 card" to pick a tier per card. Questions are grouped by guess (most orders: one).
-Answers are written to `cards.tier` only where it is still null and the card
-is in no bag (bagged cards' tiers are locked, `tier-lock.ts`), with one
-staff-only `tier_changed` line ("Tiers filled in for labels: …").
+Answers are written to `cards.tier` only after the receipt (`planReceiving`)
+or the bagging (`inShopSetupPlan`) has been checked with them in memory, only
+where it is still null and the card is in no bag (bagged cards' tiers are
+locked, `tier-lock.ts`), with one staff-only `tier_changed` line ("Tiers
+filled in for labels: …"). Cards bagged on the order's own tier get it
+written onto `cards.tier` too (a filled tier is part of receiving; the
+order's tier stays as it is; a tier upgrade still moves every card).
 
 **Never** (in-shop orders): an order status change, a customer email, awaiting
 flags, stage events or a value that is already set. The only rows written are

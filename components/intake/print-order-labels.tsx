@@ -261,21 +261,34 @@ export function PrintOrderLabels({
     setAskState(next);
   }
 
+  // Something on screen (busy, a question, the print button, a message): the panel shows even when `hidden`
+  const active = !!(busy || ask || ready || error || refusal);
+  const gone = (!!reason && whenBlocked === "hide") || (hidden && !active);
+  // The keyboard was on one of this component's controls (a removed element fires no blur, so this stays set)
+  const focusInside = useRef(false);
+
+  /** Somewhere sensible instead of the page's top, when the controls went away with the panel. */
+  function focusFallback() {
+    const fallback = returnFocusTo ? document.getElementById(returnFocusTo) : null;
+    if (!fallback) return;
+    if (!fallback.hasAttribute("tabindex")) fallback.setAttribute("tabindex", "-1");
+    fallback.focus();
+  }
+
   useEffect(() => {
     const to = focusNext.current;
     if (!to) return;
     focusNext.current = null;
     const el = (to === "ready" ? readyRef : triggerRef).current;
-    if (el) {
-      el.focus();
-      return;
-    }
-    // The button went away with the panel: somewhere sensible instead of the page's top
-    const fallback = returnFocusTo ? document.getElementById(returnFocusTo) : null;
-    if (fallback) {
-      if (!fallback.hasAttribute("tabindex")) fallback.setAttribute("tabindex", "-1");
-      fallback.focus();
-    }
+    if (el) el.focus();
+    else focusFallback();
+  });
+
+  // The panel hid itself after the page reloaded (every card bagged) while the keyboard was on it
+  useEffect(() => {
+    if (!gone || !focusInside.current) return;
+    focusInside.current = false;
+    if (!document.activeElement || document.activeElement === document.body) focusFallback();
   });
 
   function showJob(list: BagRef[], note: string | null) {
@@ -403,9 +416,15 @@ export function PrintOrderLabels({
     router.refresh();
   }
 
-  if (reason && whenBlocked === "hide") return null;
-  const active = !!(busy || ask || ready || error || refusal);
-  if (hidden && !active) return null;
+  if (gone) return null;
+  const trackFocus = {
+    onFocusCapture: () => {
+      focusInside.current = true;
+    },
+    onBlurCapture: (e: React.FocusEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) focusInside.current = false;
+    },
+  };
 
   const btn =
     variant === "primary"
@@ -498,7 +517,7 @@ export function PrintOrderLabels({
 
   if (layout === "panel") {
     return (
-      <section aria-labelledby={`${uid}-h`} className={`rounded-xl border-2 border-primary/40 bg-white p-4 sm:p-5 ${className}`}>
+      <section aria-labelledby={`${uid}-h`} className={`rounded-xl border-2 border-primary/40 bg-white p-4 sm:p-5 ${className}`} {...trackFocus}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1 basis-64">
             <h2 id={`${uid}-h`} className="font-heading text-base font-black text-foreground">
@@ -513,7 +532,7 @@ export function PrintOrderLabels({
     );
   }
   return (
-    <div className={`inline-flex max-w-full flex-col ${className}`}>
+    <div className={`inline-flex max-w-full flex-col ${className}`} {...trackFocus}>
       {controls}
       {dialog}
     </div>
@@ -655,8 +674,10 @@ function TierDialog({
               </>
             ) : (
               <p>
-                {toAnswer.length > 0 && `${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint} `}
-                {toBag} {plural(toBag, "card goes", "cards go")} into tier bags; the order&apos;s status stays the same and the customer isn&apos;t emailed.
+                {[
+                  toAnswer.length > 0 ? `${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint}` : "",
+                  `${toBag} ${plural(toBag, "card goes", "cards go")} into tier bags; the order's status stays the same and the customer isn't emailed.`,
+                ].filter(Boolean).join(" ")}
               </p>
             )}
             {plan.reason && <p className="text-xs text-muted-foreground">{plan.reason}</p>}
@@ -664,7 +685,8 @@ function TierDialog({
 
           {unpaid && (
             <div className="rounded-lg border-2 border-red-600 bg-red-50 px-3 py-2">
-              <label htmlFor={`${uid}-unpaid`} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-bold text-red-800">
+              <p className="pt-1 text-sm font-bold text-red-800">{UNPAID_CONFIRM}</p>
+              <label htmlFor={`${uid}-unpaid`} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-red-800">
                 <input
                   id={`${uid}-unpaid`}
                   type="checkbox"
@@ -675,7 +697,7 @@ function TierDialog({
                   onChange={(e) => setUnpaidOk(e.target.checked)}
                   className={`size-5 shrink-0 accent-red-700 ${focusRing}`}
                 />
-                <span>{UNPAID_CONFIRM} Tick to receive it anyway.</span>
+                <span>Yes, receive it anyway</span>
               </label>
               {unpaidMissing && !unpaidOk && (
                 <p id={`${uid}-unpaid-err`} className="pb-1 text-xs font-semibold text-red-700">

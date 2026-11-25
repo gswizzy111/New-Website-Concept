@@ -100,7 +100,7 @@ export const ROUTES = {
   // ── Print labels for any order (owner, Nov 24; contract: lib/intake/prepare-labels.ts) ──
   // GET -> PreparePlan { mode: ready | bag_in_shop | receive_first | not_allowed, toBag,
   // tierQuestions, needsAnswers, receivedOn, receivedOnSource, bags, skipped, reason? };
-  // POST { tiers?, confirmReceive?, receivedOn? } -> 200 PrepareResponse { ok, bags: [{ id, code,
+  // POST { tiers?, confirmReceive?, allowUnpaid? } -> 200 PrepareResponse { ok, bags: [{ id, code,
   // tier, tierName, cardCount }], newlyBagged, emailed, orderStatusChanged, message }, 409
   // PrepareConflict (the plan + error, needsConfirmReceive, unanswered) or { error }.
   prepareLabelsApi: (orderId) => `/api/admin/intake/orders/${orderId}/prepare-labels`,
@@ -4070,6 +4070,216 @@ const LABELS_ANY_SCENARIOS = {
       const msg = await phoneShot(browser, appUrl, search, "labels-any-receiving-row");
       assert(!msg, msg);
     }, { shot: false });
+  },
+  // CD-2610 made unpaid: "Receive all and print" asks the Receive button's own question first and
+  // sends allowUnpaid only after the tick; without it the API refuses exactly like /receive
+  async "labels-any-unpaid-receive"({ page, ctx, s, mockUrl }) {
+    const id = LA.awaitingOrder;
+    const num = LAN.awaitingOrder;
+    const email = LAC.awaitingOrder.email;
+    const tiers = AWAITING_CARD_TIERS.map((t) => t ?? AWAITING_ORDER_TIER);
+    const UNPAID_ERROR = "This order hasn't been paid. Confirm to receive anyway.";
+    const UNPAID_CONFIRM = "This order hasn't been paid. Receive anyway?";
+    await laSetup(s);
+    await s.step("setup: CD-2610 not paid (payment_status pending), Awaiting Cards: plan receive_first, payment unpaid, 3 to bag", async () => {
+      await mockUpdate(mockUrl, "orders", { payment_status: "pending" }, "id", id);
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.payment, plan.toBag], ["receive_first", "unpaid", 3], "mode, payment, toBag");
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST { confirmReceive: true } without allowUnpaid: 409 as the receive route (UNPAID_ERROR, unpaid: true, needsAllowUnpaid); nothing written", async () => {
+      const r = await laPost(ctx, id, { confirmReceive: true });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq([r.body?.needsAllowUnpaid, r.body?.unpaid, r.body?.payment, r.body?.error], [true, true, "unpaid", UNPAID_ERROR], "needsAllowUnpaid, unpaid, payment, error");
+      const rr = await api(ctx, "POST", `/api/admin/intake/orders/${id}/receive`, { cardIds: LA.awaitingCards });
+      eq([rr.status, rr.body?.error, rr.body?.unpaid], [409, UNPAID_ERROR, true], "the receive route's own answer");
+      await laUnchanged(before, id, email, "after the 409s");
+      return r.body.error;
+    }, { critical: true, shot: false });
+    await s.step("POST a body that isn't JSON: 400 (not read as {}); an empty body is {} (409, needs the confirm); nothing written", async () => {
+      const raw = (data) => ctx.request.fetch(ROUTES.prepareLabelsApi(id), { method: "POST", headers: { "Content-Type": "application/json" }, data, failOnStatusCode: false, maxRedirects: 0 });
+      const bad = await raw("{not json");
+      eq(bad.status(), 400, `HTTP for a malformed body (${(await bad.text()).slice(0, 120)})`);
+      const empty = await raw(undefined); // no body at all
+      eq(empty.status(), 409, `HTTP for an empty body (${(await empty.text()).slice(0, 120)})`);
+      await laUnchanged(before, id, email, "after the raw POSTs");
+    }, { shot: false });
+    await s.step(`order page: the dialog asks "${UNPAID_CONFIRM}" with a tick box; "Receive all and print" without the tick sends nothing`, async () => {
+      await goto(page, ROUTES.order(id));
+      const btn = UI.prepareLabels(page).first();
+      await btn.waitFor({ timeout: 60_000 });
+      assert(await waitEnabled(btn), "the button is disabled");
+      await btn.click();
+      const dlg = page.getByRole("dialog").first();
+      await dlg.waitFor({ timeout: 30_000 });
+      const text = (await dlg.innerText()).replace(/\s+/g, " ");
+      assert(text.includes(UNPAID_CONFIRM), `the dialog doesn't ask "${UNPAID_CONFIRM}": "${text.slice(0, 200)}"`);
+      assert(/cards arrived/i.test(text), "not the \"Cards arrived?\" question");
+      const box = dlg.getByRole("checkbox");
+      eq(await box.count(), 1, "tick boxes in the dialog");
+      const posts = [];
+      const onReq = (r) => { if (r.method() === "POST" && r.url().includes("/prepare-labels")) posts.push(r.url()); };
+      page.on("request", onReq);
+      await UI.confirmReceiveAll(dlg).first().click();
+      await page.waitForTimeout(1_500);
+      page.off("request", onReq);
+      eq(posts.length, 0, "POSTs without the tick");
+      assert(await dlg.isVisible(), "the dialog closed");
+      assert(/tick the box/i.test(await dlg.innerText()), "no message asking for the tick");
+      await laUnchanged(before, id, email, "after the unticked tap");
+      return text.slice(0, 140);
+    }, { critical: true });
+    await s.step("tick it, \"Receive all and print\": POST { confirmReceive, allowUnpaid } -> 200; Cards Received, ONE customer email, a received_unpaid line, CD-2610-S", async () => {
+      const dlg = page.getByRole("dialog").first();
+      await dlg.getByRole("checkbox").check();
+      const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST", { timeout: 90_000 });
+      await UI.confirmReceiveAll(dlg).first().click();
+      const res = await ok;
+      eq(res.status(), 200, `HTTP (${(await res.text()).slice(0, 200)})`);
+      const req = res.request().postDataJSON();
+      eq([req.confirmReceive, req.allowUnpaid], [true, true], "confirmReceive, allowUnpaid in the request");
+      const d = await dump();
+      const st = laState(d, id, email);
+      eq([st.status, st.receivedEvents, st.customerEmails], ["received", 1, 1], "status, 'Cards Received' events, customer emails");
+      eq(d.tables.order_events.filter((e) => e.order_id === id && e.event_type === "received_unpaid").length, 1, "received_unpaid lines");
+      return laCheckBagged(d.tables, id, num, LA.awaitingCards, tiers, todayNy());
+    }, { critical: true });
+  },
+
+  // CD-2470 with a card added after it arrived (Nov 20, after Cards Received Nov 5): the workspace box
+  // counts what the server bags (5, not 6), goes away once they are bagged, and the late card stays
+  // for the ticks below (planOrderSetup addedLater)
+  async "labels-any-added-later"({ page, ctx, s, mockUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    const late = "1a00000c-0000-4000-8000-000000000099";
+    const lateName = "Test Added-Later Card";
+    await laSetup(s);
+    await s.step("setup: a 6th card created 2026-11-20 (after Cards Received on 2026-11-05), Gold; plan: bag_in_shop, toBag 5, the reason says 1 card was added later", async () => {
+      const { error } = await mockDb(mockUrl).from("cards").insert({ id: late, order_id: id, card_name: lateName, tier: "premium", created_at: "2026-11-20T15:00:00.000Z" });
+      assert(!error, `insert: ${error?.message}`);
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.toBag], ["bag_in_shop", 5], "mode, toBag");
+      assert(/1 card was added after the order arrived/.test(plan.reason ?? ""), `reason: ${plan.reason}`);
+      return plan.reason;
+    }, { critical: true, shot: false });
+    await s.step("the workspace box says 5 cards (the server's count), not 6", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      const box = page.getByRole("region", { name: /^print labels$/i }).filter({ hasText: /in a bag yet/ }).first();
+      await box.waitFor({ timeout: 60_000 });
+      const text = (await box.innerText()).replace(/\s+/g, " ");
+      assert(/\b5 cards aren't in a bag yet\b/.test(text), `box: "${text.slice(0, 160)}"`);
+      return text.slice(0, 120);
+    }, { critical: true });
+    await s.step("tap: 200, newlyBagged 5 (CD-2470-P + CD-2470-G); the late card has no bag and isn't received", async () => {
+      const box = page.getByRole("region", { name: /^print labels$/i }).filter({ hasText: /in a bag yet/ }).first();
+      const r = await tapPrepare(page, UI.prepareLabels(box).first());
+      eq([r.status, r.body?.newlyBagged], [200, 5], `HTTP, newlyBagged (${JSON.stringify(r.body).slice(0, 200)})`);
+      const d = await dump();
+      const c = d.tables.cards.find((x) => x.id === late);
+      eq([c.bag_id ?? null, c.received_at ?? null], [null, null], "late card bag_id, received_at");
+      return laCheckBagged(d.tables, id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON);
+    }, { critical: true });
+    await s.step("close (X) without printing: the box is gone, the keyboard is on the Bags heading, the late card still has its Arrived tick box", async () => {
+      await page.getByRole("button", { name: /^close without printing$/i }).first().click();
+      await page.waitForTimeout(2_000);
+      await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+      const boxes = await page.getByText(/in a bag yet/).count();
+      eq(boxes, 0, "\"…in a bag yet\" boxes");
+      const focused = await page.evaluate(() => document.activeElement?.id ?? document.activeElement?.tagName ?? "");
+      eq(focused, "bags-h", "focused element");
+      assert(await UI.arrived(page, lateName).isVisible(), `no Arrived tick box for ${lateName}`);
+      return `focus on #${focused}`;
+    });
+  },
+
+  // A bag whose cards were all refunded has no live card: no "Print label" for it on the Bags board
+  // or the "Bags missing labels" queue (the label route has nothing to print)
+  async "labels-any-empty-bag"({ page, ctx, s, mockUrl }) {
+    const id = LA.inShopOrder;
+    await laSetup(s);
+    await s.step("setup: CD-2470 bagged (POST), then both Platinum cards refunded: CD-2470-P has no live card", async () => {
+      laPrepared(await laPost(ctx, id));
+      const t = await tables();
+      const p = bagsOf(t, id).find((b) => b.bag_code === "CD-2470-P");
+      assert(p, "no CD-2470-P");
+      const inP = t.cards.filter((c) => c.bag_id === p.id);
+      eq(inP.length, 2, "cards in CD-2470-P");
+      for (const c of inP) await mockUpdate(mockUrl, "cards", { status: "refunded" }, "id", c.id);
+      return inP.map((c) => c.card_code).join(", ");
+    }, { critical: true, shot: false });
+    const printBtn = (scope) => scope.getByRole("button", { name: /^(re)?print label$/i });
+    await s.step("Bags board: CD-2470-G has \"Print label\"; CD-2470-P has none (or isn't listed)", async () => {
+      await goto(page, ROUTES.bags);
+      const rowOf = (code) => page.locator("li").filter({ has: page.getByRole("link", { name: `Open bag ${code}`, exact: true }) }).last();
+      await rowOf("CD-2470-G").waitFor({ timeout: 60_000 });
+      eq(await printBtn(rowOf("CD-2470-G")).count(), 1, "CD-2470-G print buttons");
+      const pRows = await rowOf("CD-2470-P").count();
+      const pBtns = pRows ? await printBtn(rowOf("CD-2470-P")).count() : 0;
+      eq(pBtns, 0, "CD-2470-P print buttons");
+      return `CD-2470-P ${pRows ? "listed without a print button" : "not listed"}`;
+    });
+    await s.step("\"Bags missing labels\" queue: CD-2470-G has \"Print label\"; CD-2470-P is listed without one", async () => {
+      await goto(page, `${ROUTES.receiving}?queue=labels`);
+      const rowOf = (code) => page.locator("li").filter({ hasText: code }).filter({ has: page.getByRole("link", { name: new RegExp(`^${code}\\b`) }) }).last();
+      await page.getByText("CD-2470-G").first().waitFor({ timeout: 60_000 });
+      eq(await printBtn(page.locator("li").filter({ hasText: "CD-2470-G" }).last()).count(), 1, "CD-2470-G print buttons");
+      const pRow = page.locator("li").filter({ hasText: "CD-2470-P" }).last();
+      assert(await pRow.count(), "CD-2470-P isn't in the queue");
+      eq(await printBtn(pRow).count(), 0, "CD-2470-P print buttons");
+      void rowOf;
+    });
+  },
+
+  // The receiving workspace of an Awaiting Cards order (CD-2610): a "Cards arrived?" box receives
+  // all and prints, tiers filled from the order, the shelf slot made as the Receive button does
+  async "labels-any-workspace-awaiting"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.awaitingOrder;
+    const num = LAN.awaitingOrder;
+    const email = LAC.awaitingOrder.email;
+    const tiers = AWAITING_CARD_TIERS.map((t) => t ?? AWAITING_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const boxOf = (p) => p.getByRole("region", { name: /^cards arrived\?$/i }).first();
+    await s.step("390: the workspace shows the \"Cards arrived?\" box, no sideways scroll", async () => {
+      const msg = await phoneShot(browser, appUrl, ROUTES.receivingOrder(id), "labels-any-workspace-awaiting");
+      assert(!msg, msg);
+    }, { shot: false });
+    await s.step("1440: the box says it receives all 3 cards and has an enabled \"Receive all and print\"", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      const box = boxOf(page);
+      await box.waitFor({ timeout: 60_000 });
+      const text = (await box.innerText()).replace(/\s+/g, " ");
+      assert(/receives all 3 cards/.test(text), `box: "${text.slice(0, 160)}"`);
+      const btn = box.getByRole("button", { name: /^receive all and print$/i });
+      assert(await waitEnabled(btn), "the button is disabled");
+      return text.slice(0, 120);
+    }, { critical: true });
+    let answer = null;
+    await s.step("tap it, then \"Receive all and print\" in the question: POST { confirmReceive: true } -> 200, one bag CD-2610-S, a shelf slot", async () => {
+      await boxOf(page).getByRole("button", { name: /^receive all and print$/i }).click();
+      const dlg = page.getByRole("dialog").first();
+      await dlg.waitFor({ timeout: 30_000 });
+      assert(/cards arrived/i.test(await dlg.innerText()), "the question isn't \"Cards arrived?\"");
+      const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST", { timeout: 90_000 });
+      await UI.confirmReceiveAll(dlg).first().click();
+      const res = await ok;
+      answer = await res.json();
+      eq(res.status(), 200, `HTTP (${JSON.stringify(answer).slice(0, 200)})`);
+      eq(res.request().postDataJSON()?.confirmReceive, true, "confirmReceive");
+      eq([answer.newlyBagged, answer.orderStatusChanged, answer.emailed], [3, true, true], "newlyBagged, orderStatusChanged, emailed");
+      laCheckAnswerBags(answer, num, LA.awaitingCards, tiers);
+      const d = await dump();
+      const bag = bagsOf(d.tables, id)[0];
+      const shelf = `LOC-SHELF-${String(bag.due_date).replaceAll("-", "")}`;
+      eq(answer.shelves?.map((x) => [x.bagCode, x.location?.code]), [[`${num}-S`, shelf]], "shelves in the answer");
+      assert(d.tables.locations.some((l) => l.code === shelf && l.kind === "shelf"), `${shelf} not made`);
+      const st = laState(d, id, email);
+      eq([st.status, st.receivedEvents, st.customerEmails], ["received", 1, 1], "status, 'Cards Received' events, customer emails");
+      return `${answer.message}`;
+    }, { critical: true });
+    await s.step("then the label prints: 1 page", async () => checkPrintOutput(ctx, await tapPrint(page, w), 1));
   },
 };
 Object.assign(SCENARIOS, LABELS_ANY_SCENARIOS);

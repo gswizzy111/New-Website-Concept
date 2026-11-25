@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadPreparePlan, prepareLabels, type PrepareConflict, type PreparePlan, type PrepareResponse } from "@/lib/intake/prepare-labels";
-import { DAY, UUID, adminName, fail, smallJson } from "../../guard";
+import { UUID, adminName, fail } from "../../guard";
 
 /**
  * "Print labels" for any order in one tap (lib/intake/prepare-labels.ts).
@@ -10,7 +10,8 @@ import { DAY, UUID, adminName, fail, smallJson } from "../../guard";
  * GET  → 200 PreparePlan { orderId, orderNumber, status, payment, mode: ready | bag_in_shop | receive_first | not_allowed,
  *        reason?, bags, toBag, tierQuestions, needsAnswers, dueDatesToFill, receivedOn, receivedOnSource, skipped }
  *        | 401 / 404 / 500 { error }. Read-only.
- * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, allowUnpaid?: boolean, receivedOn?: "YYYY-MM-DD" }
+ * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, allowUnpaid?: boolean } (an empty body is {};
+ *      a body that isn't JSON, or is over 40 KB, is 400 as on the receive route)
  *      → 200 PrepareResponse { ok, bags: { id, code, tier, tierName, cardCount }[], newlyBagged, emailed, orderStatusChanged,
  *        shelves, dueDatesFilled, message }
  *      | 409 PrepareConflict (the PreparePlan + error, needsConfirmReceive, needsAllowUnpaid, unpaid?, unanswered) when a tier
@@ -23,8 +24,22 @@ const Body = z.object({
   tiers: z.record(z.string().regex(UUID, "Card not found"), z.string().trim().min(1).max(40)).optional(),
   confirmReceive: z.boolean().optional(),
   allowUnpaid: z.boolean().optional(),
-  receivedOn: z.string().regex(DAY, "Pick a valid received date.").optional(),
 });
+
+const MAX_BODY = 40_000;
+
+/** The body as JSON: {} when empty; undefined when it isn't JSON or is too large (the receive route's smallJson limit). */
+async function readBody(req: Request): Promise<unknown> {
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY) return undefined;
+  const text = await req.text().catch(() => null);
+  if (text == null || text.length > MAX_BODY) return undefined;
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -45,7 +60,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");
 
-  const parsed = Body.safeParse((await smallJson(req)) ?? {});
+  const raw = await readBody(req);
+  if (raw === undefined) return fail(400, "Invalid request");
+  const parsed = Body.safeParse(raw);
   if (!parsed.success) return fail(400, parsed.error.issues[0]?.message ?? "Invalid request");
 
   const result = await prepareLabels(createAdminClient(), { orderId, ...parsed.data, by: who.by });

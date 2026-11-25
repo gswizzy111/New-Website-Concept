@@ -489,6 +489,32 @@ them in a harness started by hand:
   "Print labels": tapped there (the page stays on Receiving), bagged, tap 2
   prints; CD-2610's row asks "Cards arrived?" with "Receive all and print",
   Cancel saves nothing; 390 fits.
+- `labels-any-unpaid-receive`: CD-2610 made unpaid in the mock: plan
+  `payment` `unpaid`; POST `{ confirmReceive: true }` → 409 `needsAllowUnpaid`,
+  `unpaid: true`, the receive route's `UNPAID_ERROR` (the receive route answers
+  the same); a body that isn't JSON → 400, no body → `{}` (409); on the order
+  page the question shows `UNPAID_CONFIRM` with a tick box, "Receive all and
+  print" without the tick sends nothing; ticked → `{ confirmReceive,
+  allowUnpaid }` → 200, received, one customer email, a `received_unpaid` line.
+- `labels-any-added-later`: a 6th CD-2470 card created 2026-11-20 (after
+  Cards Received): plan `toBag` 5 and a `reason` naming it; the workspace box
+  says 5 cards; the tap bags 5 and leaves it (no bag, not received); after X
+  the box is gone, the keyboard is on the Bags heading, the card keeps its
+  Arrived tick box.
+- `labels-any-empty-bag`: CD-2470 bagged, then both Platinum cards refunded in
+  the mock: the Bags board and the "Bags missing labels" queue show "Print
+  label" for CD-2470-G and none for CD-2470-P.
+- `labels-any-workspace-awaiting`: CD-2610's workspace shows a "Cards
+  arrived?" box (390 without sideways scroll) with "Receive all and print";
+  its question's confirm → 200, CD-2610-S, the bag's due-date shelf slot made
+  (`shelves` in the answer, a `LOC-SHELF-…` place), received, one email; the
+  label prints (1 page).
+
+The harness has no QZ Tray: `newAdminContext()` refuses its websockets
+(`localhost` / `localhost.qz.io`, ports 8181-8485). Without that, the sandbox's
+outbound proxy accepts `ws://localhost.qz.io:8182`, `qz.websocket.isActive()`
+turns true on pages that load QZ (the order page), and a label print takes the
+QZ path, fails, and never stamps `label_printed_at`.
 
 How a print is seen: `watchPrints()` wraps `window.open` and
 `navigator.share` (init script; the calls still go through) and records new

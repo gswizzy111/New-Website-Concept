@@ -24,12 +24,13 @@ import {
   type GuessCard, type ServiceLine, type SignedCard, type TierConfidence, type TierGuess, type TierGuessSource,
 } from "@/lib/intake/tier-guess";
 import { TIER_NAMES, TIER_ORDER, effectiveTier, normalizeTier, tierDisplayName, tierRank } from "@/lib/intake/codes";
-import { isDay, nyToday } from "@/lib/intake/business-days";
+import { nyToday } from "@/lib/intake/business-days";
 import { fetchAll } from "@/lib/fetch-all";
-import { fillMissingDueDates, lacksDueDate, loadTurnarounds, receiptTimeFor } from "@/lib/intake/due-dates";
-import { SETUP_STATUSES, applyOrderSetup, planOrderSetup, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
+import { BAG_COLUMNS, fillMissingDueDates, lacksDueDate, loadTurnarounds } from "@/lib/intake/due-dates";
+import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
 import { loadOrderIntake, loadTierNames } from "@/lib/intake/data";
 import { receiveCards } from "@/lib/intake/receiving";
+import { planReceiving, type PlanBag, type PlanCard } from "@/lib/intake/receiving-plan";
 import { shelvesFor, type BagShelf } from "@/lib/intake/tracking/shelf";
 import type { OrderIntake } from "@/lib/intake/types";
 import { loadSetupData, supabaseSetupStore } from "@/app/api/admin/intake/setup/_lib/store";
@@ -110,7 +111,11 @@ export type PreparePlan = {
   dueDatesToFill: number;
   /** The NY day ("YYYY-MM-DD") the new bags will use as their received date. */
   receivedOn: string;
-  /** Where receivedOn comes from: the order's first "Cards Received" status event, its drop-off day, a received day already on the order's bags, or today. */
+  /**
+   * Where receivedOn comes from: the order's first "Cards Received" status event, its drop-off day, or today
+   * (nothing on record: used for the cards bagged now only, never written to older bags). "bag" is no longer
+   * produced (a day on the order's bags is never taken as the arrival day of later cards).
+   */
   receivedOnSource: "event" | "dropoff" | "bag" | "today";
   /** Cards left alone: refunded ones, and ones flagged as not arrived yet (awaiting_arrival). */
   skipped: { refunded: number; awaitingArrival: number };
@@ -124,8 +129,6 @@ export type PrepareRequest = {
   confirmReceive?: boolean;
   /** Required to receive an Awaiting Cards order that isn't paid, sent only after staff confirm (as the Receive button's allowUnpaid). */
   allowUnpaid?: boolean;
-  /** Override the received day the new bags use (not in the future). Default: PreparePlan.receivedOn. */
-  receivedOn?: string;
 };
 
 export type PreparedBag = { id: string; code: string; tier: string; tierName: string; cardCount: number };
@@ -191,7 +194,6 @@ export function tierChoices(names?: Readonly<Record<string, string>>): TierChoic
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const SOURCE_OF: Record<string, PreparePlan["receivedOnSource"]> = { event: "event", dropoff: "dropoff", entered: "bag" };
 
 export type BuiltPlan = {
   plan: PreparePlan;
@@ -213,6 +215,8 @@ export function buildPreparePlan(input: {
   guesses: Readonly<Record<string, TierGuess>>;
   tierNames?: Readonly<Record<string, string>>;
   today: string;
+  /** The moment "today" stands for (the received time of cards bagged with nothing on record). Default: now. */
+  now?: Date;
   setupInput?: PlanInput | null;
   /** Dateless bags the POST would date (fillMissingDueDates); 0 when not worked out. */
   dueDatesToFill?: number;
@@ -258,16 +262,18 @@ export function buildPreparePlan(input: {
       ...setup,
       cards: setup.cards.map((c) => (tierOf(c) ? c : { ...c, tier: guesses[c.id]?.tier ?? "regular" })),
     };
-    const setupPlan = planOrderSetup(filled);
+    // The same rule the POST bags with (inShopSetupPlan)
+    const { plan: setupPlan, source, late } = inShopSetupPlan(filled, { now: input.now, firstBagAt: firstBagAt(input.bags) });
     // In the order's card order (the questions list cards that way)
     const linked = new Set(setupPlan.links.map((l) => l.cardId));
     toBagIds = cards.filter((c) => linked.has(c.id)).map((c) => c.id);
     if (setupPlan.receivedOn) {
       receivedOn = setupPlan.receivedOn;
-      receivedOnSource = SOURCE_OF[setupPlan.receivedSource ?? ""] ?? "today";
+      receivedOnSource = source;
     }
-    if (setupPlan.addedLater.length) {
-      notes.push(`${plural(setupPlan.addedLater.length, "card was", "cards were")} added after the order arrived, so ${setupPlan.addedLater.length === 1 ? "it is" : "they are"} left for Receiving.`);
+    const addedLater = late.length + setupPlan.addedLater.length;
+    if (addedLater) {
+      notes.push(`${plural(addedLater, "card was", "cards were")} added after the order arrived, so ${addedLater === 1 ? "it is" : "they are"} left for Receiving.`);
     }
     if (payment === "unpaid") notes.push("This order isn't marked paid.");
   } else {
@@ -297,7 +303,9 @@ export function buildPreparePlan(input: {
   const hasLabels = input.bags.some((b) => b.cardCount > 0);
   if (!toBagIds.length) {
     if (hasLabels) return { plan: { ...base, mode: "ready", receivedOn, receivedOnSource, ...(notes.length ? { reason: notes.join(" ") } : {}) }, toBagIds };
-    return refuse(awaiting ? notes.join(" ") : order.status === "awaiting_cards" ? "This order has no cards to receive." : "This order has no cards to bag.");
+    // Cards waiting for Receiving (not arrived, or added after the order arrived): say so
+    const waiting = awaiting > 0 || notes.some((n) => n.includes("left for Receiving"));
+    return refuse(waiting ? notes.join(" ") : order.status === "awaiting_cards" ? "This order has no cards to receive." : "This order has no cards to bag.");
   }
   return {
     plan: {
@@ -314,29 +322,72 @@ export function buildPreparePlan(input: {
   };
 }
 
+/** The earliest created_at of the order's bags (the first time its cards were bagged), or null. */
+export function firstBagAt(bags: readonly { createdAt: string | null }[]): string | null {
+  return bags.map((b) => b.createdAt).filter((t): t is string => !!t && !Number.isNaN(Date.parse(t))).sort()[0] ?? null;
+}
+
+/** Cards typed in with a drop-off order: allowed this long after the order itself was entered. */
+const DROPOFF_ENTRY_MS = 60 * 60 * 1000;
+
 /**
- * The Setup plan for bagging now: the received day staff chose, else the
- * order's own record, else today. A day that is only "today" (nothing on
- * record) is used for the cards bagged now and nothing else: bags already
- * missing their received date keep asking for it.
+ * The moment the order's cards were known to be here: its first "Cards
+ * Received" status event; for a drop-off, the hand-over (or the order's entry
+ * when later, plus an hour for the cards typed in with it); with neither, the
+ * first time any of its cards were bagged (`firstBag`). Null: nothing on
+ * record, so every card counts as arrived.
  */
-export function inShopSetupPlan(setup: PlanInput, opts: { chosenDay?: string | null; now?: Date } = {}): { plan: OrderPlan; source: PreparePlan["receivedOnSource"] | "chosen" } {
+export function arrivedBy(setup: PlanInput, firstBag: string | null): string | null {
+  const at = (v: string | null | undefined) => (v && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : null);
+  const event = at(setup.receivedEventAt);
+  if (event != null) return new Date(event).toISOString();
+  if (setup.order.inbound_method === "dropoff") {
+    const handOver = at(setup.dropoffAt) ?? at(setup.order.created_at);
+    const entered = at(setup.order.created_at);
+    if (handOver != null) return new Date(Math.max(handOver, entered != null ? entered + DROPOFF_ENTRY_MS : handOver)).toISOString();
+  }
+  const bagged = at(firstBag);
+  return bagged != null ? new Date(bagged).toISOString() : null;
+}
+
+/**
+ * The Historical Order Setup plan "Print labels" bags with (the GET's plan
+ * and the POST both use it, so they agree):
+ * - An open order's cards created after the cards were known to be here
+ *   (`arrivedBy`, to the second), not in a bag and not received, are left for
+ *   Receiving (`late`): they may still be on their way. A finished order's
+ *   are bagged (they were worked and shipped).
+ * - The received day is the order's own record only (the "Cards Received"
+ *   event or the drop-off). Otherwise today, and only for the cards bagged
+ *   now: bags already missing their received date keep asking for it, and a
+ *   day put on a bag by an earlier tap never becomes the arrival day of
+ *   later cards.
+ */
+export function inShopSetupPlan(
+  setup: PlanInput,
+  opts: { now?: Date; firstBagAt?: string | null } = {},
+): { plan: OrderPlan; source: "event" | "dropoff" | "today"; late: string[] } {
   const now = opts.now ?? new Date();
-  const at = (day: string) => {
-    const noon = receiptTimeFor(day);
-    return Date.parse(noon) > now.getTime() ? now.toISOString() : noon;
-  };
-  if (opts.chosenDay) return { plan: planOrderSetup({ ...setup, receivedEventAt: at(opts.chosenDay) }), source: "chosen" };
-  const own = planOrderSetup(setup);
-  if (own.receivedOn) return { plan: own, source: SOURCE_OF[own.receivedSource ?? ""] ?? "event" };
-  const plan = planOrderSetup({ ...setup, receivedEventAt: now.toISOString() });
+  const cutoff = arrivedBy(setup, opts.firstBagAt ?? null);
+  const finished = (FINISHED_STATUSES as readonly string[]).includes(setup.order.status);
+  const late = finished || !cutoff
+    ? []
+    : setup.cards
+        .filter((c) => !c.bag_id && !c.received_at && !c.awaiting_arrival && c.status !== "refunded" && Date.parse(c.created_at) > Date.parse(cutoff))
+        .map((c) => c.id);
+  const lateSet = new Set(late);
+  const input: PlanInput = late.length ? { ...setup, cards: setup.cards.filter((c) => !lateSet.has(c.id)) } : setup;
+
+  const own = planOrderSetup(input);
+  if (own.receivedOn && (own.receivedSource === "event" || own.receivedSource === "dropoff")) return { plan: own, source: own.receivedSource, late };
+  const plan = planOrderSetup({ ...input, receivedEventAt: now.toISOString() });
   const linked = new Set(plan.links.map((l) => l.cardId));
   plan.bagFills = plan.bagFills
     .map((f) => ({ bagId: f.bagId, bagCode: f.bagCode, ...(f.completedAt ? { completedAt: f.completedAt } : {}) }))
     .filter((f) => f.completedAt);
   plan.receivedAtFills = plan.receivedAtFills.filter((id) => linked.has(id));
   plan.alreadySetUp = !plan.cardCodes.length && !plan.newBags.length && !plan.links.length && !plan.bagFills.length && !plan.receivedAtFills.length;
-  return { plan, source: "today" };
+  return { plan, source: "today", late };
 }
 
 // ── Server ──────────────────────────────────────────────────────────────────
@@ -345,7 +396,7 @@ type CardRow = PrepareCard & GuessCard & { created_at: string };
 type OrderRow = PrepareOrder & { subtotal_cents: number | null };
 type Fail = { ok: false; status: number; error: string };
 
-const CARD_COLUMNS = "id, card_name, card_set, card_number, card_year, estimated_value_cents, tier, status, bag_id, received_at, awaiting_arrival, created_at";
+const CARD_COLUMNS = "id, card_name, card_set, card_number, card_year, estimated_value_cents, service_price_cents, tier, status, bag_id, received_at, awaiting_arrival, created_at";
 
 /** A read that may fail without stopping anything (a guess source): empty then. */
 async function soft<T>(what: string, run: PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
@@ -507,13 +558,8 @@ function labelStore(admin: SupabaseClient, source: string): SetupStore {
  */
 export async function prepareLabels(
   admin: SupabaseClient,
-  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; allowUnpaid?: boolean; receivedOn?: string; by: string | null },
+  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; allowUnpaid?: boolean; by: string | null },
 ): Promise<PrepareOutcome> {
-  const today = nyToday();
-  if (input.receivedOn !== undefined) {
-    if (!isDay(input.receivedOn)) return { ok: false, status: 400, error: "Pick a valid received date." };
-    if (input.receivedOn > today) return { ok: false, status: 400, error: "The received date can't be in the future." };
-  }
   for (const v of Object.values(input.tiers ?? {})) {
     const t = normalizeTier(v);
     if (!t || !TIER_ORDER.includes(t)) return { ok: false, status: 400, error: `Unknown tier "${String(v)}".` };
@@ -535,6 +581,13 @@ export async function prepareLabels(
       else unanswered.push(id);
     }
   }
+  // The order's tier, written onto its cards as they go into bags (a filled tier is part of receiving;
+  // the order tier stays as it is). Only cards with no tier of their own.
+  const orderTier = normalizeTier(ctx.order.restoration_tier);
+  if (orderTier) {
+    const byId = new Map(ctx.cards.map((c) => [c.id, c]));
+    for (const id of ctx.built.toBagIds) if (!byId.get(id)?.tier && !answers.has(id)) answers.set(id, orderTier);
+  }
   const needsConfirm = plan.mode === "receive_first" && input.confirmReceive !== true;
   // As the receive route's paymentBlock: an unpaid order is received only with allowUnpaid (staff confirmed)
   const needsAllowUnpaid = plan.mode === "receive_first" && plan.payment === "unpaid" && input.allowUnpaid !== true;
@@ -550,6 +603,15 @@ export async function prepareLabels(
     };
   }
 
+  // Check the receipt / bagging with the answers in memory first: tiers are written only when it can go ahead
+  const first = bagFirst(ctx);
+  const check = plan.mode === "receive_first"
+    ? await receiveCheck(admin, ctx, answers)
+    : plan.mode === "bag_in_shop"
+      ? await setupCheck(admin, input.orderId, answers, first)
+      : null;
+  if (check) return check;
+
   const tierFail = await writeTiers(admin, input.orderId, answers, ctx, input.by);
   if (tierFail) return tierFail;
 
@@ -560,7 +622,7 @@ export async function prepareLabels(
   let shelves: BagShelf[] = [];
   if (plan.mode === "receive_first") {
     // Exactly the Receive button: Card IDs, bags with due dates, Cards Received + the customer email
-    const r = await receiveCards(admin, { orderId: input.orderId, cardIds: ctx.built.toBagIds, receivedOn: input.receivedOn, by: input.by });
+    const r = await receiveCards(admin, { orderId: input.orderId, cardIds: ctx.built.toBagIds, by: input.by });
     if (!r.ok) return { ok: false, status: r.status, error: r.error };
     newlyBagged = r.receivedCardIds.length;
     orderStatusChanged = r.orderStatusChanged;
@@ -589,7 +651,7 @@ export async function prepareLabels(
       return { ok: false, status: 500, error: `Couldn't read the order's records: ${e instanceof Error ? e.message : String(e)}` };
     }
     if (!setup) return { ok: false, status: 404, error: "Order not found" };
-    const { plan: setupPlan, source } = inShopSetupPlan(setup, { chosenDay: input.receivedOn });
+    const { plan: setupPlan, source } = inShopSetupPlan(setup, { firstBagAt: first });
     try {
       const done = await applyOrderSetup(setupPlan, labelStore(admin, source), input.by);
       newlyBagged = done.cardsLinked;
@@ -620,6 +682,50 @@ export async function prepareLabels(
       message: `${head}${extra}${dated} ${labels}${shelfText(shelves)}`,
     },
   };
+}
+
+/** The first time the order's cards were bagged (its earliest bag), for inShopSetupPlan. */
+const bagFirst = (ctx: Context) => firstBagAt(ctx.built.plan.bags);
+
+/** The card rows with staff's answers as their tiers (in memory only). */
+const withAnswers = <T extends { id: string; tier: string | null }>(cards: readonly T[], answers: ReadonlyMap<string, string>): T[] =>
+  cards.map((c) => (answers.has(c.id) && !c.tier ? { ...c, tier: answers.get(c.id)! } : c));
+
+/** Awaiting Cards: would the Receive button take these cards, with the answers as their tiers? A refusal, or null to go ahead. */
+async function receiveCheck(admin: SupabaseClient, ctx: Context, answers: ReadonlyMap<string, string>): Promise<Fail | null> {
+  const [{ data: cards, error: cErr }, { data: bags, error: bErr }] = await Promise.all([
+    admin.from("cards").select("id, order_id, card_name, tier, status, completed, created_at, card_seq, card_code, received_at, awaiting_arrival, bag_id").eq("order_id", ctx.order.id),
+    admin.from("tier_bags").select(BAG_COLUMNS).eq("order_id", ctx.order.id),
+  ]);
+  const err = cErr ?? bErr;
+  if (err) return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${err.message})` };
+  const planned = planReceiving({
+    order: { id: ctx.order.id, order_number: ctx.order.order_number, restoration_tier: ctx.order.restoration_tier, status: ctx.order.status },
+    cards: withAnswers((cards ?? []) as PlanCard[], answers),
+    bags: (bags ?? []) as PlanBag[],
+    cardIds: ctx.built.toBagIds,
+    receivedOn: nyToday(),
+    tierNames: ctx.names,
+  });
+  return planned.ok ? null : { ok: false, status: planned.status, error: `${planned.error} Nothing was changed.` };
+}
+
+/** In the shop: can the order be bagged with the answers as tiers (every card it bags has one)? A refusal, or null to go ahead. */
+async function setupCheck(admin: SupabaseClient, orderId: string, answers: ReadonlyMap<string, string>, first: string | null): Promise<Fail | null> {
+  let setup: PlanInput | undefined;
+  try {
+    setup = (await loadSetupData(admin, { orderIds: [orderId] })).inputs.get(orderId);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the order's records. Nothing was changed. (${e instanceof Error ? e.message : String(e)})` };
+  }
+  if (!setup) return { ok: false, status: 404, error: "Order not found" };
+  const { plan } = inShopSetupPlan({ ...setup, cards: withAnswers(setup.cards, answers) }, { firstBagAt: first });
+  if (!plan.eligible) return { ok: false, status: 409, error: `${plan.ineligibleReason ?? "This order can't be bagged."} Nothing was changed.` };
+  if (plan.missingTiers.length) {
+    const names = plan.missingTiers.map((c) => c.name).join(", ");
+    return { ok: false, status: 409, error: `${plural(plan.missingTiers.length, "card has", "cards have")} no tier yet (${names}). Tap Print labels again to pick ${plan.missingTiers.length === 1 ? "it" : "them"}. Nothing was changed.` };
+  }
+  return null;
 }
 
 /** "Dec 7" for a stored day. */
