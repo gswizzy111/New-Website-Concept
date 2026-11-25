@@ -1,5 +1,9 @@
 import { isDay, weekday } from "@/lib/intake/business-days";
 import { orderPhotosPath } from "@/lib/intake/codes";
+import { filingLetter } from "@/lib/intake/filing-letter";
+import {
+  BAG_FINISHED_TEXT, bagPlaceOrNone, doneCountText, isReadyToShipPlace, openBagsSentence, orderCompletionNotes, type ToneLine,
+} from "@/lib/intake/tracking/bag-home";
 import type { DeskCard } from "@/lib/intake/tracking/desk";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type { LocationRef, TrackActionResponse } from "@/lib/intake/tracking/types";
@@ -72,7 +76,22 @@ export type OpenGroup = {
   cards: OpenCard[];
 };
 
-export type OpenBagLine = { id: string; code: string; tier: string; tierName: string; due: OpenDue; cardCount: number };
+export type OpenBagLine = {
+  id: string;
+  code: string;
+  tier: string;
+  tierName: string;
+  due: OpenDue;
+  cardCount: number;
+  doneCount: number;
+  /** "4 cards", "3 of 4 done". */
+  countText: string;
+  /** Where the bag is: "Open bags box · R", "Shelf DUE MON DEC 7", "Ready to ship", "No place yet". */
+  place: string;
+};
+
+/** A bag as the board's buttons need it: where it is now (the Ready to ship step). */
+export type OpenBagState = { id: string; code: string; location: LocationRef | null };
 
 export type OpenHeader = {
   kind: "bag" | "order";
@@ -90,13 +109,17 @@ export type OpenHeader = {
   customerNotes: string | null;
   /** Cards in scope, refunded ones not counted. */
   cardCount: number;
+  /** Of those, done. */
+  doneCount: number;
+  /** "4 cards" while none is done, then "3 of 4 done". */
+  countText: string;
   /** A bag code: that bag. */
   bag: OpenBagLine | null;
   /** An order code: each of its bags. */
   bags: OpenBagLine[];
 };
 
-export type OpenView = { header: OpenHeader; groups: OpenGroup[] };
+export type OpenView = { header: OpenHeader; groups: OpenGroup[]; bags: OpenBagState[] };
 
 /** What the server loader hands over (lib rows already turned into DeskCard views). */
 export type OpenInput = {
@@ -105,8 +128,11 @@ export type OpenInput = {
   /** The scanned bag (a bag code). */
   bagId: string | null;
   order: { id: string; orderNumber: string; customer: string | null; customerNotes: string | null };
-  /** Every bag of the order, fastest tier first, then batch. */
-  bags: { id: string; code: string; tier: string; tierName: string; dueDate: string | null; complete: boolean; cardCount: number }[];
+  /** Every bag of the order, fastest tier first, then batch; `location`: where the bag is. */
+  bags: {
+    id: string; code: string; tier: string; tierName: string; dueDate: string | null; complete: boolean;
+    cardCount: number; doneCount: number; location: LocationRef | null;
+  }[];
   /** Every card of the order, in card number order. */
   cards: DeskCard[];
 };
@@ -261,7 +287,7 @@ export function moveChunks<T>(ids: readonly T[], size = MOVE_CHUNK): T[][] {
 
 /** One request of a chunked move: its answer, or the error of a request that failed as a whole (and how many cards it held). */
 export type MovePart =
-  | { ok: true; results: TrackActionResponse["results"] }
+  | { ok: true; results: TrackActionResponse["results"]; bags?: TrackActionResponse["bags"] }
   | { ok: false; error: string; count: number };
 
 /**
@@ -335,8 +361,10 @@ function refundedLast<T extends { state: OpenCardState }>(cards: T[]): T[] {
 export function buildOpenView(input: OpenInput, today: string): OpenView {
   const { order } = input;
   const all = input.cards.map(openCard);
+  const letter = filingLetter(order.customer);
   const line = (b: OpenInput["bags"][number]): OpenBagLine => ({
     id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, due: dueText(b.dueDate, today, b.complete), cardCount: b.cardCount,
+    doneCount: b.doneCount, countText: doneCountText(b.doneCount, b.cardCount), place: bagPlaceOrNone(b.location, letter),
   });
   const bag = input.kind === "bag" ? input.bags.find((b) => b.id === input.bagId) ?? null : null;
   const scoped = bag ? all.filter((c) => c.bagId === bag.id) : all;
@@ -357,6 +385,8 @@ export function buildOpenView(input: OpenInput, today: string): OpenView {
       groups.push({ key: "no-bag", title: noneHere ? "Not here yet" : "Not in a bag", subtitle: null, overdue: false, cards: refundedLast(loose) });
     }
   }
+  const live = scoped.filter((c) => c.state !== "refunded");
+  const doneCount = live.filter((c) => c.state === "done").length;
   return {
     header: {
       kind: input.kind,
@@ -367,10 +397,107 @@ export function buildOpenView(input: OpenInput, today: string): OpenView {
       orderUrl: `/admin/orders/${encodeURIComponent(order.id)}`,
       photosUrl: orderPhotosPath(order.id, bag?.id),
       customerNotes: text(order.customerNotes),
-      cardCount: scoped.filter((c) => c.state !== "refunded").length,
+      cardCount: live.length,
+      doneCount,
+      countText: doneCountText(doneCount, live.length),
       bag: bag ? line(bag) : null,
       bags: bag ? [] : input.bags.filter((b) => b.cardCount > 0).map(line),
     },
     groups,
+    bags: (bag ? [bag] : input.bags).map((b) => ({ id: b.id, code: b.code, location: b.location })),
   };
 }
+
+// ─── Done ─────────────────────────────────────────────────────────────────
+
+/** Cards "Done" and "Mark all N done" can finish: here, not done, not refunded (wherever they are). */
+export function canFinish(card: Pick<OpenCard, "state">): boolean {
+  return card.state === "ready";
+}
+
+/** The cards "Mark all N done" marks (null: fewer than 2, the cards' own Done buttons are enough). */
+export function doneAllIds(cards: readonly Pick<OpenCard, "id" | "state">[]): string[] | null {
+  const ids = cards.filter(canFinish).map((c) => c.id);
+  return ids.length >= 2 ? ids : null;
+}
+
+/** "Mark all 4 done". */
+export function doneAllLabel(n: number): string {
+  return n === 1 ? "Mark 1 card done" : `Mark all ${n} done`;
+}
+
+/** "Mark all 4 cards done?" */
+export function doneAllQuestion(n: number): string {
+  return n === 1 ? "Mark 1 card done?" : `Mark all ${n} cards done?`;
+}
+
+/** One request of a Done (at most 200 cards each, like the moves). */
+export type DonePart =
+  | { ok: true; res: Pick<TrackActionResponse, "results" | "message" | "orderCompletions"> }
+  | { ok: false; error: string; count: number };
+
+/** What a Done said: the server's own line ("Done. Put it back in REYES's bag: Open bags box, under R."), each refused card, the order's line. */
+export type DoneOutcome = {
+  tone: "ok" | "warn" | "error";
+  title: string;
+  failedTitle: string | null;
+  failed: MoveLine[];
+  /** Cards that are done now (marked, or done already). */
+  doneIds: string[];
+  /** The order auto-complete lines: "Order completed. Pat Collector emailed." (green), or why not (amber). */
+  notes: ToneLine[];
+};
+
+/** The answers of POST /api/admin/track/done (one per request) as one outcome. */
+export function doneOutcome(parts: readonly DonePart[]): DoneOutcome {
+  const oks = parts.filter((p): p is Extract<DonePart, { ok: true }> => p.ok);
+  const bads = parts.filter((p): p is Extract<DonePart, { ok: false }> => !p.ok);
+  const results = oks.flatMap((p) => p.res.results ?? []);
+  const good = results.filter((r) => r.ok);
+  const refused = results.filter((r) => !r.ok);
+  const notDone = refused.length + bads.reduce((n, p) => n + p.count, 0);
+  const lines = [...new Set(oks.map((p) => p.res.message).filter(Boolean))];
+  return {
+    tone: !good.length ? "error" : notDone ? "warn" : "ok",
+    title: good.length ? lines.join(" ") || "Done." : "Not done",
+    failedTitle: notDone && good.length ? `${notDone} not done:` : null,
+    failed: [
+      ...refused.map((r, i) => ({ key: `${r.cardId}-${i}`, label: r.code ?? r.name ?? "Card", message: r.message })),
+      ...bads.map((p, i) => ({ key: `request-${i}`, label: "", message: p.error })),
+    ],
+    doneIds: good.map((r) => r.cardId),
+    notes: orderCompletionNotes(oks.flatMap((p) => p.res.orderCompletions ?? [])),
+  };
+}
+
+/** "Put the bag in the Open bags box, under R." after a move to the desk took cards out of their bag ("" when none did). */
+export function openBagsLine(parts: readonly MovePart[]): string {
+  const opened = parts.flatMap((p) => (p.ok ? p.bags ?? [] : [])).filter((b) => b.opened);
+  return openBagsSentence(opened.filter((b, i) => opened.findIndex((x) => x.id === b.id) === i));
+}
+
+/** A finished bag on this page: every live card done. `inBin`: it is in the Ready to ship bin already. */
+export type BagStep = { id: string; code: string; total: number; inBin: boolean };
+
+/**
+ * The bags whose every live card (on this page) is done: the one big step
+ * "Bag finished: put it in the Ready to ship bin" until the bag is there.
+ * `binned`: bags this page just put in the bin.
+ */
+export function bagSteps(bags: readonly OpenBagState[], cards: readonly Pick<OpenCard, "bagId" | "state">[], binned: ReadonlySet<string> = new Set()): BagStep[] {
+  return bags.flatMap((b) => {
+    const live = cards.filter((c) => c.bagId === b.id && c.state !== "refunded");
+    if (!live.length || !live.every((c) => c.state === "done")) return [];
+    return [{ id: b.id, code: b.code, total: live.length, inBin: binned.has(b.id) || isReadyToShipPlace(b.location) }];
+  });
+}
+
+/** The step's title: "Bag finished: put it in the Ready to ship bin"; with several bags on the page, "Bag CD-2549-P finished: ...". */
+export function bagStepTitle(step: Pick<BagStep, "code">, several: boolean): string {
+  return several ? `Bag ${step.code} finished: put it in the Ready to ship bin` : BAG_FINISHED_TEXT;
+}
+
+/** The step's button. */
+export const BIN_BUTTON = "It's in the Ready to ship bin";
+/** Once the bag is there. */
+export const IN_BIN_TEXT = "In the Ready to ship bin";

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { ExternalLink, Images } from "lucide-react";
+import { ExternalLink, Images, Package } from "lucide-react";
 import { requireAdmin, staffName } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
@@ -9,7 +9,7 @@ import { TierBadge } from "../../bags/_components/bag-bits";
 import { missingTracking } from "../../shelf/_lib/places";
 import { OpenBoard } from "./_components/open-board";
 import { loadDeskChoice, loadOpen } from "./_lib/load";
-import { buildOpenView, cardsText, type OpenBagLine, type OpenHeader } from "./_lib/view";
+import { buildOpenView, type OpenBagLine, type OpenHeader } from "./_lib/view";
 
 /**
  * Where a bag QR (CD-2549-P) or an order QR (CD-2549) opens: /q/<code>
@@ -65,8 +65,15 @@ function PersonTop({ header }: { header: OpenHeader }) {
       </p>
       <p className="mt-1 font-heading text-2xl font-black text-foreground">
         {bag && <><Due due={bag.due} /><span aria-hidden="true" className="mx-2 text-muted-foreground">·</span></>}
-        {cardsText(header.cardCount)}
+        {header.countText}
       </p>
+      {/* Where the bag is: its due-date shelf, the Open bags box (a card is out), Ready to ship */}
+      {bag && (
+        <p className="mt-1 flex items-center gap-1.5 text-base font-bold text-foreground">
+          <Package className="size-5 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+          <span className="break-words">Bag: {bag.place}</span>
+        </p>
+      )}
     </section>
   );
 }
@@ -81,7 +88,8 @@ function PersonMore({ header }: { header: OpenHeader }) {
               <TierBadge tier={b.tier} name={b.tierName} />
               <span className="font-mono font-black break-all">{b.code}</span>
               <Due due={b.due} />
-              <span className="text-muted-foreground">{cardsText(b.cardCount)}</span>
+              <span className="text-muted-foreground">{b.countText}</span>
+              <span className="basis-full text-foreground sm:basis-auto">Bag: {b.place}</span>
             </li>
           ))}
         </ul>
@@ -147,6 +155,7 @@ export default async function OpenCodePage({ params }: { params: Promise<{ code:
         person={<PersonTop header={view.header} />}
         personMore={<PersonMore header={view.header} />}
         groups={view.groups}
+        bags={view.bags}
         desks={desks.desks}
         defaultDeskId={desks.defaultId}
         deskProblem={desks.problem}

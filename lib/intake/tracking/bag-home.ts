@@ -1,4 +1,5 @@
 import { customerLastName, filingLetter } from "@/lib/intake/filing-letter";
+import type { OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 import { SHIP_LOCATION_CODE } from "@/lib/intake/tracking/places";
 import type { LocationRef, TrackBagPlace } from "@/lib/intake/tracking/types";
 
@@ -214,4 +215,22 @@ export function bagPlaceOf(input: {
     doneCount: done,
     cardCount: live.length,
   };
+}
+
+/** A line staff read after Done, with its colour: green ("ok") or amber ("warn"). */
+export type ToneLine = { tone: "ok" | "warn"; text: string };
+
+/**
+ * The order auto-complete lines after Done (lib/intake/order-autocomplete.ts
+ * `message`, e.g. "Order completed. Pat Collector emailed."): green when the
+ * request completed the order, amber otherwise (why it wasn't). Results
+ * without a message say nothing.
+ */
+export function orderCompletionNotes(list: readonly (Pick<OrderAutoComplete, "completed" | "message"> | null | undefined)[] | null | undefined): ToneLine[] {
+  const out: ToneLine[] = [];
+  for (const r of list ?? []) {
+    const text = r?.message?.trim();
+    if (text && !out.some((l) => l.text === text)) out.push({ tone: r!.completed ? "ok" : "warn", text });
+  }
+  return out;
 }

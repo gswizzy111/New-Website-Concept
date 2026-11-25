@@ -523,7 +523,7 @@ export function setFitted(set: string, num: string, size: number, maxW: number):
  * never cut while a line holds them). Without `wrap`, a set that doesn't fit
  * is cut, or left out when little of it would show.
  */
-function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number, wrap: boolean): { h: number; wrapped: boolean; cut: boolean; draw: (x: number, y: number) => LabelElement[] } {
+function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: number, wrap: boolean): { h: number; wrapped: boolean; cut: boolean; whole: boolean; draw: (x: number, y: number) => LabelElement[] } {
   const size = st.body;
   const lineH = size * 1.25;
   const rule = st.rules ? LABEL_LIMITS.minRulePt : 0;
@@ -552,6 +552,8 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
     h,
     wrapped,
     cut,
+    // The set and number show in full (or the card has none)
+    whole: !set || (wrapped ? !cut : setText === set),
     draw: (x, y) => {
       const base = baselineIn(y + st.pad, "body700", size, 1.25);
       const nameEl = text(nameText, x + idW + gap, base, size, "body700", "ink");
@@ -569,7 +571,7 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
  * left column then the right, split where the columns come out most even.
  * `wrap`: see cardRow.
  */
-function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, wrap: boolean): Block & { wrapped: number; cut: number } {
+function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, wrap: boolean): Block & { wrapped: number; cut: number; whole: number } {
   const idW = Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
   const gap = st.body * 0.6;
   const colW = st.cols === 2 ? (Wi - colGap) / 2 : Wi;
@@ -591,6 +593,7 @@ function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, co
     h: Math.max(leftH, total - leftH),
     wrapped: rows.filter((r) => r.wrapped).length,
     cut: rows.filter((r) => r.cut).length,
+    whole: rows.filter((r) => r.whole).length,
     draw: (y) => {
       const out: LabelElement[] = [];
       let ty = y;
@@ -859,18 +862,46 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
     return { top, tier, bottom, also, tierY, listTop, bottomY, alsoY, room: alsoY - s.sp(6) - listTop };
   };
   // On short stock a long name can leave no room for even the "+N more" line:
-  // then "Also in this order" goes (the QR shows the whole order), then the name is set smaller
+  // then "Also in this order" goes (the QR shows the whole order), then the
+  // filing tab gets smaller (never below the due date), then the name is set smaller
   const need = moreLine(cards.length, xi, Wi, LIST_STYLES[cards.length ? LIST_STYLES.length - 1 : 0]).h;
   let at = place(1, true);
   if (at.room < need && at.also) at = place(1, false);
-  for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false);
+  let tab = fullTab;
+  for (let t = fullTab * 0.85; fullTab && at.room < need && t > 1; t *= 0.85) {
+    at = place(1, false, t);
+    tab = t;
+    if (at.top.tab && at.top.tab.side > t + 1e-9) break;
+  }
+  // The smallest tab: a letter the size of the due date (banner())
+  if (fullTab && at.room < need) tab = 1;
+  let scaled = false;
+  for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) {
+    at = place(k, false, tab);
+    scaled = true;
+  }
   const colGap = Math.max(6, s.px(14));
   let fitted = fitList(cards, at.room, xi, Wi, colGap, narrow);
-  // On the narrow label every card listed beats "Also in this order" (the QR shows the whole order)
-  if (narrow && at.also && fitted.shown.length < cards.length) {
-    const without = place(1, false);
+  // On the narrow label every card listed, then every set and number in full, beats "Also in this order" (the QR shows the whole order)
+  const better = (a: typeof fitted, b: typeof fitted) => a.shown.length > b.shown.length || (a.shown.length === b.shown.length && a.list.whole > b.list.whole);
+  if (narrow && at.also && (fitted.shown.length < cards.length || fitted.list.whole < cards.length)) {
+    const without = place(1, false, tab);
     const refit = fitList(cards, without.room, xi, Wi, colGap, narrow);
-    if (refit.shown.length > fitted.shown.length) [at, fitted] = [without, refit];
+    if (better(refit, fitted)) [at, fitted] = [without, refit];
+  }
+  // A full tab never stops a bag that fits without it from listing every card: "Also in this order"
+  // gives way first, then the tab gets smaller (never below the due date), as far as that lists
+  // more cards. A bag that doesn't fit anyway keeps the full tab, and its last rows go behind
+  // "+N more: scan the QR".
+  const fitIn = (p: typeof at) => fitList(cards, p.room, xi, Wi, colGap, narrow);
+  if (fullTab && tab === fullTab && !scaled && fitted.shown.length < cards.length && fitIn(place(1, false, 0)).shown.length === cards.length) {
+    for (let t = fullTab; t > 1; t *= 0.9) {
+      const p = place(1, false, t);
+      const f = fitIn(p);
+      if (f.shown.length > fitted.shown.length) [at, fitted] = [p, f];
+      // Every card listed, or the tab down to the due date's size
+      if (f.shown.length === cards.length || (p.top.tab && p.top.tab.side > t + 1e-9)) break;
+    }
   }
   const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY } = at;
   const { shown, list } = fitted;
@@ -890,7 +921,17 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
 
   return {
     page: { width: stock.pageW, height: stock.pageH, elements: els, cardCodes },
-    fit: { style, cols: st.cols, bodyPt: st.body, shown: shown.length, more, wrapped: list.wrapped, nameSize: top.nameSize, nameLines: top.nameLines },
+    fit: {
+      style,
+      cols: st.cols,
+      bodyPt: st.body,
+      shown: shown.length,
+      more,
+      wrapped: list.wrapped,
+      nameSize: top.nameSize,
+      nameLines: top.nameLines,
+      filing: top.tab && { letter: top.tab.letter, side: top.tab.side, size: top.tab.size },
+    },
   };
 }
 
