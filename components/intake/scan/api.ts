@@ -1,5 +1,6 @@
 import type {
   AssignRequest,
+  BagReadyResponse,
   CapacityConflict,
   DoneRequest,
   MoveRequest,
@@ -91,6 +92,11 @@ export function release(body: ReleaseRequest) {
 
 export function done(body: DoneRequest) {
   return post<TrackActionResponse>("/api/admin/track/done", body);
+}
+
+/** A finished bag is in the Ready to ship bin (LOC-SHIP). */
+export function bagReady(body: { bagId: string }) {
+  return post<BagReadyResponse>("/api/admin/track/bag-ready", body);
 }
 
 /** A failed card in an otherwise saved request ("2 of 3 saved"), as one line; null when all went through. */

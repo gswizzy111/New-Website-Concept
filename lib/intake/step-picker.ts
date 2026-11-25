@@ -1,5 +1,8 @@
 import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
 import { DONE_LABEL } from "@/lib/intake/stage-plan";
+import type { OrderAutoComplete } from "@/lib/intake/order-autocomplete";
+import { bagSentences, orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
+import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
  * The step picker's logic (StepPicker in components/intake/tracking-actions.tsx),
@@ -90,14 +93,21 @@ export type PickerResponse = {
   newStep?: unknown;
   skipped?: { reason?: string }[];
   emailed?: boolean;
+  /** Done: the cards' bags and where each is ("Put it back in REYES's bag: Open bags box, under R."). */
+  bagPlaces?: TrackBagPlace[];
+  /** Done: the order auto-complete check ("Order completed. Pat Collector emailed."). */
+  orderCompletion?: Pick<OrderAutoComplete, "completed" | "message">;
 };
+
+/** The picker's line after a tap, plus the order's line when Done completed it (or says why not). */
+export type PickerOutcome = { tone: "ok" | "warn"; text: string; notes?: ToneLine[] };
 
 const count = (x: unknown) => (Array.isArray(x) ? x.length : Number(x) || 0);
 const cards = (n: number) => `${n} card${n === 1 ? "" : "s"}`;
 const was = (n: number) => (n === 1 ? "was" : "were");
 
 /** The line staff see after a tap, from the route's answer; "warn" when some cards were left alone. */
-export function pickerOutcome(target: string, requested: number, res: PickerResponse): { tone: "ok" | "warn"; text: string } {
+export function pickerOutcome(target: string, requested: number, res: PickerResponse): PickerOutcome {
   const label = target === DONE_TARGET ? DONE_LABEL : adminStageLabel(target);
   const moved = count(res.moved);
   const fresh = count(res.newStep);
@@ -107,8 +117,14 @@ export function pickerOutcome(target: string, requested: number, res: PickerResp
   const parts: string[] = [];
 
   if (moved) {
-    if (target === DONE_TARGET) parts.push(requested === 1 && moved === 1 ? "Marked done." : `${cards(moved)} marked done.`);
-    else parts.push(requested === 1 && moved === 1 ? `Now at ${label}.` : `${cards(moved)} moved to ${label}.`);
+    if (target === DONE_TARGET) {
+      parts.push(requested === 1 && moved === 1 ? "Marked done." : `${cards(moved)} marked done.`);
+      // Done cards go back in their own bag: say whose and where it is
+      const back = bagSentences(res.bagPlaces ?? [], moved);
+      if (back) parts.push(back);
+    } else {
+      parts.push(requested === 1 && moved === 1 ? `Now at ${label}.` : `${cards(moved)} moved to ${label}.`);
+    }
     if (target !== DONE_TARGET) {
       if (!fresh) parts.push("No customer email: they already heard about this step or a later one.");
       else if (res.emailed) parts.push(fresh === moved ? "Customer emailed." : `Customer emailed about ${fresh} of them.`);
@@ -131,5 +147,6 @@ export function pickerOutcome(target: string, requested: number, res: PickerResp
   if (n("not_on_order")) parts.push(`${cards(n("not_on_order"))} not on this order.`);
   if (!parts.length) parts.push("Nothing changed.");
   const warn = !moved || ["different_stage", "awaiting_arrival", "refunded", "not_on_order"].some((r) => n(r) > 0);
-  return { tone: warn ? "warn" : "ok", text: parts.join(" ") };
+  const notes = target === DONE_TARGET ? orderCompletionNotes([res.orderCompletion]) : [];
+  return { tone: warn ? "warn" : "ok", text: parts.join(" "), ...(notes.length ? { notes } : {}) };
 }

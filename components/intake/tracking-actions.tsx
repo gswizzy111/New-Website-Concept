@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { DONE_TARGET, pickerChips, pickerNeedsConfirm, pickerNothingToMove, pickerOutcome, pickerRequest, type PickerCard } from "@/lib/intake/step-picker";
+import { DONE_TARGET, pickerChips, pickerNeedsConfirm, pickerNothingToMove, pickerOutcome, pickerRequest, type PickerCard, type PickerOutcome } from "@/lib/intake/step-picker";
 
 // The buttons of the card, bag and Completed pages and the Bags board
 // (/admin/receiving/card, /bag, /completed, /bags). Each one saves, then
@@ -58,7 +58,7 @@ export function StepPicker({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState("");
-  const [outcome, setOutcome] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [outcome, setOutcome] = useState<PickerOutcome | null>(null);
   const chips = pickerChips(cards, reached);
   const several = cards.length > 1;
   const open = cards.filter((c) => !c.completed).length;
@@ -150,7 +150,13 @@ export function StepPicker({
       </div>
       {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
       {/* Always in the page, so the line after a tap is read out */}
-      <p role="status" className={outcome ? `mt-2 text-sm ${outcome.tone === "warn" ? "text-amber-700" : "text-muted-foreground"}` : "sr-only"}>{outcome?.text ?? ""}</p>
+      <div role="status" className={outcome ? "mt-2 flex flex-col gap-1 text-sm" : "sr-only"}>
+        {outcome && <p className={outcome.tone === "warn" ? "text-amber-700" : "text-muted-foreground"}>{outcome.text}</p>}
+        {/* Done made the order Completed (green), or says why it didn't (amber) */}
+        {outcome?.notes?.map((n) => (
+          <p key={n.text} className={`rounded-lg border px-2.5 py-1.5 font-semibold ${n.tone === "ok" ? "border-green-300 bg-green-50 text-green-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>{n.text}</p>
+        ))}
+      </div>
     </div>
   );
 

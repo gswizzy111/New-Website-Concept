@@ -1,6 +1,7 @@
 import type { TrackCardSummary, TrackLocation } from "@/lib/intake/tracking/types";
 import { dayText } from "@/lib/intake/tracking-format";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
+import { isOpenBagsPlace } from "@/lib/intake/tracking/bag-home";
 
 /**
  * Short wording for the Scan page. Pure (safe in client components and tests).
@@ -28,10 +29,11 @@ export function whereLine(card: Pick<TrackCardSummary, "location" | "locatedAt" 
 /**
  * Under a slot's big name: "Clamp · step: Clamp Work", "Shelf for cards due Mon, Dec 7, 2026", "Finished cards",
  * "Desk · cards keep their step" (a desk: an 'other' place coded LOC-DESK or LOC-DESK-<NAME>, isDeskCode in
- * lib/intake/tracking/desk-codes.ts).
+ * lib/intake/tracking/desk-codes.ts), "Bags with a card out, A-Z by last name" (the Open bags box).
  */
 export function placeSubtitle(place: Pick<TrackLocation, "kind" | "stationName" | "stageLabel" | "dueDate"> & { code?: string | null }): string {
   if (place.kind === "other" && isDeskCode(place.code)) return "Desk · cards keep their step";
+  if (place.code && isOpenBagsPlace({ code: place.code })) return "Bags with a card out, A-Z by last name";
   if (place.kind === "station") {
     return [place.stationName, place.stageLabel ? `step: ${place.stageLabel}` : null].filter(Boolean).join(" · ") || "Work station";
   }

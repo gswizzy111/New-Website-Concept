@@ -20,6 +20,7 @@ node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of 
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
+node tests/intake/e2e/scenarios.mjs --only 'done-*'   # a finished card: back in its bag, Open bags box A-Z, Ready to ship, order auto-complete
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -627,12 +628,140 @@ on (`UI`) and the routes (`ROUTES`) are guesses where a page didn't exist yet
 "Take out", "Put selected in…", the photo viewer, the empty-desk wording, the
 picker of desks). Fix them there.
 
+### A finished card (`done-*`, the owner's decisions of Nov 25)
+
+Done is one tap (no after photo) on the scan landing, the Desk page, the card
+page's step picker and the order page's Done toggle. A done card goes back in
+its own bag: `cards.location_id` null (not `LOC-DONE`), its holder freed. The
+bag keeps count ("3 cards", then "1 of 3 done"). The first card out of a bag
+(to a desk or holder) files the BAG in the one Open bags box (`LOC-OPEN-BAGS`,
+kind other, "OPEN BAGS", made on first use) under the customer's last name's
+first letter ("Test Customer A" -> A, "Test Customer Reyes" -> R); the bag's
+last card -> "Bag finished: put it in the Ready to ship bin" and "It's in the
+Ready to ship bin" (`POST /api/admin/track/bag-ready { bagId }`) puts the bag at
+`LOC-SHIP`. The order's last non-refunded card -> the order Completed through
+`setOrderStatus` (one "Status updated to: Completed" event, ONE customer email,
+the held notes email), only from received / in_progress on a paid order. Exact
+wording: the DONE-FLOW agent's ui-text.md, `lib/intake/tracking/bag-home.ts`;
+in `UI.done*`, `UI.putBagInOpenBags`, `UI.bagFinished`, `UI.readyToShipRe`,
+`UI.orderCompletedLine`.
+
+Extra seed rows, not in `buildSeed()` (same reason as labels-any):
+`buildDoneSeed()` in `seed.mjs` (`DONE_IDS`, `DONE_ORDER_NUMBER`,
+`DONE_CUSTOMER`, `DONE_CARD_TIERS`, `DONE_CARD_NAMES`, `DONE_ORDER_NOTES`),
+inserted after a reset by `seedDone()` (`scenarios.mjs`, exported; for a
+harness started by hand: `HARNESS_MOCK_URL=https://localhost:PORT node
+--input-type=module -e "await (await
+import('./tests/intake/e2e/scenarios.mjs')).seedDone()"`).
+
+| Order | State | Cards |
+| --- | --- | --- |
+| CD-2700 (`doneOrder`), Test Customer Reyes (`test.customer.reyes@example.com`) | awaiting_cards, paid, mail-in, no order tier; `admin_notes` + a `completion_notes_held` event (the notes go out on completion) | 5: Platinum 01-02, Gold 03-05 (`DONE_CARD_TIERS`) |
+
+`doneOrderSetup()` receives all 5 on 2026-11-20 (bags CD-2700-P: 01-02,
+CD-2700-G: 03-05; status received), refunds 05 in the mock (it stays in its bag),
+then optionally marks cards done through `POST done` and sets the status /
+payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
+
+- `done-one`: CD-2549-07 in CLAMP 07 (Clamp Work; its bag CD-2549-P then in the
+  Open bags box); the scan landing reads "3 cards", "Bag: Open bags box · A",
+  one "Done" per card (named "Done: CD-2549-07"); tapping it: done, no place,
+  CLAMP 07 empty (and in `freed`), one `done` row CLAMP 07 -> no place, the other
+  cards untouched, the bag not finished, order unchanged, no email; "Done. Put it
+  back in A's bag: Open bags box, under A." on the page and in the API's
+  `message`; "1 of 3 done", 07 Done without buttons, 08/09 keep theirs, also
+  reloaded; the same request again changes nothing.
+- `done-open-bags`: no `LOC-OPEN-BAGS` at first; CD-2549-08 "Move to my desk"
+  makes it (one place, kind other, "OPEN BAGS") with CD-2549-P in it, CD-2549-G
+  unmoved, and the page says "Put the bag in the Open bags box, under A."; a
+  second card changes nothing; CD-2549-01 into CLAMP 01 (API) files CD-2549-G,
+  the answer's `bags[]` says `opened`, letter A, `LOC-OPEN-BAGS` and its message
+  the sentence; `resolve` gives both bags that location; "Bag: Open bags box ·
+  A" after a reload; the Bags board's rows of both say "Open bags · A";
+  CD-2700-P "Move all 2 cards to my desk": "under R"; the
+  bag labels' JSON has the letter as its own text (A, R; sizes reported).
+- `done-card-out`: 07-09 done (API), then 08 (done) into CLAMP 07: `bag-ready`
+  refused "CD-2549-08 is still in CLAMP 07: tap Done on it first.", the bag
+  unmoved; the scan landing reads "3 of 3 done" with NO bin step, 08 "Done ·
+  in CLAMP 07" with ONE Done (07, 09 none); tapping it: no place, one `done`
+  row CLAMP 07 -> no place, then the "Bag finished" step; the order shipped
+  back (mock): no bin step, `bag-ready` refused "… the order was shipped back
+  already."
+- `done-bag-finished`: 07 + 08 done (API: no place), 09 on the desk; "2 of 3
+  done"; 09's Done: done, off the desk, bag `completed_at` but still in the Open
+  bags box, order not completed, no email, `bags[]` `finished`; ONE "Bag
+  finished: put it in the Ready to ship bin" with ONE 44+ px "It's in the Ready
+  to ship bin" and "CD-2549-P · 3 of 3 done"; the tap puts the bag at `LOC-SHIP`
+  (cards stay in it), "In the Ready to ship bin"; again: `changed: false`;
+  reloaded: "3 of 3 done", "Bag: Ready to ship", no Done or bin button;
+  `bag-ready` for CD-2549-G refused "Not every card in CD-2549-G is done yet (0
+  of 4 done)."; the Bags board's CD-2549-P row says "Ready to ship", CD-2549-G's
+  "0 of 4 done" (or 0/4); CD-2549-P under the board's "Ready to ship" section
+  ("In the Ready to ship bin", "Open bag" to its scan landing), CD-2549-G not;
+  ship check ready; board at 390.
+- `done-order-complete`: CD-2700, 01 + 02 done (no Completed email yet); the
+  CD-2700-G page: "2 cards", 05 "Refunded" without Done, ONE "Mark all 2 done";
+  tapped (its "Yes, mark 2 done" answered): 03 + 04 done, the order Completed
+  with exactly ONE "Completed" email and ONE notes email to Reyes and nothing
+  else, one customer-visible status event, the notes logged once, at most one
+  staff `order_auto_completed` line; 05 still refunded and not done; "Bag
+  finished…" and "Order completed. Test Customer Reyes emailed."; the Bags
+  board lists CD-2700-P and -G under "Ready to ship" ("Not in the bin yet"),
+  not among the open bags; the same request again: nothing; un-doing 03 (order page toggle) keeps Completed, no
+  email; done again: still Completed, no second email.
+- `done-order-complete-desk`: the order In Progress, 01-03 done, 04 on the desk;
+  the Desk's Done (confirm answered) -> Completed, one email + notes; "Done. Put
+  it back in REYES's bag: Open bags box, under R.", "Bag finished: put it in the
+  Ready to ship bin." and the "Open REYES's bag" link (-> the CD-2700-G scan
+  landing), "Order completed. Test Customer Reyes emailed."; 04's panel gone.
+- `done-order-complete-card-page`: 01-03 done; 04's card page step picker
+  "Done" (stages API) -> Completed, one email + notes ("Marked done. Put it back
+  in …" reported).
+- `done-order-complete-admin`: 01-03 done, 04 on the desk (CD-2700-G in the
+  Open bags box); the order page's "Mark Done" on 04 -> `{ completed: true,
+  orderCompletion: { completed: true }, bagPlaces }`: 04 back in its bag (off
+  the desk, one `done` row), "Put it back in REYES's bag: Open bags box,
+  under R." and "Order completed. Test Customer Reyes emailed." (role
+  status), Completed with one email + notes; toggled back: no
+  `orderCompletion`, still Completed, no email.
+- `done-order-complete-race`: the last card in two `POST done` at once; the last
+  two cards in two requests at once; the scan landing's Done on 03 and 04 back
+  to back; 04's Done double-tapped: each from a fresh seed, each exactly ONE
+  Completed email, one notes email, one status event.
+- `done-order-complete-not-allowed`: a cancelled order and a refunded one
+  (`payment_status` refunded): the last card done leaves the status, writes no
+  status event, sends no email (the answer's reason reported); 04 refunded too:
+  01-03 done completes the order.
+- `done-desk`: CD-2549-07 + -08 on the desk (API); 07's Done on the Desk page:
+  no place (not the desk, not `LOC-DONE`), one `done` row from the desk, no
+  email, bag not finished; the same sentence as the scan landing; 08 left, also
+  after a reload.
+- `done-search`: CD-2549-P in the Open bags box (07 on the desk), CD-2549-G
+  finished and in the bin (`bag-ready`), Silver CD-2549-S on its due-date shelf
+  (written in the mock when the receipt leaves the bag unplaced); the Scan page,
+  typing "Test Customer A" and then "CD-2549": next to each Bag ID "Open bags
+  box · A", "Ready to ship", "Shelf DUE …"; the search API's `bagLocation` per
+  card.
+- `done-layout`: 1440 and 390 (iPhone 13): CD-2549-P with 1 of 3 done (no
+  sideways scroll, the big button on the first screen, Done buttons 44+ px,
+  "Mark all 2 done"), the Desk page's Done at 390, the finished bag's "It's in
+  the Ready to ship bin" on the first screen unscrolled at both widths; no
+  browser errors. Screenshots `done-layout-{1440,390}-{bag,finished}.png`,
+  `done-layout-390-desk.png`, `done-layout-390-finished-first-screen.png`.
+
+The older scenarios that expect Done to put a card at `LOC-DONE` (`track-move`'s
+Done step, `desk-actions`' CD-2549-02, `bag-open-states`' setup check) describe
+the behaviour before Nov 25: a done card now has no place.
+
 ## Known limits
 
 - Not Postgres: no SQL functions or real triggers beyond those listed, no
   transactions across requests, no RLS, no `backlog_events` (the backlog
-  triggers aren't simulated; `backlog_now` is computed directly). Concurrency is
-  one request at a time, so race conditions don't show; unique constraints do.
+  triggers aren't simulated; `backlog_now` is computed directly). The mock
+  answers one request at a time, so a race inside one request doesn't show;
+  two app requests at once still interleave their reads and writes (what
+  `done-order-complete-race` relies on: the conditional status change keeps it
+  to one email). Unique constraints do show.
 - The new migration's SQL is not executed: check it separately.
 - Text sorts by code point, not the database collation; regex filters use
   JavaScript regexes.

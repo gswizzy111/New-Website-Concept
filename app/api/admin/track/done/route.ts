@@ -6,10 +6,13 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST { cardIds: string[], sessionId? } → 200 TrackActionResponse (bagsCompleted lists bags
- * that became complete); 400 { error }
+ * that became complete; `bags` where each card's bag is); 400 { error }
  * Marks the cards done (as the card's Done toggle), takes them out of their
- * slots and puts them at the Done place (LOC-DONE). No customer email (as the
- * Done toggle).
+ * holder or desk and puts them back IN THEIR BAG (no place; never LOC-DONE).
+ * `message` says where: "Done. Put it back in REYES's bag: Open bags box,
+ * under R." No step email for Done; but when these were the order's last
+ * cards, the order becomes Completed and the customer gets the usual
+ * completed email (`orderCompletions`, lib/intake/order-autocomplete.ts).
  */
 export async function POST(request: Request) {
   const admin = await trackAdmin();

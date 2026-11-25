@@ -123,6 +123,7 @@ export function cardSummary(card: TrackCardRow, ctx: SummaryContext): TrackCardS
     received: isReceived(card),
     location: card.location_id ? ctx.locations.get(card.location_id) ?? null : null,
     locatedAt: card.located_at,
+    bagLocation: bag?.location_id ? ctx.locations.get(bag.location_id) ?? null : null,
     photoUrl: card.receiving_photo_urls?.[0] ?? card.photo_urls?.[0] ?? card.catalog_image_url ?? null,
     photosUrl: orderPhotosPath(card.order_id, card.bag_id),
     cardUrl: `/admin/receiving/card/${encodeURIComponent(card.id)}`,

@@ -55,7 +55,10 @@ export async function loadOpen(admin: SupabaseClient, raw: string): Promise<Open
     const cards = [...ctx.cards].sort(bySeq).map((row) => deskCardView({ ...row, ...extraById.get(row.id) }, { ...ctx, orders }, null));
     const bags = [...ctx.bags.values()].sort(byBag).map((b) => {
       const s = bagSummary(b, ctx.cards, ctx);
-      return { id: s.id, code: s.code, tier: s.tier, tierName: s.tierName, dueDate: s.dueDate, complete: s.complete, cardCount: s.cardCount };
+      return {
+        id: s.id, code: s.code, tier: s.tier, tierName: s.tierName, dueDate: s.dueDate, complete: s.complete,
+        cardCount: s.cardCount, doneCount: s.doneCount, location: s.location,
+      };
     });
     return {
       ok: true,
@@ -63,7 +66,7 @@ export async function loadOpen(admin: SupabaseClient, raw: string): Promise<Open
         kind: found.kind,
         code: found.code,
         bagId: found.kind === "bag" ? found.id : null,
-        order: { id: order.id, orderNumber: order.order_number, customer: order.customer_name, customerNotes },
+        order: { id: order.id, orderNumber: order.order_number, customer: order.customer_name, customerNotes, status: order.status },
         bags,
         cards,
       },

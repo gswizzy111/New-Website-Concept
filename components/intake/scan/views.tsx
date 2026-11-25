@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, CircleCheck, CircleAlert, Info, MapPin, TriangleAlert } from "lucide-react";
+import { Check, CircleCheck, CircleAlert, Info, MapPin, Package, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { filingLetter } from "@/lib/intake/filing-letter";
+import { bagPlaceText } from "@/lib/intake/tracking/bag-home";
 import { dayText, dueHint } from "@/lib/intake/tracking-format";
 import type { TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary } from "@/lib/intake/tracking/types";
 import { fillText, placeSubtitle, sinceText, whereLine } from "./format";
@@ -77,6 +79,11 @@ function sinceLine(locatedAt: string | null, now: number): string {
   return since === "just now" ? " · put in just now" : ` · in for ${since}`;
 }
 
+/** Where a card's bag is, in plain words; null when not recorded. */
+function bagPlaceLine(card: Pick<TrackCardSummary, "bagLocation" | "customer">): string | null {
+  return bagPlaceText(card.bagLocation, filingLetter(card.customer));
+}
+
 function cardTitle(card: TrackCardSummary): string {
   const extra = [card.year, card.set, card.number ? `#${card.number}` : null].filter(Boolean).join(" ");
   return [card.name ?? "Card", extra].filter(Boolean).join(" · ");
@@ -115,6 +122,14 @@ export function CardRow({
           <p className="truncate text-sm text-muted-foreground">
             {card.customer ?? "No name"} · {card.orderNumber}
             {card.bagCode ? ` · bag ${card.bagCode}` : ""}
+          </p>
+        )}
+        {/* Where its bag is: "Open bags box · R", "Shelf DUE MON DEC 7", "Ready to ship" */}
+        {showOrder && card.bagCode && bagPlaceLine(card) && (
+          <p className="mt-0.5 mr-3 inline-flex items-center gap-1 text-sm font-semibold text-foreground">
+            <Package className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+            {/* The spaces keep "bag CD-2549-P", "Bag: … · R" and the card's own place apart for copy and screen readers */}
+            {" "}Bag: {bagPlaceLine(card)}{" "}
           </p>
         )}
         {card.location && onOpenSlot ? (
@@ -251,8 +266,13 @@ export function BagHeader({ bag, shipHref }: { bag: TrackBagSummary; shipHref: s
       <p className="text-lg font-black text-foreground">{bag.customer ?? "No name"}</p>
       <p className="text-sm text-muted-foreground">
         <Due day={bag.dueDate} /> · {bag.doneCount} of {bag.cardCount} done
-        {bag.location ? ` · bag on ${bag.location.name}` : ""}
       </p>
+      {bag.location && (
+        <p className="inline-flex items-center gap-1 text-base font-bold text-foreground">
+          <Package className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+          Bag: {bagPlaceText(bag.location, filingLetter(bag.customer))}{" "}
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap gap-2">
         <AdminLink href={bag.photosUrl} className={smallButton}>Photos</AdminLink>
         <AdminLink href={`/admin/receiving/bag/${encodeURIComponent(bag.id)}`} className={smallButton}>Bag page</AdminLink>

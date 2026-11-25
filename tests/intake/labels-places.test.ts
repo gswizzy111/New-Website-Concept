@@ -15,6 +15,7 @@ import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { qrUrl } from "@/lib/intake/codes";
+import { filingLetter } from "@/lib/intake/filing-letter";
 import { loadLabelPlaces } from "@/lib/intake/labels/data";
 import { LABEL_LIMITS, PT, planBagLabel, printedWidth } from "@/lib/intake/labels/layout";
 import { PLACE_LIMITS, codeLines, layoutPlaceLabel, placeSubLine, planPlaceLabel, slotNameParts, type LabelPlace } from "@/lib/intake/labels/place";
@@ -93,11 +94,16 @@ function checkPage(p: LabelPage, stock: LabelStock, qrData: string, minQrIn: num
   assert.ok(moduleSize >= LABEL_LIMITS.moduleIn * PT - 1e-9, `${label}: QR module ${(moduleSize / PT).toFixed(4)} in`);
   assert.ok((moduleSize / PT) * 203 >= 4 - 1e-9, `${label}: QR module ${((moduleSize / PT) * 203).toFixed(1)} dots at 203 dpi`);
 
-  // White text sits on a black rect; black text, rules and the QR never touch each other
+  // White text sits on a black rect, never on a white one (the bag label's filing tab); black text, rules
+  // and the QR never touch each other; black text on the banner only inside a white tab on it
   const inkRects = p.elements.filter((e) => e.kind === "rect" && e.fill === "ink");
-  const ink = p.elements.filter((e) => !(e.kind === "text" && e.color === "paper") && !(e.kind === "rect" && e.h > 3));
+  const paperRects = p.elements.filter((e) => e.kind === "rect" && e.fill === "paper");
+  for (const r of paperRects) assert.ok(inkRects.some((b) => b.kind === "rect" && b.h > 3 && inside(box(r), box(b))), `${label}: white tab on the banner`);
+  const onTab = (e: LabelElement) => e.kind === "text" && e.color === "ink" && paperRects.some((r) => inside(textBox(e), box(r)));
+  const ink = p.elements.filter((e) => !(e.kind === "text" && e.color === "paper") && !(e.kind === "rect" && e.h > 3) && !onTab(e));
   for (const t of texts(p).filter((t) => t.color === "paper")) {
     assert.ok(inkRects.some((r) => inside(textBox(t), box(r))), `${label}: white "${t.text}" on the banner`);
+    assert.ok(!paperRects.some((r) => overlap(textBox(t), box(r))), `${label}: white "${t.text}" clear of the tab`);
   }
   for (const e of ink) {
     if (e.kind === "text") assert.ok(!inkRects.some((r) => r.kind === "rect" && r.h > 3 && overlap(box(e), box(r))), `${label}: "${e.text}" clear of the banner`);
@@ -167,6 +173,14 @@ test("bag label on 50 x 80 mm: one label, the 1 in QR with its words beside it, 
       const count = texts(page).find((t) => /^\d+ CARDS?$/.test(t.text))!;
       assert.ok(count && count.x >= q.x + q.size && count.y > q.y && count.y < q.y + q.size, `${label}: card count beside the QR`);
       assert.ok(texts(page).some((t) => t.text === b.bagCode && t.font === "mono600"), `${label}: Bag ID on the tier row`);
+      // The filing tab: the last name's letter, black on a white square in the banner's top right
+      const tab = page.elements.find((e) => e.kind === "rect" && e.fill === "paper");
+      const banner = page.elements.find((e) => e.kind === "rect" && e.fill === "ink" && e.h > 3);
+      assert.ok(tab && tab.kind === "rect" && banner && banner.kind === "rect", `${label}: filing tab`);
+      const letter = texts(page).find((t) => t.color === "ink" && inside(textBox(t), box(tab)));
+      assert.equal(letter?.text, filingLetter(b.customerName), `${label}: filed under ${filingLetter(b.customerName)}`);
+      assert.ok(tab.y - banner.y < banner.h / 3 && banner.x + banner.w - (tab.x + tab.w) < 0.1 * PT, `${label}: tab in the banner's top right corner`);
+      assert.equal(fit.filing?.side, 18, `${label}: a quarter-inch tab`);
     }
   }
   assert.equal(planBagLabel(bag(4), BAG_STOCK).fit.more, 0, "a 4-card bag lists every card");

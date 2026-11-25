@@ -9,6 +9,9 @@ import {
   type AdvanceCard, type AdvancePlan, type SkipReason,
 } from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
+import { completeOrderIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
+import { returnCardsToBags, unbinReopenedBags } from "@/lib/intake/tracking/bag-places";
+import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
  * Moving cards through the 8 steps and keeping bag completion in step, server
@@ -122,6 +125,10 @@ export type AdvanceResult =
       emailed: boolean;
       /** Bags that became complete with this move (show the alert). */
       bagsCompleted: string[];
+      /** Cards were marked done: the order auto-complete check (lib/intake/order-autocomplete.ts). */
+      orderCompletion?: OrderAutoComplete;
+      /** Cards were marked done: they went back in their bag (out of any holder); each bag and where it is. */
+      bagPlaces?: TrackBagPlace[];
     }
   | { ok: false; status: number; error: string };
 
@@ -138,8 +145,11 @@ export type AdvanceResult =
  * { card_id, stage, round, by, bulk }). The customer email rule
  * (stepEmailsCustomer): one email lists every card that moved to a step past
  * the furthest it reached this round (customer visible events); going back or
- * re-entering a step sends nothing and its event is staff only. No email for
- * "done", as before.
+ * re-entering a step sends nothing and its event is staff only. No step email
+ * for "done", as before (the order's last card done completes the order,
+ * with its completed email: orderCompletion). Cards marked done go back in their bag like the
+ * tracking Done (out of any holder or desk; returnCardsToBags), and
+ * `bagPlaces` says where each bag is.
  */
 export async function advanceCards(
   admin: SupabaseClient,
@@ -239,6 +249,15 @@ export async function advanceCards(
 
   const bagIds = [...new Set(rows.filter((c) => completed.includes(c.id as string) && c.bag_id).map((c) => c.bag_id as string))];
   const { completed: bagsCompleted } = await refreshBagCompletion(admin, bagIds);
+  // Done cards go back in their bag, out of any holder or desk (as the tracking Done)
+  const current = new Map(advanceCardsIn.map((c) => [c.id, c.current]));
+  const home = completed.length
+    ? await returnCardsToBags(admin, { cards: completed.map((id) => ({ id, stageBefore: current.get(id) ?? null })), by: input.by })
+    : null;
+  // The order's last cards done: the order becomes Completed (once). The cards are done whatever happened to their holders
+  const orderCompletion = completed.length ? await completeOrderIfAllDone(admin, input.orderId, input.by) : undefined;
+  // A card's move out of its holder not saved (or not logged): said, as the tracking routes do
+  if (home && !home.ok) return { ok: false, status: home.status, error: `Marked done, but not put back in the bag: ${home.error}` };
 
   return {
     ok: true,
@@ -248,20 +267,26 @@ export async function advanceCards(
     skipped: [...plan.skipped, ...plan.completes.filter((id) => !completed.includes(id)).map((id) => ({ cardId: id, reason: "done" as const, current: null }))],
     emailed,
     bagsCompleted,
+    ...(orderCompletion ? { orderCompletion } : {}),
+    ...(home?.ok && home.bags.length ? { bagPlaces: home.bags } : {}),
   };
 }
 
 /**
  * Keep tier_bags.completed_at in step with the bags' cards: set once every
  * non-refunded card is done (the earliest time is kept), cleared when a card
- * reopens (new round, un-done). Never throws; returns which bags changed.
+ * reopens (new round, un-done). A reopened bag that sits in the Ready to ship
+ * bin goes back in the Open bags box (unbinReopenedBags: it isn't ready to
+ * ship any more); `unbinned` names those bags and where they are now. Never
+ * throws; returns which bags changed.
  */
 export async function refreshBagCompletion(
   admin: SupabaseClient,
   bagIds: readonly string[],
-): Promise<{ completed: string[]; reopened: string[] }> {
+  by: string | null = null,
+): Promise<{ completed: string[]; reopened: string[]; unbinned: TrackBagPlace[] }> {
   const ids = [...new Set(bagIds.filter(Boolean))];
-  const out = { completed: [] as string[], reopened: [] as string[] };
+  const out = { completed: [] as string[], reopened: [] as string[], unbinned: [] as TrackBagPlace[] };
   if (!ids.length) return out;
   try {
     const [{ data: bags, error: bErr }, { data: cards, error: cErr }] = await Promise.all([
@@ -290,7 +315,27 @@ export async function refreshBagCompletion(
   } catch (e) {
     console.error("[intake] bag completion not refreshed:", e instanceof Error ? e.message : e);
   }
+  // Reopened: out of the Ready to ship bin, back in the Open bags box (best effort)
+  if (out.reopened.length) out.unbinned = await unbinReopenedBags(admin, out.reopened, by);
   return out;
+}
+
+/**
+ * A card's step right now (this round's newest step, Done left aside), for
+ * the move row the order page's Done toggle writes; null when it has none
+ * or the order's events can't be read. Never throws.
+ */
+export async function currentStageOf(
+  admin: SupabaseClient,
+  input: { orderId: string; cardId: string; round: number | null },
+): Promise<string | null> {
+  try {
+    const events = await loadStageEvents(admin, input.orderId);
+    return cardStageState({ id: input.cardId, completed: false, current_round: input.round }, events).current;
+  } catch (e) {
+    console.warn("[intake] card's step not read:", e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 /**
@@ -298,12 +343,14 @@ export async function refreshBagCompletion(
  * card's bag, if it has one. Never throws, and does nothing before the intake
  * migration is applied (no bag_id column yet).
  */
-export async function refreshBagCompletionForCard(cardId: string, admin: SupabaseClient = createAdminClient()): Promise<void> {
+export async function refreshBagCompletionForCard(cardId: string, admin: SupabaseClient = createAdminClient(), by: string | null = null): Promise<{ unbinned: TrackBagPlace[] }> {
   try {
     const { data, error } = await admin.from("cards").select("bag_id").eq("id", cardId).maybeSingle();
-    if (error || !data?.bag_id) return;
-    await refreshBagCompletion(admin, [data.bag_id as string]);
+    if (error || !data?.bag_id) return { unbinned: [] };
+    const { unbinned } = await refreshBagCompletion(admin, [data.bag_id as string], by);
+    return { unbinned };
   } catch (e) {
     console.error("[intake] bag completion hook:", e instanceof Error ? e.message : e);
+    return { unbinned: [] };
   }
 }
