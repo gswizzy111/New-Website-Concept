@@ -19,6 +19,7 @@ import { Eyebrow, PAGE_TITLE, PANEL, PANEL_TITLE, PORTAL_LINK, PortalHeader, Sta
 import { cta } from "@/components/brand";
 import { labelHref } from "@/lib/label-link";
 import { replyToAddress } from "@/lib/resend";
+import { loadReturnPackages } from "@/lib/intake/shipping/return-packages";
 
 // "Questions? Email us at …", as on thecarddoc1.com (CONTACT_EMAIL, else the business email)
 const QUESTIONS_EMAIL = process.env.CONTACT_EMAIL?.trim() || process.env.BUSINESS_SHIPPING_EMAIL?.trim() || replyToAddress;
@@ -307,6 +308,9 @@ export default async function OrderDetailPage({
     }
   }
 
+  // An order shipped back bag by bag: one tracking panel per package ([] = the single number below)
+  const returnPackages = await loadReturnPackages(admin, { id: order.id, tracking_number: order.tracking_number }, cards ?? []);
+
   const currentIndex = STATUS_TIMELINE.indexOf(order.status as OrderStatus);
   const visibleStatuses = STATUS_TIMELINE.filter(s => s !== "awaiting_payment");
   // A paid upgrade not recorded yet: no upgrade is offered until the order
@@ -441,8 +445,21 @@ export default async function OrderDetailPage({
         </div>
       )}
 
+      {/* Return tracking: one panel per package when it went back in several */}
+      {returnPackages.map((p) => (
+        <TrackingPanel
+          key={p.id}
+          label={p.label}
+          number={p.number}
+          href={p.href}
+          chip={p.delivered ? <StatusPill tone="success">Delivered</StatusPill> : null}
+        >
+          {p.cards && <p className="mb-1 text-sm text-white/80">{p.cards}</p>}
+        </TrackingPanel>
+      ))}
+
       {/* Return tracking number */}
-      {order.tracking_number && (
+      {returnPackages.length === 0 && order.tracking_number && (
         <TrackingPanel
           label="Return Tracking"
           number={order.tracking_number}

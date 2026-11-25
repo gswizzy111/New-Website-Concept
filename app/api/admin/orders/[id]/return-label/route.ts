@@ -1,12 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { shippo, businessAddress } from "@/lib/shippo";
-import { resend, fromEmail, businessName, replyToAddress } from "@/lib/resend";
 import { isAdmin } from "@/lib/admin-auth";
-import { siteUrl } from "@/lib/site-url";
-import { escapeHtml } from "@/lib/card-inquiries";
 import { DONE_STATUSES, emailCompletionNotesOnce } from "@/lib/completion-notes-email";
-import { shippoRateCarrier } from "@/lib/tracking-carrier";
-import { ratesWithPaidService } from "@/lib/paid-shipping-rate";
+import {
+  getReturnRates, paidReturnInsuranceCents, purchaseReturnLabel, returnInsuranceCents, type CustomsCard,
+} from "@/lib/intake/shipping/bag-label";
+import { sendReturnShippedEmail } from "@/lib/intake/shipping/shipped-email";
+import { bagLabelInFlight } from "@/lib/intake/shipping/bag-shipments";
+
+// The Shippo purchase (address, parcel, customs, paid service) and the
+// shipped email live in lib/intake/shipping, shared with the per-bag labels
+// of the packing page; this route's behaviour is unchanged.
 
 async function authed() {
   return isAdmin();
@@ -18,7 +21,7 @@ async function getOrder(id: string) {
   return data;
 }
 
-async function getCards(orderId: string) {
+async function getCards(orderId: string): Promise<CustomsCard[]> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("cards")
@@ -26,72 +29,6 @@ async function getCards(orderId: string) {
     .eq("order_id", orderId);
   return data ?? [];
 }
-
-function buildAddressTo(order: Record<string, unknown>, addr: Record<string, string>) {
-  return {
-    name: (order.customer_name as string) ?? "",
-    street1: addr.street1,
-    street2: addr.street2 ?? "",
-    city: addr.city ?? "",
-    state: addr.state ?? "",
-    zip: addr.zip ?? "",
-    country: addr.country ?? "US",
-    phone: (order.customer_phone as string) ?? "",
-    email: (order.customer_email as string) ?? "",
-  };
-}
-
-async function buildCustomsDeclaration(orderId: string) {
-  const cards = await getCards(orderId);
-
-  // Sum customer-declared card values; fall back to $50/card if none set
-  const totalValueCents = cards.reduce(
-    (sum, c) => sum + (c.estimated_value_cents ?? 5000),
-    0
-  );
-  const totalValue = Math.max(totalValueCents / 100, 10); // minimum $10
-  const cardCount = Math.max(cards.length, 1);
-
-  // Build one customs item per card so the declaration is detailed
-  const items = cards.length > 0
-    ? cards.map((c) => ({
-        description: c.card_name.slice(0, 25),
-        quantity: 1,
-        netWeight: "0.1",
-        massUnit: "oz",
-        valueAmount: ((c.estimated_value_cents ?? 5000) / 100).toFixed(2),
-        valueCurrency: "USD",
-        originCountry: "US",
-      }))
-    : [{
-        description: "Returned trading cards",
-        quantity: cardCount,
-        netWeight: "8",
-        massUnit: "oz",
-        valueAmount: totalValue.toFixed(2),
-        valueCurrency: "USD",
-        originCountry: "US",
-      }];
-
-  return {
-    contentsType: "RETURN_MERCHANDISE",
-    contentsExplanation: "Returned goods",
-    nonDeliveryOption: "RETURN",
-    certify: true,
-    certifySigner: process.env.BUSINESS_SHIPPING_NAME ?? businessAddress.name ?? "TCD",
-    eelPfc: "NOEEI_30_37_a",
-    items,
-  };
-}
-
-const PARCEL = {
-  massUnit: "lb" as const,
-  weight: "1",
-  distanceUnit: "in" as const,
-  length: "7",
-  width: "5",
-  height: "1",
-};
 
 // GET — return rates without purchasing
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -104,42 +41,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
     if (order.return_label_url) return Response.json({ labelUrl: order.return_label_url });
 
-    const addr = order.ship_from_address as Record<string, string> | null;
-    if (!addr?.street1) return Response.json({ error: "No customer address on file" }, { status: 400 });
+    const quoted = await getReturnRates({ order, customsCards: () => getCards(id) });
+    if (!quoted.ok) return Response.json({ error: quoted.error }, { status: quoted.status });
 
-    const isInternational = addr.country && addr.country !== "US";
-    const customsDeclaration = isInternational ? await buildCustomsDeclaration(id) : undefined;
-
-    const shipment = await shippo.shipments.create({
-      addressFrom: businessAddress,
-      addressTo: buildAddressTo(order, addr),
-      parcels: [PARCEL],
-      ...(customsDeclaration ? { customsDeclaration } : {}),
-      async: false,
-    } as any);
-
-    // The service the customer paid for: a prepaid label covers the trip in
-    // and back (inbound_*); self-ship orders pay for the trip back (return_*)
-    const paidService = order.inbound_service_level
-      ? { carrier: order.inbound_carrier as string | null, service: order.inbound_service_level as string }
-      : order.return_service_level
-        ? { carrier: order.return_carrier as string | null, service: order.return_service_level as string }
-        : null;
-
-    const rates = ratesWithPaidService(shipment.rates ?? [], paidService)
-      .map(({ rate: r, paid }) => ({
-        objectId: r.objectId,
-        provider: r.provider,
-        service: r.servicelevel?.name ?? "",
-        amount: r.amount,
-        currency: r.currency,
-        days: r.estimatedDays ?? null,
-        paid,
-      }));
-
-    if (rates.length === 0) return Response.json({ error: "No rates available from Shippo" }, { status: 500 });
-
-    return Response.json({ rates, isInternational: !!isInternational });
+    return Response.json({ rates: quoted.rates, isInternational: quoted.isInternational });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[restoration return-label GET]", msg);
@@ -162,109 +67,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { rateObjectId, insuranceDeclaredValueCents: adminInsuranceCents } = body;
     if (!rateObjectId) return Response.json({ error: "Missing rateObjectId" }, { status: 400 });
 
-    const addr = order.ship_from_address as Record<string, string> | null;
-    const isInternational = addr?.country && addr.country !== "US";
+    const admin = createAdminClient();
+    // A bag of this order is getting its own label on the packing page (ship
+    // each bag when done): a whole-order label now would be a second one
+    if (await bagLabelInFlight(admin, id)) {
+      return Response.json({ error: "A return label for one of this order's bags is being bought on the packing page. Reload to see it; each bag ships with its own label." }, { status: 409 });
+    }
 
     // The customer's paid return insurance (round trip, or return only) is the floor:
     // an admin amount can raise it, never lower it
-    const paidInsuranceCents =
-      (order.insurance_type === "round_trip" || order.insurance_type === "return") && (order.insurance_declared_value_cents ?? 0) > 0
-        ? (order.insurance_declared_value_cents as number)
-        : 0;
-    const adminCents = typeof adminInsuranceCents === "number" && Number.isFinite(adminInsuranceCents) && adminInsuranceCents > 0
-      ? Math.round(adminInsuranceCents)
-      : 0;
-    const insuranceCents = Math.max(adminCents, paidInsuranceCents);
-    const hasInsurance = insuranceCents > 0;
-    const hasRoundTripInsurance = hasInsurance; // keep legacy var name for the payload below
+    const insuranceCents = returnInsuranceCents(paidReturnInsuranceCents(order), adminInsuranceCents);
 
-    // International: create a fresh shipment+transaction so customs is attached to the label
-    // (Shippo requires customs on the shipment, not just the rate)
-    let labelUrl: string;
-    let trackingNumber: string | null;
-    let trackingUrl: string | null;
-    let carrier: { provider: string | null; service: string | null } = { provider: null, service: null };
+    // International: a fresh shipment+transaction with customs; domestic: the
+    // chosen rate with the insurance (lib/intake/shipping/bag-label.ts)
+    const bought = await purchaseReturnLabel({ order, rateObjectId, insuranceCents, customsCards: () => getCards(id) });
+    if (!bought.ok) return Response.json({ error: bought.error }, { status: bought.status });
+    const { labelUrl, trackingNumber, trackingUrl, carrier: rateCarrier } = bought;
+    const carrier = { provider: rateCarrier.provider, service: rateCarrier.service };
 
-    if (isInternational && addr) {
-      const customsDeclaration = await buildCustomsDeclaration(id);
-
-      const shipment = await shippo.shipments.create({
-        addressFrom: businessAddress,
-        addressTo: buildAddressTo(order, addr),
-        parcels: [PARCEL],
-        customsDeclaration,
-        async: false,
-      } as any);
-
-      const rates = (shipment.rates ?? []).sort(
-        (a: any, b: any) => parseFloat(a.amount) - parseFloat(b.amount)
-      );
-
-      // Find the rate matching the one the admin selected (by provider+service),
-      // falling back to the cheapest if the exact rate expired
-      const selectedRateObj = rates.find((r: any) => r.objectId === rateObjectId) ?? rates[0];
-      if (!selectedRateObj) {
-        return Response.json({ error: "No shipping rates available for this address" }, { status: 422 });
-      }
-
-      const txRes = await fetch("https://api.goshippo.com/transactions/", {
-        method: "POST",
-        headers: {
-          "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ rate: selectedRateObj.objectId, label_file_type: "PDF_4x6", async: false }),
-      });
-      const transaction = await txRes.json() as Record<string, unknown>;
-      if (transaction.status !== "SUCCESS" || !transaction.label_url) {
-        const messages = (transaction.messages as {text:string}[] | undefined) ?? [];
-        const detail = messages.map((m) => m.text).join("; ") || JSON.stringify(transaction);
-        return Response.json({ error: `Label purchase failed: ${detail}` }, { status: 500 });
-      }
-
-      labelUrl = transaction.label_url as string;
-      trackingNumber = (transaction.tracking_number as string) ?? null;
-      trackingUrl = (transaction.tracking_url_provider as string) ?? null;
-      carrier = { provider: selectedRateObj.provider ?? null, service: selectedRateObj.servicelevel?.name ?? null };
-    } else {
-      // Domestic — use direct REST API so `extra` (insurance, signature) isn't stripped by the SDK
-      const txBody: Record<string, unknown> = {
-        rate: rateObjectId,
-        label_file_type: "PDF_4x6",
-        async: false,
-      };
-      if (hasRoundTripInsurance) {
-        txBody.extra = {
-          insurance: {
-            amount: (insuranceCents / 100).toFixed(2),
-            currency: "USD",
-            provider: "SHIPPO",
-            content: "Trading cards",
-          },
-        };
-      }
-      const txRes = await fetch("https://api.goshippo.com/transactions/", {
-        method: "POST",
-        headers: {
-          "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(txBody),
-      });
-      const transaction = await txRes.json() as Record<string, unknown>;
-      if (transaction.status !== "SUCCESS" || !transaction.label_url) {
-        const messages = (transaction.messages as {text:string}[] | undefined) ?? [];
-        const detail = messages.map((m) => m.text).join("; ") || JSON.stringify(transaction);
-        return Response.json({ error: `Label purchase failed: ${detail}` }, { status: 500 });
-      }
-
-      labelUrl = transaction.label_url as string;
-      trackingNumber = (transaction.tracking_number as string) ?? null;
-      trackingUrl = (transaction.tracking_url_provider as string) ?? null;
-      carrier = await shippoRateCarrier(rateObjectId);
-    }
-
-    const admin = createAdminClient();
     const labelFields = {
       return_label_url: labelUrl,
       tracking_number: trackingNumber ?? null,
@@ -301,40 +121,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     });
 
     if (order.customer_email && trackingNumber) {
-      const firstName = escapeHtml((order.customer_name as string)?.split(" ")[0] || "there");
-      const appUrl = siteUrl();
-      const orderTrackingUrl = `${appUrl}/orders/${order.order_number}`;
-      const contact = escapeHtml(replyToAddress);
-
-      try {
-        const { error: sendErr } = await resend.emails.send({
-          from: fromEmail,
-          to: order.customer_email as string,
-          subject: `Your restored cards are on the way! — ${businessName}`,
-          html: `
-            <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#111">
-              <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:900;margin-bottom:4px">Your cards have been shipped!</h1>
-              <p>Hi ${firstName}, your restored cards are on their way back to you.</p>
-
-              <div style="background:#fbfaf9;border:1px solid #e6e4e2;border-radius:12px;padding:20px;margin:20px 0">
-                <p style="margin:0 0 6px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#2d2b29">Tracking Number</p>
-                <p style="margin:0 0 10px;font-family:monospace;font-size:22px;font-weight:900;color:#1e1d1a;letter-spacing:0.05em">${escapeHtml(trackingNumber)}</p>
-                ${trackingUrl
-                  ? `<a href="${escapeHtml(trackingUrl)}" style="display:inline-block;background:#2d2b29;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">Track Your Package →</a>`
-                  : ""}
-              </div>
-
-              <a href="${orderTrackingUrl}" style="display:inline-block;background:#c34104;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px;margin-bottom:24px">View Your Order →</a>
-
-              <p style="font-size:14px;color:#666;">If you have any questions, reply to this email or reach out at <a href="mailto:${contact}" style="color:#c34104">${contact}</a>.</p>
-              <p style="font-size:13px;color:#999">${businessName}</p>
-            </div>
-          `,
-        });
-        if (sendErr) console.error("Failed to send shipping email:", sendErr.message);
-      } catch (err) {
-        console.error("Failed to send shipping email:", err);
-      }
+      await sendReturnShippedEmail(order, { trackingNumber, trackingUrl });
     }
 
     // Shipping it back means the work is done: the customer gets the restoration notes (once)

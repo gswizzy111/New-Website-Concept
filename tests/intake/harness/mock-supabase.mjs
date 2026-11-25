@@ -150,6 +150,26 @@ export const SCHEMA = {
     },
     immutable: true,
   },
+  // Per-bag return labels (20261125_bag_shipments.sql): claimed before Shippo is called,
+  // one live row per bag (partial unique index), one order label per order
+  bag_shipments: {
+    pk: ["id"],
+    unique: [
+      { name: "bag_shipments_one_live_per_bag", cols: ["bag_id"], where: (r) => ["claimed", "purchased", "shipped", "delivered"].includes(r.status) },
+      { name: "bag_shipments_one_order_label", cols: ["order_id"], where: (r) => r.order_label === true },
+    ],
+    notNull: ["bag_id", "order_id", "status", "order_label", "claimed_at"],
+    checks: {
+      bag_shipments_status_check: (r) => ["claimed", "purchased", "shipped", "delivered", "failed", "voided"].includes(r.status),
+      bag_shipments_label_shape: (r) => ["claimed", "failed", "voided"].includes(r.status) || r.label_url != null,
+      bag_shipments_cost_cents_check: (r) => r.cost_cents == null || r.cost_cents >= 0,
+    },
+    fks: {
+      bag_id: { table: "tier_bags", onDelete: "cascade" },
+      order_id: { table: "orders", onDelete: "cascade" },
+    },
+    defaults: () => ({ status: "claimed", order_label: false, claimed_at: now(), updated_at: now() }),
+  },
   tier_bag_due_changes: {
     pk: ["id"],
     notNull: ["bag_id", "reason", "created_at"],
@@ -459,6 +479,8 @@ export class MockStore {
     this.unknown = { tables: new Set(), rpcs: new Set() };
     this.rpcCalls = [];
     this.requests = [];
+    /** Tables answered as missing (PGRST205), e.g. new Set(["bag_shipments"]). */
+    this.missingTables = new Set();
     this.orderSeq = 2600;
     this.rpcHandlers = defaultRpcs(this);
   }
@@ -726,10 +748,22 @@ function beforeInsert(store, table, row) {
   if (table === "cards" && row.completed && row.completed_at == null) row.completed_at = now();
   if (table === "show_dropoffs") { row.created_at = now(); row.updated_at = now(); row.signed_at = now(); }
   if (table === "store_config") row.updated_at = now();
+  if (table === "bag_shipments") bagShipmentGuard(store, row);
+}
+
+function bagShipmentGuard(store, row) {
+  // bag_shipments_guard(): the bag must belong to the order
+  if (!store.table("tier_bags").some((b) => b.id === row.bag_id && b.order_id === row.order_id)) {
+    throw pgError(400, "23514", `bag ${row.bag_id} is not a bag of order ${row.order_id}`);
+  }
 }
 
 function beforeUpdate(store, table, oldRow, row) {
   if (table === "orders") row.updated_at = now();
+  if (table === "bag_shipments") {
+    if (row.bag_id !== oldRow.bag_id || row.order_id !== oldRow.order_id) bagShipmentGuard(store, row);
+    row.updated_at = now();
+  }
   if (table === "cards" && row.completed !== oldRow.completed) row.completed_at = row.completed ? now() : null;
   if (table === "tier_bag_due_changes") throw pgError(400, "P0001", "tier_bag_due_changes rows cannot be changed");
 }
@@ -767,7 +801,9 @@ function checkRow(store, table, row, allRows, selfIndex) {
   const uniques = [{ name: `${table}_pkey`, cols: store.pkOf(table) }, ...(sch.unique ?? [])];
   for (const u of uniques) {
     if (u.cols.some((c) => row[c] == null)) continue;
-    const clash = allRows.findIndex((r, i) => i !== selfIndex && u.cols.every((c) => r[c] != null && r[c] === row[c]));
+    // A partial unique index (create unique index ... where <predicate>) covers only matching rows
+    if (u.where && !u.where(row)) continue;
+    const clash = allRows.findIndex((r, i) => i !== selfIndex && (!u.where || u.where(r)) && u.cols.every((c) => r[c] != null && r[c] === row[c]));
     if (clash >= 0) {
       throw pgError(409, "23505", `duplicate key value violates unique constraint "${u.name}"`, `Key (${u.cols.join(", ")})=(${u.cols.map((c) => row[c]).join(", ")}) already exists.`);
     }
@@ -1103,6 +1139,10 @@ function handleRest(store, req, res, url, body) {
     return send(200, out === undefined ? null : out);
   }
   const table = decodeURIComponent(path);
+  // Tests can take a table away (a migration not applied yet): PostgREST's answer
+  if (store.missingTables?.has(table)) {
+    return send(404, { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache`, details: null, hint: null });
+  }
   if (!SCHEMA[table] && !store.tables[table]) {
     store.unknown.tables.add(table);
   }

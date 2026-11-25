@@ -55,16 +55,18 @@ function chunks<T>(items: T[]): T[][] {
  * Marks restoration orders delivered and logs one customer-visible event for
  * each. Only rows that are still open change, so two runs that overlap never
  * mark an order twice or add a second event. Returns the order numbers marked.
+ * `onlyFrom` (orders shipped in several bags): change only orders in one of
+ * these statuses.
  */
-export async function markRestorationsDelivered(admin: Admin, orderIds: string[]): Promise<string[]> {
+export async function markRestorationsDelivered(admin: Admin, orderIds: string[], opts: { onlyFrom?: string[] } = {}): Promise<string[]> {
   const marked: string[] = [];
   for (const ids of chunks(orderIds)) {
-    const { data, error } = await admin
+    let query = admin
       .from("orders")
       .update({ status: "delivered" })
-      .in("id", ids)
-      .not("status", "in", '("delivered","cancelled")')
-      .select("id, order_number");
+      .in("id", ids);
+    query = opts.onlyFrom ? query.in("status", opts.onlyFrom) : query.not("status", "in", '("delivered","cancelled")');
+    const { data, error } = await query.select("id, order_number");
     if (error) {
       console.error("[sync-delivered] order update failed:", error.message);
       continue;

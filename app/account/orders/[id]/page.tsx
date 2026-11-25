@@ -11,6 +11,7 @@ import { CardEditor } from "./card-editor";
 import { UpdateRequestPanel } from "@/components/account/update-request-panel";
 import { getUpdateRequestState } from "@/lib/order-update-requests";
 import { trackingLink } from "@/lib/tracking-carrier";
+import { loadReturnPackages } from "@/lib/intake/shipping/return-packages";
 import { OpenFileButton } from "@/components/open-file-button";
 import { labelHref } from "@/lib/label-link";
 import { ArrowLeft, Download } from "lucide-react";
@@ -76,6 +77,8 @@ export default async function AccountOrderPage({
     photo_urls: string[];
   }>;
   const services = servicesResult.data ?? [];
+  // An order shipped back bag by bag: one tracking panel per package ([] = the single number)
+  const returnPackages = await loadReturnPackages(admin, { id: order.id, tracking_number: order.tracking_number }, (cardsResult.data ?? []) as { bag_id?: string | null; status?: string | null; card_name?: string | null }[]);
 
   // Check Shippo inbound tracking to determine lock status
   let locked = false;
@@ -209,8 +212,21 @@ export default async function AccountOrderPage({
               </div>
             )}
 
+            {/* Return tracking: one panel per package when it went back in several */}
+            {returnPackages.map((p) => (
+              <TrackingPanel
+                key={p.id}
+                label={p.label}
+                number={p.number}
+                href={p.href}
+                chip={p.delivered ? <StatusPill tone="success">Delivered</StatusPill> : null}
+              >
+                {p.cards && <p className="mb-1 text-sm text-white/80">{p.cards}</p>}
+              </TrackingPanel>
+            ))}
+
             {/* Return tracking */}
-            {order.tracking_number && (
+            {returnPackages.length === 0 && order.tracking_number && (
               <TrackingPanel
                 label="Return Tracking"
                 number={order.tracking_number}

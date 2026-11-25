@@ -54,14 +54,24 @@ export function trackingLink(tracking: string, savedCarrier?: string | null, sav
 
 /** The carrier and service of a Shippo rate (server only), so a bought label's tracking uses the right carrier. */
 export async function shippoRateCarrier(rateId: string): Promise<{ provider: string | null; service: string | null }> {
+  const { provider, service } = await shippoRateInfo(rateId);
+  return { provider, service };
+}
+
+/** shippoRateCarrier plus the rate's price ("7.85", or null): one request. Never throws. */
+export async function shippoRateInfo(rateId: string): Promise<{ provider: string | null; service: string | null; amount: string | null }> {
   try {
     const res = await fetch(`https://api.goshippo.com/rates/${encodeURIComponent(rateId)}`, {
       headers: { "Authorization": `ShippoToken ${process.env.SHIPPO_API_TOKEN}` },
     });
-    if (!res.ok) return { provider: null, service: null };
-    const rate = await res.json() as { provider?: string; servicelevel?: { name?: string; token?: string } };
-    return { provider: rate.provider ?? null, service: rate.servicelevel?.name ?? rate.servicelevel?.token ?? null };
+    if (!res.ok) return { provider: null, service: null, amount: null };
+    const rate = await res.json() as { provider?: string; amount?: string; servicelevel?: { name?: string; token?: string } };
+    return {
+      provider: rate.provider ?? null,
+      service: rate.servicelevel?.name ?? rate.servicelevel?.token ?? null,
+      amount: typeof rate.amount === "string" ? rate.amount : null,
+    };
   } catch {
-    return { provider: null, service: null };
+    return { provider: null, service: null, amount: null };
   }
 }

@@ -33,9 +33,12 @@ export type SetOrderStatusResult =
  * `onlyIfCurrent` (receiving only): change it only while the order still has
  * that status, so two people receiving at once log and email once; when it
  * no longer does, nothing happens and the result has `skipped: true`.
+ * `customerEmail: false` (a bag's "Mark shipped", lib/intake/shipping): the
+ * caller has just sent the customer the shipped email with the tracking, so
+ * the status email is not sent too; everything else is unchanged.
  */
 export async function setOrderStatus(
-  input: { orderId: string; status: unknown; trackingNumber?: string; onlyIfCurrent?: string },
+  input: { orderId: string; status: unknown; trackingNumber?: string; onlyIfCurrent?: string; customerEmail?: false },
   client?: SupabaseClient,
 ): Promise<SetOrderStatusResult> {
   const id = input.orderId;
@@ -91,7 +94,7 @@ export async function setOrderStatus(
   const customerMessage = CUSTOMER_MESSAGES[status];
 
   // Email customer on meaningful status changes (walk-in and manual orders can have no email)
-  if (customerMessage && order.customer_email?.trim()) {
+  if (customerMessage && order.customer_email?.trim() && input.customerEmail !== false) {
     const firstName = escapeHtml(order.customer_name?.split(" ")[0] || "there");
     const trackingUrl = `${appUrl}/orders/${order.order_number}`;
 
