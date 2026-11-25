@@ -870,6 +870,13 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 insuranceDeclaredValueCents={order.insurance_declared_value_cents}
               />
 
+              {/* The bag label, right under the return label (owner, Nov 25 2026): the same one-tap print as the header's Print labels */}
+              <div className="mt-3">
+                <PrintOrderLabels orderId={order.id} orderNumber={order.order_number} status={order.status} paymentStatus={order.payment_status} variant="primary" refreshAfterBagging>
+                  Print baggy label
+                </PrintOrderLabels>
+              </div>
+
               {/* Live return tracking — shown once the return label is purchased */}
               {order.tracking_number && (
                 <div className="mt-4">
