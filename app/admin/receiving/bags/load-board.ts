@@ -7,6 +7,10 @@ import { loadTierNames } from "@/lib/intake/data";
 import { loadHolidays } from "@/lib/intake/due-dates";
 import { cardStageState, stageGroups } from "@/lib/intake/stage-plan";
 import { byBagOrder, labelIsOutdated } from "@/lib/intake/views";
+import { filingLetter } from "@/lib/intake/filing-letter";
+import { bagPlaceText } from "@/lib/intake/tracking/bag-home";
+import { LOCATION_REF_COLUMNS } from "@/lib/intake/tracking/places";
+import type { LocationRef } from "@/lib/intake/tracking/types";
 import type { BagStageGroup, DueStatus, StageEventRow } from "@/lib/intake/types";
 import { isMissingSchema } from "../_components/schema";
 
@@ -24,6 +28,8 @@ import { isMissingSchema } from "../_components/schema";
  *   2. cards of those orders (order_id in chunk)
  *   3. order_events 'stage_update' of those orders, newest first
  *   4. tier_bag_due_changes of those bags (best effort, for "label out of date")
+ *   5. where each bag is (tier_bags.location_id and its place; best effort,
+ *      so the board works before the card tracking update is applied)
  *   plus restoration_settings names and business_holidays.
  */
 
@@ -63,7 +69,11 @@ type CardRow = {
   received_by: string | null;
 };
 
-export type OtherBag = { id: string; code: string; tier: string; tierName: string; cardCount: number; done: boolean };
+export type OtherBag = {
+  id: string; code: string; tier: string; tierName: string; cardCount: number; done: boolean;
+  /** Where the bag is ("Ready to ship"); null when not recorded. */
+  place: string | null;
+};
 
 export type BoardBag = {
   id: string;
@@ -89,6 +99,8 @@ export type BoardBag = {
   stageGroups: BagStageGroup[];
   /** Card IDs in the bag, so a scanned card finds its bag. */
   cardCodes: string[];
+  /** Where the bag is: "Open bags · R", "Shelf DUE MON DEC 7", "Ready to ship"; null when not recorded. */
+  place: string | null;
   /** The order's other bags, open or done, in tier order. */
   otherBags: OtherBag[];
 };
@@ -116,6 +128,30 @@ async function dueChangeTimes(admin: SupabaseClient, bagIds: string[]): Promise<
     }
   } catch (e) {
     console.warn("[intake] bags board: due changes not read:", e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
+/** Each bag's place (tier_bags.location_id); empty when it can't be read (the tracking update not applied yet). */
+async function bagLocations(admin: SupabaseClient, bagIds: string[]): Promise<Map<string, Pick<LocationRef, "code" | "kind" | "name">>> {
+  const out = new Map<string, Pick<LocationRef, "code" | "kind" | "name">>();
+  try {
+    const rows = (await Promise.all(chunks(bagIds).map((ids) =>
+      fetchAll<{ id: string; location_id: string | null }>((from, to) =>
+        admin.from("tier_bags").select("id, location_id").in("id", ids).not("location_id", "is", null).order("id").range(from, to))))).flat();
+    const placeIds = [...new Set(rows.map((r) => r.location_id).filter((id): id is string => !!id))];
+    const places = (await Promise.all(chunks(placeIds).map(async (ids) => {
+      const { data, error } = await admin.from("locations").select(LOCATION_REF_COLUMNS).in("id", ids);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as (Pick<LocationRef, "id" | "code" | "kind" | "name">)[];
+    }))).flat();
+    const byId = new Map(places.map((p) => [p.id, p]));
+    for (const r of rows) {
+      const place = r.location_id ? byId.get(r.location_id) : undefined;
+      if (place) out.set(r.id, place);
+    }
+  } catch (e) {
+    console.warn("[intake] bags board: bag places not read:", e instanceof Error ? e.message : e);
   }
   return out;
 }
@@ -157,10 +193,11 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
   let cards: CardRow[];
   let events: StageEventRow[];
   let dueChanged: Map<string, string>;
+  let places: Map<string, Pick<LocationRef, "code" | "kind" | "name">>;
   let holidays: Set<string>;
   let tierNames: Record<string, string>;
   try {
-    const [cardPages, eventPages, changes, [h, names]] = await Promise.all([
+    const [cardPages, eventPages, changes, at, [h, names]] = await Promise.all([
       Promise.all(chunks(orderIds).map((ids) => fetchAll<CardRow>((from, to) =>
         admin.from("cards").select(CARD_SELECT).in("order_id", ids).order("id").range(from, to)))),
       // Newest first, as cardStageState wants; a card's events all sit in its order's chunk
@@ -169,11 +206,13 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
           .in("order_id", ids).eq("event_type", "stage_update")
           .order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to)))),
       dueChangeTimes(admin, rows.map((b) => b.id)),
+      bagLocations(admin, rows.map((b) => b.id)),
       settings,
     ]);
     cards = cardPages.flat();
     events = eventPages.flat();
     dueChanged = changes;
+    places = at;
     holidays = h;
     tierNames = names;
   } catch (e) {
@@ -209,6 +248,7 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
     else bagsByOrder.set(b.order_id, [b]);
   }
 
+  const placeOf = (b: BagJoinRow, compact: boolean) => bagPlaceText(places.get(b.id), filingLetter(b.orders?.customer_name), compact);
   const bags: BoardBag[] = open.map((b) => {
     const live = liveByBag.get(b.id) ?? [];
     const withStage = live.map((c) => ({
@@ -227,6 +267,7 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
         tierName: tierDisplayName(o.tier, tierNames),
         cardCount: (liveByBag.get(o.id) ?? []).length,
         done: !isOpen(o),
+        place: placeOf(o, false),
       }));
     return {
       id: b.id,
@@ -247,6 +288,7 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
       allCardsDone: live.length > 0 && completedCount === live.length,
       stageGroups: stageGroups(withStage),
       cardCodes: live.map((c) => c.card_code).filter((code): code is string => !!code),
+      place: placeOf(b, true),
       otherBags: others,
     };
   });

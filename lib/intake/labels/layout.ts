@@ -12,6 +12,9 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 // order number, card count, received date and "SCAN TO OPEN THE ORDER" (the
 // QR opens the scan landing, /admin/receiving/open/<Bag ID>, with the order
 // and "Move all N cards to my desk"). No per-card QR codes. Black only.
+// In the banner's top right corner, the filing tab: a white square with the
+// big black letter of the customer's last name ("R" for JORDAN REYES), the
+// Open bags box divider the bag is filed under (see banner()).
 //
 // Sizes come from the approved mock (three.html, middle label: 384px label,
 // 30px side padding), scaled to the printed width. The card rows start at a
@@ -875,33 +878,20 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
   }
   // The smallest tab: a letter the size of the due date (banner())
   if (fullTab && at.room < need) tab = 1;
-  let scaled = false;
-  for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) {
-    at = place(k, false, tab);
-    scaled = true;
-  }
+  for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false, tab);
   const colGap = Math.max(6, s.px(14));
   let fitted = fitList(cards, at.room, xi, Wi, colGap, narrow);
-  // On the narrow label every card listed, then every set and number in full, beats "Also in this order" (the QR shows the whole order)
-  const better = (a: typeof fitted, b: typeof fitted) => a.shown.length > b.shown.length || (a.shown.length === b.shown.length && a.list.whole > b.list.whole);
-  if (narrow && at.also && (fitted.shown.length < cards.length || fitted.list.whole < cards.length)) {
+  // "Also in this order" gives way (the QR shows the whole order): on the narrow label to every card
+  // listed, then every set and number in full; on any label to cards the filing tab would hide. The
+  // tab keeps its size (the same on every bag of a stock): when the cards still don't all fit, the
+  // last rows go behind "+N more: scan the QR".
+  if (at.also && (fitted.shown.length < cards.length || (narrow && fitted.list.whole < cards.length))) {
     const without = place(1, false, tab);
     const refit = fitList(cards, without.room, xi, Wi, colGap, narrow);
-    if (better(refit, fitted)) [at, fitted] = [without, refit];
-  }
-  // A full tab never stops a bag that fits without it from listing every card: "Also in this order"
-  // gives way first, then the tab gets smaller (never below the due date), as far as that lists
-  // more cards. A bag that doesn't fit anyway keeps the full tab, and its last rows go behind
-  // "+N more: scan the QR".
-  const fitIn = (p: typeof at) => fitList(cards, p.room, xi, Wi, colGap, narrow);
-  if (fullTab && tab === fullTab && !scaled && fitted.shown.length < cards.length && fitIn(place(1, false, 0)).shown.length === cards.length) {
-    for (let t = fullTab; t > 1; t *= 0.9) {
-      const p = place(1, false, t);
-      const f = fitIn(p);
-      if (f.shown.length > fitted.shown.length) [at, fitted] = [p, f];
-      // Every card listed, or the tab down to the due date's size
-      if (f.shown.length === cards.length || (p.top.tab && p.top.tab.side > t + 1e-9)) break;
-    }
+    const more = refit.shown.length > fitted.shown.length;
+    const tabHides = () => fullTab > 0 && fitList(cards, place(1, true, 0).room, xi, Wi, colGap, narrow).shown.length > fitted.shown.length;
+    const wholer = refit.shown.length === fitted.shown.length && refit.list.whole > fitted.list.whole;
+    if (narrow ? more || wholer : more && tabHides()) [at, fitted] = [without, refit];
   }
   const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY } = at;
   const { shown, list } = fitted;

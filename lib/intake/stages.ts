@@ -145,8 +145,9 @@ export type AdvanceResult =
  * { card_id, stage, round, by, bulk }). The customer email rule
  * (stepEmailsCustomer): one email lists every card that moved to a step past
  * the furthest it reached this round (customer visible events); going back or
- * re-entering a step sends nothing and its event is staff only. No email for
- * "done", as before. Cards marked done go back in their bag like the
+ * re-entering a step sends nothing and its event is staff only. No step email
+ * for "done", as before (the order's last card done completes the order,
+ * with its completed email: orderCompletion). Cards marked done go back in their bag like the
  * tracking Done (out of any holder or desk; returnCardsToBags), and
  * `bagPlaces` says where each bag is.
  */

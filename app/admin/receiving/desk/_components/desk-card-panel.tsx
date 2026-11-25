@@ -182,7 +182,7 @@ export function DeskCardPanel({ card, now, selected, busy, confirmingDone, eager
       <div className="mt-auto pt-4">
         {confirmingDone ? (
           <div role="group" aria-label={`Mark ${card.label} done?`} className="rounded-xl border border-green-300 bg-green-50 p-3">
-            <p className="text-sm font-bold text-green-950">Mark it done? It goes to the Done shelf.</p>
+            <p className="text-sm font-bold text-green-950">Mark it done? Then put it back in its bag.</p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button type="button" onClick={onConfirmDone} disabled={busy} className={`${button} bg-green-700 text-white hover:bg-green-800`}>
                 <PackageCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />

@@ -3,7 +3,7 @@ import type { TrackActionResponse } from "@/lib/intake/tracking/types";
 /**
  * Client side of the tracking actions the ship check page uses
  * (lib/intake/tracking/types.ts): POST /api/admin/track/done { cardIds }
- * (marks cards done; they leave their slot for the Done place) and
+ * (marks cards done; they leave their slot and go back in their bag) and
  * POST /api/admin/track/release { cardIds } (takes cards out of their slot).
  */
 

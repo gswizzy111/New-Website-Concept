@@ -1,4 +1,4 @@
-import { Camera, TriangleAlert } from "lucide-react";
+import { Camera, Package, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { orderPhotosPath } from "@/lib/intake/codes";
@@ -49,6 +49,13 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
           {bag.customerName ?? <span className="font-semibold text-muted-foreground">No customer name</span>}
         </p>
         <p className="text-xs text-muted-foreground">Order #{bag.orderNumber}</p>
+        {/* Where the bag is: its due-date shelf, the Open bags box (a card is out), Ready to ship */}
+        {bag.place && (
+          <p className="mt-1 inline-flex items-center gap-1 text-sm font-bold text-foreground">
+            <Package aria-hidden className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+            {bag.place}
+          </p>
+        )}
         {bag.otherBags.length > 0 && (
           <p className="mt-1.5 text-xs text-muted-foreground">
             Other bags in this order:{" "}
@@ -62,7 +69,7 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
                 >
                   {o.code}
                 </AdminLink>
-                {o.done ? " (done)" : ""}
+                {o.done ? (o.place ? ` (done · ${o.place})` : " (done)") : ""}
               </span>
             ))}
           </p>
@@ -93,7 +100,7 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
         {bag.cardCount > 0 ? (
           <>
             <p className="text-sm text-foreground">
-              <span className="font-black tabular-nums">{bag.completedCount}/{bag.cardCount}</span> card{bag.cardCount === 1 ? "" : "s"} done
+              <span className="font-black tabular-nums">{bag.completedCount} of {bag.cardCount}</span> done
             </p>
             <div className="mt-1.5 max-w-48">
               <DoneBar done={bag.completedCount} total={bag.cardCount} />

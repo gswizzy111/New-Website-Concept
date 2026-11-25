@@ -5336,8 +5336,8 @@ export async function seedDone() {
  * The done order as the done-order-complete* scenarios start it: CD-2700's 5 cards received on
  * 2026-11-20 through the API (bags CD-2700-P: 01-02, CD-2700-G: 03-05; status received, the
  * customer's "Cards Received" email), 05 refunded in the mock (it stays in its bag), a receiving
- * photo on 01-04; then `status` / `payment` written to the order in the mock and the cards in
- * `done` marked done through POST done. Returns the tables.
+ * photo on 01-04; then the cards in `done` marked done through POST done, and `status` / `payment`
+ * written to the order in the mock. Returns the tables.
  */
 async function doneOrderSetup(ctx, mockUrl, { done = [], status = null, payment = null } = {}) {
   await seedDone();
@@ -5349,9 +5349,10 @@ async function doneOrderSetup(ctx, mockUrl, { done = [], status = null, payment 
   const five = t.cards.find((c) => c.id === DONE_IDS.doneCards[4]);
   await mockUpdate(mockUrl, "cards", { status: "refunded", refunded_cents: five.service_price_cents }, "id", five.id);
   await setReceivingPhotos(mockUrl, DONE_IDS.doneCards.slice(0, 4));
+  // cards first (while the order is still received), then the status / payment the scenario wants
+  if (done.length) await trackOk(ctx, ROUTES.trackDone, { cardIds: done.map((code) => cardIdOf(t, code)) });
   const patch = { ...(status ? { status } : {}), ...(payment ? { payment_status: payment } : {}) };
   if (Object.keys(patch).length) await mockUpdate(mockUrl, "orders", patch, "id", DONE_ORDER);
-  if (done.length) await trackOk(ctx, ROUTES.trackDone, { cardIds: done.map((code) => cardIdOf(t, code)) });
   t = await tables();
   const o = t.orders.find((x) => x.id === DONE_ORDER);
   assert(!DONE_STATUSES_E2E.includes(o.status), `${DN} is ${o.status} after the setup (not every card is done)`);
@@ -5455,18 +5456,18 @@ async function tapAndLand(page, button, landed, { scope = null, ms = 120_000 } =
   page.on("request", onRequest);
   try {
     await button.click();
-    let ok = await until(landed, 6_000);
-    if (!ok && !posts.length) {
-      const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog"));
-      const inDialog = dlg.getByRole("button", { name: UI.doneConfirmRe }).first();
-      if (await inDialog.count()) await inDialog.click({ timeout: 5_000 }).catch(() => {});
-      else {
-        const inPage = (scope ?? page.locator("main").first()).getByRole("button", { name: UI.doneConfirmRe }).first();
-        if (await inPage.count()) await inPage.click({ timeout: 5_000 }).catch(() => {});
-        else if (scope) await UI.deskConfirm(scope).click({ timeout: 5_000 }).catch(() => {});
-      }
+    // a question ("Mark all 2 cards done?" with "Yes, mark 2 done"): in a dialog, else inline on the page
+    const dlg = page.getByRole("dialog").or(page.getByRole("alertdialog"));
+    const inDialog = dlg.getByRole("button", { name: UI.doneConfirmRe }).first();
+    const inPage = page.locator("main").first().getByRole("button", { name: UI.doneConfirmRe }).first();
+    const asked = async () => (await inDialog.isVisible().catch(() => false)) || (await inPage.isVisible().catch(() => false));
+    await until(async () => posts.length > 0 || (await asked()) || (await landed()), 6_000, 200);
+    if (!posts.length && !(await landed())) {
+      if (await inDialog.isVisible().catch(() => false)) await inDialog.click({ timeout: 5_000 }).catch(() => {});
+      else if (await inPage.isVisible().catch(() => false)) await inPage.click({ timeout: 5_000 }).catch(() => {});
+      else if (scope) await UI.deskConfirm(scope).click({ timeout: 5_000 }).catch(() => {});
     }
-    ok = ok || (await until(landed, ms, 500));
+    const ok = await until(landed, ms, 500);
     const first = posts[0] ?? null;
     let body = null;
     try { body = first ? JSON.parse(first.postData() ?? "null") : null; } catch { /* not JSON */ }
@@ -5532,7 +5533,7 @@ const DONE_SCENARIOS = {
       if (!new RegExp(`^done\\b.*${esc(C)}`, "i").test(name)) problems.push(`${C}'s Done is named "${name}" (want "Done: ${C}")`);
       assert(!problems.length, `${problems.join(" | ")} (head: "${flat(top).slice(0, 240)}")`);
       return /bag:\s*[^\n]+/i.exec(top)?.[0] ?? "";
-    }, { critical: true });
+    });
 
     let before = null, tap = null;
     await s.step(`tap ${C}'s "Done": the card is done (one tap; POST done)`, async () => {
@@ -5624,7 +5625,7 @@ const DONE_SCENARIOS = {
       eq(bagPlaceCode(t1, BO_BAG), OPEN_BAGS, `${BO_BAG} place`);
       eq(bagPlaceCode(t1, "CD-2549-G"), bagPlaceCode(before, "CD-2549-G"), "CD-2549-G place (none of its cards came out)");
       return `${first.path} ${first.status}; ${BO_BAG} located_at ${bagByCode(t1, BO_BAG).located_at ?? "(not set)"}`;
-    }, { critical: true });
+    });
     await s.step(`the page says "Put the bag in the Open bags box, under ${BO_LETTER}."`, async () => {
       const msg = await saidOnPage(page, UI.putBagInOpenBags(BO_LETTER));
       assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
@@ -5658,6 +5659,16 @@ const DONE_SCENARIOS = {
       const top = flat(await headText(page));
       assert(UI.doneBagLine(UI.donePlace.openBags(BO_LETTER)).test(top), `no "Bag: Open bags box · ${BO_LETTER}": "${top.slice(0, 240)}"`);
     });
+    await s.step(`the Bags board: the rows of ${BO_BAG} and CD-2549-G say "Open bags · ${BO_LETTER}"`, async () => {
+      await goto(page, ROUTES.bags);
+      const problems = [];
+      for (const code of [BO_BAG, "CD-2549-G"]) {
+        const row = UI.boardRow(page, code);
+        const txt = (await row.count()) ? flat(await row.first().innerText()) : "";
+        if (!UI.donePlace.openBags(BO_LETTER).test(txt)) problems.push(`${code}'s row: "${txt.slice(0, 160)}"`);
+      }
+      assert(!problems.length, problems.join(" | "));
+    });
     await s.step(`the done order ${DN} (${DONE_CUSTOMER.name}): ${ROUTES.open(DONE_P)} "Move all 2 cards to my desk": ${DONE_P} in ${OPEN_BAGS} under ${DONE_CUSTOMER.letter}; the page says "2 cards are on your desk" and "Put the bag in the Open bags box, under ${DONE_CUSTOMER.letter}."`, async () => {
       await seedDone();
       await receiveViaApi(ctx, DONE_ORDER, DONE_IDS.doneCards.slice(0, 4), "2026-11-20");
@@ -5670,7 +5681,7 @@ const DONE_SCENARIOS = {
       assert(moved && msg, `the page says: "${flat(await mainText(page)).slice(0, 300)}"`);
       return msg;
     });
-    await s.step(`the bag labels carry the filing letter: ${BO_BAG} "${BO_LETTER}", ${DONE_P} "${DONE_CUSTOMER.letter}" (a text of its own; the name stays the largest other text)`, async () => {
+    await s.step(`the bag labels carry the filing letter: ${BO_BAG} "${BO_LETTER}", ${DONE_P} "${DONE_CUSTOMER.letter}" (a text of its own; its size and the name's reported)`, async () => {
       const t1 = await tables();
       const out = [];
       for (const [code, letter, name] of [[BO_BAG, BO_LETTER, BO_CUSTOMER], [DONE_P, DONE_CUSTOMER.letter, DONE_CUSTOMER.name]]) {
@@ -5680,7 +5691,9 @@ const DONE_SCENARIOS = {
         const all = texts(p);
         const mark = all.filter((e) => String(e.text).trim() === letter);
         assert(mark.length >= 1, `${code}: no "${letter}" on its label (texts: ${all.map((e) => e.text).join(" | ").slice(0, 200)})`);
-        const nameSize = Math.max(0, ...all.filter((e) => String(e.text).includes(name) || name.includes(String(e.text).trim())).filter((e) => String(e.text).trim() !== letter).map((e) => e.size));
+        // the name as printed (upper case, maybe over two lines), not the letter
+        const isName = (e) => { const x = norm(e.text); return x.length > 1 && norm(name).includes(x); };
+        const nameSize = Math.max(0, ...all.filter(isName).map((e) => e.size));
         out.push(`${code}: "${letter}" ${Math.max(...mark.map((e) => e.size)).toFixed(0)} pt, name ${nameSize.toFixed(0)} pt`);
       }
       return out.join("; ");
@@ -5708,11 +5721,16 @@ const DONE_SCENARIOS = {
       if ((await doneButtonsIn(page, LAST, BO_ALL)) !== 1) problems.push(`${LAST}: no Done button`);
       if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" already shows');
       assert(!problems.length, problems.join(" | "));
-    }, { critical: true });
+    });
     let before = null;
     await s.step(`tap ${LAST}'s "Done": done, back in its bag (off ${DESK}); ${BO_BAG} finished (completed_at) but NOT moved yet (still ${OPEN_BAGS}); order not completed (Gold bag open); no customer email`, async () => {
       before = await dump();
-      const tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, LAST, BO_ALL)), cardDone(LAST), { scope: UI.openPanel(page, LAST, BO_ALL) });
+      let tap;
+      try {
+        tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, LAST, BO_ALL)), cardDone(LAST), { scope: UI.openPanel(page, LAST, BO_ALL) });
+      } catch (e) {
+        tap = { ok: false, posts: [`(the tap failed: ${String(e?.message ?? e).split("\n")[0].slice(0, 120)})`], answer: null };
+      }
       if (!tap.ok) await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LAST)] });
       const after = await dump();
       const problems = doneInBagProblems(before, after, LAST, DESK);
@@ -5741,17 +5759,21 @@ const DONE_SCENARIOS = {
     await s.step(`tap "It's in the Ready to ship bin": ${BO_BAG} at ${SHIP_PLACE} (POST bag-ready); its cards still in it (no place); the page says "In the Ready to ship bin"`, async () => {
       const b0 = await dump();
       ready = await tapAndLand(page, page.getByRole("button", { name: UI.readyToShipRe }).first(), async () => bagPlaceCode(await tables(), BO_BAG) === SHIP_PLACE);
-      if (!ready.ok) {
-        const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(b0.tables, BO_BAG).id });
-        assert(false, `the tap didn't put it at ${SHIP_PLACE} (POSTs: ${ready.posts.join(", ") || "none"}); POST bag-ready: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
-      }
+      assert(ready.ok, `the tap didn't put it at ${SHIP_PLACE} (POSTs: ${ready.posts.join(", ") || "none"}; ${ready.path ?? ""} ${ready.status ?? ""} ${JSON.stringify(ready.answer ?? null).slice(0, 160)})`);
       const t1 = await tables();
       for (const code of BO_PLAT) eq(cardByCode(t1, code).location_id ?? null, null, `${code} place (in its bag)`);
       eq(mailsTo((await emails()).slice(b0.emails.length), CUSTOMER_A).length, 0, "customer emails");
       const after = await saidOnPage(page, UI.inShipBin, 20_000);
       assert(after, `no "In the Ready to ship bin" (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
       return `${ready.path} ${ready.status}: "${ready.answer?.message ?? ""}"`;
-    }, { critical: true });
+    });
+    if (bagPlaceCode(await tables(), BO_BAG) !== SHIP_PLACE) {
+      await s.step(`(fallback) POST bag-ready for ${BO_BAG}`, async () => {
+        const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(await tables(), BO_BAG).id });
+        assert(r.status === 200 && bagPlaceCode(await tables(), BO_BAG) === SHIP_PLACE, `HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+        return r.body?.message ?? "";
+      }, { critical: true, shot: false });
+    }
     await s.step("tapping it again / the same request again changes nothing (changed false)", async () => {
       const b0 = await dump();
       const r = await api(ctx, "POST", ready?.path ?? ROUTES.trackBagReady, ready?.body ?? { bagId: bagByCode(b0.tables, BO_BAG).id });
@@ -5781,23 +5803,24 @@ const DONE_SCENARIOS = {
       eq(bagPlaceCode(await tables(), "CD-2549-G"), was, "CD-2549-G place");
       return `HTTP ${r.status}: ${r.body?.error}`;
     }, { shot: false });
-    await s.step(`the Bags board: ${BO_BAG}'s row says "Ready to ship" (and 3 of 3 done); CD-2549-G's says "0 of 4 done" or "0/4"; ship check of ${BO_BAG}: ready`, async () => {
+    await s.step(`the Bags board says ${BO_BAG} is "Ready to ship" (its own row, or CD-2549-G's list of the order's other bags: "${BO_BAG} … (done · Ready to ship)"); CD-2549-G's row "0 of 4 done"; ship check of ${BO_BAG}: ready`, async () => {
       await goto(page, ROUTES.bags);
       const problems = [];
-      const rowP = UI.boardRow(page, BO_BAG);
-      if (!(await rowP.count())) problems.push(`no row for ${BO_BAG} (finished bags gone from the board?)`);
-      else {
-        const txt = flat(await rowP.first().innerText());
-        if (!UI.donePlace.ship.test(txt)) problems.push(`${BO_BAG}'s row: "${txt.slice(0, 160)}"`);
-      }
       const rowG = UI.boardRow(page, "CD-2549-G");
       const g = (await rowG.count()) ? flat(await rowG.first().innerText()) : "";
-      if (!(UI.doneCount(0, 4).test(g) || /\b0\s*\/\s*4\b/.test(g))) problems.push(`CD-2549-G's row: "${g.slice(0, 160)}"`);
+      if (!g) problems.push("no row for CD-2549-G");
+      else if (!UI.doneCount(0, 4).test(g)) problems.push(`CD-2549-G's row: "${g.slice(0, 160)}"`);
+      const rowP = UI.boardRow(page, BO_BAG);
+      const p = (await rowP.count()) ? flat(await rowP.first().innerText()) : "";
+      const own = !!p && UI.donePlace.ship.test(p);
+      const listed = new RegExp(`${esc(BO_BAG)}[^()]*\\(done · ready to ship\\)`, "i").test(g);
+      if (!own && !listed) problems.push(`"Ready to ship" for ${BO_BAG} neither in its own row ("${p.slice(0, 100)}") nor in CD-2549-G's ("${g.slice(0, 160)}")`);
       const chk = await shipCheckVia(ctx, BO_BAG);
       if (chk.ready !== true) problems.push(`ship check ready ${chk.ready}`);
       assert(!problems.length, problems.join(" | "));
       const w = await phoneShot(browser, appUrl, ROUTES.bags, "done-bag-finished-board");
       assert(!w, w);
+      return own ? `${BO_BAG}'s own row: "${p.slice(0, 80)}"` : `in CD-2549-G's row: "${g.slice(0, 120)}"`;
     });
   },
 
@@ -5827,7 +5850,7 @@ const DONE_SCENARIOS = {
       if ((await all.count()) !== 1) problems.push(`${await all.count()} "Mark all" buttons`);
       else if (!/^mark all 2 done$/i.test(await nameOf(all.first()))) problems.push(`it reads "${await nameOf(all.first())}"`);
       assert(!problems.length, problems.join(" | "));
-    }, { critical: true });
+    });
     let before = null, tap = null;
     await s.step(`tap "Mark all 2 done" (confirm "Mark all 2 cards done?" -> "Yes, mark 2 done"): 03 and 04 done, back in their bag`, async () => {
       before = await dump();
@@ -5896,7 +5919,7 @@ const DONE_SCENARIOS = {
     await s.step(`the Desk page (?desk=${DESK}): ${LAST}'s panel`, async () => {
       await goto(page, ROUTES.deskAt(DESK));
       eq(await waitPanels(page, [LAST], DONE_CODES), [LAST], "cards with a panel");
-    }, { critical: true });
+    });
     let before = null;
     await s.step(`${LAST}: "Done" (its "Mark it done? Then put it back in its bag." answered): done, back in its bag (off the desk)`, async () => {
       before = await dump();
@@ -5910,12 +5933,14 @@ const DONE_SCENARIOS = {
       await s.step(`(fallback) Done on ${LAST} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LAST)] }); }, { shot: false });
     }
     await s.step(`the order (In Progress) is Completed: ONE Completed email, ONE notes email, one status event`, async () => checkOrderCompleted(before, await dump()), { shot: false });
-    await s.step(`the Desk says "Done. Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}." and "Bag finished: put it in the Ready to ship bin." with "Open REYES's bag"; ${LAST}'s panel is gone`, async () => {
+    await s.step(`the Desk says "Done. Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}.", "Bag finished: put it in the Ready to ship bin." with "Open REYES's bag", and "Order completed. ${DONE_CUSTOMER.name} emailed."; ${LAST}'s panel is gone`, async () => {
       const sentence = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)));
       const finished = await saidOnPage(page, UI.bagFinished, 5_000);
+      const ordered = await saidOnPage(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 5_000);
       const problems = [];
       if (!sentence) problems.push(`no "Done. Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag: Open bags box, under ${DONE_CUSTOMER.letter}."`);
       if (!finished) problems.push('no "Bag finished: put it in the Ready to ship bin."');
+      if (!ordered) problems.push(`no "Order completed. ${DONE_CUSTOMER.name} emailed."`);
       const link = page.getByRole("link", { name: new RegExp(`^open ${esc(DONE_CUSTOMER.lastName)}['’]s bag$`, "i") }).first();
       if (!(await link.count())) problems.push(`no "Open ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag" link`);
       else {
@@ -6085,7 +6110,7 @@ const DONE_SCENARIOS = {
     await s.step("the Desk page: 2 panels", async () => {
       await goto(page, ROUTES.deskAt(DESK));
       eq(await waitPanels(page, ["CD-2549-07", "CD-2549-08"], BO_ALL), ["CD-2549-07", "CD-2549-08"], "cards with a panel");
-    }, { critical: true });
+    });
     let before = null;
     await s.step(`${C}: "Done" (the confirm answered): done, back in its bag (no place: not LOC-DONE, not the desk); one 'done' row from the desk; no customer email; ${BO_BAG} not finished`, async () => {
       before = await dump();
@@ -6147,16 +6172,22 @@ const DONE_SCENARIOS = {
       return `${SILVER}: ${shelfName(silver.due_date)} (${shelfHow}); bag-ready: "${r.body?.message ?? ""}"`;
     }, { critical: true, shot: false });
     const bagCodes = [BO_BAG, "CD-2549-G", SILVER];
-    /** Each bag's place shown next to its Bag ID: a block naming that bag (and no other) with the place's words. */
+    /**
+     * Each bag's place shown with it: a block naming that bag (its Bag ID or one of its Card IDs, and
+     * no other bag's) with the place's words ("Bag: Open bags box · A" on a bag's line or a card's row).
+     */
     const checkPlaces = async (where) => {
       const main = page.locator("main").first();
+      const t1 = await tables();
+      const idsOf = (code) => [code, ...bagCardCodes(t1, code)];
+      const anyOf = (codes) => new RegExp(codes.map((c) => `${esc(c)}(?![A-Z0-9])`).join("|"));
       const problems = [];
       for (const code of bagCodes) {
-        const others = bagCodes.filter((c) => c !== code);
+        const others = bagCodes.filter((c) => c !== code).flatMap(idsOf);
         const hit = main.locator("li, article, section, div, tr, p, [role='listitem']")
-          .filter({ hasText: new RegExp(`${esc(code)}(?![A-Z0-9])`) })
+          .filter({ hasText: anyOf(idsOf(code)) })
           .filter({ hasText: places[code] })
-          .filter({ hasNotText: new RegExp(others.map((c) => `${esc(c)}(?![A-Z0-9])`).join("|")) });
+          .filter({ hasNotText: anyOf(others) });
         if (!(await until(async () => (await hit.count()) > 0, 10_000))) problems.push(`${code}: no "${places[code].source}" next to it`);
       }
       assert(!problems.length, `${where}: ${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);

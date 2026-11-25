@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRightLeft, CircleCheckBig, LayoutGrid, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { filingLetter } from "@/lib/intake/filing-letter";
+import { bagPlaceText } from "@/lib/intake/tracking/bag-home";
 import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type {
   CapacityConflict,
@@ -137,15 +139,23 @@ function placeable(cards: readonly TrackCardSummary[]) {
 }
 
 /** A card list with these cards now in `to` (null: taken out). */
+/** Where the request's bags are now (a card out of its bag files the bag in the Open bags box). */
+function bagPlaces(res: TrackActionResponse): Map<string, LocationRef | null> {
+  return new Map((res.bags ?? []).map((b) => [b.id, b.location]));
+}
+
 function patchCards(cards: TrackCardSummary[], res: TrackActionResponse, to: LocationRef | null, done = false): TrackCardSummary[] {
   const changed = new Map(res.results.filter((r) => r.ok).map((r) => [r.cardId, r]));
-  if (!changed.size) return cards;
+  const bagAt = bagPlaces(res);
+  if (!changed.size && !bagAt.size) return cards;
   const at = new Date().toISOString();
   return cards.map((c) => {
     const r = changed.get(c.id);
-    if (!r) return c;
+    const moved = c.bagId && bagAt.has(c.bagId) ? { bagLocation: bagAt.get(c.bagId) ?? null } : {};
+    if (!r) return { ...c, ...moved };
     return {
       ...c,
+      ...moved,
       location: to,
       locatedAt: at,
       stageLabel: done ? "Done" : r.stageLabel ?? c.stageLabel,
@@ -156,13 +166,15 @@ function patchCards(cards: TrackCardSummary[], res: TrackActionResponse, to: Loc
 }
 
 function patchView(view: View, res: TrackActionResponse, to: LocationRef | null, done = false): View {
-  if (view.type === "bag") return { ...view, bag: { ...view.bag, cards: patchCards(view.bag.cards, res, to, done) } };
+  const bagAt = bagPlaces(res);
+  const placeOf = <B extends { id: string; location: LocationRef | null }>(b: B) => (bagAt.has(b.id) ? bagAt.get(b.id) ?? null : b.location);
+  if (view.type === "bag") return { ...view, bag: { ...view.bag, location: placeOf(view.bag), cards: patchCards(view.bag.cards, res, to, done) } };
   if (view.type === "order") {
     return {
       ...view,
       order: {
         ...view.order,
-        bags: view.order.bags.map((b) => ({ ...b, cards: patchCards(b.cards, res, to, done) })),
+        bags: view.order.bags.map((b) => ({ ...b, location: placeOf(b), cards: patchCards(b.cards, res, to, done) })),
         looseCards: patchCards(view.order.looseCards, res, to, done),
       },
     };
@@ -975,6 +987,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                 <div key={bag.id} className="border-t border-border">
                   <p className="px-4 pt-3 text-sm font-bold text-foreground">
                     <span className="font-mono">{bag.code}</span> · {bag.tierName} · {bag.doneCount} of {bag.cardCount} done
+                    {bag.location ? ` · Bag: ${bagPlaceText(bag.location, filingLetter(bag.customer))}` : ""}
                   </p>
                   <ul>
                     {bag.cards.map((card) => (

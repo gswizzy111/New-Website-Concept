@@ -38,7 +38,8 @@ const Body = z
  * "already_there", so sending it again changes nothing. One customer email
  * lists the cards at a step new to the customer (`newStep`: past the
  * furthest step they reached this round); going back or re-entering a step
- * sends none, and no email for done. Bags whose cards are all done become
+ * sends none, and no step email for done (the order's last card done
+ * completes the order, with its completed email, below). Bags whose cards are all done become
  * completed. When cards were marked done, `orderCompletion` is the order
  * auto-complete check (lib/intake/order-autocomplete.ts): the order's last
  * card done makes the order Completed with the customer's usual email

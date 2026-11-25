@@ -3,8 +3,9 @@
  * bag at any card count (1, 4, 16, 40, 120 cards), on every stock and width;
  * the one bag QR; the customer's name as the largest type with the due date
  * big beside it; "+N more: scan the QR" only when the bag doesn't fit; the
- * order's other bags named; the loader's tier order; the PDF and JSON the
- * routes send. Writes sample PDFs to tests/intake/out/ (git-ignored).
+ * order's other bags named; the filing tab (the Open bags box letter, top
+ * right, never making the name smaller); the loader's tier order; the PDF
+ * and JSON the routes send. Writes sample PDFs to tests/intake/out/ (git-ignored).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,15 +14,16 @@ import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { qrUrl } from "@/lib/intake/codes";
+import { filingLetter } from "@/lib/intake/filing-letter";
 import { loadLabelBags } from "@/lib/intake/labels/data";
 import { LABEL_LIMITS, PT, bagLabelCapacity, fitName, layoutBagLabel, layoutBagLabels, moreText, planBagLabel, printedWidth } from "@/lib/intake/labels/layout";
 import { bagLabelsPdf, renderLabelPdf } from "@/lib/intake/labels/pdf";
 import { qrMatrix } from "@/lib/intake/labels/qr";
 import { labelResponse, type LabelPreviewResponse } from "@/lib/intake/labels/respond";
-import { normalizeLabelSettings, stockPoints } from "@/lib/intake/labels/stock";
+import { fullWidthPoints, normalizeLabelSettings, stockPoints } from "@/lib/intake/labels/stock";
 import { fitLine, printable, textWidth, wrapLines } from "@/lib/intake/labels/text";
 import { FONT_METRICS } from "@/lib/intake/labels/fonts/metrics";
-import type { LabelBag, LabelPage, LabelQr, LabelStock, LabelText } from "@/lib/intake/labels/types";
+import type { LabelBag, LabelPage, LabelQr, LabelRect, LabelStock, LabelText } from "@/lib/intake/labels/types";
 
 // The QR address is the business domain here, whatever the shell has set
 delete process.env.NEXT_PUBLIC_APP_URL;
@@ -54,6 +56,21 @@ const texts = (p: LabelPage) => p.elements.filter((e): e is LabelText => e.kind 
 const qrs = (p: LabelPage) => p.elements.filter((e): e is LabelQr => e.kind === "qr");
 const near = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
 const words = (p: LabelPage) => texts(p).map((t) => t.text);
+
+/** The filing tab: the white square on the banner and the black letter in it. */
+function tabOf(p: LabelPage): { tile?: LabelRect; letter?: LabelText } {
+  const tile = p.elements.find((e): e is LabelRect => e.kind === "rect" && e.fill === "paper");
+  if (!tile) return {};
+  const letter = texts(p).find((t) => t.color === "ink" && t.x >= tile.x - 0.01 && t.x + t.width <= tile.x + tile.w + 0.01 && t.y >= tile.y && t.y <= tile.y + tile.h);
+  return { tile, letter };
+}
+/** Every text but the filing tab's letter (the name is the largest of these). */
+const plainTexts = (p: LabelPage) => {
+  const { letter } = tabOf(p);
+  return texts(p).filter((t) => t !== letter);
+};
+/** What a text inks: cap height above the baseline. */
+const capBox = (t: LabelText) => ({ x1: t.x, x2: t.x + t.width, y1: t.y - (FONT_METRICS[t.font].capHeight / 1000) * t.size, y2: t.y });
 
 function extent(p: LabelPage) {
   let minX = Infinity;
@@ -113,7 +130,7 @@ function checkLabel(b: LabelBag, stock: LabelStock, p: LabelPage, label: string)
   // The customer's name: the largest type, white on the banner
   const banner = bannerOf(p);
   assert.ok(banner && banner.kind === "rect", `${label}: banner`);
-  const biggest = Math.max(...texts(p).map((t) => t.size));
+  const biggest = Math.max(...plainTexts(p).map((t) => t.size));
   const nameLines = texts(p).filter((t) => t.font === "display900" && t.color === "paper" && t.size === biggest);
   assert.ok(nameLines.length >= 1, `${label}: the name is the largest type`);
   // Every letter of the name, in order, never cut (a word too long for the line may break between letters)
@@ -127,8 +144,31 @@ function checkLabel(b: LabelBag, stock: LabelStock, p: LabelPage, label: string)
   assert.ok(right <= banner.x + banner.w && right >= banner.x + banner.w - 0.08 * banner.w, `${label}: due at the banner's right`);
   for (const t of nameLines) assert.ok(t.x + t.width <= due.x + due.width, `${label}: name stays left of the due date`);
 
-  // Bag ID on the tier row (mono, ink) and in the QR block
-  assert.ok(texts(p).filter((t) => t.text === b.bagCode && t.font === "mono600").length >= 2, `${label}: Bag ID twice`);
+  // The filing tab: a white square in the banner's top right corner (right edge with the due date's, above the
+  // name), its letter black, the customer's last-name letter, never smaller than the due date, clear of everything
+  const { tile, letter } = tabOf(p);
+  assert.ok(tile && letter, `${label}: filing tab`);
+  assert.equal(p.elements.filter((e) => e.kind === "rect" && e.fill === "paper").length, 1, `${label}: one tab`);
+  assert.equal(letter.text, filingLetter(b.customerName), `${label}: filed under ${letter.text}`);
+  assert.equal(letter.font, "display900");
+  assert.ok(tile.x >= banner.x && tile.x + tile.w <= banner.x + banner.w && tile.y >= banner.y && tile.y + tile.h <= banner.y + banner.h, `${label}: tab inside the banner`);
+  assert.ok(near(tile.x + tile.w, due.x + due.width, 0.01), `${label}: tab right-aligned with the due date`);
+  assert.ok(tile.y + tile.h <= due.y - (FONT_METRICS[due.font].capHeight / 1000) * due.size + 1e-6, `${label}: tab above the due date`);
+  assert.ok(tile.y <= Math.min(...nameLines.map((t) => capBox(t).y1)) + 1e-6, `${label}: tab at the top, not below the name's first line`);
+  const cap = capBox(letter);
+  assert.ok(cap.x1 >= tile.x && cap.x2 <= tile.x + tile.w && cap.y1 >= tile.y && cap.y2 <= tile.y + tile.h, `${label}: letter inside its tab`);
+  const date = texts(p).find((t) => t.color === "paper" && t.font === "display900" && !nameLines.includes(t))!;
+  assert.ok(date && letter.size >= date.size - 1e-9, `${label}: letter ${letter.size}pt at least the due date's ${date?.size}pt`);
+  for (const t of texts(p)) {
+    if (t === letter) continue;
+    const c = capBox(t);
+    const clear = c.x2 <= tile.x + 0.2 || c.x1 >= tile.x + tile.w - 0.2 || c.y2 <= tile.y + 0.2 || c.y1 >= tile.y + tile.h - 0.2;
+    assert.ok(clear, `${label}: "${t.text}" clear of the tab`);
+  }
+
+  // Bag ID on the tier row (mono, ink) and in the QR block (on the narrow 50 x 80 mm label, the tier row only)
+  const narrow = printedWidth(stock) < 2 * PT - 0.5;
+  assert.ok(texts(p).filter((t) => t.text === b.bagCode && t.font === "mono600").length >= (narrow ? 1 : 2), `${label}: Bag ID ${narrow ? "once" : "twice"}`);
 
   // Listed cards: a prefix of the bag's cards by number, each with its number and name
   const sorted = [...b.cards].sort((x, y) => x.seq - y.seq);
@@ -210,14 +250,18 @@ function overlaps(p: LabelPage): string[] {
   const boxes: Box[] = p.elements.map((e) =>
     e.kind === "text" ? { kind: "text", what: `"${e.text}"`, x1: e.x, x2: e.x + e.width, y1: e.y - (FONT_METRICS[e.font].capHeight / 1000) * e.size, y2: e.y }
     : e.kind === "qr" ? { kind: "qr", what: "QR", x1: e.x, x2: e.x + e.size, y1: e.y, y2: e.y + e.size }
-    : e.kind === "rect" ? { kind: e.h > 30 ? "banner" : "rule", what: `rect at ${e.y.toFixed(1)}`, x1: e.x, x2: e.x + e.w, y1: e.y, y2: e.y + e.h }
+    : e.kind === "rect" ? { kind: e.fill === "paper" ? "tab" : e.h > 30 ? "banner" : "rule", what: `${e.fill === "paper" ? "tab" : "rect"} at ${e.y.toFixed(1)}`, x1: e.x, x2: e.x + e.w, y1: e.y, y2: e.y + e.h }
     : { kind: "rule", what: `rule at ${e.y1.toFixed(1)}`, x1: Math.min(e.x1, e.x2), x2: Math.max(e.x1, e.x2), y1: e.y1 - e.width / 2, y2: e.y1 + e.width / 2 });
   const hit = (a: Box, b: Box) => a.x1 < b.x2 - 0.2 && b.x1 < a.x2 - 0.2 && a.y1 < b.y2 - 0.2 && b.y1 < a.y2 - 0.2;
+  // The tab's own letter stands on it
+  const { letter } = tabOf(p);
+  const li = letter ? p.elements.indexOf(letter) : -1;
+  const own = (i: number, j: number) => (boxes[i].kind === "tab" && j === li) || (boxes[j].kind === "tab" && i === li);
   const out: string[] = [];
   for (let i = 0; i < boxes.length; i++) {
     for (let j = i + 1; j < boxes.length; j++) {
       const [a, b] = [boxes[i], boxes[j]];
-      if (a.kind === "banner" || b.kind === "banner" || (a.kind !== "text" && b.kind !== "text")) continue;
+      if (a.kind === "banner" || b.kind === "banner" || (a.kind !== "text" && b.kind !== "text" && a.kind !== "tab" && b.kind !== "tab") || own(i, j)) continue;
       if (hit(a, b)) out.push(`${a.what} × ${b.what}`);
     }
   }
@@ -256,7 +300,7 @@ test("accented capitals get room above them: never into the kicker or the line a
     const p = layoutBagLabel(bag(3, { customerName }), DEFAULT);
     checkLabel(bag(3, { customerName }), DEFAULT, p, customerName);
     const kicker = texts(p).find((t) => t.text === "THE CARD DOC · CUSTOMER")!;
-    const biggest = Math.max(...texts(p).map((t) => t.size));
+    const biggest = Math.max(...plainTexts(p).map((t) => t.size));
     const lines = texts(p).filter((t) => t.font === "display900" && t.color === "paper" && t.size === biggest).sort((a, b) => a.y - b.y);
     lines.forEach((t, i) => {
       if (!/[\u0300-\u0315]/.test(t.text.normalize("NFD"))) return;
@@ -290,7 +334,7 @@ test("printable: emoji and invisible characters left out, Latin letters spelled 
 
 test("the due date: big beside the name, weekday, missing or set-date, other year", () => {
   const p = layoutBagLabel(bag(3), DEFAULT);
-  const name = Math.max(...texts(p).map((t) => t.size));
+  const name = Math.max(...plainTexts(p).map((t) => t.size));
   const date = texts(p).find((t) => t.text === "DEC 7")!;
   assert.equal(date.font, "display900");
   assert.equal(date.color, "paper");
@@ -319,6 +363,108 @@ test("long names wrap or shrink, never cut", () => {
   assert.equal(short.nameLines, 1);
   assert.ok(short.nameSize > long.nameSize);
   assert.equal(long.nameLines, 3, "breaks after the hyphen");
+});
+
+/**
+ * The names the filing tab is checked with, the letter each is filed under,
+ * and the name's size (pt) and lines on 4x6 at 3.2 in and on 50 x 80 mm as
+ * the label set them before the tab (Nov 25 2026), due Dec 7 / due next year.
+ */
+const FILED: [name: string, letter: string, wide: [number, number, number, number], mm50: [number, number, number, number]][] = [
+  ["Jordan Reyes", "R", [42.66, 2, 41.14, 2], [14.34, 1, 14.34, 2]],
+  ["Tom Brady", "B", [42.66, 2, 42.66, 2], [14.34, 1, 14.34, 1]],
+  ["Madonna", "M", [39.64, 1, 34.79, 1], [14.34, 1, 14.34, 1]],
+  ["Maximiliana Featherstonehaugh-Worthington", "F", [25.96, 3, 23.22, 3], [9.56, 3, 9.4, 3]],
+  ["2Pac", "#", [42.66, 1, 42.66, 1], [14.34, 1, 14.34, 1]],
+  ["3M Collectibles", "C", [31.67, 2, 28.29, 2], [14.34, 2, 14.13, 2]],
+];
+const MM50 = fullWidthPoints("50x80mm");
+
+test("filing tab: the last name's letter, big in the banner's top right, on 4x6 and 50 x 80 mm; the name and the QR keep their size", () => {
+  const sides: Record<string, Set<number>> = { wide: new Set(), mm50: new Set() };
+  for (const [name, expected, wide, mm50] of FILED) {
+    assert.equal(filingLetter(name), expected, `${name}: filed under ${expected}`);
+    for (const [key, stock, sizes] of [["wide", DEFAULT, wide], ["mm50", MM50, mm50]] as const) {
+      for (const [i, dueDate] of (["2026-12-07", "2027-01-08", null] as const).entries()) {
+        for (const n of [1, 4, 12, 40]) {
+          const b = bag(n, { customerName: name, dueDate, receivedOn: "2026-11-15", otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] });
+          const label = `${name}, ${key}, ${n} cards, due ${dueDate}`;
+          const { page, fit } = planBagLabel(b, stock);
+          const before = planBagLabel(b, stock, { filingTab: false });
+          checkLabel(b, stock, page, label);
+          assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+          // The name: the size and lines it had without the tab, the same words
+          assert.equal(fit.nameSize, before.fit.nameSize, `${label}: name size kept`);
+          assert.equal(fit.nameLines, before.fit.nameLines, `${label}: name lines kept`);
+          const nameOf = (pg: LabelPage) => texts(pg).filter((t) => t.color === "paper" && t.font === "display900" && t.size === fit.nameSize).map((t) => t.text);
+          assert.deepEqual(nameOf(page), nameOf(before.page), `${label}: the name set the same way`);
+          if (i < 2) assert.deepEqual([fit.nameSize, fit.nameLines], [sizes[2 * i], sizes[2 * i + 1]], `${label}: name as before the tab`);
+          // The QR: the same size
+          assert.equal(qrs(page)[0].size, qrs(before.page)[0].size, `${label}: QR size kept`);
+          // The tab: the letter, the side the fit reports, inside the printed width (on 50 x 80 mm, the head's 48 mm)
+          const { tile, letter } = tabOf(page);
+          assert.ok(fit.filing && tile && letter);
+          assert.equal(fit.filing.letter, expected);
+          assert.equal(letter.text, expected);
+          assert.ok(near(tile.w, fit.filing.side) && near(tile.h, fit.filing.side) && letter.size === fit.filing.size, `${label}: tab as reported`);
+          const w = printedWidth(stock);
+          assert.ok(tile.x >= (stock.pageW - w) / 2 - 1e-9 && tile.x + tile.w <= (stock.pageW + w) / 2 + 1e-9, `${label}: tab inside the printed width`);
+          if (key === "mm50") {
+            const head = (48 / 25.4) * PT;
+            assert.ok(tile.x >= (stock.pageW - head) / 2 && tile.x + tile.w <= (stock.pageW + head) / 2, `${label}: tab inside the 48 mm head`);
+          }
+          // The stock's tab, unless a long name leaves less room beside it (then as large as fits, the due date's size at least)
+          if (name.length < 30) sides[key].add(fit.filing.side);
+          else assert.ok(fit.filing.side <= planBagLabel(bag(1), stock).fit.filing!.side + 1e-9, `${label}: tab no larger than the stock's`);
+        }
+      }
+    }
+  }
+  // Every bag on a stock gets the same tab: a quarter inch at least, larger on 4x6
+  assert.deepEqual([...sides.mm50], [18], "50 x 80 mm: a 0.25 in tab");
+  assert.equal(sides.wide.size, 1, `4x6: one tab size (${[...sides.wide]})`);
+  assert.ok([...sides.wide][0] >= 30, "4x6: a tab of 30 pt or more");
+  // The letter: black on white, the due date's size at least, the name's size at most on 4x6
+  const p = layoutBagLabel(bag(4), DEFAULT);
+  const { tile, letter } = tabOf(p);
+  assert.equal(tile!.fill, "paper");
+  assert.equal(letter!.color, "ink");
+  assert.ok(letter!.size <= planBagLabel(bag(4), DEFAULT).fit.nameSize);
+  // On 4x6 the banner is as tall as it was for JORDAN REYES: the tab takes no room from the cards
+  const bannerH = (pg: LabelPage) => {
+    const r = bannerOf(pg);
+    return r.kind === "rect" ? r.h : NaN;
+  };
+  assert.equal(bannerH(p), bannerH(planBagLabel(bag(4), DEFAULT, { filingTab: false }).page));
+});
+
+test("filing tab: the same tab on every bag of a stock; \"Also in this order\" gives way to cards the tab would hide", () => {
+  for (const stock of [DEFAULT, MM50, stockPoints("4x6", 2), stockPoints("4x6", 4), stockPoints("3x5", 2.6)]) {
+    const where = `${(stock.contentW / PT).toFixed(2)} in on ${(stock.pageW / PT).toFixed(2)} x ${(stock.pageH / PT).toFixed(2)}`;
+    const full = planBagLabel(bag(1), stock).fit.filing!.side;
+    assert.ok(full >= 18, `${where}: tab ${full}pt`);
+    for (const name of ["Jordan Reyes", "Madonna", "Maria de los Angeles Gutierrez-Fernandez"]) {
+      for (const n of [1, 2, 4, 6, 8, 9, 12, 16, 24, 40]) {
+        const b = bag(n, { customerName: name, otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] });
+        const label = `${name}, ${n} cards, ${where}`;
+        const { page, fit } = planBagLabel(b, stock);
+        const before = planBagLabel(b, stock, { filingTab: false });
+        // The stock's tab; only a long name with little room beside it gets a smaller one
+        if (name.length < 30) assert.equal(fit.filing!.side, full, `${label}: the stock's tab`);
+        else assert.ok(fit.filing!.side <= full + 1e-9 && (fit.filing!.side === full || fit.nameLines >= 2), `${label}: tab ${fit.filing!.side}pt`);
+        // Fewer cards listed than without the tab: "Also in this order" went first
+        if (fit.shown < before.fit.shown) assert.ok(!words(page).some((w) => w.startsWith("Also in this order")), `${label}: Also gave way first`);
+        // Never more than a few rows' worth fewer
+        assert.ok(before.fit.shown - fit.shown <= 2 * fit.cols * 2, `${label}: ${before.fit.shown} -> ${fit.shown} listed`);
+      }
+    }
+  }
+  // The owner's labels: on 4x6 at 3.2 in a 40-card bag still lists every card; on 50 x 80 mm a 4-card bag
+  // lists every card with its set and number in full ("Also in this order" makes room)
+  assert.equal(planBagLabel(bag(40), DEFAULT).fit.more, 0);
+  const four = planBagLabel(bag(4, { otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] }), MM50);
+  assert.equal(four.fit.more, 0);
+  for (const c of bag(4).cards) assert.ok(words(four.page).includes(`${c.year} ${c.set} #${c.number}`), `50 x 80 mm: ${c.code}'s set in full`);
 });
 
 test("fitName: up to the max, breaks at spaces and after hyphens, fewer lines on a tie, always fits", () => {
@@ -386,7 +532,7 @@ test("Also in this order names the order's other bags with cards", () => {
 
 /** The name's lines (the largest type) and the due block's words, white in the banner. */
 function bannerParts(p: LabelPage) {
-  const biggest = Math.max(...texts(p).map((t) => t.size));
+  const biggest = Math.max(...plainTexts(p).map((t) => t.size));
   const name = texts(p).filter((t) => t.font === "display900" && t.color === "paper" && t.size === biggest).sort((a, b) => a.y - b.y);
   const due = texts(p).find((t) => t.text === "DUE" && t.color === "paper")!;
   const dueWords = texts(p).filter((t) => t.color === "paper" && !name.includes(t) && t.y > due.y - 0.01);
