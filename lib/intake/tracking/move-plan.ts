@@ -1,5 +1,5 @@
 import { adminStageLabel } from "@/lib/restoration-stages";
-import { stageIndex } from "@/lib/intake/stage-plan";
+import { stageIndex, stepEmailsCustomer } from "@/lib/intake/stage-plan";
 import { DONE_STAGE_KEY } from "@/lib/intake/tracking/places";
 import type { LocationKind, MoveAction, TrackCardResult } from "@/lib/intake/tracking/types";
 
@@ -13,9 +13,14 @@ import type { LocationKind, MoveAction, TrackCardResult } from "@/lib/intake/tra
  *   except by `release`: a card refunded while it sat in a slot can still be
  *   taken out, so the slot frees up.
  * - Into a slot (kind 'station'): the card's step becomes the slot's step,
- *   forward only. A card at an earlier step (or not started) jumps to it; a
- *   card already at a later step keeps its step (it still goes in the slot,
- *   and the result says so); a done card stays done.
+ *   whether that is later or earlier than its step now: steps are taken in
+ *   any order (the owner, Nov 25 2026), so a Clamp Work card put in a heat
+ *   press is at Heat Press. A done card stays done (un-done it on the order
+ *   page first).
+ * - The customer is emailed only about a step past the furthest one the card
+ *   reached this round (stepEmailsCustomer in lib/intake/stage-plan.ts; the
+ *   move's `email`); going back, or to a step it already reached, writes a
+ *   staff-only step event and no email.
  * - Into a Done place (kind 'done'), or `done`: the card is marked done.
  * - Shelves, Shipping and other places only change where the card is.
  * - `release` takes the card out of its slot (no place); its step stays.
@@ -42,6 +47,8 @@ export type PlanCard = {
   /** Current stage this round (stored name), null = not started. */
   current: string | null;
   round: number;
+  /** furthestStageIndex() this round, for the email rule; default: the current step's index. */
+  furthest?: number;
 };
 
 /** One card's change. */
@@ -57,6 +64,8 @@ export type PlannedMove = {
   locationChanges: boolean;
   /** A stage_update event to write (into a slot). */
   stageEvent: { stage: string; round: number } | null;
+  /** The step is new for the customer (stepEmailsCustomer): in the order's one email, event customer visible. */
+  email: boolean;
   /** Mark the card done. */
   complete: boolean;
   action: MoveAction;
@@ -76,7 +85,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const cardsWord = (n: number) => plural(n, "card");
 const label = (c: Pick<PlanCard, "code" | "name">) => c.code ?? c.name ?? "This card";
 
-type Note = "stage_set" | "later_kept" | "done_kept" | "completed" | "released" | null;
+type Note = "stage_set" | "done_kept" | "completed" | "released" | null;
 
 /**
  * Plan `action` for the cards `cardIds` (in that order; repeats count once).
@@ -97,8 +106,7 @@ export function planCards(input: {
   const byId = new Map(input.cards.map((c) => [c.id, c]));
   const moves: PlannedMove[] = [];
   const results: TrackCardResult[] = [];
-  const notes = { stageSet: 0, laterKept: 0, doneKept: 0, completed: 0, released: 0 };
-  const laterStages = new Set<string>();
+  const notes = { stageSet: 0, doneKept: 0, completed: 0, released: 0 };
   const refused: string[] = [];
   const stageLabel = target?.kind === "station" && target.stage ? adminStageLabel(target.stage) : null;
 
@@ -129,13 +137,9 @@ export function planCards(input: {
       if (!card.completed) { complete = true; note = "completed"; }
     } else if (target?.kind === "station" && target.stage) {
       if (card.completed) note = "done_kept";
-      else {
-        const have = stageIndex(card.current);
-        const want = stageIndex(target.stage);
-        if (have < want) { stageEvent = { stage: target.stage, round: card.round }; note = "stage_set"; }
-        else if (have > want) note = "later_kept";
-      }
+      else if (card.current !== target.stage) { stageEvent = { stage: target.stage, round: card.round }; note = "stage_set"; }
     }
+    const email = !!stageEvent && stepEmailsCustomer(stageEvent.stage, card.furthest ?? stageIndex(card.current));
     const toId = target?.id ?? null;
     const locationChanges = card.locationId !== toId;
     if (action === "release" && locationChanges) note = "released";
@@ -160,6 +164,7 @@ export function planCards(input: {
       stageAfter: after,
       locationChanges,
       stageEvent,
+      email,
       complete,
       action: input.actionName ?? (complete ? "done" : action === "release" ? "release" : action),
     });
@@ -167,20 +172,18 @@ export function planCards(input: {
     if (note === "completed") notes.completed++;
     if (note === "done_kept") notes.doneKept++;
     if (note === "released") notes.released++;
-    if (note === "later_kept") { notes.laterKept++; if (card.current) laterStages.add(adminStageLabel(card.current)); }
-    results.push({ ...base, ok: true, changed: true, ...stageFields, message: cardMessage(action, target, note, card, stageLabel) });
+    results.push({ ...base, ok: true, changed: true, ...stageFields, message: cardMessage(action, target, note, stageLabel) });
   }
 
-  return { moves, results, message: summary(action, target, moves.length, results, notes, laterStages, stageLabel, refused) };
+  return { moves, results, message: summary(action, target, moves.length, results, notes, stageLabel, refused) };
 }
 
-function cardMessage(action: PlanAction, target: PlanLocation | null, note: Note, card: PlanCard, stageLabel: string | null): string {
+function cardMessage(action: PlanAction, target: PlanLocation | null, note: Note, stageLabel: string | null): string {
   if (action === "release") return "Taken out of its slot.";
   if (note === "completed") return target ? `Done. In ${target.name}.` : "Done.";
   if (action === "done") return target ? `Already done. In ${target.name}.` : "Already done. Taken out of its slot.";
   const where = `In ${target!.name}.`;
   if (note === "stage_set") return `${where} Step: ${stageLabel}.`;
-  if (note === "later_kept") return `${where} Step stays ${card.current ? adminStageLabel(card.current) : "as it was"} (past ${stageLabel}).`;
   if (note === "done_kept") return `${where} It's done, so the step wasn't changed.`;
   return where;
 }
@@ -190,8 +193,7 @@ function summary(
   target: PlanLocation | null,
   changed: number,
   results: readonly TrackCardResult[],
-  notes: { stageSet: number; laterKept: number; doneKept: number; completed: number; released: number },
-  laterStages: Set<string>,
+  notes: { stageSet: number; doneKept: number; completed: number; released: number },
   stageLabel: string | null,
   refused: readonly string[],
 ): string {
@@ -211,9 +213,6 @@ function summary(
   if (changed && ok > changed) parts.push(`${ok - changed} already there.`);
   if (action !== "done" && notes.completed) parts.push(`${cardsWord(notes.completed)} marked done.`);
   if (notes.stageSet) parts.push(`Step: ${stageLabel}${notes.stageSet < ok ? ` for ${cardsWord(notes.stageSet)}` : ""}.`);
-  if (notes.laterKept) {
-    parts.push(`${cardsWord(notes.laterKept)} past ${stageLabel} kept ${notes.laterKept === 1 ? "its" : "their"} step${laterStages.size === 1 ? ` (${[...laterStages][0]})` : ""}.`);
-  }
   if (notes.doneKept) parts.push(`${cardsWord(notes.doneKept)} already done.`);
   if (refused.length) {
     const counts = new Map<string, number>();
