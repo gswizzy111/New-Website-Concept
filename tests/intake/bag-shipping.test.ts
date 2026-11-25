@@ -417,6 +417,17 @@ test("the packing page: rates with the paid service flagged, a whole-order label
   // A done card still in a clamp
   const slot = await svc.buyBagLabel(admin, { bagId: B_SLOT, by: "gavin" }, { shippo: port, preview: false });
   assert.ok(!slot.ok && slot.status === 409 && slot.body.error === "1 card is still in a holder (CLAMP 01).");
+  // ... or on the old Done shelf (a loose pile) or a desk: still out of the bag (isBackInBag, as the Ready to ship bin)
+  const slotCard = mock.store.table("cards").find((c) => c.bag_id === B_SLOT)!;
+  try {
+    slotCard.location_id = id(302);
+    const onDoneShelf = await svc.buyBagLabel(admin, { bagId: B_SLOT, by: "gavin" }, { shippo: port, preview: false });
+    assert.ok(!onDoneShelf.ok && onDoneShelf.status === 409 && onDoneShelf.body.error === "1 card is still out of the bag (on the Done shelf).", JSON.stringify(onDoneShelf));
+    const packing = await svc.loadPacking(admin, B_SLOT);
+    assert.ok(packing.ok && packing.body.check.cards[0].status === "in_slot" && !packing.body.canBuy && packing.body.next === "blocked");
+  } finally {
+    slotCard.location_id = CLAMP;
+  }
   // Every card refunded
   const refunded = await svc.buyBagLabel(admin, { bagId: B_REFUND, by: "gavin" }, { shippo: port, preview: false });
   assert.ok(!refunded.ok && refunded.status === 409 && refunded.body.error === "Every card in this bag was refunded: there is nothing to ship.");

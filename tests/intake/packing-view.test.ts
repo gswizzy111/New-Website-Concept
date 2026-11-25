@@ -67,6 +67,9 @@ test("each card's mark: Done, Still in <holder>, Not done, Refunded", () => {
   assert.deepEqual(checkMark(card("a", "ok")), { tone: "ok", text: "Done" });
   assert.deepEqual(checkMark(card("a", "in_slot")), { tone: "warn", text: "Still in CLAMP 07" });
   assert.deepEqual(checkMark(card("a", "in_slot", { location: null })), { tone: "warn", text: "Still in a holder" });
+  // A done card out of its bag elsewhere (isBackInBag): on a desk, on the old Done shelf
+  assert.deepEqual(checkMark(card("a", "in_slot", { location: { id: "d", code: "LOC-DESK", name: "DESK", kind: "other", station: null, serial: null, stage: null } })), { tone: "warn", text: "Still on DESK" });
+  assert.deepEqual(checkMark(card("a", "in_slot", { location: { id: "x", code: "LOC-DONE", name: "Done", kind: "done", station: null, serial: null, stage: null } })), { tone: "warn", text: "Still on the Done shelf" });
   assert.deepEqual(checkMark(card("a", "not_done")), { tone: "bad", text: "Not done" });
   assert.deepEqual(checkMark(card("a", "refunded")), { tone: "refunded", text: "Refunded" });
 });

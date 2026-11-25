@@ -21,6 +21,7 @@ node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press 
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
 node tests/intake/e2e/scenarios.mjs --only 'done-*'   # a finished card: back in its bag, Open bags box A-Z, Ready to ship, order auto-complete
+node tests/intake/e2e/scenarios.mjs --only 'pack-*'   # packing one bag (fake Shippo): buy, print, Mark shipped; split orders; pack-from-scan: "Pack and ship this bag" from the scan landing and the Bags board, "Shipped · <tracking>"
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 

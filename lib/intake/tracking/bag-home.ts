@@ -163,8 +163,12 @@ export function bagPlacePhrase(loc: NamedPlace | null | undefined, letter: strin
   return `at ${loc.name}`;
 }
 
-/** What the done and open-bags sentences need of a bag (`code`, `tierName`, `returnedCodes` tell two bags of one customer apart). */
-export type BagWords = Pick<TrackBagPlace, "customer" | "letter" | "location"> & Partial<Pick<TrackBagPlace, "code" | "tierName" | "returnedCodes">>;
+/**
+ * What the done and open-bags sentences need of a bag (`code`, `tierName`,
+ * `returnedCodes` tell two bags of one customer apart; `orderBagCount` 2+:
+ * the bag's order has other bags, so one bag is named by tier and Bag ID too).
+ */
+export type BagWords = Pick<TrackBagPlace, "customer" | "letter" | "location"> & Partial<Pick<TrackBagPlace, "code" | "tierName" | "returnedCodes" | "orderBagCount">>;
 
 /** Two or more of these bags share an owner (one customer's Platinum and Gold bags, or bags with no name): name them by tier and Bag ID. */
 function ownersClash(bags: readonly Pick<TrackBagPlace, "customer">[]): boolean {
@@ -180,7 +184,10 @@ export function fullBagName(bag: Pick<TrackBagPlace, "customer"> & Partial<Pick<
 
 /**
  * After Done, what to do with the cards: "Put it back in REYES's bag: Open
- * bags box, under R." (`cards` > 1: "Put them back in ..."); several bags:
+ * bags box, under R." (`cards` > 1: "Put them back in ..."); a bag of an
+ * order with 2+ bags (`orderBagCount`, one customer's Platinum and Gold bags)
+ * is named by tier and Bag ID: "Put it back in REYES's Platinum bag
+ * CD-2549-P: Open bags box, under R."; several bags:
  * "Put each back in its bag: REYES's (Open bags box, under R), SMITH's (on
  * shelf DUE MON DEC 7)."; "" with no bag. Bags of one customer (a mixed-tier
  * order) are told apart by tier and Bag ID, with the cards for each: "Put
@@ -192,9 +199,12 @@ export function putBackSentence(bags: readonly BagWords[], cards = 1): string {
   if (!bags.length) return "";
   if (bags.length === 1) {
     const [bag] = bags;
-    const whose = owners(bag.customer) ?? "its";
     const where = bagPlacePhrase(bag.location, bag.letter);
-    return `Put ${cards > 1 ? "them" : "it"} back in ${whose} bag${where ? `: ${where}` : ""}.`;
+    // The order has other bags (the same customer's name on each): which one, by tier and Bag ID
+    const named = (bag.orderBagCount ?? 1) > 1 && (bag.code || bag.tierName?.trim())
+      ? fullBagName(bag)
+      : `${owners(bag.customer) ?? "its"} bag`;
+    return `Put ${cards > 1 ? "them" : "it"} back in ${named}${where ? `: ${where}` : ""}.`;
   }
   if (ownersClash(bags)) {
     const each = bags.map((b) => {
@@ -289,6 +299,8 @@ export function bagPlaceOf(input: {
   tierName?: string | null;
   /** Card IDs of the cards put back in it with this request. */
   returnedCodes?: readonly (string | null)[];
+  /** How many tier bags the order has (2+: the put-back sentence names the bag by tier and Bag ID). */
+  orderBagCount?: number;
 }): TrackBagPlace {
   const live = input.cards.filter((c) => !c.refunded);
   const done = live.filter((c) => c.completed).length;
@@ -305,6 +317,7 @@ export function bagPlaceOf(input: {
     cardCount: live.length,
     ...(input.tierName ? { tierName: input.tierName } : {}),
     ...(input.returnedCodes?.some(Boolean) ? { returnedCodes: input.returnedCodes.filter((c): c is string => !!c) } : {}),
+    ...(input.orderBagCount ? { orderBagCount: input.orderBagCount } : {}),
   };
 }
 

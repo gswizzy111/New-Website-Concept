@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
 import { codeKind, normalizeCode } from "@/lib/intake/codes";
 import { resolveCode } from "@/lib/intake/data";
+import { loadBagShipStates } from "@/lib/intake/shipping/bag-states";
 import { loadOrdersContext } from "@/lib/intake/tracking/context";
 import { DESK_CODE, deskCardView, deskPlaces, ensureDesk, pickDesk, type DeskCardRow, type DeskOrderRow, type DeskPlace } from "@/lib/intake/tracking/desk";
 import { bagSummary, byBag, bySeq } from "@/lib/intake/tracking/summaries";
@@ -14,7 +15,9 @@ import type { OpenDesk, OpenInput } from "./view";
  * (lib/intake/tracking/context.ts) plus the few columns the Desk shows
  * (notes, known defects, declared value, the customer's order notes), each
  * card turned into the Desk's view (deskCardView), so where a card is reads
- * exactly as on the Scan and Desk pages. Nothing here writes, except making
+ * exactly as on the Scan and Desk pages; and each bag's live return label
+ * (bag_shipments, lib/intake/shipping/bag-states.ts: a shipped bag says
+ * "Shipped · <tracking>"; none before that migration). Nothing here writes, except making
  * the first desk (LOC-DESK) when there is none, as the Desk page does.
  */
 
@@ -39,10 +42,12 @@ export async function loadOpen(admin: SupabaseClient, raw: string): Promise<Open
     const orderId = found.orderId ?? (found.kind === "order" ? found.id : null);
     if (!orderId) return { ok: false, status: 404 };
 
-    const [ctx, extras, notes] = await Promise.all([
+    const [ctx, extras, notes, shipments] = await Promise.all([
       loadOrdersContext(admin, [orderId]),
       fetchAll<ExtraRow>((from, to) => admin.from("cards").select(EXTRA_CARD_COLUMNS).eq("order_id", orderId).order("id").range(from, to)),
       admin.from("orders").select("id, customer_notes").eq("id", orderId).maybeSingle(),
+      // Each bag's live label (never throws: none before the bag_shipments migration)
+      loadBagShipStates(admin, { orderId }),
     ]);
     if (notes.error) throw new Error(notes.error.message);
     const order = ctx.orders.get(orderId);
@@ -57,7 +62,7 @@ export async function loadOpen(admin: SupabaseClient, raw: string): Promise<Open
       const s = bagSummary(b, ctx.cards, ctx);
       return {
         id: s.id, code: s.code, tier: s.tier, tierName: s.tierName, dueDate: s.dueDate, complete: s.complete,
-        cardCount: s.cardCount, doneCount: s.doneCount, location: s.location,
+        cardCount: s.cardCount, doneCount: s.doneCount, location: s.location, shipment: shipments.get(s.id) ?? null,
       };
     });
     return {

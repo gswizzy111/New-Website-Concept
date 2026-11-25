@@ -314,9 +314,19 @@ found", the /q wording).
   order's line when the order completed. A bag whose every card is done
   shows ONE big step "Bag finished: put it in the Ready to ship bin" with
   "It's in the Ready to ship bin" (`POST /api/admin/track/bag-ready`), then
-  "In the Ready to ship bin". `_lib/view.ts`: `canFinish`, `doneAllIds`,
-  `doneAllLabel`, `doneAllQuestion`, `doneOutcome`, `openBagsLine`,
-  `bagSteps`, `bagStepTitle`.
+  "In the Ready to ship bin"; under either, a secondary "Pack and ship this
+  bag" (`packCodePath(code)`, the packing page; with "Label bought, not
+  shipped" / "Label being bought" beside the count while a bag label is
+  live). Once the bag's return label went out (`bag_shipments` shipped or
+  delivered) the step reads "Shipped · <tracking>" ("Bag CD-2549-P shipped ·
+  …" with several bags; "Track package", "Packing page", " · Delivered"),
+  whatever the order's status, and the header's "Bag:" says "Shipped" /
+  "Delivered" (the bag's place stays LOC-SHIP). Labels are read by
+  `loadBagShipStates` (`lib/intake/shipping/bag-states.ts`; none before the
+  bag_shipments migration: the page is as before). `_lib/view.ts`:
+  `canFinish`, `doneAllIds`, `doneAllLabel`, `doneAllQuestion`,
+  `doneOutcome`, `openBagsLine`, `bagSteps`, `bagStepTitle`,
+  `stepWaitsForBin`, `stepLabelNote`, `PACK_LINK_TEXT`.
 - **Moves**: `POST /api/admin/track/assign { locationCode: <desk code>, cardIds }`
   (no new route): the place only, never the step, no email. N = cards received,
   not done, not refunded and not on that desk; then "N cards are on your desk" +
@@ -483,7 +493,10 @@ with A-Z dividers by the customer's last name.
   says where the bag is:
   `message` "Done. Put it back in REYES's bag: Open bags box, under R."
   (TrackActionResponse `bags: TrackBagPlace[]`; the stages route
-  `bagPlaces`). The bag's last card adds "Bag finished: put it in the Ready
+  `bagPlaces`). When the card's order has 2+ bags (one customer's Platinum
+  and Gold bags: `TrackBagPlace.orderBagCount`), the one bag is named by tier
+  and Bag ID: "Put it back in REYES's Platinum bag CD-2549-P: Open bags box,
+  under R."; a one-bag order keeps "REYES's bag". The bag's last card adds "Bag finished: put it in the Ready
   to ship bin." The order page's Done toggle does the same
   (`toggleCardCompletion`). Bags of one customer (a mixed-tier order) in one
   answer are named apart, with the cards for each: "Put each back in its
@@ -495,6 +508,12 @@ with A-Z dividers by the customer's last name.
   ship bin). One in a holder, on a desk or on the old Done shelf (LOC-DONE, a
   loose pile) is still out: its bag isn't `finished`, the scan landing shows
   it "Done · in CLAMP 07" with a Done that puts it back, and no bin step.
+  The ship checks use the same rule (`shipCheckStatus` in
+  `lib/intake/tracking/summaries.ts` and `components/intake/ship/rules.ts`):
+  such a card is `in_slot` ("Still in CLAMP 07", "Still on DESK", "Still on
+  the Done shelf"), so no bag label is bought for its bag ("1 card is still
+  out of the bag (on DESK)."); the ship check page's button for one outside
+  a holder is "Back in its bag" (release: no place).
 - **Open bags box** (`LOC-OPEN-BAGS` "OPEN BAGS", kind 'other', made on first
   use by `ensureOpenBags`, switched back on if off): every assign / move
   (`settleBags` after `writePlan`) files in it the bag of any card that comes
@@ -530,7 +549,11 @@ with A-Z dividers by the customer's last name.
   (the order's line under a card's Mark done), the Bags board (the bag's
   place, "3 of 4 done"; below the open bags a "Ready to ship" section: the
   finished bags not shipped yet, a Completed order's included, the ones not
-  in the bin first, each with "Open bag" to its scan landing), the step
+  in the bin first, each with "Pack and ship" (its packing page) and "Open
+  bag" (its scan landing); a bag whose return label went out (bag_shipments
+  shipped / delivered) is left out, one with a label bought and not shipped
+  says "Label bought, not shipped" ("Label being bought" while claimed);
+  before the bag_shipments migration the list is as before), the step
   picker (its Done line), the order page's Done toggle (the bag line and the
   order's line).
 - `TrackCardSummary.bagLocation` (optional): where the card's bag is.
@@ -766,8 +789,9 @@ found"). Phone first, one step at a time from the packing API's `next`:
 - **The check** ("Match the cards in the bag"): each card with a small photo
   (receiving photo, else the customer's, else the catalog picture), name,
   Card ID and a big mark: ✓ "Done", ✗ "Not done", ⚠ "Still in CLAMP 07"
-  (not done / in a holder also get "Open card →"); refunded cards listed
-  apart ("Refunded: not in this package").
+  (any done card not back in its bag, `isBackInBag`: "Still on DESK", "Still
+  on the Done shelf"; not done / out of the bag also get "Open card →");
+  refunded cards listed apart ("Refunded: not in this package").
 - **The step**: `buy` "Ready to ship" + "Buy return label" (POST `{}`; under
   it "Buys USPS Priority Mail, what the customer paid for.") and "Choose
   another rate" (GET `?rates=1`, radios with "Customer paid", "Buy this
@@ -797,7 +821,11 @@ found"). Phone first, one step at a time from the packing API's `next`:
   `lib/intake/shipping/ship-queue.ts`; orders without bags as before); the admin order page's Shipping card lists
   "Packages (N, one label per bag)" once a bag label exists
   (`components/intake/bag-packages.tsx`); the Scan page's bag view offers
-  "Pack and ship" for a finished bag.
+  "Pack and ship" for a finished bag; the scan landing's finished-bag step
+  has "Pack and ship this bag" (and "Shipped · <tracking>" once it went);
+  the Bags board's Ready to ship section links "Pack and ship" per bag and
+  leaves out shipped bags (`loadBagShipStates` in
+  `lib/intake/shipping/bag-states.ts`, both).
 
 ## Tests
 

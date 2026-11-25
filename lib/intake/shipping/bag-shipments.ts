@@ -5,6 +5,7 @@ import { PREVIEW_MESSAGE, PREVIEW_MODE } from "@/lib/preview";
 import { setOrderStatus } from "@/lib/order-status";
 import { tierDisplayName } from "@/lib/intake/codes";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
+import { cardOutPhrase } from "@/lib/intake/tracking/bag-home";
 import { buildShipCheck, TRACK_BAG_COLUMNS, type TrackBagRow } from "@/lib/intake/tracking/summaries";
 import type { ShipCheckResponse } from "@/lib/intake/tracking/types";
 import {
@@ -15,7 +16,7 @@ import { sendReturnShippedEmail } from "@/lib/intake/shipping/shipped-email";
 import {
   appendNote, bagInsuranceFloorCents, cardList, CLAIM_STALE_MS, everyBagDelivered, everyBagShipped, latestSentShipment,
   LIVE_SHIPMENT_STATUSES, liveBags, orderStatusBlock, packageSummaries, SHIP_BACK_FROM, SHIPMENT_COLUMNS, shipmentView,
-  type BagShipmentRow, type BuyBagLabelResponse, type MarkShippedResponse, type PackingNext, type PackingResponse,
+  type BagShipmentRow, type BuyBagLabelResponse, type MarkShippedResponse, type PackingNext, type PackingResponse, isMissingShipmentsTable,
 } from "@/lib/intake/shipping/types";
 
 /**
@@ -67,12 +68,8 @@ const ORDER_LABEL_ERROR =
 /** After "Mark shipped", the tap that did it may still be emailing and shipping the order back: leave it that long. */
 const SHIP_BACK_SETTLE_MS = 60_000;
 
-/** The bag_shipments table isn't in the database (yet). */
-export function isMissingShipmentsTable(error: { code?: string; message?: string } | null | undefined): boolean {
-  if (!error) return false;
-  if (["42P01", "PGRST205"].includes(error.code ?? "")) return true;
-  return /bag_shipments/.test(error.message ?? "") && /does not exist|could not find|schema cache/i.test(error.message ?? "");
-}
+/** The bag_shipments table isn't in the database (yet). Pure; lives in types.ts so page readers can use it without this module. */
+export { isMissingShipmentsTable };
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -177,8 +174,11 @@ export function shipCheckBlock(check: ShipCheckResponse): string | null {
   const inSlot = live.filter((c) => c.status === "in_slot");
   if (notDone.length) parts.push(`${notDone.length === 1 ? "1 card isn't" : `${notDone.length} cards aren't`} marked done yet (${cardList(notDone.map((c) => c.name ?? c.code ?? "a card"), 3)}).`);
   if (inSlot.length) {
-    const where = [...new Set(inSlot.map((c) => c.location?.name).filter(Boolean) as string[])];
-    parts.push(`${inSlot.length === 1 ? "1 card is" : `${inSlot.length} cards are`} still in a holder${where.length ? ` (${cardList(where, 3)})` : ""}.`);
+    // Done but not back in the bag (isBackInBag): holders only "still in a holder (CLAMP 01)", else
+    // "still out of the bag (on DESK, on the Done shelf)"
+    const holders = inSlot.every((c) => c.location?.kind === "station");
+    const where = [...new Set(inSlot.map((c) => (c.location ? (holders ? c.location.name : cardOutPhrase(c.location)) : null)).filter(Boolean) as string[])];
+    parts.push(`${inSlot.length === 1 ? "1 card is" : `${inSlot.length} cards are`} still ${holders ? "in a holder" : "out of the bag"}${where.length ? ` (${cardList(where, 3)})` : ""}.`);
   }
   return parts.join(" ") || "The ship check isn't passing yet.";
 }

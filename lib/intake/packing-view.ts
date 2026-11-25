@@ -4,6 +4,7 @@ import {
 } from "@/lib/intake/shipping/types";
 import type { ShipCheckCard, ShipCheckResponse } from "@/lib/intake/tracking/types";
 import { packCodePath } from "@/lib/intake/codes";
+import { cardOutPhrase } from "@/lib/intake/tracking/bag-home";
 import { trackingLink } from "@/lib/tracking-carrier";
 
 /**
@@ -60,10 +61,13 @@ export function shipToText(addr: Record<string, string | null | undefined> | nul
 
 export type CheckTone = "ok" | "bad" | "warn" | "refunded";
 
-/** A card's big ✓ / ✗ in words: "Done", "Still in CLAMP 07", "Not done", "Refunded". */
+/**
+ * A card's big ✓ / ✗ in words: "Done", "Still in CLAMP 07" (a done card out
+ * of its bag: "Still on DESK", "Still on the Done shelf"), "Not done", "Refunded".
+ */
 export function checkMark(card: Pick<ShipCheckCard, "status" | "location">): { tone: CheckTone; text: string } {
   if (card.status === "ok") return { tone: "ok", text: "Done" };
-  if (card.status === "in_slot") return { tone: "warn", text: `Still in ${card.location?.name ?? "a holder"}` };
+  if (card.status === "in_slot") return { tone: "warn", text: `Still ${card.location ? cardOutPhrase(card.location) : "in a holder"}` };
   if (card.status === "not_done") return { tone: "bad", text: "Not done" };
   return { tone: "refunded", text: "Refunded" };
 }
@@ -289,4 +293,35 @@ export function packageRows(packages: readonly PackageSummary[], currentBagId: s
 export function packagesHeadline(packages: readonly Pick<PackageSummary, "status">[]): string {
   const sent = packages.filter((p) => p.status === "shipped" || p.status === "delivered").length;
   return `${sent} of ${packages.length} ${packages.length === 1 ? "package" : "packages"} shipped`;
+}
+
+// ─── A bag's label elsewhere (the scan landing, the Bags board) ─────────
+
+/**
+ * A bag's live label (bag_shipments claimed / purchased / shipped /
+ * delivered) as the scan landing and the Bags board's Ready to ship section
+ * show it. Read on the server by loadBagShipStates
+ * (lib/intake/shipping/bag-states.ts); none before the migration.
+ */
+export type BagShipState = {
+  status: "claimed" | "purchased" | "shipped" | "delivered";
+  trackingNumber: string | null;
+  /** The carrier's tracking page, when there is a tracking number. */
+  trackingHref: string | null;
+};
+
+/** The bag has left the shop (shipped or delivered). */
+export function bagSent(s: Pick<BagShipState, "status"> | null | undefined): boolean {
+  return s?.status === "shipped" || s?.status === "delivered";
+}
+
+/** "Shipped · 9400111202600000000001" ("Shipped" with no tracking number), for a shipped or delivered bag. */
+export function shippedText(s: Pick<BagShipState, "trackingNumber">): string {
+  return s.trackingNumber ? `Shipped · ${s.trackingNumber}` : "Shipped";
+}
+
+/** A label not shipped yet, in words: "Label bought, not shipped" (purchased), "Label being bought" (claimed); null otherwise. */
+export function labelStateText(s: Pick<BagShipState, "status"> | null | undefined): string | null {
+  if (s?.status === "purchased" || s?.status === "claimed") return packageStatus({ status: s.status, cardCount: 0, doneCount: 0 }).text;
+  return null;
 }

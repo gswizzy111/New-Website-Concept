@@ -9,8 +9,9 @@ import type { ShipCheckResponse } from "@/lib/intake/tracking/types";
 
 /**
  * GET /api/admin/track/ship-check?code=: before a bag or order ships, every
- * card is checked: done and out of the work-station slots = ok; still in a
- * slot = "still in CLAMP 07" (in_slot); not done = not_done; refunded cards
+ * card is checked: done and back in its bag = ok; done but still out of it
+ * (in a holder, on a desk, on the old Done shelf: isBackInBag, as the Ready
+ * to ship bin checks) = "still in CLAMP 07" (in_slot); not done = not_done; refunded cards
  * are listed apart. A Card ID checks its bag (or its order when it has no
  * bag). Read only. Server only; admin access is checked by the route.
  */

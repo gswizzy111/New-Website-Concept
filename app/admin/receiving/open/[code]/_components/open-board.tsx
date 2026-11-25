@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CircleAlert, CircleCheck, LoaderCircle, PackageCheck, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleAlert, CircleCheck, ExternalLink, LoaderCircle, PackageCheck, TriangleAlert, Truck } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import * as api from "@/components/intake/scan/api";
 import type { ToneLine } from "@/lib/intake/tracking/bag-home";
 import { deskPagePath } from "@/lib/intake/tracking/desk-codes";
 import type { LocationRef } from "@/lib/intake/tracking/types";
+import { bagSent } from "@/lib/intake/packing-view";
 import {
-  BIN_BUTTON, IN_BIN_TEXT, alreadyText, bagStepTitle, bagSteps, chooseDesk, chunkedMoveOutcome, doneAllIds, doneAllLabel,
-  doneAllQuestion, doneOutcome, moveAllLabel, moveAllState, moveChunks, openBagsLine,
+  BIN_BUTTON, IN_BIN_TEXT, PACK_LINK_TEXT, alreadyText, bagStepTitle, bagSteps, chooseDesk, chunkedMoveOutcome, doneAllIds, doneAllLabel,
+  doneAllQuestion, doneOutcome, moveAllLabel, moveAllState, moveChunks, openBagsLine, shippedTitleParts, stepLabelNote, stepWaitsForBin,
   type BagStep, type DonePart, type MoveLine, type MovePart, type OpenBagState, type OpenDesk, type OpenGroup,
 } from "../_lib/view";
 import { storeDesk, useStoredDesk } from "./desk-choice";
@@ -30,7 +31,9 @@ import { OpenCardPanel, ToneNote, noteId, whereId, type CardNote } from "./open-
  * back in its bag ("Done. Put it back in REYES's bag: Open bags box, under
  * R."). A bag whose every card is done shows ONE big step, "Bag finished: put
  * it in the Ready to ship bin", whose button records it (POST
- * /api/admin/track/bag-ready). The cards show their new state at once and the
+ * /api/admin/track/bag-ready), with "Pack and ship this bag" (its packing
+ * page) under it; once the bag's return label went out the step says
+ * "Shipped · <tracking>" instead. The cards show their new state at once and the
  * page's data reloads (router.refresh, also after a failure, so a desk
  * switched off meanwhile drops out of the picker); a refused card or a failed
  * request shows the server's own words.
@@ -258,7 +261,7 @@ export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks
   const movedSome = !!feedback?.moved && feedback.tone !== "error";
   const several = steps.length > 1;
   // A finished bag still to put in the bin is the page's one big step: "Move all" steps back
-  const binFirst = steps.some((s) => !s.inBin);
+  const binFirst = steps.some(stepWaitsForBin);
 
   return (
     <>
@@ -278,6 +281,7 @@ export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks
             <BagStepBox
               key={step.id}
               step={step}
+              several={several}
               title={bagStepTitle(step, several)}
               saving={pending?.kind === "bin" && pending.ids.has(step.id)}
               busy={busy}
@@ -432,15 +436,58 @@ export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks
   );
 }
 
-/** "Bag finished: put it in the Ready to ship bin" and the button that records it; once there, a green line. */
-function BagStepBox({ step, title, saving, busy, error, onBin }: {
+/**
+ * "Bag finished: put it in the Ready to ship bin" and the button that records
+ * it; once there, a green line. Under either, "Pack and ship this bag" (the
+ * packing page: ship check, return label, Mark shipped). Once the bag's label
+ * went out: "Shipped · <tracking>" (the carrier's page), nothing to press.
+ */
+function BagStepBox({ step, several, title, saving, busy, error, onBin }: {
   step: BagStep;
+  several: boolean;
   title: string;
   saving: boolean;
   busy: boolean;
   error: string | null;
   onBin: () => void;
 }) {
+  if (step.shipment && bagSent(step.shipment)) {
+    const { shipment } = step;
+    // "Shipped" big, the long tracking number on its own line (reads "Shipped · 9400…" all the same)
+    const { head, tracking } = shippedTitleParts({ code: step.code, shipment }, several);
+    return (
+      <div className="rounded-2xl border-2 border-green-300 bg-green-50 p-4">
+        <p role="status" className="flex items-start gap-2 text-green-900">
+          <Truck className="mt-0.5 size-6 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block font-heading text-2xl font-black leading-tight break-words">
+              {head}
+              {tracking && <span className="sr-only"> · </span>}
+            </span>
+            {tracking && <span className="mt-0.5 block font-mono text-base font-bold tracking-tight break-all">{tracking}</span>}
+          </span>
+        </p>
+        <p className="mt-1 text-sm font-semibold text-green-900">
+          <span className="font-mono">{step.code}</span>
+          {step.total > 0 && <> · {step.total} {step.total === 1 ? "card" : "cards"}</>}
+          {shipment.status === "delivered" && " · Delivered"}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-x-4">
+          {shipment.trackingHref && (
+            <a href={shipment.trackingHref} target="_blank" rel="noopener noreferrer" className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-1 text-sm font-bold text-primary hover:underline ${focusRing}`}>
+              Track package
+              <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            </a>
+          )}
+          <AdminLink href={step.packHref} className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-1 text-sm font-bold text-primary hover:underline ${focusRing}`}>
+            Packing page
+            <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
+          </AdminLink>
+        </div>
+      </div>
+    );
+  }
+  const labelNote = stepLabelNote(step);
   return (
     <div className={`rounded-2xl border-2 p-4 ${step.inBin ? "border-green-300 bg-green-50" : "border-green-700 bg-green-50"}`}>
       {step.inBin ? (
@@ -453,6 +500,7 @@ function BagStepBox({ step, title, saving, busy, error, onBin }: {
       )}
       <p className="mt-1 text-sm font-semibold text-green-900">
         <span className="font-mono">{step.code}</span> · {step.total} of {step.total} done
+        {labelNote && <> · {labelNote}</>}
       </p>
       {!step.inBin && (
         <button type="button" onClick={onBin} disabled={busy} className={`${bigButton} mt-3 bg-green-700 text-white hover:bg-green-800`}>
@@ -460,6 +508,14 @@ function BagStepBox({ step, title, saving, busy, error, onBin }: {
           {saving ? "Saving…" : BIN_BUTTON}
         </button>
       )}
+      <AdminLink
+        href={step.packHref}
+        aria-label={`${PACK_LINK_TEXT} (${step.code})`}
+        className={`${smallButton} mt-2 w-full border-2 border-green-700 bg-white text-green-900 hover:bg-green-100`}
+      >
+        {PACK_LINK_TEXT}
+        <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden="true" />
+      </AdminLink>
       {error && <p role="alert" className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 break-words">{error}</p>}
     </div>
   );

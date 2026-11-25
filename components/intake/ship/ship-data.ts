@@ -8,7 +8,8 @@ import type { ShipGroup, ShipPlace, ShipRow } from "./ship-types";
 
 /**
  * The ship check page's data (/admin/receiving/ship/<orderId>): the order and
- * every card with whether it's done and whether it's still in a slot, grouped
+ * every card with whether it's done and whether it's back in its bag (not in a
+ * holder, on a desk or on the old Done shelf), grouped
  * by tier bag. Reads only: the order workspace loader (lib/intake/data.ts; it
  * heals bag completion like every receiving page) plus the card places
  * (places-data.ts). Before the tracking migration the page still works on
@@ -64,7 +65,11 @@ export async function loadShipCheck(
       place: placeOf(p),
       inSlot,
       lastSeen: trackPlaces ? lastSeenText(p ?? null, at?.locatedAt ?? null, lastOut(moves.get(card.id), places.places), now) : "",
-      status: shipCheckStatus({ refunded: card.refunded, done: card.completed, awaiting: card.awaitingArrival, inSlot }),
+      // Done and back in its bag (isBackInBag): a place no longer listed counts as out of the bag, as the Ready to ship bin reads it
+      status: shipCheckStatus({
+        refunded: card.refunded, done: card.completed, awaiting: card.awaitingArrival,
+        place: trackPlaces && at?.locationId ? (p ? { code: p.code, kind: p.kind } : { code: "", kind: "other" }) : null,
+      }),
     };
   };
 

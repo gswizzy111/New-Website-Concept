@@ -267,14 +267,20 @@ test("capacity: null = no limit; cards already inside count once", () => {
   assert.equal(hasRoom(1, 0), true);
 });
 
-test("ship check: refunded > not done > still in a slot > ok", () => {
-  const slot = { kind: "station" as const };
+test("ship check: refunded > not done > still out of the bag > ok (isBackInBag, as the Ready to ship bin)", () => {
+  const slot = { code: "LOC-CLAMP-07", kind: "station" as const };
   assert.equal(shipCheckStatus({ refunded: true, done: false, location: slot }), "refunded");
   assert.equal(shipCheckStatus({ refunded: false, done: false, location: null }), "not_done");
   assert.equal(shipCheckStatus({ refunded: false, done: true, location: slot }), "in_slot");
+  // Back in its bag: no place, a due-date shelf, the Open bags box, the Ready to ship bin
   assert.equal(shipCheckStatus({ refunded: false, done: true, location: null }), "ok");
-  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { kind: "done" } }), "ok");
-  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { kind: "shipping" } }), "ok");
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-SHELF-20261207", kind: "shelf" } }), "ok");
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-OPEN-BAGS", kind: "other" } }), "ok");
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-SHIP", kind: "shipping" } }), "ok");
+  // Still out: on a desk, on the old Done shelf (a loose pile), at any other place
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-DESK", kind: "other" } }), "in_slot");
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-DONE", kind: "done" } }), "in_slot");
+  assert.equal(shipCheckStatus({ refunded: false, done: true, location: { code: "LOC-BENCH-2", kind: "other" } }), "in_slot");
 });
 
 test("history labels: null = Not started, done = Done, Book = Drying", () => {

@@ -1,5 +1,6 @@
 import { effectiveTier, orderPhotosPath, tierDisplayName, tierRank } from "@/lib/intake/codes";
 import { cardStageState, isBagComplete } from "@/lib/intake/stage-plan";
+import { isBackInBag } from "@/lib/intake/tracking/bag-home";
 import type { StageEventRow } from "@/lib/intake/types";
 import type {
   LocationRef, ShipCheckCard, ShipCheckResponse, ShipCheckStatus, TrackBagSummary, TrackCardSummary,
@@ -156,13 +157,16 @@ export function bagSummary(bag: TrackBagRow, cards: readonly TrackCardRow[], ctx
 }
 
 /**
- * refunded > not done > still in a work-station slot > ok. Done and out of
- * the slots (at Done, Shipping, a shelf, or nowhere) is ready to ship.
+ * refunded > not done > still out of the bag > ok. Done and back IN its bag
+ * (no place, or a place that holds bags: a due-date shelf, the Open bags box,
+ * the Ready to ship bin; isBackInBag, the rule the Ready to ship bin uses) is
+ * ready to ship. A done card in a holder, on a desk, at any other place or
+ * on the old Done shelf (LOC-DONE, a loose pile) is still out: "in_slot".
  */
-export function shipCheckStatus(card: { refunded: boolean; done: boolean; location: Pick<LocationRef, "kind"> | null }): ShipCheckStatus {
+export function shipCheckStatus(card: { refunded: boolean; done: boolean; location: Pick<LocationRef, "code" | "kind"> | null }): ShipCheckStatus {
   if (card.refunded) return "refunded";
   if (!card.done) return "not_done";
-  if (card.location?.kind === "station") return "in_slot";
+  if (!isBackInBag(card.location)) return "in_slot";
   return "ok";
 }
 

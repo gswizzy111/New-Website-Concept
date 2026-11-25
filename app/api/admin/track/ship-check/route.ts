@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
  * GET ?code=<Bag ID | order code | Card ID (checks its bag)>
  *   → 200 ShipCheckResponse { scope, order, bags, cards: [{ …, status: ok | not_done | in_slot |
  *     refunded }], counts, ready }; 400 / 404 { error }
- * Read only: done and out of the slots = ok; "still in CLAMP 07" = in_slot.
+ * Read only: done and back in its bag = ok; done but still in a holder, on a
+ * desk or on the old Done shelf ("still in CLAMP 07") = in_slot (isBackInBag).
  */
 export async function GET(request: Request) {
   const admin = await trackAdmin();

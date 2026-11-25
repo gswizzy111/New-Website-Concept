@@ -1,5 +1,7 @@
 import { INTAKE_START } from "@/lib/intake/start";
 import { toNyDate } from "@/lib/intake/business-days";
+import { cardOutPhrase, isBackInBag } from "@/lib/intake/tracking/bag-home";
+import type { LocationRef } from "@/lib/intake/tracking/types";
 
 /**
  * The rules behind the ship check (/admin/receiving/ship/<orderId>) and the
@@ -132,17 +134,28 @@ export function lastSeenText(
 /**
  * One card at the ship check: refunded > not_received (flagged awaiting
  * arrival: it never came in, so it can't be left behind; shown, never blocks)
- * > not_done (not marked done) > in_slot (done but still in a slot: "still
- * in CLAMP 07") > ok (done and not in any slot).
+ * > not_done (not marked done) > in_slot (done but still out of its bag: in a
+ * holder, on a desk, on the old Done shelf, at any other place: "still in
+ * CLAMP 07", "still on DESK") > ok (done and back in its bag: no place, a
+ * due-date shelf, the Open bags box, the Ready to ship bin). The same rule as
+ * the Ready to ship bin (isBackInBag in lib/intake/tracking/bag-home.ts).
  */
 export type ShipRowStatus = "ok" | "not_done" | "in_slot" | "refunded" | "not_received";
 
-export function shipCheckStatus(card: { refunded: boolean; done: boolean; awaiting: boolean; inSlot: boolean }): ShipRowStatus {
+/** A card's place as the ship check reads it (null: no place, in its bag). */
+export type ShipCheckPlace = { code: string; kind: string } | null;
+
+export function shipCheckStatus(card: { refunded: boolean; done: boolean; awaiting: boolean; place: ShipCheckPlace }): ShipRowStatus {
   if (card.refunded) return "refunded";
   if (card.awaiting && !card.done) return "not_received";
   if (!card.done) return "not_done";
-  if (card.inSlot) return "in_slot";
+  if (!isBackInBag(card.place as Pick<LocationRef, "code" | "kind"> | null)) return "in_slot";
   return "ok";
+}
+
+/** Where a done card still out of its bag is: "in CLAMP 07", "on DESK", "on the Done shelf", "at BENCH 2" ("out of its bag" with no place). */
+export function stillOutPhrase(place: { code: string; name: string; kind: string } | null): string {
+  return place ? cardOutPhrase(place as Pick<LocationRef, "code" | "kind" | "name">) : "out of its bag";
 }
 
 export type ShipCounts = { ok: number; notDone: number; inSlot: number; refunded: number; notReceived: number };

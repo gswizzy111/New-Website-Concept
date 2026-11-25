@@ -20,7 +20,8 @@ import { pickerOutcome } from "@/lib/intake/step-picker";
 import { placeSubtitle } from "@/components/intake/scan/format";
 import { outcomeOf } from "@/app/admin/receiving/desk/_lib/outcome";
 import {
-  bagStepTitle, bagSteps, canFinish, doneAllIds, doneAllLabel, doneAllQuestion, doneOutcome, openBagsLine, whereText, type OpenCard,
+  PACK_LINK_TEXT, bagStepTitle, bagSteps, buildOpenView, canFinish, doneAllIds, doneAllLabel, doneAllQuestion, doneOutcome, openBagsLine,
+  shippedTitleParts, stepLabelNote, stepWaitsForBin, whereText, type OpenCard,
 } from "@/app/admin/receiving/open/[code]/_lib/view";
 
 const loc = (id: string, code: string, name: string, kind: LocationRef["kind"]): LocationRef => ({ id, code, name, kind, station: null, serial: null, stage: null });
@@ -161,6 +162,25 @@ test("one customer's bags (a mixed-tier order) are told apart by tier and Bag ID
   // One bag, or bags of different customers: as before
   assert.equal(putBackSentence([p], 2), "Put them back in REYES's bag: Open bags box, under R.");
   assert.equal(fullBagName(p), "REYES's Platinum bag CD-2549-P");
+});
+
+test("one customer with two bags: the single-bag put-back sentence names the bag by tier and Bag ID", () => {
+  const p = bag({ tierName: "Platinum", orderBagCount: 2 });
+  assert.equal(putBackSentence([p]), "Put it back in REYES's Platinum bag CD-2549-P: Open bags box, under R.");
+  assert.equal(doneText(p), "Done. Put it back in REYES's Platinum bag CD-2549-P: Open bags box, under R.");
+  assert.equal(putBackSentence([p], 2), "Put them back in REYES's Platinum bag CD-2549-P: Open bags box, under R.");
+  assert.equal(putBackSentence([bag({ tierName: "Gold", code: "CD-2549-G", orderBagCount: 3, location: SHELF })]), "Put it back in REYES's Gold bag CD-2549-G: on shelf DUE MON DEC 7.");
+  assert.equal(putBackSentence([bag({ customer: null, letter: "#", tierName: "Gold", orderBagCount: 2 })]), "Put it back in the Gold bag CD-2549-P: Open bags box, under #.");
+  assert.equal(putBackSentence([bag({ tierName: "Gold", orderBagCount: 2, location: null })]), "Put it back in REYES's Gold bag CD-2549-P.");
+  // One bag in the order (or not known): today's words
+  assert.equal(putBackSentence([bag({ tierName: "Platinum", orderBagCount: 1 })]), "Put it back in REYES's bag: Open bags box, under R.");
+  assert.equal(putBackSentence([bag({ tierName: "Platinum" })]), "Put it back in REYES's bag: Open bags box, under R.");
+  assert.equal(withBagSentences("Done.", [bag({ returned: 1, tierName: "Platinum", orderBagCount: 2, finished: true })], 1),
+    "Done. Put it back in REYES's Platinum bag CD-2549-P: Open bags box, under R. Bag finished: put it in the Ready to ship bin.");
+  // bagPlaceOf carries the count through
+  const placed = bagPlaceOf({ bag: { id: "b", bag_code: "CD-2549-P", location_id: null }, customer: "Maria Reyes", location: OPEN, cards: [], tierName: "Platinum", orderBagCount: 2 });
+  assert.equal(placed.orderBagCount, 2);
+  assert.equal(bagPlaceOf({ bag: { id: "b", bag_code: "CD-2549-P", location_id: null }, customer: "Maria Reyes", location: OPEN, cards: [] }).orderBagCount, undefined);
 });
 
 test("un-doing a card takes its finished bag out of the Ready to ship bin", () => {
@@ -351,8 +371,8 @@ test("scan landing: the one big step once every live card of a bag is done, unti
     pc("e", "done", "bag-3"), pc("f", "ready", "bag-3"),
   ];
   assert.deepEqual(bagSteps(bags, cards), [
-    { id: "bag-1", code: "CD-2549-P", total: 2, inBin: false },
-    { id: "bag-2", code: "CD-2549-G", total: 1, inBin: true },
+    { id: "bag-1", code: "CD-2549-P", total: 2, inBin: false, shipment: null, packHref: "/admin/receiving/pack/CD-2549-P" },
+    { id: "bag-2", code: "CD-2549-G", total: 1, inBin: true, shipment: null, packHref: "/admin/receiving/pack/CD-2549-G" },
   ]);
   assert.deepEqual(bagSteps(bags, cards, new Set(["bag-1"]))[0].inBin, true, "just put in the bin on this page");
   assert.deepEqual(bagSteps([{ id: "x", code: "CD-1-B", location: null }], [pc("r", "refunded", "x")]), [], "every card refunded: no step");
@@ -365,6 +385,52 @@ test("scan landing: the one big step once every live card of a bag is done, unti
   assert.equal(bagSteps(bags, cards, new Set(), "completed").length, 2, "Completed: the bags still wait to ship");
   assert.equal(bagStepTitle({ code: "CD-2549-P" }, false), "Bag finished: put it in the Ready to ship bin");
   assert.equal(bagStepTitle({ code: "CD-2549-P" }, true), "Bag CD-2549-P finished: put it in the Ready to ship bin");
+});
+
+test('scan landing: a finished bag offers "Pack and ship this bag"; once its label went out, "Shipped · <tracking>" instead of the bin', () => {
+  const label = (status: "claimed" | "purchased" | "shipped" | "delivered", trackingNumber: string | null = "9400111202600000000001") =>
+    ({ status, trackingNumber, trackingHref: trackingNumber ? `https://tools.usps.com/go/TrackConfirmAction?tLabels=${trackingNumber}` : null });
+  const cards = [pc("a", "done"), pc("b", "done"), pc("d", "done", "bag-2")];
+  // Label bought, not shipped: still the bin step, with the label's state under it
+  const bought = bagSteps([{ id: "bag-1", code: "CD-2549-P", location: SHIP, shipment: label("purchased") }], cards);
+  assert.deepEqual(bought.map((s) => [s.inBin, s.packHref, stepWaitsForBin(s), stepLabelNote(s)]), [[true, "/admin/receiving/pack/CD-2549-P", false, "Label bought, not shipped"]]);
+  assert.equal(stepLabelNote(bagSteps([{ id: "bag-1", code: "CD-2549-P", location: OPEN, shipment: label("claimed") }], cards)[0]), "Label being bought");
+  assert.equal(PACK_LINK_TEXT, "Pack and ship this bag");
+  // Shipped: "Shipped · <tracking>", whatever the order's status (shipped back once every bag went) and the cards
+  for (const st of [null, "completed", "shipped_back", "delivered"]) {
+    const sent = bagSteps([{ id: "bag-1", code: "CD-2549-P", location: SHIP, shipment: label("shipped") }], [pc("a", "done", "bag-1", CLAMP)], new Set(), st);
+    assert.equal(sent.length, 1, String(st));
+    assert.equal(stepWaitsForBin(sent[0]), false);
+    assert.equal(bagStepTitle(sent[0], false), "Shipped · 9400111202600000000001");
+  }
+  const two = bagSteps([
+    { id: "bag-1", code: "CD-2549-P", location: SHIP, shipment: label("delivered") },
+    { id: "bag-2", code: "CD-2549-G", location: OPEN, shipment: null },
+  ], cards, new Set(), "completed");
+  assert.deepEqual(two.map((s) => [s.code, stepWaitsForBin(s)]), [["CD-2549-P", false], ["CD-2549-G", true]]);
+  assert.equal(bagStepTitle(two[0], true), "Bag CD-2549-P shipped · 9400111202600000000001");
+  assert.equal(bagStepTitle({ code: "CD-2549-P", shipment: label("shipped", null) }, false), "Shipped");
+  // On the page: the word big, the tracking number on its own line
+  assert.deepEqual(shippedTitleParts({ code: "CD-2549-P", shipment: label("shipped") }, false), { head: "Shipped", tracking: "9400111202600000000001" });
+  assert.deepEqual(shippedTitleParts({ code: "CD-2549-P", shipment: label("delivered", null) }, true), { head: "Bag CD-2549-P shipped", tracking: null });
+  // No label (or no table yet): as before
+  assert.deepEqual(bagSteps([{ id: "bag-1", code: "CD-2549-P", location: SHIP, shipment: null }], cards, new Set(), "shipped_back"), []);
+});
+
+test("scan landing: the bag's place says Shipped / Delivered once its label went out (the place stays LOC-SHIP)", () => {
+  const input = {
+    kind: "bag" as const, code: "CD-2549-P", bagId: "bag-1",
+    order: { id: "o1", orderNumber: "CD-2549", customer: "Maria Reyes", customerNotes: null, status: "completed" },
+    bags: [{
+      id: "bag-1", code: "CD-2549-P", tier: "ultra_premium", tierName: "Platinum", dueDate: null, complete: true, cardCount: 1, doneCount: 1,
+      location: SHIP, shipment: { status: "shipped" as const, trackingNumber: "9400111202600000000001", trackingHref: null },
+    }],
+    cards: [],
+  };
+  assert.equal(buildOpenView(input, "2026-11-25").header.bag?.place, "Shipped");
+  assert.equal(buildOpenView({ ...input, bags: [{ ...input.bags[0], shipment: { ...input.bags[0].shipment, status: "delivered" as const } }] }, "2026-11-25").header.bag?.place, "Delivered");
+  assert.equal(buildOpenView({ ...input, bags: [{ ...input.bags[0], shipment: null }] }, "2026-11-25").header.bag?.place, "Ready to ship");
+  assert.deepEqual(buildOpenView(input, "2026-11-25").bags.map((b) => b.shipment?.status), ["shipped"]);
 });
 
 // ─── The Desk and the step picker ───────────────────────────────────────────

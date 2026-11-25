@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   FINAL_DRY_DAYS, SLOT_DAYS, STALE_DAYS, ago, allCardsOk, bagPastDue, countsForBadge, daysSince, finalDryReadBefore, finalDrySince,
-  forgottenReasons, inNewSystem, isSlot, lastSeenText, latest, primaryRule, readyToShip, reasonText, shipCheckStatus,
+  forgottenReasons, inNewSystem, isSlot, lastSeenText, latest, primaryRule, readyToShip, reasonText, shipCheckStatus, stillOutPhrase,
   shipCounts, type ForgottenCardFacts,
 } from "@/components/intake/ship/rules";
 import { INTAKE_START } from "@/lib/intake/start";
@@ -228,14 +228,25 @@ test("(d) a bag past its due date with cards not done", () => {
 
 // ── ship check ─────────────────────────────────────────────────────────────
 
-test("ship check status: refunded > never arrived > not done > still in a slot > ok", () => {
-  const base = { refunded: false, done: true, awaiting: false, inSlot: false };
+test("ship check status: refunded > never arrived > not done > still out of the bag > ok", () => {
+  const base = { refunded: false, done: true, awaiting: false, place: null };
+  const slot = { code: "LOC-CLAMP-07", kind: "station" };
   assert.equal(shipCheckStatus(base), "ok");
-  assert.equal(shipCheckStatus({ ...base, inSlot: true }), "in_slot");
+  assert.equal(shipCheckStatus({ ...base, place: slot }), "in_slot");
   assert.equal(shipCheckStatus({ ...base, done: false }), "not_done");
-  assert.equal(shipCheckStatus({ ...base, done: false, inSlot: true }), "not_done");
+  assert.equal(shipCheckStatus({ ...base, done: false, place: slot }), "not_done");
   assert.equal(shipCheckStatus({ ...base, done: false, awaiting: true }), "not_received");
-  assert.equal(shipCheckStatus({ ...base, refunded: true, inSlot: true }), "refunded");
+  assert.equal(shipCheckStatus({ ...base, refunded: true, place: slot }), "refunded");
+  // isBackInBag (the Ready to ship bin's rule): a desk or the old Done shelf is still out; shelves, the box, the bin are in
+  assert.equal(shipCheckStatus({ ...base, place: { code: "LOC-DESK-GAVIN", kind: "other" } }), "in_slot");
+  assert.equal(shipCheckStatus({ ...base, place: { code: "LOC-DONE", kind: "done" } }), "in_slot");
+  assert.equal(shipCheckStatus({ ...base, place: { code: "LOC-SHELF-20261207", kind: "shelf" } }), "ok");
+  assert.equal(shipCheckStatus({ ...base, place: { code: "LOC-OPEN-BAGS", kind: "other" } }), "ok");
+  assert.equal(shipCheckStatus({ ...base, place: { code: "LOC-SHIP", kind: "shipping" } }), "ok");
+  assert.equal(stillOutPhrase({ code: "LOC-CLAMP-07", name: "CLAMP 07", kind: "station" }), "in CLAMP 07");
+  assert.equal(stillOutPhrase({ code: "LOC-DESK", name: "DESK", kind: "other" }), "on DESK");
+  assert.equal(stillOutPhrase({ code: "LOC-DONE", name: "DONE", kind: "done" }), "on the Done shelf");
+  assert.equal(stillOutPhrase(null), "out of its bag");
 });
 
 test("ship check: ready once every card is ok and ticked in the box", () => {

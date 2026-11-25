@@ -1,5 +1,5 @@
 import { isDay, weekday } from "@/lib/intake/business-days";
-import { orderPhotosPath } from "@/lib/intake/codes";
+import { orderPhotosPath, packCodePath } from "@/lib/intake/codes";
 import { filingLetter } from "@/lib/intake/filing-letter";
 import {
   BAG_FINISHED_TEXT, bagPlaceOrNone, binAllowed, cardOutPhrase, doneCountText, isBackInBag, isReadyToShipPlace, openBagsSentence,
@@ -7,6 +7,7 @@ import {
 } from "@/lib/intake/tracking/bag-home";
 import type { DeskCard } from "@/lib/intake/tracking/desk";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
+import { bagSent, labelStateText, shippedText, type BagShipState } from "@/lib/intake/packing-view";
 import type { LocationRef, TrackActionResponse } from "@/lib/intake/tracking/types";
 import { formatCurrency } from "@/lib/utils";
 import { deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/view";
@@ -87,12 +88,16 @@ export type OpenBagLine = {
   doneCount: number;
   /** "4 cards", "3 of 4 done". */
   countText: string;
-  /** Where the bag is: "Open bags box · R", "Shelf DUE MON DEC 7", "Ready to ship", "No place yet". */
+  /** Where the bag is: "Open bags box · R", "Shelf DUE MON DEC 7", "Ready to ship", "No place yet"; "Shipped" / "Delivered" once its label went out. */
   place: string;
 };
 
-/** A bag as the board's buttons need it: where it is now (the Ready to ship step). */
-export type OpenBagState = { id: string; code: string; location: LocationRef | null };
+/**
+ * A bag as the board's buttons need it: where it is now (the Ready to ship
+ * step) and its live label (bag_shipments; null before one is bought or
+ * before the migration).
+ */
+export type OpenBagState = { id: string; code: string; location: LocationRef | null; shipment?: BagShipState | null };
 
 export type OpenHeader = {
   kind: "bag" | "order";
@@ -139,6 +144,8 @@ export type OpenInput = {
   bags: {
     id: string; code: string; tier: string; tierName: string; dueDate: string | null; complete: boolean;
     cardCount: number; doneCount: number; location: LocationRef | null;
+    /** The bag's live label (claimed, purchased, shipped, delivered); null or absent when none. */
+    shipment?: BagShipState | null;
   }[];
   /** Every card of the order, in card number order. */
   cards: DeskCard[];
@@ -365,6 +372,13 @@ export function openCard(c: DeskCard): OpenCard {
   };
 }
 
+/** Where a bag is, short: its place ("Open bags box · R", "Ready to ship"), or "Shipped" / "Delivered" once its label went out (the place stays LOC-SHIP). */
+function bagPlace(b: Pick<OpenInput["bags"][number], "location" | "shipment">, letter: string): string {
+  if (b.shipment?.status === "delivered") return "Delivered";
+  if (bagSent(b.shipment)) return "Shipped";
+  return bagPlaceOrNone(b.location, letter);
+}
+
 /** Refunded cards last; otherwise the order given (card number). */
 function refundedLast<T extends { state: OpenCardState }>(cards: T[]): T[] {
   return [...cards].sort((a, b) => Number(a.state === "refunded") - Number(b.state === "refunded"));
@@ -381,7 +395,7 @@ export function buildOpenView(input: OpenInput, today: string): OpenView {
   const letter = filingLetter(order.customer);
   const line = (b: OpenInput["bags"][number]): OpenBagLine => ({
     id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, due: dueText(b.dueDate, today, b.complete), cardCount: b.cardCount,
-    doneCount: b.doneCount, countText: doneCountText(b.doneCount, b.cardCount), place: bagPlaceOrNone(b.location, letter),
+    doneCount: b.doneCount, countText: doneCountText(b.doneCount, b.cardCount), place: bagPlace(b, letter),
   });
   const bag = input.kind === "bag" ? input.bags.find((b) => b.id === input.bagId) ?? null : null;
   const scoped = bag ? all.filter((c) => c.bagId === bag.id) : all;
@@ -421,7 +435,7 @@ export function buildOpenView(input: OpenInput, today: string): OpenView {
       bags: bag ? [] : input.bags.filter((b) => b.cardCount > 0).map(line),
     },
     groups,
-    bags: (bag ? [bag] : input.bags).map((b) => ({ id: b.id, code: b.code, location: b.location })),
+    bags: (bag ? [bag] : input.bags).map((b) => ({ id: b.id, code: b.code, location: b.location, shipment: b.shipment ?? null })),
     orderStatus: order.status ?? null,
   };
 }
@@ -494,15 +508,22 @@ export function openBagsLine(parts: readonly MovePart[]): string {
   return openBagsSentence(opened.filter((b, i) => opened.findIndex((x) => x.id === b.id) === i));
 }
 
-/** A finished bag on this page: every live card done. `inBin`: it is in the Ready to ship bin already. */
-export type BagStep = { id: string; code: string; total: number; inBin: boolean };
+/**
+ * A finished bag on this page: every live card done. `inBin`: it is in the
+ * Ready to ship bin already. `shipment`: its live label; once shipped or
+ * delivered the step says "Shipped · <tracking>" instead of the bin.
+ * `packHref`: its packing page ("Pack and ship this bag").
+ */
+export type BagStep = { id: string; code: string; total: number; inBin: boolean; shipment: BagShipState | null; packHref: string };
 
 /**
  * The bags whose every live card (on this page) is done and back in the bag
  * (none left in a holder, on a desk or on the Done shelf): the one big step
- * "Bag finished: put it in the Ready to ship bin" until the bag is there.
- * `binned`: bags this page just put in the bin. None for an order shipped
- * back, delivered or cancelled (`orderStatus`).
+ * "Bag finished: put it in the Ready to ship bin" until the bag is there,
+ * with "Pack and ship this bag" beside it. `binned`: bags this page just put
+ * in the bin. No bin step for an order shipped back, delivered or cancelled
+ * (`orderStatus`). A bag whose label went out (shipped or delivered) is
+ * listed whatever its cards and the order's status say: "Shipped · <tracking>".
  */
 export function bagSteps(
   bags: readonly OpenBagState[],
@@ -510,17 +531,52 @@ export function bagSteps(
   binned: ReadonlySet<string> = new Set(),
   orderStatus: string | null = null,
 ): BagStep[] {
-  if (!binAllowed(orderStatus)) return [];
+  const binOpen = binAllowed(orderStatus);
   return bags.flatMap((b) => {
     const live = cards.filter((c) => c.bagId === b.id && c.state !== "refunded");
+    const step = { id: b.id, code: b.code, total: live.length, shipment: b.shipment ?? null, packHref: packCodePath(b.code) };
+    if (bagSent(b.shipment)) return [{ ...step, inBin: false }];
+    if (!binOpen) return [];
     if (!live.length || !live.every((c) => c.state === "done" && isBackInBag(c.location))) return [];
-    return [{ id: b.id, code: b.code, total: live.length, inBin: binned.has(b.id) || isReadyToShipPlace(b.location) }];
+    return [{ ...step, inBin: binned.has(b.id) || isReadyToShipPlace(b.location) }];
   });
 }
 
-/** The step's title: "Bag finished: put it in the Ready to ship bin"; with several bags on the page, "Bag CD-2549-P finished: ...". */
-export function bagStepTitle(step: Pick<BagStep, "code">, several: boolean): string {
+/** The step still asks for something here: a finished bag not in the bin yet (shipped bags never do). */
+export function stepWaitsForBin(step: Pick<BagStep, "inBin" | "shipment">): boolean {
+  return !step.inBin && !bagSent(step.shipment);
+}
+
+/**
+ * The step's title: "Bag finished: put it in the Ready to ship bin"; with
+ * several bags on the page, "Bag CD-2549-P finished: ..."; once its label
+ * went out, "Shipped · 9400111202600000000001" ("Bag CD-2549-P shipped · ..."
+ * with several).
+ */
+export function bagStepTitle(step: Pick<BagStep, "code"> & Partial<Pick<BagStep, "shipment">>, several: boolean): string {
+  if (step.shipment && bagSent(step.shipment)) {
+    const { head, tracking } = shippedTitleParts(step as Pick<BagStep, "code"> & { shipment: BagShipState }, several);
+    return tracking ? `${head} · ${tracking}` : head;
+  }
   return several ? `Bag ${step.code} finished: put it in the Ready to ship bin` : BAG_FINISHED_TEXT;
+}
+
+/**
+ * A shipped bag's title in two parts, so the long tracking number gets its
+ * own line: "Shipped" ("Bag CD-2549-P shipped" with several bags) and the
+ * tracking number (null without one). Read together: shippedText.
+ */
+export function shippedTitleParts(step: Pick<BagStep, "code"> & { shipment: Pick<BagShipState, "trackingNumber"> }, several: boolean): { head: string; tracking: string | null } {
+  const word = shippedText({ trackingNumber: null });
+  return { head: several ? `Bag ${step.code} ${word.toLowerCase()}` : word, tracking: step.shipment.trackingNumber ?? null };
+}
+
+/** The secondary link under a finished bag's step (its packing page). */
+export const PACK_LINK_TEXT = "Pack and ship this bag";
+
+/** Under the step: "Label bought, not shipped" (purchased), "Label being bought" (claimed); null otherwise. */
+export function stepLabelNote(step: Pick<BagStep, "shipment">): string | null {
+  return labelStateText(step.shipment);
 }
 
 /** The step's button. */

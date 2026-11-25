@@ -382,9 +382,11 @@ export const UI = {
   // Header count: "3 cards" while none is done, then "1 of 3 done" (also "CD-2549-P · 3 of 3 done")
   doneCount: (done, total) => new RegExp(`(^|[^0-9])${done} of ${total} done\\b`, "i"),
   // "Done. Put it back in REYES's bag: Open bags box, under R." ("2 cards done. Put them back in …";
-  // the step picker's "Marked done. Put it back in …"); `place` a donePlaceIn pattern, "" for none
-  doneSentence: (lastName, place = "", lead = "done") =>
-    new RegExp(`\\b${lead}\\. put (it|them) back in ${esc(lastName.toUpperCase())}['’]s bag${place ? `: ${place}` : ""}`, "i"),
+  // the step picker's "Marked done. Put it back in …"); `place` a donePlaceIn pattern, "" for none.
+  // A bag of an order with 2+ bags is named by tier and Bag ID (`bag` { tier, code }): "Put it back in
+  // REYES's Platinum bag CD-2549-P: Open bags box, under R."
+  doneSentence: (lastName, place = "", lead = "done", bag = null) =>
+    new RegExp(`\\b${lead}\\. put (it|them) back in ${esc(lastName.toUpperCase())}['’]s ${bag ? `${esc(bag.tier)} bag ${esc(bag.code)}` : "bag"}${place ? `: ${place}` : ""}`, "i"),
   // Where the bag is, in a sentence
   donePlaceIn: {
     openBags: (letter) => `open bags box, under ${letter}(?![A-Za-z])`,
@@ -5365,7 +5367,7 @@ const pkGoodTx = (d) => (d.shippo?.transactions ?? []).filter((x) => x.status ==
  * refunded). The live cards are marked done (POST /api/admin/track/done) except `notDone`; a
  * receiving photo each; the customer paid for USPS Priority Mail; the fake Shippo on.
  */
-async function packSetup(ctx, mockUrl, { bags = "two", notDone = [] } = {}) {
+export async function packSetup(ctx, mockUrl, { bags = "two", notDone = [] } = {}) {
   const recv = bags === "one" ? [6, 7, 8] : [0, 1, 2, 3, 6, 7, 8];
   await receiveViaApi(ctx, IDS.mailOrder, recv.map(mailCard), "2026-11-15");
   const refund = [...Array(10).keys()].filter((i) => !recv.includes(i));
@@ -5380,7 +5382,8 @@ async function packSetup(ctx, mockUrl, { bags = "two", notDone = [] } = {}) {
   await setReceivingPhotos(mockUrl, live.map((c) => c.id));
   await shippoConfig({ enabled: true });
   t = await tables();
-  eq(pkOrder(t).status, "received", "order status after receiving");
+  // Every live card done auto-completes the order (lib/intake/order-autocomplete.ts, the done flow)
+  eq(pkOrder(t).status, notDone.length ? "received" : "completed", "order status after receiving and Done");
   return t;
 }
 
@@ -5503,7 +5506,7 @@ const PACK_SCENARIOS = {
       const txt = await pkStepSays(page, /^Label bought/);
       for (const want of ["USPS Priority Mail · $9.85", tx[0].trackingNumber]) assert(txt.includes(want), `no "${want}" in "${txt}"`);
       eq(pkOrder(d.tables).return_label_url, tx[0].labelUrl, "the order's return label (its first label)");
-      eq(pkOrder(d.tables).status, "received", "order status (not shipped yet)");
+      eq(pkOrder(d.tables).status, "completed", "order status (not shipped yet: Completed when its last card was done)");
       eq(pkShipEmails(d).length, 0, "shipped emails so far");
       return `${tx[0].trackingNumber}; "${r.body.message}"`;
     }, { critical: true });
@@ -5626,7 +5629,7 @@ const PACK_SCENARIOS = {
       t = await packSetup(ctx, mockUrl, { bags: "two" });
     }, { critical: true, shot: false });
     const bagId = (code) => pkBagId(t, code);
-    await s.step("the ship queue lists BOTH bags (CD-2549 is in the shop, Received), each linking to its packing page", async () => {
+    await s.step("the ship queue lists BOTH bags (CD-2549 is in the shop, Completed), each linking to its packing page", async () => {
       await goto(page, ROUTES.shipQueue);
       await PK_UI.packLink(page, "CD-2549-G").first().waitFor({ timeout: 60_000 });
       eq(await PK_UI.packLink(page, "CD-2549-P").count(), 1, "links to CD-2549-P's packing page");
@@ -5634,7 +5637,7 @@ const PACK_SCENARIOS = {
       const main = flat(await page.locator("main").first().innerText().catch(() => page.locator("body").innerText()));
       for (const want of ["Bag CD-2549-G", "Bag CD-2549-P", "Ready to Ship"]) assert(main.includes(want), `no "${want}"`);
     });
-    await s.step("CD-2549-P: buy, print, Mark shipped on its page -> 1 email with ITS tracking naming its 3 cards; the order stays Received; \"1 more bag … still to ship\"", async () => {
+    await s.step("CD-2549-P: buy, print, Mark shipped on its page -> 1 email with ITS tracking naming its 3 cards; the order stays Completed; \"1 more bag … still to ship\"", async () => {
       await packOpen(page, "CD-2549-P");
       const r = await pkTapPost(page, PK_UI.buy(page), ROUTES.shipLabelApi(bagId("CD-2549-P")));
       eq(r.status, 200, `buy: HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
@@ -5649,7 +5652,7 @@ const PACK_SCENARIOS = {
       eq(mails.length, 1, "shipped emails");
       assert(mails[0].html.includes(tracking.P), "the email doesn't carry CD-2549-P's tracking");
       for (const code of PK_PLAT) assert(mails[0].html.includes(cardByCode(t, code).card_name), `the email doesn't name ${code}`);
-      eq(pkOrder(d.tables).status, "received", "order status after the first bag");
+      eq(pkOrder(d.tables).status, "completed", "order status after the first bag");
       eq(pkOrder(d.tables).tracking_number ?? null, null, "order tracking number after the first bag");
       return m.body.message;
     }, { critical: true });
@@ -5800,6 +5803,108 @@ const PACK_SCENARIOS = {
       }, { shot: false });
     }
   },
+
+  // Where packing starts (per-bag labels + the done flow): the scan landing's finished-bag step offers "Pack and
+  // ship this bag"; the Bags board's Ready to ship section links "Pack and ship" per bag and says "Label bought,
+  // not shipped"; once the bag ships the scan landing says "Shipped · <tracking>" (no bin step) and the board
+  // leaves it out. A done card left on a desk holds its bag's label back (the ship check's isBackInBag, as the bin).
+  async "pack-from-scan"({ page, ctx, s, mockUrl }) {
+    let t = null;
+    let tracking = null;
+    const PACK_THIS = /^Pack and ship this bag\b/;
+    await s.step("setup: CD-2549-G (01-03, 04 refunded) and CD-2549-P (07-09), all done (back in their bags); fake Shippo on", async () => {
+      t = await packSetup(ctx, mockUrl, { bags: "two" });
+    }, { critical: true, shot: false });
+    const bagId = (code) => pkBagId(t, code);
+    await s.step('CD-2549-P\'s scan landing: "Bag finished: put it in the Ready to ship bin" with "Pack and ship this bag" -> its packing page', async () => {
+      await openDoneLanding(page, "CD-2549-P");
+      await page.getByText(UI.bagFinished).first().waitFor({ timeout: 30_000 });
+      const link = page.getByRole("link", { name: PACK_THIS });
+      eq(await link.count(), 1, '"Pack and ship this bag" links');
+      eq(await link.getAttribute("href"), ROUTES.pack("CD-2549-P"), "its address");
+      eq(await page.getByRole("button", { name: UI.readyToShipRe }).count(), 1, "bin buttons");
+    });
+    await s.step('"It\'s in the Ready to ship bin": the bag at LOC-SHIP; "Pack and ship this bag" stays under "In the Ready to ship bin"', async () => {
+      await page.getByRole("button", { name: UI.readyToShipRe }).click();
+      await until(async () => (bagPlaceCode(await tables(), "CD-2549-P") === SHIP_PLACE ? true : null), 15_000);
+      eq(bagPlaceCode(await tables(), "CD-2549-P"), SHIP_PLACE, "CD-2549-P's place");
+      await page.getByText(UI.inShipBin).first().waitFor({ timeout: 30_000 });
+      eq(await page.getByRole("link", { name: PACK_THIS }).count(), 1, '"Pack and ship this bag" links');
+    });
+    await s.step('the Bags board: both bags under "Ready to ship", each "Pack and ship" -> its packing page; no label state yet', async () => {
+      await goto(page, ROUTES.bags);
+      await UI.readyRow(page, "CD-2549-P").waitFor({ timeout: 60_000 });
+      for (const code of ["CD-2549-P", "CD-2549-G"]) {
+        const link = UI.readyRow(page, code).getByRole("link", { name: `Pack and ship ${code}`, exact: true });
+        eq(await link.getAttribute("href"), ROUTES.pack(code), `${code}'s "Pack and ship"`);
+      }
+      const section = flat(await UI.readySection(page).innerText());
+      assert(!/label bought|label being bought/i.test(section), `a label state before any label: "${section.slice(0, 200)}"`);
+    });
+    await s.step('CD-2549-P\'s label bought (POST ship-label {}): its Bags board row says "Label bought, not shipped" (CD-2549-G\'s doesn\'t); its scan landing too', async () => {
+      const r = await api(ctx, "POST", ROUTES.shipLabelApi(bagId("CD-2549-P")), {});
+      eq(r.status, 200, `buy (${JSON.stringify(r.body).slice(0, 200)})`);
+      tracking = r.body.shipment.trackingNumber;
+      await goto(page, ROUTES.bags);
+      await UI.readyRow(page, "CD-2549-P").waitFor({ timeout: 60_000 });
+      const p = flat(await UI.readyRow(page, "CD-2549-P").innerText());
+      const g = flat(await UI.readyRow(page, "CD-2549-G").innerText());
+      assert(/Label bought, not shipped/.test(p), `CD-2549-P row: "${p}"`);
+      assert(!/Label bought/.test(g), `CD-2549-G row: "${g}"`);
+      await openDoneLanding(page, "CD-2549-P");
+      const head = flat(await headText(page));
+      assert(/Label bought, not shipped/.test(head), `scan landing: "${head.slice(0, 300)}"`);
+      return p;
+    });
+    await s.step('Mark shipped (POST shipped): CD-2549-P\'s scan landing says "Shipped · <tracking>" and "Bag: Shipped"; no bin step, no "Pack and ship this bag"', async () => {
+      const m = await api(ctx, "POST", ROUTES.shippedApi(bagId("CD-2549-P")));
+      eq(m.status, 200, `shipped (${JSON.stringify(m.body).slice(0, 200)})`);
+      await openDoneLanding(page, "CD-2549-P");
+      await page.getByText(`Shipped · ${tracking}`).first().waitFor({ timeout: 30_000 });
+      const head = flat(await headText(page));
+      const problems = [];
+      if (!/\bBag:\s*Shipped\b/.test(head)) problems.push(`no "Bag: Shipped" ("${head.slice(0, 200)}")`);
+      if (UI.bagFinished.test(head)) problems.push('still "Bag finished: put it in the Ready to ship bin"');
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push("a bin button");
+      if (await page.getByRole("link", { name: PACK_THIS }).count()) problems.push('a "Pack and ship this bag" link');
+      if (!(await page.getByRole("link", { name: /^Track package\b/ }).count())) problems.push('no "Track package" link');
+      assert(!problems.length, problems.join(" | "));
+      return `Shipped · ${tracking}`;
+    });
+    await s.step('the order code CD-2549: "Bag CD-2549-P shipped · <tracking>", and CD-2549-G still "Bag CD-2549-G finished: put it in the Ready to ship bin"', async () => {
+      await openDoneLanding(page, BO_ORDER);
+      await page.getByText(`Bag CD-2549-P shipped · ${tracking}`).first().waitFor({ timeout: 30_000 });
+      const head = flat(await headText(page));
+      assert(/Bag CD-2549-G finished: put it in the Ready to ship bin/.test(head), `head: "${head.slice(0, 400)}"`);
+      eq(await page.getByRole("button", { name: UI.readyToShipRe }).count(), 1, "bin buttons (CD-2549-G's)");
+      eq(await page.getByRole("link", { name: PACK_THIS }).count(), 1, '"Pack and ship this bag" links (CD-2549-G\'s)');
+    });
+    await s.step("the Bags board: CD-2549-P has left Ready to ship (shipped); CD-2549-G stays with \"Pack and ship\"", async () => {
+      await goto(page, ROUTES.bags);
+      await UI.readyRow(page, "CD-2549-G").waitFor({ timeout: 60_000 });
+      eq(await UI.readyRow(page, "CD-2549-P").count(), 0, "CD-2549-P rows");
+      eq(await UI.readyRow(page, "CD-2549-G").getByRole("link", { name: "Pack and ship CD-2549-G", exact: true }).count(), 1, "CD-2549-G's Pack and ship");
+    });
+    await s.step('a done card left on a desk is still out of its bag: CD-2549-G\'s label is refused ("still out of the bag (on DESK)"), its packing page says "Still on DESK"; Done puts it back and the label can be bought', async () => {
+      await ensureDesk(ctx);
+      await assignOk(ctx, DESK, [cardIdOf(t, "CD-2549-01")]);
+      const g = await api(ctx, "GET", ROUTES.shipLabelApi(bagId("CD-2549-G")));
+      eq(g.status, 200, "GET ship-label");
+      const c = g.body.check.cards.find((x) => x.code === "CD-2549-01");
+      eq([c?.status, g.body.canBuy, g.body.next], ["in_slot", false, "blocked"], "CD-2549-01's check, canBuy, next");
+      assert(/still out of the bag \(on DESK\)/i.test(g.body.blocked ?? ""), `blocked: "${g.body.blocked}"`);
+      const buy = await api(ctx, "POST", ROUTES.shipLabelApi(bagId("CD-2549-G")), {});
+      eq(buy.status, 409, `buy (${JSON.stringify(buy.body).slice(0, 160)})`);
+      await packOpen(page, "CD-2549-G");
+      const row = flat(await PK_UI.row(page, "CD-2549-01").innerText());
+      assert(/Still on DESK/i.test(row), `CD-2549-01's row: "${row}"`);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, "CD-2549-01")] });
+      const again = await api(ctx, "GET", ROUTES.shipLabelApi(bagId("CD-2549-G")));
+      eq([again.body.canBuy, again.body.next], [true, "buy"], "after Done: canBuy, next");
+      eq(pkGoodTx(await dump()).length, 1, "labels bought (CD-2549-P's only)");
+      return g.body.blocked;
+    });
+  },
 };
 Object.assign(SCENARIOS, PACK_SCENARIOS);
 
@@ -5817,7 +5922,7 @@ Object.assign(SCENARIOS, PACK_SCENARIOS);
 // lib/intake/tracking/bag-home.ts).
 const OPEN_BAGS = "LOC-OPEN-BAGS";
 const SHIP_PLACE = "LOC-SHIP";
-/** CD-2549's customer "Test Customer A": the last word is "A", so the sentences say "A's bag" and file it under A. */
+/** CD-2549's customer "Test Customer A": the last word is "A", so the sentences say "A's Platinum bag CD-2549-P" (2 bags) and file it under A. */
 const BO_LAST = "A";
 const BO_LETTER = "A";
 const DN = DONE_ORDER_NUMBER;
@@ -6132,8 +6237,8 @@ const DONE_SCENARIOS = {
       assert(!problems.length, problems.slice(0, 6).join(" | "));
       return tap?.answer?.message ?? "";
     }, { shot: false });
-    await s.step(`the page says "Done. Put it back in ${BO_LAST}'s bag: Open bags box, under ${BO_LETTER}." (the API's message too)`, async () => {
-      const re = UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER));
+    await s.step(`the page says "Done. Put it back in ${BO_LAST}'s Platinum bag ${BO_BAG}: Open bags box, under ${BO_LETTER}." (CD-2549 has 2 bags: named by tier and Bag ID; the API's message too)`, async () => {
+      const re = UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER), "done", { tier: "Platinum", code: BO_BAG });
       const msg = await saidOnPage(page, re);
       assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
       if (tap?.answer?.message) assert(re.test(tap.answer.message), `the API's message: "${tap.answer.message}"`);
@@ -6522,12 +6627,12 @@ const DONE_SCENARIOS = {
       await s.step(`(fallback) Done on ${LAST} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, LAST)] }); }, { shot: false });
     }
     await s.step(`the order (In Progress) is Completed: ONE Completed email, ONE notes email, one status event`, async () => checkOrderCompleted(before, await dump()), { shot: false });
-    await s.step(`the Desk says "Done. Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}.", "Bag finished: put it in the Ready to ship bin." with "Open REYES's bag", and "Order completed. ${DONE_CUSTOMER.name} emailed."; ${LAST}'s panel is gone`, async () => {
-      const sentence = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)));
+    await s.step(`the Desk says "Done. Put it back in REYES's Gold bag ${DONE_G}: Open bags box, under ${DONE_CUSTOMER.letter}." (2 bags: named), "Bag finished: put it in the Ready to ship bin." with "Open REYES's bag", and "Order completed. ${DONE_CUSTOMER.name} emailed."; ${LAST}'s panel is gone`, async () => {
+      const sentence = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, UI.donePlaceIn.openBags(DONE_CUSTOMER.letter), "done", { tier: "Gold", code: DONE_G }));
       const finished = await saidOnPage(page, UI.bagFinished, 5_000);
       const ordered = await saidOnPage(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 5_000);
       const problems = [];
-      if (!sentence) problems.push(`no "Done. Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag: Open bags box, under ${DONE_CUSTOMER.letter}."`);
+      if (!sentence) problems.push(`no "Done. Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s Gold bag ${DONE_G}: Open bags box, under ${DONE_CUSTOMER.letter}."`);
       if (!finished) problems.push('no "Bag finished: put it in the Ready to ship bin."');
       if (!ordered) problems.push(`no "Order completed. ${DONE_CUSTOMER.name} emailed."`);
       const link = page.getByRole("link", { name: new RegExp(`^open ${esc(DONE_CUSTOMER.lastName)}['’]s bag$`, "i") }).first();
@@ -6536,7 +6641,9 @@ const DONE_SCENARIOS = {
         const href = new URL(await link.getAttribute("href"), "http://x");
         if (decodeURIComponent(href.pathname).toUpperCase() !== ROUTES.open(DONE_G).toUpperCase()) problems.push(`the link goes to ${href.pathname}`);
       }
-      if (await UI.deskPanel(page, LAST, DONE_CODES).count()) problems.push(`${LAST}'s panel is still there`);
+      // The panel leaves with the desk's refresh (router.refresh after the answer): wait for it, don't race it
+      const gone = await until(async () => ((await UI.deskPanel(page, LAST, DONE_CODES).count()) === 0 ? true : null), 15_000);
+      if (!gone) problems.push(`${LAST}'s panel is still there`);
       assert(!problems.length, `${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
       return sentence;
     });
@@ -6549,14 +6656,14 @@ const DONE_SCENARIOS = {
     await s.step(`setup: ${DN} received, ${DONE_REFUNDED} refunded; 01-03 done`, async () => {
       t = await doneOrderSetup(ctx, mockUrl, { done: DONE_CODES.slice(0, 3) });
     }, { critical: true, shot: false });
-    await s.step(`${LAST}'s card page: the step picker's "Done" (POST /api/admin/intake/stages): done; the line "Marked done. Put it back in REYES's bag…"`, async () => {
+    await s.step(`${LAST}'s card page: the step picker's "Done" (POST /api/admin/intake/stages): done; the line "Marked done. Put it back in REYES's Gold bag ${DONE_G}…"`, async () => {
       await goto(page, ROUTES.card(cardIdOf(t, LAST)));
       before = await dump();
       const res = await clickForApi(page, UI.markDone(page), "/api/admin/intake/stages");
       assert(res.status() < 300, `stages answered ${res.status()}: ${await res.text()}`);
       assert(cardByCode(await tables(), LAST).completed, `${LAST} not done`);
       const body = await res.json().catch(() => null);
-      const line = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, "", "marked done"), 10_000);
+      const line = await saidOnPage(page, UI.doneSentence(DONE_CUSTOMER.lastName, "", "marked done", { tier: "Gold", code: DONE_G }), 10_000);
       return `${line ?? "(no \"Marked done. Put it back in …\" line)"}; orderCompletion ${JSON.stringify(body?.orderCompletion ?? null).slice(0, 160)}`;
     });
     if (!cardByCode(await tables(), LAST)?.completed) {
@@ -6582,8 +6689,9 @@ const DONE_SCENARIOS = {
       eq(cardByCode(t, LAST).location_id, placeOf(t, DESK).id, `${LAST} place`);
     }, { critical: true, shot: false });
     // The order page's toggle ends like every Done: the card back in its bag (off the desk), where the bag is said
-    const putBack = new RegExp(`put it back in ${esc(DONE_CUSTOMER.lastName.toUpperCase())}['’]s bag: ${UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)}`, "i");
-    await s.step(`the order page: "${NAME}"'s "Mark Done" (POST cards/<id>/complete): done, back in its bag (off ${DESK}, one 'done' row); the toggle says "Put it back in REYES's bag: Open bags box, under ${DONE_CUSTOMER.letter}." and "Order completed. ${DONE_CUSTOMER.name} emailed."`, async () => {
+    // (CD-2700 has 2 bags: the bag is named by tier and Bag ID)
+    const putBack = new RegExp(`put it back in ${esc(DONE_CUSTOMER.lastName.toUpperCase())}['’]s Gold bag ${esc(DONE_G)}: ${UI.donePlaceIn.openBags(DONE_CUSTOMER.letter)}`, "i");
+    await s.step(`the order page: "${NAME}"'s "Mark Done" (POST cards/<id>/complete): done, back in its bag (off ${DESK}, one 'done' row); the toggle says "Put it back in REYES's Gold bag ${DONE_G}: Open bags box, under ${DONE_CUSTOMER.letter}." and "Order completed. ${DONE_CUSTOMER.name} emailed."`, async () => {
       await goto(page, ROUTES.order(DONE_ORDER));
       before = await dump();
       const toggle = UI.cardRow(page, NAME, page.getByRole("button", { name: /^mark done$/i })).getByRole("button", { name: /^mark done$/i }).first();
@@ -6595,7 +6703,7 @@ const DONE_SCENARIOS = {
       const problems = doneInBagProblems(before, await dump(), LAST, DESK);
       if (!(body?.bagPlaces ?? []).some((b) => b.code === DONE_G && b.finished && b.returned === 1)) problems.push(`bagPlaces: ${JSON.stringify(body?.bagPlaces ?? null).slice(0, 200)}`);
       const back = await messageSeen(page, putBack, 10_000);
-      if (!back) problems.push(`no "Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s bag: Open bags box, under ${DONE_CUSTOMER.letter}."`);
+      if (!back) problems.push(`no "Put it back in ${DONE_CUSTOMER.lastName.toUpperCase()}'s Gold bag ${DONE_G}: Open bags box, under ${DONE_CUSTOMER.letter}."`);
       const note = await messageSeen(page, UI.orderCompletedLine(DONE_CUSTOMER.name), 10_000);
       if (!note) problems.push(`no "Order completed. ${DONE_CUSTOMER.name} emailed." (the answer: ${JSON.stringify(body?.orderCompletion ?? null).slice(0, 200)})`);
       assert(!problems.length, problems.join(" | "));
@@ -6726,8 +6834,8 @@ const DONE_SCENARIOS = {
     if (!cardByCode(await tables(), C)?.completed) {
       await s.step(`(fallback) Done on ${C} through the API`, async () => { before = before ?? (await dump()); await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, C)] }); }, { shot: false });
     }
-    await s.step(`the Desk says "Done. Put it back in ${BO_LAST}'s bag: Open bags box, under ${BO_LETTER}." (as the scan landing); only CD-2549-08 is left`, async () => {
-      const msg = await saidOnPage(page, UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER)));
+    await s.step(`the Desk says "Done. Put it back in ${BO_LAST}'s Platinum bag ${BO_BAG}: Open bags box, under ${BO_LETTER}." (as the scan landing); only CD-2549-08 is left`, async () => {
+      const msg = await saidOnPage(page, UI.doneSentence(BO_LAST, UI.donePlaceIn.openBags(BO_LETTER), "done", { tier: "Platinum", code: BO_BAG }));
       assert(msg, `not said (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
       eq(await waitPanels(page, ["CD-2549-08"], BO_ALL), ["CD-2549-08"], "cards with a panel");
       return msg;

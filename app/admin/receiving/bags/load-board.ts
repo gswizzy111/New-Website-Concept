@@ -2,7 +2,9 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAll } from "@/lib/fetch-all";
 import { parseStageEvent } from "@/lib/restoration-stages";
-import { tierDisplayName } from "@/lib/intake/codes";
+import { packCodePath, tierDisplayName } from "@/lib/intake/codes";
+import { bagSent, type BagShipState } from "@/lib/intake/packing-view";
+import { loadBagShipStates } from "@/lib/intake/shipping/bag-states";
 import { loadTierNames } from "@/lib/intake/data";
 import { loadHolidays } from "@/lib/intake/due-dates";
 import { cardStageState, keepsHistoricalCompletion, stageGroups } from "@/lib/intake/stage-plan";
@@ -35,6 +37,9 @@ import { isMissingSchema } from "../_components/schema";
  *   4. tier_bag_due_changes of those bags (best effort, for "label out of date")
  *   5. where each bag is (tier_bags.location_id and its place; best effort,
  *      so the board works before the card tracking update is applied)
+ *   6. the finished bags' return labels (bag_shipments, best effort: none
+ *      before that migration): a bag whose label went out (shipped or
+ *      delivered) has left the shop and isn't listed under Ready to ship
  *   plus restoration_settings names and business_holidays.
  */
 
@@ -136,6 +141,10 @@ export type ReadyBag = {
   inBin: boolean;
   /** Card IDs in the bag, so a scanned card finds its bag. */
   cardCodes: string[];
+  /** Its return label when one is bought and not shipped ('purchased') or being bought ('claimed'); null otherwise or before the bag_shipments migration. */
+  shipment: BagShipState | null;
+  /** Its packing page (/admin/receiving/pack/<Bag ID>): "Pack and ship". */
+  packHref: string;
 };
 
 export type BoardLoad =
@@ -343,7 +352,10 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
     };
   });
 
-  const ready: ReadyBag[] = rows.filter((b) => !openIds.has(b.id) && finished(b)).map((b) => {
+  const finishedRows = rows.filter((b) => !openIds.has(b.id) && finished(b));
+  // Their return labels (never throws: none before the bag_shipments migration, so the list is as before)
+  const labels = finishedRows.length ? await loadBagShipStates(admin, { bagIds: finishedRows.map((b) => b.id) }) : new Map<string, BagShipState>();
+  const ready: ReadyBag[] = finishedRows.filter((b) => !bagSent(labels.get(b.id))).map((b) => {
     const live = liveByBag.get(b.id) ?? [];
     return {
       id: b.id,
@@ -358,6 +370,8 @@ export async function loadBoard(admin: SupabaseClient): Promise<BoardLoad> {
       place: placeOf(b, true),
       inBin: isReadyToShipPlace(places.get(b.id)),
       cardCodes: live.map((c) => c.card_code).filter((code): code is string => !!code),
+      shipment: labels.get(b.id) ?? null,
+      packHref: packCodePath(b.bag_code),
     };
   });
 

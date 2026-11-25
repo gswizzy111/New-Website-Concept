@@ -299,6 +299,13 @@ export type TrackBagPlace = {
   tierName?: string;
   /** Card IDs of the cards this request put back in it ("CD-2549-07"), when known. */
   returnedCodes?: string[];
+  /**
+   * How many tier bags the bag's order has, when known: 2 or more (one
+   * customer's Platinum and Gold bags) and the put-back sentence names this
+   * bag by tier and Bag ID ("Put it back in REYES's Platinum bag CD-2549-P:
+   * Open bags box, under R.").
+   */
+  orderBagCount?: number;
 };
 
 /** POST /api/admin/track/bag-ready { bagId }: the finished bag is in the Ready to ship bin (LOC-SHIP). */
@@ -334,7 +341,10 @@ export type TrackMove = {
 /** GET /api/admin/track/history?code= (bag, order, slot or Card ID; last 50 moves). */
 export type HistoryResponse = { kind: CodeKind; code: string; moves: TrackMove[] };
 
-/** refunded > not_done > in_slot (still in a work-station slot) > ok. */
+/**
+ * refunded > not_done > in_slot (done but still out of its bag: in a holder,
+ * on a desk, on the old Done shelf, any other place; isBackInBag) > ok.
+ */
 export type ShipCheckStatus = "ok" | "not_done" | "in_slot" | "refunded";
 
 export type ShipCheckCard = {
@@ -344,7 +354,7 @@ export type ShipCheckCard = {
   bagId: string | null;
   bagCode: string | null;
   done: boolean;
-  /** Where it is (a slot: "still in CLAMP 07"; LOC-DONE, Shipping, a shelf or nowhere are fine). */
+  /** Where it is (a slot, a desk or LOC-DONE: "still in CLAMP 07"; nowhere (in its bag), a shelf, the Open bags box or Shipping are fine). */
   location: LocationRef | null;
   /** When it was last placed anywhere (located_at). */
   lastSeen: string | null;
@@ -358,7 +368,7 @@ export type ShipCheckResponse = {
   bags: { id: string; code: string; tier: string; tierName: string; cardCount: number; doneCount: number; location: LocationRef | null; ok: boolean }[];
   cards: ShipCheckCard[];
   counts: { ok: number; notDone: number; inSlot: number; refunded: number };
-  /** Every non-refunded card is done and out of the slots (and there is at least one). */
+  /** Every non-refunded card is done and back in its bag (and there is at least one). */
   ready: boolean;
 };
 

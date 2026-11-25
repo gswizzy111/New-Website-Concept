@@ -18,6 +18,13 @@ export const SENT_SHIPMENT_STATUSES: readonly BagShipmentStatus[] = ["shipped", 
 /** A claim older than this with no answer is stale: the purchase may or may not have gone through. */
 export const CLAIM_STALE_MS = 2 * 60_000;
 
+/** The bag_shipments table isn't in the database (yet): migration 20261125_bag_shipments.sql not applied (PGRST205 / 42P01). */
+export function isMissingShipmentsTable(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (["42P01", "PGRST205"].includes(error.code ?? "")) return true;
+  return /bag_shipments/.test(error.message ?? "") && /does not exist|could not find|schema cache/i.test(error.message ?? "");
+}
+
 export const SHIPMENT_COLUMNS =
   "id, bag_id, order_id, status, carrier, service, tracking_number, tracking_url, label_url, shippo_transaction_id, shippo_rate_id, cost_cents, insurance_cents, order_label, claimed_at, purchased_at, shipped_at, delivered_at, email_sent_at, created_by, shipped_by, error";
 

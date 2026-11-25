@@ -340,3 +340,46 @@ test("putting done cards back in their bag: a move row that can't be saved stops
   assert.ok(fixed.ok);
   assert.deepEqual([cardRow(C(1)).location_id, cardRow(C(2)).location_id], [null, null]);
 });
+
+test("one customer with two bags: Done names the bag by tier and Bag ID (every Done path); one bag keeps \"REYES's bag\"", async () => {
+  const toggle = await import("@/lib/intake/card-completion");
+  const { bagSentences } = await import("@/lib/intake/tracking/bag-home");
+  // Before: the order has one bag (the tests above): "REYES's bag"
+  assert.ok((await moves.assignCards(admin, { locationCode: "LOC-DESK", cardIds: [C(1)], by: "gavin" })).ok);
+  const one = await moves.markCardsDone(admin, { cardIds: [C(1)], by: "gavin" });
+  // (card 1 was done already: "Already done. Taken out of its slot. Put it back in REYES's bag: ...")
+  assert.ok(one.ok && /Put it back in REYES's bag: /.test(one.message), one.ok ? one.message : one.error);
+  assert.equal(one.ok && one.bags?.[0]?.orderBagCount, 1);
+
+  // A second bag of the same order (Platinum, card 4)
+  mock.store.table("tier_bags").push({
+    id: "00000000-0000-4000-8000-0000000ab002", order_id: ORDER, tier: "ultra_premium", batch: 1, bag_code: "CD-7001-P", received_on: "2026-11-16",
+    due_date: "2026-12-02", due_status: "calculated", turnaround_days: 10, source: "receiving", created_at: "2026-11-23T19:30:00+00:00",
+    location_id: SHELF, located_at: "2026-11-23T19:31:00+00:00", completed_at: null, label_printed_at: null,
+  });
+  mock.store.table("cards").push(card(4, { bag_id: "00000000-0000-4000-8000-0000000ab002", tier: "ultra_premium", card_code: "CD-7001-04" }));
+  mock.store.table("restoration_settings").push({ tier: "ultra_premium", display_name: "Platinum", turnaround_min_days: 10, turnaround_max_days: 12 });
+
+  // The tracking Done (scan landing, Desk): "Put it back in REYES's Gold bag CD-7001-G: ..."
+  assert.ok((await moves.assignCards(admin, { locationCode: "LOC-DESK", cardIds: [C(1)], by: "gavin" })).ok);
+  const two = await moves.markCardsDone(admin, { cardIds: [C(1)], by: "gavin" });
+  assert.ok(two.ok, two.ok ? "" : two.error);
+  if (!two.ok) return;
+  assert.match(two.message, /Put it back in REYES's Gold bag CD-7001-G: Open bags box, under R\./);
+  assert.equal(two.bags?.[0]?.orderBagCount, 2);
+
+  // The other bag's card: its own bag named
+  const p = await moves.markCardsDone(admin, { cardIds: [C(4)], by: "gavin" });
+  assert.ok(p.ok, p.ok ? "" : p.error);
+  if (!p.ok) return;
+  assert.match(p.message, /^Done\. Put it back in REYES's Platinum bag CD-7001-P: on shelf DUE MON DEC 7\./);
+
+  // The order page's toggle (returnCardsToBags): the same words
+  const off = await toggle.toggleCardCompletion(admin, { cardId: C(4), by: "gavin" });
+  assert.ok(off.ok && !off.completed);
+  const on = await toggle.toggleCardCompletion(admin, { cardId: C(4), by: "gavin" });
+  assert.ok(on.ok && on.completed, JSON.stringify(on));
+  if (!on.ok) return;
+  assert.equal(on.bagPlaces?.[0]?.orderBagCount, 2);
+  assert.match(bagSentences(on.bagPlaces ?? [], 1), /^Put it back in REYES's Platinum bag CD-7001-P: on shelf DUE MON DEC 7\./);
+});

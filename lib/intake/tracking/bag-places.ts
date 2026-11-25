@@ -130,6 +130,9 @@ export async function settleBags(
   // Where each card is after this request (a moved card at its new place)
   const placeNow = new Map(moves.map((m) => [m.cardId, m.toLocationId]));
   const bagIds = [...new Set(moves.map((m) => m.bagId).filter((id): id is string => !!id))];
+  // ctx holds every bag of the cards' orders: 2+ and the put-back sentence names the bag by tier and Bag ID
+  const allBags = [...ctx.bags.values()];
+  const bagsOfOrder = (orderId: string) => allBags.filter((b) => b.order_id === orderId).length;
   const bags: TrackBagPlace[] = [];
   for (const bagId of bagIds) {
     const bag = ctx.bags.get(bagId);
@@ -148,6 +151,7 @@ export async function settleBags(
       returned: back.length,
       tierName: tierDisplayName(bag.tier, ctx.tierNames),
       returnedCodes: back.map((m) => ctx.cards.find((c) => c.id === m.cardId)?.card_code ?? null),
+      orderBagCount: bagsOfOrder(bag.order_id),
     }));
   }
   return { bags, returned: moves.filter(isReturned).length };
@@ -164,6 +168,8 @@ type BagPlaces = {
   /** The places the bags and their cards are in. */
   places: Map<string, LocationRef>;
   tierNames: Record<string, string>;
+  /** How many tier bags each of the bags' orders has (empty when it couldn't be read: one bag's words). */
+  bagCounts: Map<string, number>;
 };
 
 /** Bags with their order's customer, status and cards, and the places the bags and cards sit in. Throws on a failed read. */
@@ -175,7 +181,7 @@ async function loadBagPlaces(admin: SupabaseClient, bagIds: readonly string[]): 
     return (data ?? []) as BagRow[];
   }))).flat();
   const orderIds = [...new Set(bags.map((b) => b.order_id))];
-  const [orders, cards, tierNames] = await Promise.all([
+  const [orders, cards, tierNames, orderBags] = await Promise.all([
     Promise.all(chunks(orderIds).map(async (part) => {
       const { data, error } = await admin.from("orders").select("id, customer_name, status").in("id", part);
       if (error) throw new Error(error.message);
@@ -184,7 +190,17 @@ async function loadBagPlaces(admin: SupabaseClient, bagIds: readonly string[]): 
     Promise.all(chunks(ids).map((part) => fetchAll<BagCardRow>((from, to) =>
       admin.from("cards").select("id, order_id, bag_id, card_code, status, completed, location_id").in("bag_id", part).order("id").range(from, to)))).then((p) => p.flat()),
     loadTierNames(admin).catch(() => ({} as Record<string, string>)),
+    // Every bag of those orders, for the words only (best effort: one bag's words without it)
+    Promise.all(chunks(orderIds).map((part) => fetchAll<{ id: string; order_id: string }>((from, to) =>
+      admin.from("tier_bags").select("id, order_id").in("order_id", part).order("id").range(from, to))))
+      .then((p) => p.flat())
+      .catch((e) => {
+        console.warn("[intake] the orders' bags not counted:", errText(e));
+        return [] as { id: string; order_id: string }[];
+      }),
   ]);
+  const bagCounts = new Map<string, number>();
+  for (const b of orderBags) bagCounts.set(b.order_id, (bagCounts.get(b.order_id) ?? 0) + 1);
   const placeIds = [...new Set([...bags.map((b) => b.location_id), ...cards.map((c) => c.location_id)].filter((id): id is string => !!id))];
   const places = (await Promise.all(chunks(placeIds).map(async (part) => {
     const { data, error } = await admin.from("locations").select(LOCATION_REF_COLUMNS).in("id", part);
@@ -197,6 +213,7 @@ async function loadBagPlaces(admin: SupabaseClient, bagIds: readonly string[]): 
     cards,
     places: new Map(places.map((p) => [p.id, locationRef(p)])),
     tierNames,
+    bagCounts,
   };
 }
 
@@ -214,6 +231,7 @@ function placeFromRead(read: BagPlaces, bag: BagRow, extra: { location?: Locatio
     returned: extra.returned,
     tierName: tierDisplayName(bag.tier, read.tierNames),
     returnedCodes: extra.returnedCodes,
+    orderBagCount: read.bagCounts.get(bag.order_id),
   });
 }
 

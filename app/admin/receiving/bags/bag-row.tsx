@@ -1,9 +1,10 @@
-import { Camera, Check, Package, TriangleAlert } from "lucide-react";
+import { Camera, Check, Package, Printer, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { openCodePath, orderPhotosPath } from "@/lib/intake/codes";
 import { groupPickerCards } from "@/lib/intake/step-picker";
 import { nyDate } from "@/lib/intake/tracking-format";
+import { labelStateText } from "@/lib/intake/packing-view";
 import { StepPicker } from "@/components/intake/tracking-actions";
 import type { BoardBag, ReadyBag } from "./load-board";
 import { DoneBar, DUE_TEXT, LabelStatus, shortDay, StepSummary, TierBadge, type DueInfo } from "./_components/bag-bits";
@@ -167,12 +168,16 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
 
 /**
  * One finished bag under "Ready to ship" (every card done, not shipped yet):
- * Bag ID, tier, customer, order, where the bag is, and "Open bag" (the scan
- * landing, where "It's in the Ready to ship bin" files it). A bag not in the
- * bin yet says so in amber; one in the bin, in green.
+ * Bag ID, tier, customer, order, where the bag is, its return label when one
+ * is bought and not shipped ("Label bought, not shipped"), "Pack and ship"
+ * (its packing page: ship check, label, Mark shipped), and "Open bag" (the
+ * scan landing, where "It's in the Ready to ship bin" files it). A bag not in
+ * the bin yet says so in amber; one in the bin, in green. Bags whose label
+ * went out aren't listed (load-board.ts).
  */
 export function ReadyRow({ bag }: { bag: ReadyBag }) {
   const n = bag.cardCount;
+  const label = labelStateText(bag.shipment);
   return (
     <li className="bg-white rounded-xl border border-border p-4 sm:px-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -191,6 +196,12 @@ export function ReadyRow({ bag }: { bag: ReadyBag }) {
         <p className="text-xs text-muted-foreground">
           Order #{bag.orderNumber} · {n} of {n} done{bag.finishedAt ? ` · finished ${nyDate(bag.finishedAt)}` : ""}
         </p>
+        {label && (
+          <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-sm font-bold text-blue-800">
+            <Printer aria-hidden className="size-4 shrink-0" strokeWidth={1.75} />
+            {label}
+          </p>
+        )}
       </div>
       <div className="flex flex-col gap-2 sm:items-end">
         {bag.inBin ? (
@@ -211,10 +222,18 @@ export function ReadyRow({ bag }: { bag: ReadyBag }) {
           </div>
         )}
         <div className="grid grid-cols-2 sm:flex gap-2">
+          {/* In the bin (or a label bought): packing is next; not in the bin yet: Open bag (its bin button) first */}
+          <AdminLink
+            href={bag.packHref}
+            aria-label={`Pack and ship ${bag.code}`}
+            className={`${button} col-span-2 ${bag.inBin || label ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90" : "bg-white text-foreground border-border hover:border-primary/40"}`}
+          >
+            Pack and ship
+          </AdminLink>
           <AdminLink
             href={openCodePath(bag.code)}
             aria-label={`Open bag ${bag.code}`}
-            className={`${button} ${bag.inBin ? "bg-white text-foreground border-border hover:border-primary/40" : "bg-primary text-primary-foreground border-primary hover:bg-primary/90"}`}
+            className={`${button} ${bag.inBin || label ? "bg-white text-foreground border-border hover:border-primary/40" : "bg-primary text-primary-foreground border-primary hover:bg-primary/90"}`}
           >
             Open bag
           </AdminLink>

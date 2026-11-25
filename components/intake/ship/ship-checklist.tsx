@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Ban, CircleAlert, CircleCheck, LoaderCircle, PackageCheck, PackageX, TriangleAlert, Truck } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
-import { readyToShip, shipCounts } from "./rules";
+import { readyToShip, shipCounts, stillOutPhrase } from "./rules";
 import type { ShipGroup, ShipRow } from "./ship-types";
 import { markCardsDone, takeCardsOut } from "./track-client";
 
@@ -14,9 +14,10 @@ import { markCardsDone, takeCardsOut } from "./track-client";
  * box "in the box" (cards carry no sticker, so packing is checked by eye and
  * ticked here; ticks stay in this browser tab, sessionStorage), "Confirm all
  * present", Mark done (POST /api/admin/track/done) for a card not marked done
- * and Taken out (POST /api/admin/track/release) for a done card still in a
- * slot. "All good: ready to ship" shows once every card is done, out of its
- * slot and ticked. Each save refreshes the page's server data.
+ * and Taken out (POST /api/admin/track/release) for a done card still out of
+ * its bag (in a holder, on a desk, on the old Done shelf: release leaves it in
+ * no place, back in its bag). "All good: ready to ship" shows once every card
+ * is done, back in its bag and ticked. Each save refreshes the page's server data.
  */
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
@@ -49,9 +50,14 @@ function StatusLine({ row, trackPlaces }: { row: ShipRow; trackPlaces: boolean }
       <div className="mt-1.5 text-sm text-amber-900">
         <p className="flex items-start gap-1.5">
           <TriangleAlert aria-hidden className="size-5 shrink-0 text-amber-700" strokeWidth={1.75} />
-          <span><span className="font-bold">Still in {row.place?.name ?? "a slot"}</span> · marked done</span>
+          <span><span className="font-bold">Still {stillOutPhrase(row.place)}</span> · marked done</span>
         </p>
-        <p className="ml-6.5 text-xs">Check it isn&apos;t still there. Once it&apos;s out, tap Taken out.{seen ? ` (${seen})` : ""}</p>
+        <p className="ml-6.5 text-xs">
+          {row.inSlot
+            ? <>Check it isn&apos;t still there. Once it&apos;s out, tap Taken out.</>
+            : <>Done cards go back in their bag. Once it&apos;s in, tap Back in its bag.</>}
+          {seen ? ` (${seen})` : ""}
+        </p>
       </div>
     );
   }
@@ -134,7 +140,7 @@ function RowActions({ row, onSaved, orderId, trackPlaces }: { row: ShipRow; onSa
       {row.status === "in_slot" && (
         <button type="button" onClick={() => run("out")} disabled={busy} className={`${button} border border-amber-300 bg-white text-amber-900 hover:bg-amber-50 ${focusRing}`}>
           {busy && <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" strokeWidth={1.75} />}
-          Taken out of {row.place?.name ?? "the slot"}
+          {row.inSlot ? `Taken out of ${row.place?.name ?? "the slot"}` : "Back in its bag"}
         </button>
       )}
       {error && <p role="alert" className="mt-1.5 text-sm text-red-700">{error}</p>}
@@ -243,7 +249,7 @@ export function ShipChecklist({
 
   const problems = [
     counts.notDone ? `${plural(counts.notDone, "card")} not marked done` : "",
-    counts.inSlot ? `${plural(counts.inSlot, "card")} still in a slot` : "",
+    counts.inSlot ? `${plural(counts.inSlot, "card")} still out of the bag` : "",
   ].filter(Boolean);
 
   return (
@@ -258,7 +264,7 @@ export function ShipChecklist({
             <p className="text-sm text-muted-foreground mt-0.5">
               {counts.ok} ready
               {counts.notDone ? ` · ${counts.notDone} not marked done` : ""}
-              {counts.inSlot ? ` · ${counts.inSlot} still in a slot` : ""}
+              {counts.inSlot ? ` · ${counts.inSlot} still out of the bag` : ""}
               {counts.refunded ? ` · ${counts.refunded} refunded` : ""}
               {counts.notReceived ? ` · ${counts.notReceived} never arrived` : ""}
               {refreshing ? " · updating…" : ""}
