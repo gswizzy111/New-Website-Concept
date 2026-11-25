@@ -237,3 +237,106 @@ test("the order page's Done toggle ends like every Done: back in its bag, off th
   assert.ok(on2.ok && on2.completed && on2.bagPlaces?.[0]?.returned === 1);
   assert.equal(mock.store.table("card_moves").length, rows, "nothing to move");
 });
+
+test("Ready to ship waits for a done card still out of the bag (in a holder, on the Done shelf); Done puts it back", async () => {
+  // Card 1 is done and in its bag (the test before); it goes into CLAMP 02 again (re-checked)
+  const put = await moves.assignCards(admin, { locationCode: "LOC-CLAMP-02", cardIds: [C(1)], by: "gavin" });
+  assert.ok(put.ok, put.ok ? "" : put.error);
+  assert.deepEqual([cardRow(C(1)).completed, cardRow(C(1)).location_id], [true, CLAMP2]);
+  const refused = await places.putBagReadyToShip(admin, { bagId: BAG, by: "gavin" });
+  assert.deepEqual(refused, { ok: false, status: 409, error: "CD-7001-01 is still in CLAMP 02: tap Done on it first." });
+
+  // Done on it: back in the bag, and the answer says the bag is finished
+  const back = await moves.markCardsDone(admin, { cardIds: [C(1)], by: "gavin" });
+  assert.ok(back.ok, back.ok ? "" : back.error);
+  if (!back.ok) return;
+  assert.equal(cardRow(C(1)).location_id, null);
+  assert.deepEqual(back.bags?.map((b) => [b.code, b.finished, b.returned, b.tierName, b.returnedCodes]), [["CD-7001-G", true, 1, "Gold", ["CD-7001-01"]]]);
+  assert.match(back.message, /Put it back in REYES's bag: Open bags box, under R\. Bag finished: put it in the Ready to ship bin\.$/);
+
+  // Left on the old Done shelf (scanned to LOC-DONE): a loose pile, not the bag
+  const doneShelf = await moves.assignCards(admin, { locationCode: "LOC-DONE", cardIds: [C(2)], by: "gavin" });
+  assert.ok(doneShelf.ok, doneShelf.ok ? "" : doneShelf.error);
+  if (!doneShelf.ok) return;
+  assert.equal(doneShelf.bags?.[0]?.finished, false, "not finished while a card is on the Done shelf");
+  const shelfRefused = await places.putBagReadyToShip(admin, { bagId: BAG, by: "gavin" });
+  assert.deepEqual(shelfRefused, { ok: false, status: 409, error: "CD-7001-02 is still on the Done shelf: tap Done on it first." });
+  const back2 = await moves.markCardsDone(admin, { cardIds: [C(2)], by: "gavin" });
+  assert.ok(back2.ok && cardRow(C(2)).location_id === null);
+
+  const ready = await places.putBagReadyToShip(admin, { bagId: BAG, by: "gavin" });
+  assert.ok(ready.ok, ready.ok ? "" : ready.error);
+  assert.equal(bagRow().location_id, placeOf("LOC-SHIP")!.id);
+});
+
+test("Ready to ship refused for an order shipped back, delivered or cancelled", async () => {
+  const order = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  const was = order.status;
+  try {
+    for (const [status, words] of [["shipped_back", "shipped back already"], ["delivered", "delivered already"], ["cancelled", "cancelled"]] as const) {
+      order.status = status;
+      const r = await places.putBagReadyToShip(admin, { bagId: BAG, by: "gavin" });
+      assert.deepEqual(r, { ok: false, status: 409, error: `CD-7001-G isn't going in the Ready to ship bin: the order was ${words}.` }, status);
+    }
+  } finally {
+    order.status = was;
+  }
+});
+
+test("un-doing a card of a bag in the Ready to ship bin files the bag back in the Open bags box", async () => {
+  const { outOfBinSentence } = await import("@/lib/intake/tracking/bag-home");
+  const toggle = await import("@/lib/intake/card-completion");
+  assert.equal(bagRow().location_id, placeOf("LOC-SHIP")!.id, "in the bin (the test before)");
+  const off = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(off.ok && off.completed === false, JSON.stringify(off));
+  if (!off.ok) return;
+  assert.equal(bagRow().completed_at, null, "reopened");
+  assert.equal(bagRow().location_id, placeOf("LOC-OPEN-BAGS")!.id, "back in the Open bags box");
+  assert.deepEqual(off.unbinned?.map((b) => [b.code, b.location?.code, b.finished]), [["CD-7001-G", "LOC-OPEN-BAGS", false]]);
+  assert.equal(outOfBinSentence(off.unbinned ?? []), "Take REYES's bag out of the Ready to ship bin: Open bags box, under R.");
+  // A reopened bag that isn't in the bin stays where it is
+  const on = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(on.ok && on.completed);
+  const off2 = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(off2.ok && !off2.unbinned);
+  assert.equal(bagRow().location_id, placeOf("LOC-OPEN-BAGS")!.id);
+  const on2 = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(on2.ok && on2.completed);
+});
+
+test("putting done cards back in their bag: a move row that can't be saved stops there and the request says so", async () => {
+  const toggle = await import("@/lib/intake/card-completion");
+  // A client whose card_moves inserts fail (the rest of the database works)
+  const failing = createClient(mock.url, "service-role-test-key", {
+    auth: { persistSession: false },
+    global: {
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/rest/v1/card_moves") && (init?.method ?? "GET").toUpperCase() === "POST") {
+          return new Response(JSON.stringify({ code: "XX000", message: "disk full", details: null, hint: null }), { status: 500, headers: { "Content-Type": "application/json" } });
+        }
+        return fetch(input, init);
+      }) as typeof fetch,
+    },
+  });
+  // Card 1 in CLAMP 01, card 2 on the desk (both done)
+  assert.ok((await moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [C(1)], by: "gavin" })).ok);
+  assert.ok((await moves.assignCards(admin, { locationCode: "LOC-DESK", cardIds: [C(2)], by: "gavin" })).ok);
+  const rows = mock.store.table("card_moves").length;
+  const r = await places.returnCardsToBags(failing, { cards: [{ id: C(1), stageBefore: "Clamp Work" }, { id: C(2), stageBefore: null }], by: "gavin" });
+  assert.deepEqual(r, { ok: false, status: 500, error: "Couldn't save the move. (disk full)" });
+  assert.equal(mock.store.table("card_moves").length, rows, "nothing logged");
+  // It stopped at the first holder: card 2 was never moved
+  assert.equal(cardRow(C(2)).location_id, DESK, "the next group isn't moved");
+
+  // The order page's toggle answers it: done, but not put back in the bag
+  const off = await toggle.toggleCardCompletion(admin, { cardId: C(2), by: "gavin" });
+  assert.ok(off.ok && !off.completed);
+  const on = await toggle.toggleCardCompletion(failing, { cardId: C(2), by: "gavin" });
+  assert.deepEqual(on, { ok: false, status: 500, error: "Marked done, but not put back in the bag: Couldn't save the move. (disk full)" });
+  assert.equal(cardRow(C(2)).completed, true, "the card is done all the same");
+  // Done again (the working database) puts both back, each with its row
+  const fixed = await moves.markCardsDone(admin, { cardIds: [C(1), C(2)], by: "gavin" });
+  assert.ok(fixed.ok);
+  assert.deepEqual([cardRow(C(1)).location_id, cardRow(C(2)).location_id], [null, null]);
+});

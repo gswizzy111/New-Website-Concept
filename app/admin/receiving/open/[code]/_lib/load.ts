@@ -66,7 +66,7 @@ export async function loadOpen(admin: SupabaseClient, raw: string): Promise<Open
         kind: found.kind,
         code: found.code,
         bagId: found.kind === "bag" ? found.id : null,
-        order: { id: order.id, orderNumber: order.order_number, customer: order.customer_name, customerNotes },
+        order: { id: order.id, orderNumber: order.order_number, customer: order.customer_name, customerNotes, status: order.status },
         bags,
         cards,
       },

@@ -63,7 +63,9 @@ test("where a card is now, in plain words, for the desk picked on this phone", (
   assert.equal(whereText(pc("a", "ready", loc("p", "LOC-SHIP", "Shipping", "shipping")), DESK.id), "In Shipping");
   assert.equal(whereText(pc("a", "ready", loc("b", "LOC-BENCH-2", "BENCH 2", "other")), DESK.id), "At BENCH 2");
   assert.equal(whereText(pc("a", "ready", loc("t", "LOC-DESKTOP", "DESKTOP", "other")), DESK.id), "At DESKTOP", "LOC-DESKTOP isn't a desk");
-  assert.equal(whereText(pc("a", "done", loc("d", "LOC-DONE", "Done", "done")), DESK.id), "Done");
+  // Done flow (Nov 25 2026): a done card belongs in its bag; one left on the old Done shelf says so (its Done puts it back)
+  assert.equal(whereText(pc("a", "done", loc("d", "LOC-DONE", "Done", "done")), DESK.id), "Done · on the Done shelf");
+  assert.equal(whereText(pc("a", "done", null), DESK.id), "Done");
   assert.equal(whereText(pc("a", "refunded", CLAMP), DESK.id), "Refunded");
   assert.equal(whereText(pc("a", "not_here", null, null), DESK.id), "Not here yet");
   assert.equal(whereText(pc("a", "ready", DESK), null), "On DESK", "no desk picked: it's just a desk");

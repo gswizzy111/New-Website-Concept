@@ -290,11 +290,15 @@ export type TrackBagPlace = {
   opened: boolean;
   /** Cards of this bag that this request marked done or put back in it. */
   returned: number;
-  /** Every non-refunded card of the bag is done. */
+  /** Every non-refunded card of the bag is done and back in it (none left in a holder, on a desk or the Done shelf). */
   finished: boolean;
   doneCount: number;
   /** Non-refunded cards. */
   cardCount: number;
+  /** The bag's tier as staff call it ("Platinum"): one customer's bags are told apart by it and the Bag ID. */
+  tierName?: string;
+  /** Card IDs of the cards this request put back in it ("CD-2549-07"), when known. */
+  returnedCodes?: string[];
 };
 
 /** POST /api/admin/track/bag-ready { bagId }: the finished bag is in the Ready to ship bin (LOC-SHIP). */

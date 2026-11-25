@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { bagSentences, orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
+import { bagSentences, orderCompletionNotes, outOfBinSentence, type ToneLine } from "@/lib/intake/tracking/bag-home";
 import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 export function CardCompletionToggle({
@@ -41,11 +41,16 @@ export function CardCompletionToggle({
         if (data.completed === true) {
           setBagLine(bagSentences(Array.isArray(data.bagPlaces) ? (data.bagPlaces as TrackBagPlace[]) : [], 1) || null);
           setNotes(orderCompletionNotes([data.orderCompletion]));
+        } else if (Array.isArray(data.unbinned)) {
+          // Un-done: its finished bag came out of the Ready to ship bin
+          setBagLine(outOfBinSentence(data.unbinned as TrackBagPlace[]) || null);
         }
         // Refresh so the done counts and the other sections update
         router.refresh();
       } else {
         setErr(data.error ?? "Failed");
+        // The card may be done all the same (marked, then not put back in its bag): show what's saved
+        router.refresh();
       }
     } catch {
       setErr("Network error");

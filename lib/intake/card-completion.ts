@@ -6,7 +6,7 @@ import { returnCardsToBags } from "@/lib/intake/tracking/bag-places";
 import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 export type ToggleCardResult =
-  | { ok: true; completed: boolean; orderCompletion?: OrderAutoComplete; bagPlaces?: TrackBagPlace[] }
+  | { ok: true; completed: boolean; orderCompletion?: OrderAutoComplete; bagPlaces?: TrackBagPlace[]; unbinned?: TrackBagPlace[] }
   | { ok: false; status: number; error: string };
 
 /**
@@ -18,7 +18,9 @@ export type ToggleCardResult =
  * frees up, a card_moves 'done' row; `bagPlaces` says where the bag is), and
  * the order completes if it was the last card (completeOrderIfAllDone;
  * `orderCompletion` is its result). Un-doing a card never changes the
- * order's status or the card's place. Admin access is checked by the route.
+ * order's status or the card's place; its bag reopens, and a bag in the
+ * Ready to ship bin goes back in the Open bags box (`unbinned`: "Take
+ * REYES's bag out of the Ready to ship bin"). Admin access is checked by the route.
  */
 export async function toggleCardCompletion(admin: SupabaseClient, input: { cardId: string; by: string | null }): Promise<ToggleCardResult> {
   const id = input.cardId;
@@ -50,7 +52,8 @@ export async function toggleCardCompletion(admin: SupabaseClient, input: { cardI
     return { ok: false, status: 500, error: updateErr?.message ?? "Update failed" };
   }
 
-  await refreshBagCompletionForCard(id, admin); // its tier bag completes or reopens with it
+  // Its tier bag completes or reopens with it (reopened: out of the Ready to ship bin)
+  const { unbinned } = await refreshBagCompletionForCard(id, admin, input.by);
 
   if (updated.completed === true && card.order_id) {
     const orderId = card.order_id as string;
@@ -59,7 +62,8 @@ export async function toggleCardCompletion(admin: SupabaseClient, input: { cardI
     const home = await returnCardsToBags(admin, { cards: [{ id, stageBefore }], by: input.by });
     // The order's last card: the order becomes Completed (once; never undone here)
     const orderCompletion = await completeOrderIfAllDone(admin, orderId, input.by);
+    if (!home.ok) return { ok: false, status: home.status, error: `Marked done, but not put back in the bag: ${home.error}` };
     return { ok: true, completed: true, orderCompletion, ...(home.bags.length ? { bagPlaces: home.bags } : {}) };
   }
-  return { ok: true, completed: updated.completed as boolean };
+  return { ok: true, completed: updated.completed as boolean, ...(unbinned.length ? { unbinned } : {}) };
 }

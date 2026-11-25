@@ -10,7 +10,7 @@ import {
 } from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
 import { completeOrderIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
-import { returnCardsToBags } from "@/lib/intake/tracking/bag-places";
+import { returnCardsToBags, unbinReopenedBags } from "@/lib/intake/tracking/bag-places";
 import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
@@ -254,8 +254,10 @@ export async function advanceCards(
   const home = completed.length
     ? await returnCardsToBags(admin, { cards: completed.map((id) => ({ id, stageBefore: current.get(id) ?? null })), by: input.by })
     : null;
-  // The order's last cards done: the order becomes Completed (once)
+  // The order's last cards done: the order becomes Completed (once). The cards are done whatever happened to their holders
   const orderCompletion = completed.length ? await completeOrderIfAllDone(admin, input.orderId, input.by) : undefined;
+  // A card's move out of its holder not saved (or not logged): said, as the tracking routes do
+  if (home && !home.ok) return { ok: false, status: home.status, error: `Marked done, but not put back in the bag: ${home.error}` };
 
   return {
     ok: true,
@@ -266,21 +268,25 @@ export async function advanceCards(
     emailed,
     bagsCompleted,
     ...(orderCompletion ? { orderCompletion } : {}),
-    ...(home?.bags.length ? { bagPlaces: home.bags } : {}),
+    ...(home?.ok && home.bags.length ? { bagPlaces: home.bags } : {}),
   };
 }
 
 /**
  * Keep tier_bags.completed_at in step with the bags' cards: set once every
  * non-refunded card is done (the earliest time is kept), cleared when a card
- * reopens (new round, un-done). Never throws; returns which bags changed.
+ * reopens (new round, un-done). A reopened bag that sits in the Ready to ship
+ * bin goes back in the Open bags box (unbinReopenedBags: it isn't ready to
+ * ship any more); `unbinned` names those bags and where they are now. Never
+ * throws; returns which bags changed.
  */
 export async function refreshBagCompletion(
   admin: SupabaseClient,
   bagIds: readonly string[],
-): Promise<{ completed: string[]; reopened: string[] }> {
+  by: string | null = null,
+): Promise<{ completed: string[]; reopened: string[]; unbinned: TrackBagPlace[] }> {
   const ids = [...new Set(bagIds.filter(Boolean))];
-  const out = { completed: [] as string[], reopened: [] as string[] };
+  const out = { completed: [] as string[], reopened: [] as string[], unbinned: [] as TrackBagPlace[] };
   if (!ids.length) return out;
   try {
     const [{ data: bags, error: bErr }, { data: cards, error: cErr }] = await Promise.all([
@@ -309,6 +315,8 @@ export async function refreshBagCompletion(
   } catch (e) {
     console.error("[intake] bag completion not refreshed:", e instanceof Error ? e.message : e);
   }
+  // Reopened: out of the Ready to ship bin, back in the Open bags box (best effort)
+  if (out.reopened.length) out.unbinned = await unbinReopenedBags(admin, out.reopened, by);
   return out;
 }
 
@@ -335,12 +343,14 @@ export async function currentStageOf(
  * card's bag, if it has one. Never throws, and does nothing before the intake
  * migration is applied (no bag_id column yet).
  */
-export async function refreshBagCompletionForCard(cardId: string, admin: SupabaseClient = createAdminClient()): Promise<void> {
+export async function refreshBagCompletionForCard(cardId: string, admin: SupabaseClient = createAdminClient(), by: string | null = null): Promise<{ unbinned: TrackBagPlace[] }> {
   try {
     const { data, error } = await admin.from("cards").select("bag_id").eq("id", cardId).maybeSingle();
-    if (error || !data?.bag_id) return;
-    await refreshBagCompletion(admin, [data.bag_id as string]);
+    if (error || !data?.bag_id) return { unbinned: [] };
+    const { unbinned } = await refreshBagCompletion(admin, [data.bag_id as string], by);
+    return { unbinned };
   } catch (e) {
     console.error("[intake] bag completion hook:", e instanceof Error ? e.message : e);
+    return { unbinned: [] };
   }
 }

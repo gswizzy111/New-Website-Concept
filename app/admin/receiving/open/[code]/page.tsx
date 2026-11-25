@@ -159,6 +159,7 @@ export default async function OpenCodePage({ params }: { params: Promise<{ code:
         personMore={<PersonMore header={view.header} />}
         groups={view.groups}
         bags={view.bags}
+        orderStatus={view.orderStatus}
         desks={desks.desks}
         defaultDeskId={desks.defaultId}
         deskProblem={desks.problem}

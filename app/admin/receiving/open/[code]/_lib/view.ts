@@ -2,7 +2,8 @@ import { isDay, weekday } from "@/lib/intake/business-days";
 import { orderPhotosPath } from "@/lib/intake/codes";
 import { filingLetter } from "@/lib/intake/filing-letter";
 import {
-  BAG_FINISHED_TEXT, bagPlaceOrNone, doneCountText, isReadyToShipPlace, openBagsSentence, orderCompletionNotes, type ToneLine,
+  BAG_FINISHED_TEXT, bagPlaceOrNone, binAllowed, cardOutPhrase, doneCountText, isBackInBag, isReadyToShipPlace, openBagsSentence,
+  orderCompletionNotes, type ToneLine,
 } from "@/lib/intake/tracking/bag-home";
 import type { DeskCard } from "@/lib/intake/tracking/desk";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
@@ -119,7 +120,13 @@ export type OpenHeader = {
   bags: OpenBagLine[];
 };
 
-export type OpenView = { header: OpenHeader; groups: OpenGroup[]; bags: OpenBagState[] };
+export type OpenView = {
+  header: OpenHeader;
+  groups: OpenGroup[];
+  bags: OpenBagState[];
+  /** orders.status: no Ready to ship step once the order is shipped back, delivered or cancelled. */
+  orderStatus: string | null;
+};
 
 /** What the server loader hands over (lib rows already turned into DeskCard views). */
 export type OpenInput = {
@@ -127,7 +134,7 @@ export type OpenInput = {
   code: string;
   /** The scanned bag (a bag code). */
   bagId: string | null;
-  order: { id: string; orderNumber: string; customer: string | null; customerNotes: string | null };
+  order: { id: string; orderNumber: string; customer: string | null; customerNotes: string | null; status?: string | null };
   /** Every bag of the order, fastest tier first, then batch; `location`: where the bag is. */
   bags: {
     id: string; code: string; tier: string; tierName: string; dueDate: string | null; complete: boolean;
@@ -173,14 +180,24 @@ export function stateText(state: OpenCardState): string | null {
   return null;
 }
 
+/** A done card still out of its bag (in a holder, on a desk, on the old Done shelf): its Done puts it back. */
+export function doneButOut(card: Pick<OpenCard, "state" | "location">): boolean {
+  return card.state === "done" && !isBackInBag(card.location);
+}
+
 /**
  * Where a card is now, in plain words, for the desk `deskId` picked on this
  * page: "On your desk", "On DESK GAVIN" (another desk), "In CLAMP 07" (a
  * holder), "On the shelf", "On the Done shelf", "In Shipping", "At BENCH 2",
  * "In the bag" (no place yet), "Not in a holder"; a greyed card says what it
- * is: "Done", "Refunded", "Not here yet".
+ * is: "Done", "Refunded", "Not here yet". A done card still out of its bag
+ * says where: "Done · in CLAMP 07", "Done · on your desk".
  */
 export function whereText(card: Pick<OpenCard, "state" | "location" | "bagId">, deskId: string | null): string {
+  if (doneButOut(card)) {
+    const loc = card.location!;
+    return `Done · ${deskId && loc.id === deskId ? "on your desk" : cardOutPhrase(loc)}`;
+  }
   const greyed = stateText(card.state);
   if (greyed) return greyed;
   const loc = card.location;
@@ -405,18 +422,19 @@ export function buildOpenView(input: OpenInput, today: string): OpenView {
     },
     groups,
     bags: (bag ? [bag] : input.bags).map((b) => ({ id: b.id, code: b.code, location: b.location })),
+    orderStatus: order.status ?? null,
   };
 }
 
 // ─── Done ─────────────────────────────────────────────────────────────────
 
-/** Cards "Done" and "Mark all N done" can finish: here, not done, not refunded (wherever they are). */
-export function canFinish(card: Pick<OpenCard, "state">): boolean {
-  return card.state === "ready";
+/** Cards "Done" and "Mark all N done" can finish: here, not done, not refunded (wherever they are); or done but still out of the bag (Done puts it back). */
+export function canFinish(card: Pick<OpenCard, "state" | "location">): boolean {
+  return card.state === "ready" || doneButOut(card);
 }
 
 /** The cards "Mark all N done" marks (null: fewer than 2, the cards' own Done buttons are enough). */
-export function doneAllIds(cards: readonly Pick<OpenCard, "id" | "state">[]): string[] | null {
+export function doneAllIds(cards: readonly Pick<OpenCard, "id" | "state" | "location">[]): string[] | null {
   const ids = cards.filter(canFinish).map((c) => c.id);
   return ids.length >= 2 ? ids : null;
 }
@@ -480,14 +498,22 @@ export function openBagsLine(parts: readonly MovePart[]): string {
 export type BagStep = { id: string; code: string; total: number; inBin: boolean };
 
 /**
- * The bags whose every live card (on this page) is done: the one big step
+ * The bags whose every live card (on this page) is done and back in the bag
+ * (none left in a holder, on a desk or on the Done shelf): the one big step
  * "Bag finished: put it in the Ready to ship bin" until the bag is there.
- * `binned`: bags this page just put in the bin.
+ * `binned`: bags this page just put in the bin. None for an order shipped
+ * back, delivered or cancelled (`orderStatus`).
  */
-export function bagSteps(bags: readonly OpenBagState[], cards: readonly Pick<OpenCard, "bagId" | "state">[], binned: ReadonlySet<string> = new Set()): BagStep[] {
+export function bagSteps(
+  bags: readonly OpenBagState[],
+  cards: readonly Pick<OpenCard, "bagId" | "state" | "location">[],
+  binned: ReadonlySet<string> = new Set(),
+  orderStatus: string | null = null,
+): BagStep[] {
+  if (!binAllowed(orderStatus)) return [];
   return bags.flatMap((b) => {
     const live = cards.filter((c) => c.bagId === b.id && c.state !== "refunded");
-    if (!live.length || !live.every((c) => c.state === "done")) return [];
+    if (!live.length || !live.every((c) => c.state === "done" && isBackInBag(c.location))) return [];
     return [{ id: b.id, code: b.code, total: live.length, inBin: binned.has(b.id) || isReadyToShipPlace(b.location) }];
   });
 }

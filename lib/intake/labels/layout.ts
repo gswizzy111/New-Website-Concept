@@ -300,6 +300,13 @@ function tabElements(tab: FilingTab, y: number, radius: number): LabelElement[] 
   return [{ kind: "rect", x: tab.x, y: top, w: tab.side, h: tab.side, fill: "paper", radius }, letter];
 }
 
+/** The banner's small line over the name. */
+export const KICKER = "THE CARD DOC · CUSTOMER";
+/** The kicker on a label with no room for the filing tab: the letter first, so a tight fit never cuts it. */
+export function kickerWithLetter(letter: string): string {
+  return `FILE UNDER ${letter} · THE CARD DOC`;
+}
+
 /** The filing tab's inner margin, as a share of its side. */
 const TAB_PAD = 0.1;
 /** The filing tab is never smaller than this (a quarter inch: its letter about 5 mm tall). */
@@ -337,12 +344,16 @@ export function tabLetterSize(letter: string, side: number): number {
  * kicker. When the tab and the due block don't fit in the name's height, the
  * banner grows (the card list below gives up that room). The letter is never
  * smaller than the due date.
+ *
+ * `letterInKicker` (no tab: `tab` 0): the label where even the smallest tab
+ * would make the name smaller or hide every card (4 x 3 in): the letter goes
+ * in the kicker instead, first so it is never cut: "FILE UNDER R · THE CARD DOC".
  */
-function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelBag, nameScale = 1, tab = tabSide(s)): Block & { nameSize: number; nameLines: number; tab: FilingTab | null } {
+function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelBag, nameScale = 1, tab = tabSide(s), letterInKicker = false): Block & { nameSize: number; nameLines: number; tab: FilingTab | null; kicker: { text: string; size: number } } {
   const padTop = s.sp(16);
   const padBottom = s.sp(14);
   const kTrack = s.px(2);
-  const kicker = fitLine("THE CARD DOC · CUSTOMER", "body800", s.fs(9), Wi, LABEL_LIMITS.minTextPt, kTrack);
+  const kicker = fitLine(letterInKicker && !tab ? kickerWithLetter(filingLetter(bag.customerName)) : KICKER, "body800", s.fs(9), Wi, LABEL_LIMITS.minTextPt, kTrack);
   const kGap = s.sp(6);
   const nameMax = s.px(64) * (s.compact ? 0.62 : 1) * nameScale;
   const colGap = s.px(12);
@@ -446,6 +457,7 @@ function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelB
     nameSize: name.size,
     nameLines: name.lines.length,
     tab: filing,
+    kicker: { text: kicker.text, size: kicker.size },
     draw: (y) => {
       const out: LabelElement[] = [
         { kind: "rect", x: x0, y, w: W, h, fill: "ink", radius: s.px(4) },
@@ -837,8 +849,14 @@ export type LabelFit = {
   /** The customer name's type size and number of lines. */
   nameSize: number;
   nameLines: number;
-  /** The filing tab: the Open bags box letter ("R"), the tab's side and the letter's type size, in points (null: laid out without it). */
-  filing: { letter: string; side: number; size: number } | null;
+  /**
+   * The filing tab: the Open bags box letter ("R"), the tab's side and the
+   * letter's type size, in points. `inKicker`: no room for a tab without
+   * making the name smaller or hiding every card, so the letter is in the
+   * kicker ("FILE UNDER R · THE CARD DOC"; side 0, size the kicker's). Null:
+   * laid out without it (`filingTab: false`).
+   */
+  filing: { letter: string; side: number; size: number; inKicker?: true } | null;
 };
 
 /**
@@ -849,50 +867,64 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
   const { W, x0, xi, Wi, s, narrow } = frame(stock);
   const cards = [...bag.cards].sort((a, b) => a.seq - b.seq);
   const padY = Math.max(0.08 * PT, s.sp(12) * 0.6);
-  const fullTab = opts.filingTab === false ? 0 : tabSide(s);
+  const stockTab = opts.filingTab === false ? 0 : tabSide(s);
 
-  // The banner first: nothing else on the label is as large as the name
-  const place = (nameScale: number, withAlso: boolean, tab = fullTab) => {
-    const top = banner(s, x0, W, xi, Wi, bag, nameScale, tab);
-    const cap = top.nameSize * 0.9;
-    const tier = tierRow(s, xi, Wi, bag, cap);
-    const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);
-    const also = withAlso ? alsoBlock(s, xi, Wi, bag) : null;
-    const tierY = padY + top.h + s.sp(10);
-    const listTop = tierY + tier.h;
-    const bottomY = stock.pageH - padY - bottom.h;
-    const alsoY = also ? bottomY - s.sp(8) - also.h : bottomY;
-    return { top, tier, bottom, also, tierY, listTop, bottomY, alsoY, room: alsoY - s.sp(6) - listTop };
+  // The whole fit with the stock's tab (0: none; `letterInKicker`: the letter in the kicker instead)
+  const fitAll = (fullTab: number, letterInKicker: boolean) => {
+    // The banner first: nothing else on the label is as large as the name
+    const place = (nameScale: number, withAlso: boolean, tab = fullTab) => {
+      const top = banner(s, x0, W, xi, Wi, bag, nameScale, tab, letterInKicker);
+      const cap = top.nameSize * 0.9;
+      const tier = tierRow(s, xi, Wi, bag, cap);
+      const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);
+      const also = withAlso ? alsoBlock(s, xi, Wi, bag) : null;
+      const tierY = padY + top.h + s.sp(10);
+      const listTop = tierY + tier.h;
+      const bottomY = stock.pageH - padY - bottom.h;
+      const alsoY = also ? bottomY - s.sp(8) - also.h : bottomY;
+      return { top, tier, bottom, also, tierY, listTop, bottomY, alsoY, room: alsoY - s.sp(6) - listTop };
+    };
+    // On short stock a long name can leave no room for even the "+N more" line:
+    // then "Also in this order" goes (the QR shows the whole order), then the
+    // filing tab gets smaller (never below the due date), then the name is set smaller
+    const need = moreLine(cards.length, xi, Wi, LIST_STYLES[cards.length ? LIST_STYLES.length - 1 : 0]).h;
+    let at = place(1, true);
+    if (at.room < need && at.also) at = place(1, false);
+    let tab = fullTab;
+    for (let t = fullTab * 0.85; fullTab && at.room < need && t > 1; t *= 0.85) {
+      at = place(1, false, t);
+      tab = t;
+      if (at.top.tab && at.top.tab.side > t + 1e-9) break;
+    }
+    // The smallest tab: a letter the size of the due date (banner())
+    if (fullTab && at.room < need) tab = 1;
+    for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false, tab);
+    const colGap = Math.max(6, s.px(14));
+    let fitted = fitList(cards, at.room, xi, Wi, colGap, narrow);
+    // "Also in this order" gives way (the QR shows the whole order): on the narrow label to every card
+    // listed, then every set and number in full; on any label to cards the filing tab would hide. The
+    // tab keeps its size (the same on every bag of a stock): when the cards still don't all fit, the
+    // last rows go behind "+N more: scan the QR".
+    if (at.also && (fitted.shown.length < cards.length || (narrow && fitted.list.whole < cards.length))) {
+      const without = place(1, false, tab);
+      const refit = fitList(cards, without.room, xi, Wi, colGap, narrow);
+      const more = refit.shown.length > fitted.shown.length;
+      const tabHides = () => fullTab > 0 && fitList(cards, place(1, true, 0).room, xi, Wi, colGap, narrow).shown.length > fitted.shown.length;
+      const wholer = refit.shown.length === fitted.shown.length && refit.list.whole > fitted.list.whole;
+      if (narrow ? more || wholer : more && tabHides()) [at, fitted] = [without, refit];
+    }
+    return { at, fitted };
   };
-  // On short stock a long name can leave no room for even the "+N more" line:
-  // then "Also in this order" goes (the QR shows the whole order), then the
-  // filing tab gets smaller (never below the due date), then the name is set smaller
-  const need = moreLine(cards.length, xi, Wi, LIST_STYLES[cards.length ? LIST_STYLES.length - 1 : 0]).h;
-  let at = place(1, true);
-  if (at.room < need && at.also) at = place(1, false);
-  let tab = fullTab;
-  for (let t = fullTab * 0.85; fullTab && at.room < need && t > 1; t *= 0.85) {
-    at = place(1, false, t);
-    tab = t;
-    if (at.top.tab && at.top.tab.side > t + 1e-9) break;
+  // The tab never makes the name smaller and never hides every card: where even its smallest size would
+  // (4 x 3 in), the label is laid out as without it and the letter goes in the kicker
+  let best = fitAll(stockTab, false);
+  if (stockTab) {
+    const bare = fitAll(0, true);
+    const smaller = best.at.top.nameSize < bare.at.top.nameSize - 1e-9;
+    const hidesAll = cards.length > 0 && !best.fitted.shown.length && bare.fitted.shown.length > 0;
+    if (smaller || hidesAll) best = bare;
   }
-  // The smallest tab: a letter the size of the due date (banner())
-  if (fullTab && at.room < need) tab = 1;
-  for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false, tab);
-  const colGap = Math.max(6, s.px(14));
-  let fitted = fitList(cards, at.room, xi, Wi, colGap, narrow);
-  // "Also in this order" gives way (the QR shows the whole order): on the narrow label to every card
-  // listed, then every set and number in full; on any label to cards the filing tab would hide. The
-  // tab keeps its size (the same on every bag of a stock): when the cards still don't all fit, the
-  // last rows go behind "+N more: scan the QR".
-  if (at.also && (fitted.shown.length < cards.length || (narrow && fitted.list.whole < cards.length))) {
-    const without = place(1, false, tab);
-    const refit = fitList(cards, without.room, xi, Wi, colGap, narrow);
-    const more = refit.shown.length > fitted.shown.length;
-    const tabHides = () => fullTab > 0 && fitList(cards, place(1, true, 0).room, xi, Wi, colGap, narrow).shown.length > fitted.shown.length;
-    const wholer = refit.shown.length === fitted.shown.length && refit.list.whole > fitted.list.whole;
-    if (narrow ? more || wholer : more && tabHides()) [at, fitted] = [without, refit];
-  }
+  const { at, fitted } = best;
   const { top, tier, bottom, also, tierY, listTop, bottomY, alsoY } = at;
   const { shown, list } = fitted;
   const style = fitted.style;
@@ -920,7 +952,9 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
       wrapped: list.wrapped,
       nameSize: top.nameSize,
       nameLines: top.nameLines,
-      filing: top.tab && { letter: top.tab.letter, side: top.tab.side, size: top.tab.size },
+      filing: top.tab
+        ? { letter: top.tab.letter, side: top.tab.side, size: top.tab.size }
+        : top.kicker.text.startsWith("FILE UNDER ") ? { letter: filingLetter(bag.customerName), side: 0, size: top.kicker.size, inKicker: true } : null,
     },
   };
 }

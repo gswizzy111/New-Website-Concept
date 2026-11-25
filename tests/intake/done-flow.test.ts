@@ -11,15 +11,16 @@ import assert from "node:assert/strict";
 import { NO_LETTER, customerLastName, filingLetter } from "@/lib/intake/filing-letter";
 import {
   BAG_FINISHED_TEXT, OPEN_BAGS_CODE, bagPlaceOf, bagPlaceOrNone, bagPlacePhrase, bagPlaceText, bagSentences, bagsToOpen,
-  doneCountText, doneText, finishedSentence, isReadyToShipPlace, isWithBag, openBagsSentence, orderCompletionNotes,
-  ownerName, putBackSentence, takesCardOut, withBagSentences,
+  binAllowed, binClosedText, cardOutPhrase, doneCountText, doneText, finishedSentence, fullBagName, isBackInBag,
+  isReadyToShipPlace, isWithBag, openBagsSentence, orderCompletionNotes, outOfBinSentence, ownerName, putBackSentence,
+  stillOutText, takesCardOut, withBagSentences,
 } from "@/lib/intake/tracking/bag-home";
 import type { LocationRef, TrackActionResponse, TrackBagPlace } from "@/lib/intake/tracking/types";
 import { pickerOutcome } from "@/lib/intake/step-picker";
 import { placeSubtitle } from "@/components/intake/scan/format";
 import { outcomeOf } from "@/app/admin/receiving/desk/_lib/outcome";
 import {
-  bagStepTitle, bagSteps, canFinish, doneAllIds, doneAllLabel, doneAllQuestion, doneOutcome, openBagsLine, type OpenCard,
+  bagStepTitle, bagSteps, canFinish, doneAllIds, doneAllLabel, doneAllQuestion, doneOutcome, openBagsLine, whereText, type OpenCard,
 } from "@/app/admin/receiving/open/[code]/_lib/view";
 
 const loc = (id: string, code: string, name: string, kind: LocationRef["kind"]): LocationRef => ({ id, code, name, kind, station: null, serial: null, stage: null });
@@ -49,6 +50,34 @@ test("filing letter: the first letter of the customer's LAST name", () => {
   assert.equal(filingLetter("José Ávila"), "A", "accents dropped");
   assert.equal(filingLetter("Sean o'neil"), "O", "lower case, an apostrophe");
   assert.equal(filingLetter("Ann (Smith)"), "S", "marks around the name skipped");
+});
+
+test("filing letter: letters with no accent to drop file under their base letter (Ø, Ł, Æ, Œ, Đ, ß, Þ)", () => {
+  assert.equal(filingLetter("Bjørn Ølsen"), "O");
+  assert.equal(filingLetter("Łukasz Łapiński"), "L");
+  assert.equal(filingLetter("łukasz łapiński"), "L", "lower case too");
+  assert.equal(filingLetter("Anna Æsir"), "A");
+  assert.equal(filingLetter("Marie Œuvre"), "O");
+  assert.equal(filingLetter("Đorđe Đoković"), "D");
+  assert.equal(filingLetter("Ðan Ðuric"), "D");
+  assert.equal(filingLetter("Þór Þórsson"), "T");
+  assert.equal(filingLetter("ßeta"), "S");
+  assert.equal(filingLetter("Ø 2"), "O", "the name's first letter, folded, when the last word has none");
+});
+
+test("filing letter: business suffixes skipped; Roman numerals only in capitals or in a 3+ word name", () => {
+  assert.equal(filingLetter("Card Shop LLC"), "S");
+  assert.equal(filingLetter("Acme Cards, Inc."), "C");
+  assert.equal(filingLetter("Acme Co"), "A");
+  assert.equal(filingLetter("Mint Collectibles Ltd"), "C");
+  assert.equal(filingLetter("John Smith IV"), "S", "capitals: a suffix");
+  assert.equal(filingLetter("John Smith Iv"), "S", "three words: a suffix");
+  assert.equal(filingLetter("Robert Brown iii"), "B");
+  assert.equal(filingLetter("Lee Iv"), "I", "two words, not in capitals: the last name Iv");
+  assert.equal(filingLetter("Mary Ii"), "I");
+  assert.equal(customerLastName("Lee Iv"), "Iv");
+  assert.equal(customerLastName("Lee IV"), "Lee");
+  assert.equal(customerLastName("Smith, John III"), "Smith");
 });
 
 test("filing letter: no A-Z letter in the last name falls back to the first letter of the name, else #", () => {
@@ -111,6 +140,56 @@ test("Done: \"Done. Put it back in REYES's bag: Open bags box, under R.\"", () =
     "Put each back in its bag: REYES's (Open bags box, under R), SMITH's (on shelf DUE MON DEC 7).",
   );
   assert.equal(putBackSentence([]), "");
+});
+
+test("one customer's bags (a mixed-tier order) are told apart by tier and Bag ID, with the cards for each", () => {
+  const p = bag({ returned: 2, tierName: "Platinum", returnedCodes: ["CD-2549-07", "CD-2549-08"] });
+  const g = bag({ id: "bag-2", code: "CD-2549-G", tierName: "Gold", location: SHELF, returned: 1, returnedCodes: ["CD-2549-01"] });
+  assert.equal(putBackSentence([p, g], 3),
+    "Put each back in its bag: CD-2549-07, CD-2549-08 in REYES's Platinum bag CD-2549-P (Open bags box, under R); CD-2549-01 in REYES's Gold bag CD-2549-G (on shelf DUE MON DEC 7).");
+  assert.equal(withBagSentences("3 cards done.", [p, g], 3),
+    "3 cards done. Put each back in its bag: CD-2549-07, CD-2549-08 in REYES's Platinum bag CD-2549-P (Open bags box, under R); CD-2549-01 in REYES's Gold bag CD-2549-G (on shelf DUE MON DEC 7).");
+  // Without the codes or the tier (older answers): still told apart by Bag ID
+  assert.equal(putBackSentence([bag(), bag({ id: "bag-2", code: "CD-2549-G", location: SHELF })], 2),
+    "Put each back in its bag: REYES's bag CD-2549-P (Open bags box, under R); REYES's bag CD-2549-G (on shelf DUE MON DEC 7).");
+  // Two bags with no name
+  assert.equal(putBackSentence([bag({ customer: null, letter: "#", tierName: "Gold" }), bag({ id: "b2", code: "CD-1-S", customer: null, letter: "#", tierName: "Silver", location: null })], 2),
+    "Put each back in its bag: the Gold bag CD-2549-P (Open bags box, under #); the Silver bag CD-1-S.");
+  // A card out of each: both bags of one customer in the box, each named
+  assert.equal(openBagsSentence([p, { ...g, location: OPEN }]),
+    "Put the bags in the Open bags box: REYES's Platinum bag CD-2549-P under R, REYES's Gold bag CD-2549-G under R.");
+  // One bag, or bags of different customers: as before
+  assert.equal(putBackSentence([p], 2), "Put them back in REYES's bag: Open bags box, under R.");
+  assert.equal(fullBagName(p), "REYES's Platinum bag CD-2549-P");
+});
+
+test("un-doing a card takes its finished bag out of the Ready to ship bin", () => {
+  assert.equal(outOfBinSentence([bag()]), "Take REYES's bag out of the Ready to ship bin: Open bags box, under R.");
+  assert.equal(outOfBinSentence([bag({ tierName: "Platinum" }), bag({ id: "b2", code: "CD-2549-G", tierName: "Gold" })]),
+    "Take these bags out of the Ready to ship bin and put them in the Open bags box: REYES's Platinum bag CD-2549-P under R, REYES's Gold bag CD-2549-G under R.");
+  assert.equal(outOfBinSentence([]), "");
+});
+
+test("a done card is back in its bag only with no place or a bag's place; else Ready to ship waits for it", () => {
+  for (const l of [null, SHELF, OPEN, SHIP]) assert.equal(isBackInBag(l), true, l?.code ?? "no place");
+  for (const l of [CLAMP, DESK, BENCH, DONE]) assert.equal(isBackInBag(l), false, l.code);
+  assert.equal(cardOutPhrase(CLAMP), "in CLAMP 07");
+  assert.equal(cardOutPhrase(DESK), "on DESK");
+  assert.equal(cardOutPhrase(DONE), "on the Done shelf");
+  assert.equal(cardOutPhrase(BENCH), "at BENCH 2");
+  assert.equal(stillOutText([{ code: "CD-2549-03", location: CLAMP }, { code: "CD-2549-04", location: null }]), "CD-2549-03 is still in CLAMP 07: tap Done on it first.");
+  assert.equal(stillOutText([{ code: "CD-2549-03", location: CLAMP }, { code: "CD-2549-04", location: DONE }]),
+    "2 cards are still out of the bag (CD-2549-03 in CLAMP 07, CD-2549-04 on the Done shelf): tap Done on them first.");
+  assert.equal(stillOutText([{ code: "CD-2549-03", location: SHELF }]), "");
+  // A bag isn't finished while a done card is out
+  const b = bagPlaceOf({ bag: { id: "b", bag_code: "CD-2549-P", location_id: null }, customer: "Maria Reyes", location: null,
+    cards: [{ completed: true, refunded: false, inBag: true }, { completed: true, refunded: false, inBag: false }] });
+  assert.deepEqual([b.finished, b.doneCount, b.cardCount], [false, 2, 2]);
+  // Orders shipped back, delivered or cancelled: no bin
+  for (const st of ["received", "in_progress", "completed", null]) assert.equal(binAllowed(st), true, String(st));
+  for (const st of ["shipped_back", "delivered", "cancelled"]) assert.equal(binAllowed(st), false, st);
+  assert.equal(binClosedText("CD-2549-P", "shipped_back"), "CD-2549-P isn't going in the Ready to ship bin: the order was shipped back already.");
+  assert.equal(binClosedText("CD-2549-P", "cancelled"), "CD-2549-P isn't going in the Ready to ship bin: the order was cancelled.");
 });
 
 test("a finished bag and a card out of its bag", () => {
@@ -212,11 +291,20 @@ test("a bag's place and counts from rows (refunded cards not counted)", () => {
 
 // ─── The scan landing ───────────────────────────────────────────────────────
 
-const pc = (id: string, state: OpenCard["state"], bagId: string | null = "bag-1") => ({ id, state, bagId });
+const pc = (id: string, state: OpenCard["state"], bagId: string | null = "bag-1", location: LocationRef | null = null) => ({ id, state, bagId, location });
 
 test("scan landing: Done for cards here and not done; \"Mark all N done\" from 2 cards", () => {
   assert.equal(canFinish(pc("a", "ready")), true);
   for (const s of ["done", "refunded", "not_here"] as const) assert.equal(canFinish(pc("a", s)), false, s);
+  // A done card still out of its bag: Done again puts it back; it says where it is
+  assert.equal(canFinish(pc("a", "done", "bag-1", CLAMP)), true);
+  assert.equal(canFinish(pc("a", "done", "bag-1", SHELF)), false);
+  assert.equal(whereText(pc("a", "done", "bag-1", CLAMP), "desk"), "Done · in CLAMP 07");
+  assert.equal(whereText(pc("a", "done", "bag-1", DESK), "desk"), "Done · on your desk");
+  assert.equal(whereText(pc("a", "done", "bag-1", DESK), "other-desk"), "Done · on DESK");
+  assert.equal(whereText(pc("a", "done", "bag-1", DONE), "desk"), "Done · on the Done shelf");
+  assert.equal(whereText(pc("a", "done"), "desk"), "Done");
+  assert.deepEqual(doneAllIds([pc("a", "ready"), pc("b", "done", "bag-1", CLAMP), pc("c", "done")]), ["a", "b"]);
   assert.deepEqual(doneAllIds([pc("a", "ready"), pc("b", "done"), pc("c", "ready"), pc("d", "refunded"), pc("e", "not_here")]), ["a", "c"]);
   assert.equal(doneAllIds([pc("a", "ready"), pc("b", "done")]), null, "one card: its own Done");
   assert.equal(doneAllLabel(4), "Mark all 4 done");
@@ -268,6 +356,13 @@ test("scan landing: the one big step once every live card of a bag is done, unti
   ]);
   assert.deepEqual(bagSteps(bags, cards, new Set(["bag-1"]))[0].inBin, true, "just put in the bin on this page");
   assert.deepEqual(bagSteps([{ id: "x", code: "CD-1-B", location: null }], [pc("r", "refunded", "x")]), [], "every card refunded: no step");
+  // A done card still in a holder (or on the Done shelf): no step until its Done puts it back
+  assert.deepEqual(bagSteps(bags, [pc("a", "done", "bag-1", CLAMP), pc("b", "done")]), []);
+  assert.deepEqual(bagSteps(bags, [pc("a", "done", "bag-1", DONE), pc("b", "done")]), []);
+  assert.deepEqual(bagSteps(bags, [pc("a", "done", "bag-1", SHELF), pc("b", "done")]).length, 1, "a shelf is with the bag");
+  // The order shipped back, delivered or cancelled: no step
+  for (const st of ["shipped_back", "delivered", "cancelled"]) assert.deepEqual(bagSteps(bags, cards, new Set(), st), [], st);
+  assert.equal(bagSteps(bags, cards, new Set(), "completed").length, 2, "Completed: the bags still wait to ship");
   assert.equal(bagStepTitle({ code: "CD-2549-P" }, false), "Bag finished: put it in the Ready to ship bin");
   assert.equal(bagStepTitle({ code: "CD-2549-P" }, true), "Bag CD-2549-P finished: put it in the Ready to ship bin");
 });

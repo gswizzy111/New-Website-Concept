@@ -1,5 +1,6 @@
 import { customerLastName, filingLetter } from "@/lib/intake/filing-letter";
 import type { OrderAutoComplete } from "@/lib/intake/order-autocomplete";
+import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { SHIP_LOCATION_CODE } from "@/lib/intake/tracking/places";
 import type { LocationRef, TrackBagPlace } from "@/lib/intake/tracking/types";
 
@@ -45,6 +46,52 @@ export function isReadyToShipPlace(loc: Place | null | undefined): boolean {
  */
 export function isWithBag(loc: Place | null | undefined): boolean {
   return !loc || loc.kind === "shelf" || loc.kind === "done" || loc.kind === "shipping" || isOpenBagsPlace(loc);
+}
+
+/**
+ * A done card is back IN its bag: no place, or a place that holds bags (a
+ * due-date shelf, the Open bags box, the Ready to ship bin). A card in a
+ * holder, on a desk, at any other place or on the old Done shelf (LOC-DONE,
+ * a loose pile: a card there can't be matched to its bag) is still out: its
+ * bag isn't finished until it is put back (Done again).
+ */
+export function isBackInBag(loc: Place | null | undefined): boolean {
+  return !loc || loc.kind === "shelf" || loc.kind === "shipping" || isOpenBagsPlace(loc);
+}
+
+/** Where a card out of its bag is, in a sentence: "in CLAMP 07", "on DESK", "on the Done shelf", "at BENCH 2". */
+export function cardOutPhrase(loc: NamedPlace): string {
+  if (loc.kind === "station") return `in ${loc.name}`;
+  if (loc.kind === "done") return "on the Done shelf";
+  if (isDeskCode(loc.code)) return `on ${loc.name}`;
+  return `at ${loc.name}`;
+}
+
+/**
+ * Ready to ship refused while a done card is still out of the bag: "CD-2549-03
+ * is still in CLAMP 07: tap Done on it first." (several: "2 cards are still
+ * out of the bag (CD-2549-03 in CLAMP 07, CD-2549-04 on DESK): tap Done on
+ * them first."); "" when every card is in.
+ */
+export function stillOutText(cards: readonly { code: string | null; location: NamedPlace | null }[]): string {
+  const out = cards.filter((c): c is { code: string | null; location: NamedPlace } => !isBackInBag(c.location));
+  if (!out.length) return "";
+  if (out.length === 1) return `${out[0].code ?? "A card"} is still ${cardOutPhrase(out[0].location)}: tap Done on it first.`;
+  return `${out.length} cards are still out of the bag (${out.map((c) => `${c.code ?? "a card"} ${cardOutPhrase(c.location)}`).join(", ")}): tap Done on them first.`;
+}
+
+/** Orders whose bags are gone or never go: no Ready to ship step for them (shipped back, delivered, cancelled). */
+export const NO_BIN_STATUSES: readonly string[] = ["shipped_back", "delivered", "cancelled"];
+const STATUS_WORDS: Readonly<Record<string, string>> = { shipped_back: "shipped back already", delivered: "delivered already", cancelled: "cancelled" };
+
+/** A bag of an order in this status can go in the Ready to ship bin (any status but shipped back, delivered, cancelled). */
+export function binAllowed(orderStatus: string | null | undefined): boolean {
+  return !NO_BIN_STATUSES.includes(orderStatus ?? "");
+}
+
+/** Ready to ship refused for the order's status: "CD-2549-P isn't going in the Ready to ship bin: the order was shipped back already." */
+export function binClosedText(bagCode: string, orderStatus: string): string {
+  return `${bagCode} isn't going in the Ready to ship bin: the order was ${STATUS_WORDS[orderStatus] ?? orderStatus}.`;
 }
 
 /** A place that takes a card out of its bag: a holder (work-station slot), a desk, any other place but the Open bags box. */
@@ -116,14 +163,30 @@ export function bagPlacePhrase(loc: NamedPlace | null | undefined, letter: strin
   return `at ${loc.name}`;
 }
 
-/** What the done and open-bags sentences need of a bag. */
-export type BagWords = Pick<TrackBagPlace, "customer" | "letter" | "location">;
+/** What the done and open-bags sentences need of a bag (`code`, `tierName`, `returnedCodes` tell two bags of one customer apart). */
+export type BagWords = Pick<TrackBagPlace, "customer" | "letter" | "location"> & Partial<Pick<TrackBagPlace, "code" | "tierName" | "returnedCodes">>;
+
+/** Two or more of these bags share an owner (one customer's Platinum and Gold bags, or bags with no name): name them by tier and Bag ID. */
+function ownersClash(bags: readonly Pick<TrackBagPlace, "customer">[]): boolean {
+  const names = bags.map((b) => ownerName(b.customer) ?? "");
+  return new Set(names).size < names.length;
+}
+
+/** "REYES's Platinum bag CD-2549-P" ("the Platinum bag CD-2549-P" without a name). */
+export function fullBagName(bag: Pick<TrackBagPlace, "customer"> & Partial<Pick<TrackBagPlace, "code" | "tierName">>): string {
+  const tier = bag.tierName?.trim();
+  return `${owners(bag.customer) ?? "the"} ${tier ? `${tier} ` : ""}bag${bag.code ? ` ${bag.code}` : ""}`;
+}
 
 /**
  * After Done, what to do with the cards: "Put it back in REYES's bag: Open
  * bags box, under R." (`cards` > 1: "Put them back in ..."); several bags:
  * "Put each back in its bag: REYES's (Open bags box, under R), SMITH's (on
- * shelf DUE MON DEC 7)."; "" with no bag.
+ * shelf DUE MON DEC 7)."; "" with no bag. Bags of one customer (a mixed-tier
+ * order) are told apart by tier and Bag ID, with the cards for each: "Put
+ * each back in its bag: CD-2549-07, CD-2549-08 in REYES's Platinum bag
+ * CD-2549-P (Open bags box, under R); CD-2549-01 in REYES's Gold bag
+ * CD-2549-G (on shelf DUE MON DEC 14)."
  */
 export function putBackSentence(bags: readonly BagWords[], cards = 1): string {
   if (!bags.length) return "";
@@ -132,6 +195,14 @@ export function putBackSentence(bags: readonly BagWords[], cards = 1): string {
     const whose = owners(bag.customer) ?? "its";
     const where = bagPlacePhrase(bag.location, bag.letter);
     return `Put ${cards > 1 ? "them" : "it"} back in ${whose} bag${where ? `: ${where}` : ""}.`;
+  }
+  if (ownersClash(bags)) {
+    const each = bags.map((b) => {
+      const where = bagPlacePhrase(b.location, b.letter);
+      const codes = b.returnedCodes?.length ? `${b.returnedCodes.join(", ")} in ` : "";
+      return `${codes}${fullBagName(b)}${where ? ` (${where})` : ""}`;
+    });
+    return `Put each back in its bag: ${each.join("; ")}.`;
   }
   const each = bags.map((b, i) => {
     const whose = owners(b.customer) ?? `bag ${i + 1}`;
@@ -157,11 +228,24 @@ export function finishedSentence(count: number): string {
  * several bags: "Put the bags in the Open bags box: REYES's under R, SMITH's
  * under S."; "" with none.
  */
-export function openBagsSentence(bags: readonly Pick<TrackBagPlace, "customer" | "letter">[]): string {
+export function openBagsSentence(bags: readonly (Pick<TrackBagPlace, "customer" | "letter"> & Partial<Pick<TrackBagPlace, "code" | "tierName">>)[]): string {
   if (!bags.length) return "";
   if (bags.length === 1) return `Put the bag in the Open bags box, under ${bags[0].letter}.`;
-  const each = bags.map((b, i) => `${owners(b.customer) ?? `bag ${i + 1}`} under ${b.letter}`);
+  // One customer's bags (a mixed-tier order): "REYES's Platinum bag CD-2549-P under R, REYES's Gold bag CD-2549-G under R"
+  const clash = ownersClash(bags);
+  const each = bags.map((b, i) => `${clash ? fullBagName(b) : owners(b.customer) ?? `bag ${i + 1}`} under ${b.letter}`);
   return `Put the bags in the Open bags box: ${each.join(", ")}.`;
+}
+
+/**
+ * A card un-done took its finished bag out of the Ready to ship bin (back in
+ * the Open bags box): "Take REYES's bag out of the Ready to ship bin: Open
+ * bags box, under R." ("" for none; several: each named).
+ */
+export function outOfBinSentence(bags: readonly (Pick<TrackBagPlace, "customer" | "letter"> & Partial<Pick<TrackBagPlace, "code" | "tierName">>)[]): string {
+  if (!bags.length) return "";
+  if (bags.length === 1) return `Take ${owners(bags[0].customer) ?? "its"} bag out of the Ready to ship bin: Open bags box, under ${bags[0].letter}.`;
+  return `Take these bags out of the Ready to ship bin and put them in the Open bags box: ${bags.map((b) => `${fullBagName(b)} under ${b.letter}`).join(", ")}.`;
 }
 
 /**
@@ -197,9 +281,14 @@ export function bagPlaceOf(input: {
   bag: { id: string; bag_code: string; location_id: string | null };
   customer: string | null;
   location: LocationRef | null;
-  cards: readonly { completed: boolean; refunded: boolean }[];
+  /** `inBag` false: a done card still out of the bag (isBackInBag), so the bag isn't finished yet. */
+  cards: readonly { completed: boolean; refunded: boolean; inBag?: boolean }[];
   opened?: boolean;
   returned?: number;
+  /** "Platinum" (the order's other bags are told apart by it). */
+  tierName?: string | null;
+  /** Card IDs of the cards put back in it with this request. */
+  returnedCodes?: readonly (string | null)[];
 }): TrackBagPlace {
   const live = input.cards.filter((c) => !c.refunded);
   const done = live.filter((c) => c.completed).length;
@@ -211,9 +300,11 @@ export function bagPlaceOf(input: {
     location: input.location,
     opened: !!input.opened,
     returned: input.returned ?? 0,
-    finished: live.length > 0 && done === live.length,
+    finished: live.length > 0 && done === live.length && live.every((c) => c.inBag !== false),
     doneCount: done,
     cardCount: live.length,
+    ...(input.tierName ? { tierName: input.tierName } : {}),
+    ...(input.returnedCodes?.some(Boolean) ? { returnedCodes: input.returnedCodes.filter((c): c is string => !!c) } : {}),
   };
 }
 

@@ -3,7 +3,7 @@ import { getAdminSession, isAdmin } from "@/lib/admin-auth";
 import { toggleCardCompletion } from "@/lib/intake/card-completion";
 
 /**
- * POST (no body) → { completed, orderCompletion?, bagPlaces? }
+ * POST (no body) → { completed, orderCompletion?, bagPlaces?, unbinned? }
  * Toggles the card's Done and refreshes its tier bag. A card just marked done
  * goes back in its bag, out of any holder or desk (lib/intake/card-completion.ts);
  * `bagPlaces` (TrackBagPlace[]) says where its bag is ("Put it back in
@@ -11,7 +11,8 @@ import { toggleCardCompletion } from "@/lib/intake/card-completion";
  * non-refunded card done, the order becomes Completed with the customer's
  * usual email (lib/intake/order-autocomplete.ts); `orderCompletion` is that
  * check's result (`completed`, `emailed`, `message`). Both are present only
- * when the card was just marked done.
+ * when the card was just marked done. Un-doing a card of a bag in the Ready
+ * to ship bin takes the bag back to the Open bags box: `unbinned` names it.
  */
 export async function POST(
   _req: Request,
@@ -30,5 +31,6 @@ export async function POST(
     completed: result.completed,
     ...(result.orderCompletion ? { orderCompletion: result.orderCompletion } : {}),
     ...(result.bagPlaces ? { bagPlaces: result.bagPlaces } : {}),
+    ...(result.unbinned ? { unbinned: result.unbinned } : {}),
   });
 }

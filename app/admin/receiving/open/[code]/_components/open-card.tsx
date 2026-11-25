@@ -3,7 +3,7 @@
 import { CircleAlert, CircleCheck, ImageOff, LoaderCircle, PackageCheck } from "lucide-react";
 import { PhotoGrid } from "@/app/admin/receiving/[orderId]/photos/photo-grid";
 import type { ToneLine } from "@/lib/intake/tracking/bag-home";
-import { canFinish, canMove, onDesk, stateText, whereText, type OpenCard } from "../_lib/view";
+import { canFinish, canMove, doneButOut, onDesk, stateText, whereText, type OpenCard } from "../_lib/view";
 
 /**
  * One card on the scan landing: big photos (tap for full screen, the photos
@@ -78,7 +78,9 @@ const NOTE_TONE = {
 } as const;
 
 export function OpenCardPanel({ card, deskId, pending, busy, note, eager, onMove, onDone }: Props) {
-  const greyed = stateText(card.state);
+  // A done card still in a holder or on a desk isn't greyed: it needs its Done (back in its bag) before the bag can ship
+  const out = doneButOut(card);
+  const greyed = out ? null : stateText(card.state);
   const here = onDesk(card, deskId);
   // No desk to move to (none switched on): no Move button; the big button area says why
   const movable = !!deskId && canMove(card, deskId);
@@ -90,16 +92,16 @@ export function OpenCardPanel({ card, deskId, pending, busy, note, eager, onMove
   return (
     <li
       aria-labelledby={headingId}
-      className={`flex min-w-0 flex-col rounded-2xl border p-3 sm:p-4 ${greyed ? "border-dashed border-border bg-gray-50" : here ? "border-green-300 bg-white" : "border-border bg-white"}`}
+      className={`flex min-w-0 flex-col rounded-2xl border p-3 sm:p-4 ${greyed ? "border-dashed border-border bg-gray-50" : out ? "border-amber-300 bg-white" : here ? "border-green-300 bg-white" : "border-border bg-white"}`}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 id={headingId} className={`font-heading text-2xl font-black leading-tight break-words ${greyed ? "text-muted-foreground" : "text-foreground"}`}>{card.name}</h3>
           <p className="mt-0.5 text-sm text-muted-foreground break-words">{card.details}</p>
         </div>
-        {greyed && (
+        {(greyed || out) && (
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${card.state === "done" ? "bg-green-100 text-green-800" : card.state === "refunded" ? "bg-gray-900 text-white" : "bg-amber-100 text-amber-900"}`}>
-            {greyed}
+            {stateText(card.state)}
           </span>
         )}
       </div>
@@ -121,7 +123,7 @@ export function OpenCardPanel({ card, deskId, pending, busy, note, eager, onMove
           {card.code ? <span className="font-mono font-black">{card.code}</span> : <span className="text-muted-foreground">No Card ID yet</span>}
         </Fact>
         <Fact term="Where it is now" id={whereId(card.id)}>
-          <span aria-live="polite" className={`font-bold ${moving || finishing ? "text-muted-foreground" : here ? "text-green-700" : ""}`}>
+          <span aria-live="polite" className={`font-bold ${moving || finishing ? "text-muted-foreground" : out ? "text-amber-800" : here ? "text-green-700" : ""}`}>
             {moving || finishing ? (
               <span className="inline-flex items-center gap-1">
                 <LoaderCircle className="size-4 shrink-0 animate-spin motion-reduce:animate-none" strokeWidth={1.75} aria-hidden="true" />

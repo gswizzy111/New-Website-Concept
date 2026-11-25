@@ -145,25 +145,34 @@ function checkLabel(b: LabelBag, stock: LabelStock, p: LabelPage, label: string)
   for (const t of nameLines) assert.ok(t.x + t.width <= due.x + due.width, `${label}: name stays left of the due date`);
 
   // The filing tab: a white square in the banner's top right corner (right edge with the due date's, above the
-  // name), its letter black, the customer's last-name letter, never smaller than the due date, clear of everything
+  // name), its letter black, the customer's last-name letter, never smaller than the due date, clear of everything.
+  // Where even the smallest tab would make the name smaller or hide every card (4 x 3 in), no tab: the letter
+  // is in the kicker ("FILE UNDER R · THE CARD DOC") and the name is exactly as without the tab
   const { tile, letter } = tabOf(p);
-  assert.ok(tile && letter, `${label}: filing tab`);
-  assert.equal(p.elements.filter((e) => e.kind === "rect" && e.fill === "paper").length, 1, `${label}: one tab`);
-  assert.equal(letter.text, filingLetter(b.customerName), `${label}: filed under ${letter.text}`);
-  assert.equal(letter.font, "display900");
-  assert.ok(tile.x >= banner.x && tile.x + tile.w <= banner.x + banner.w && tile.y >= banner.y && tile.y + tile.h <= banner.y + banner.h, `${label}: tab inside the banner`);
-  assert.ok(near(tile.x + tile.w, due.x + due.width, 0.01), `${label}: tab right-aligned with the due date`);
-  assert.ok(tile.y + tile.h <= due.y - (FONT_METRICS[due.font].capHeight / 1000) * due.size + 1e-6, `${label}: tab above the due date`);
-  assert.ok(tile.y <= Math.min(...nameLines.map((t) => capBox(t).y1)) + 1e-6, `${label}: tab at the top, not below the name's first line`);
-  const cap = capBox(letter);
-  assert.ok(cap.x1 >= tile.x && cap.x2 <= tile.x + tile.w && cap.y1 >= tile.y && cap.y2 <= tile.y + tile.h, `${label}: letter inside its tab`);
-  const date = texts(p).find((t) => t.color === "paper" && t.font === "display900" && !nameLines.includes(t))!;
-  assert.ok(date && letter.size >= date.size - 1e-9, `${label}: letter ${letter.size}pt at least the due date's ${date?.size}pt`);
-  for (const t of texts(p)) {
-    if (t === letter) continue;
-    const c = capBox(t);
-    const clear = c.x2 <= tile.x + 0.2 || c.x1 >= tile.x + tile.w - 0.2 || c.y2 <= tile.y + 0.2 || c.y1 >= tile.y + tile.h - 0.2;
-    assert.ok(clear, `${label}: "${t.text}" clear of the tab`);
+  if (!tile) {
+    const kicker = texts(p).find((t) => t.font === "body800" && t.color === "paper" && t.text.startsWith("FILE UNDER "));
+    assert.ok(kicker, `${label}: no filing tab and no "FILE UNDER" kicker`);
+    assert.ok(kicker.text.startsWith(`FILE UNDER ${filingLetter(b.customerName)}`), `${label}: kicker "${kicker.text}"`);
+    assert.equal(biggest, planBagLabel(b, stock, { filingTab: false }).fit.nameSize, `${label}: the name as without the tab`);
+  } else {
+    assert.ok(tile && letter, `${label}: filing tab`);
+    assert.equal(p.elements.filter((e) => e.kind === "rect" && e.fill === "paper").length, 1, `${label}: one tab`);
+    assert.equal(letter.text, filingLetter(b.customerName), `${label}: filed under ${letter.text}`);
+    assert.equal(letter.font, "display900");
+    assert.ok(tile.x >= banner.x && tile.x + tile.w <= banner.x + banner.w && tile.y >= banner.y && tile.y + tile.h <= banner.y + banner.h, `${label}: tab inside the banner`);
+    assert.ok(near(tile.x + tile.w, due.x + due.width, 0.01), `${label}: tab right-aligned with the due date`);
+    assert.ok(tile.y + tile.h <= due.y - (FONT_METRICS[due.font].capHeight / 1000) * due.size + 1e-6, `${label}: tab above the due date`);
+    assert.ok(tile.y <= Math.min(...nameLines.map((t) => capBox(t).y1)) + 1e-6, `${label}: tab at the top, not below the name's first line`);
+    const cap = capBox(letter);
+    assert.ok(cap.x1 >= tile.x && cap.x2 <= tile.x + tile.w && cap.y1 >= tile.y && cap.y2 <= tile.y + tile.h, `${label}: letter inside its tab`);
+    const date = texts(p).find((t) => t.color === "paper" && t.font === "display900" && !nameLines.includes(t))!;
+    assert.ok(date && letter.size >= date.size - 1e-9, `${label}: letter ${letter.size}pt at least the due date's ${date?.size}pt`);
+    for (const t of texts(p)) {
+      if (t === letter) continue;
+      const c = capBox(t);
+      const clear = c.x2 <= tile.x + 0.2 || c.x1 >= tile.x + tile.w - 0.2 || c.y2 <= tile.y + 0.2 || c.y1 >= tile.y + tile.h - 0.2;
+      assert.ok(clear, `${label}: "${t.text}" clear of the tab`);
+    }
   }
 
   // Bag ID on the tier row (mono, ink) and in the QR block (on the narrow 50 x 80 mm label, the tier row only)
@@ -436,6 +445,39 @@ test("filing tab: the last name's letter, big in the banner's top right, on 4x6 
     return r.kind === "rect" ? r.h : NaN;
   };
   assert.equal(bannerH(p), bannerH(planBagLabel(bag(4), DEFAULT, { filingTab: false }).page));
+});
+
+test("filing tab on 4 x 3 in: never makes the name smaller or hides every card; then the letter is in the kicker", () => {
+  let inKicker = 0;
+  for (const width of [2, 2.5, 3.2, 4]) {
+    const stock = stockPoints("4x3", width);
+    for (const name of ["Jordan Reyes", "Madonna", "Tom Brady", "Maria de los Angeles Gutierrez-Fernandez", "Maximiliana Featherstonehaugh-Worthington"]) {
+      for (const n of [0, 1, 4, 12, 40]) {
+        const b = bag(n, { customerName: name, otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] });
+        const label = `${name}, ${n} cards, 4x3 at ${width} in`;
+        const { page, fit } = planBagLabel(b, stock);
+        const before = planBagLabel(b, stock, { filingTab: false }).fit;
+        checkLabel(b, stock, page, label);
+        assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+        assert.equal(fit.nameSize, before.nameSize, `${label}: name size kept`);
+        assert.equal(fit.nameLines, before.nameLines, `${label}: name lines kept`);
+        if (n && before.shown) assert.ok(fit.shown > 0, `${label}: the tab hides every card`);
+        assert.ok(fit.filing, `${label}: filing letter somewhere`);
+        assert.equal(fit.filing.letter, filingLetter(name));
+        if (fit.filing.inKicker) {
+          inKicker++;
+          assert.equal(fit.filing.side, 0);
+          assert.ok(words(page).some((w) => w.startsWith(`FILE UNDER ${filingLetter(name)} ·`)), `${label}: letter in the kicker`);
+          assert.equal(tabOf(page).tile, undefined, `${label}: no tab`);
+        }
+      }
+    }
+  }
+  // 4 x 3 at 4 in and at 2 in (Jordan Reyes) had no room for it: those use the kicker
+  assert.ok(inKicker > 0, "some 4 x 3 labels put the letter in the kicker");
+  assert.ok(planBagLabel(bag(4), stockPoints("4x3", 4)).fit.filing?.inKicker, "4x3 at 4 in, Jordan Reyes: in the kicker");
+  // The 4x6 and 50 x 80 mm labels keep their tab
+  assert.ok(!planBagLabel(bag(4), DEFAULT).fit.filing?.inKicker && planBagLabel(bag(4), DEFAULT).fit.filing!.side > 0);
 });
 
 test("filing tab: the same tab on every bag of a stock; \"Also in this order\" gives way to cards the tab would hide", () => {

@@ -44,6 +44,8 @@ type Props = {
   groups: OpenGroup[];
   /** The bags on this page (the scanned one, or every bag of the order) and where each is. */
   bags: OpenBagState[];
+  /** orders.status: no Ready to ship step once shipped back, delivered or cancelled. */
+  orderStatus: string | null;
   /** Switched-on desks, LOC-DESK first. */
   desks: OpenDesk[];
   defaultDeskId: string | null;
@@ -76,7 +78,7 @@ const NONE_PLACED: ReadonlyMap<string, LocationRef> = new Map();
 const NONE: ReadonlySet<string> = new Set();
 const addAll = (s: ReadonlySet<string>, ids: readonly string[]) => new Set([...s, ...ids]);
 
-export function OpenBoard({ person, personMore, groups, bags, desks, defaultDeskId, deskProblem }: Props) {
+export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks, defaultDeskId, deskProblem }: Props) {
   const router = useRouter();
   const [refreshing, startTransition] = useTransition();
   const stored = useStoredDesk();
@@ -119,7 +121,7 @@ export function OpenBoard({ person, personMore, groups, bags, desks, defaultDesk
   }, [groups, placed, finished]);
   const cards = useMemo(() => shown.flatMap((g) => g.cards), [shown]);
   const state = moveAllState(cards, deskId);
-  const steps = bagSteps(bags, cards, binned);
+  const steps = bagSteps(bags, cards, binned, orderStatus);
   const busy = pending !== null;
   const firstId = cards[0]?.id;
 

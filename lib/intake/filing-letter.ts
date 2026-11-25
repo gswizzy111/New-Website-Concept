@@ -6,9 +6,13 @@
  *
  * Rules:
  * - The last name is the last word of the name ("Maria De La Cruz" -> Cruz).
- *   Suffixes are skipped ("John Smith Jr." -> Smith), and a name written
- *   last name first keeps it ("Reyes, Maria" -> Reyes).
- * - Its first letter, upper case, accents dropped ("Ávila" -> A, "o'neil" -> O).
+ *   Suffixes are skipped ("John Smith Jr." -> Smith, "Card Shop LLC" -> Shop),
+ *   and a name written last name first keeps it ("Reyes, Maria" -> Reyes).
+ *   Roman numerals (II, III, IV) count as a suffix only in capitals ("John
+ *   Smith IV") or in a name of 3+ words, so "Lee Iv" is filed under I.
+ * - Its first letter, upper case, accents dropped ("Ávila" -> A, "o'neil" ->
+ *   O) and letters with no accent to drop spelled as their base letter
+ *   ("Ølsen" -> O, "Łapiński" -> L, "Æsir" -> A, "Đorđe" -> D).
  * - No letter there (a number, a name in another alphabet): the first letter
  *   of the whole name; still none (or no name at all): "#".
  */
@@ -16,15 +20,31 @@
 /** The divider for names without an A-Z letter. */
 export const NO_LETTER = "#";
 
-const SUFFIXES = new Set(["JR", "SR", "II", "III", "IV", "MD", "PHD", "ESQ", "DDS", "DVM", "CPA"]);
+/** Always a suffix, in any case ("Jr.", "jr", "LLC", "Inc."). */
+const SUFFIXES = new Set(["JR", "SR", "MD", "PHD", "ESQ", "DDS", "DVM", "CPA", "LLC", "INC", "CO", "LTD"]);
+/** A suffix only in capitals ("IV") or in a name of 3+ words ("John Smith Iv"): "Lee Iv" is a name. */
+const NUMERALS = new Set(["II", "III", "IV"]);
 
 const clean = (s: string) => s.normalize("NFKC").replace(/\s+/g, " ").trim();
-const isSuffix = (word: string) => SUFFIXES.has(word.replace(/[^\p{L}]/gu, "").toUpperCase());
+const letters = (word: string) => word.replace(/[^\p{L}]/gu, "");
+/** `count`: how many words the name has. */
+function isSuffix(word: string, count: number): boolean {
+  const w = letters(word);
+  const up = w.toUpperCase();
+  if (SUFFIXES.has(up)) return true;
+  return NUMERALS.has(up) && (w === up || count >= 3);
+}
 
-/** "Ávila" -> "A", "o'neil" -> "O", "3rd" / "王" / "" -> null: the first A-Z letter a word starts with, leading marks skipped. */
+/** Latin letters with no accent to drop (NFD leaves them whole): their base letter. */
+const BASE_LETTER: Readonly<Record<string, string>> = {
+  Ł: "L", ł: "L", Ø: "O", ø: "O", Æ: "A", æ: "A", Œ: "O", œ: "O", Đ: "D", đ: "D", Ð: "D", ð: "D", ß: "S", Þ: "T", þ: "T",
+};
+
+/** "Ávila" -> "A", "o'neil" -> "O", "Ølsen" -> "O", "3rd" / "王" / "" -> null: the first A-Z letter a word starts with, leading marks skipped. */
 function firstLatinLetter(word: string): string | null {
   const start = word.replace(/^[^\p{L}\p{N}]+/u, "");
-  const ch = start.normalize("NFD").replace(/[̀-ͯ]/g, "").charAt(0).toUpperCase();
+  const first = start.normalize("NFD").replace(/[̀-ͯ]/g, "").charAt(0);
+  const ch = (BASE_LETTER[first] ?? first).toUpperCase();
   return /^[A-Z]$/.test(ch) ? ch : null;
 }
 
@@ -39,11 +59,13 @@ function words(s: string): string[] {
 export function customerLastName(name: string | null | undefined): string | null {
   const raw = clean(typeof name === "string" ? name : "");
   if (!raw) return null;
+  const count = words(raw.replace(/,/g, " ")).length;
+  const suffix = (w: string) => isSuffix(w, count);
   // "Reyes, Maria" (last name first) but not "John Smith, Jr."
-  const parts = raw.split(",").map((p) => p.trim()).filter((p, i) => p && (i === 0 || !words(p).every(isSuffix)));
+  const parts = raw.split(",").map((p) => p.trim()).filter((p, i) => p && (i === 0 || !words(p).every(suffix)));
   const lastNamePart = parts.length >= 2 ? parts[0] : parts.join(" ");
   const all = words(lastNamePart);
-  const kept = all.filter((w) => !isSuffix(w));
+  const kept = all.filter((w) => !suffix(w));
   return (kept.length ? kept : all).at(-1) ?? null;
 }
 
