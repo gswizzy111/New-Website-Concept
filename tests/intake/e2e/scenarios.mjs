@@ -916,7 +916,7 @@ async function deskReceive(ctx, mockUrl) {
  * LOC-DESK as the Desk page makes it when first opened (ensureDesk); if the page doesn't, it is
  * added as a place through the API ({ name: "Desk", kind: "other" } -> LOC-DESK, as Places would).
  */
-async function ensureDesk(ctx) {
+export async function ensureDesk(ctx) {
   let desk = placeOf(await tables(), DESK);
   if (desk) return { desk, how: "already there" };
   const res = await ctx.request.get(ROUTES.desk, { failOnStatusCode: false, timeout: 240_000, maxRedirects: 0 });
@@ -1138,7 +1138,7 @@ const bagCardCodes = (t, code) => { const b = bagByCode(t, code); return b ? sor
  * The scan landing setup (see BO_*): receive, check the codes and bags, CD-2549-07 at Humidor with
  * a known defect and a $2,500 declared value, a receiving photo per received card. Returns the tables.
  */
-async function bagOpenSetup(ctx, mockUrl) {
+export async function bagOpenSetup(ctx, mockUrl) {
   await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7, 8].map(mailCard), "2026-11-15");
   const t = await tables();
   for (const code of BO_ALL) eq(cardByCode(t, code)?.id, mailCard(Number(code.slice(-2)) - 1), `${code} (the seed's card ${code.slice(-2)})`);
