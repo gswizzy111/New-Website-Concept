@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeCode } from "@/lib/intake/codes";
 import { cardStageState, furthestStageIndex } from "@/lib/intake/stage-plan";
 import { refreshBagCompletion } from "@/lib/intake/stages";
+import { completeOrdersIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
 import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
 import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
@@ -30,7 +31,9 @@ import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActio
  *   4. cards marked done (as POST /api/admin/cards/[id]/complete);
  *   5. at most ONE customer email per order, listing only the cards at a new
  *      step for the customer (none for going back, re-entering, or done);
- *   6. bag completion refresh for cards marked done.
+ *   6. bag completion refresh for cards marked done;
+ *   7. orders whose last cards were just marked done become Completed
+ *      (completeOrderIfAllDone: the status button's event and emails, once).
  * A failed write stops there and answers 500; doing it again is safe (cards
  * already there at that step are left alone; a card already in its new slot
  * still gets its step). Capacity is checked before writing, so two phones
@@ -269,6 +272,7 @@ async function planAndRun(
     emailedOrders: run.emailedOrders,
     bagsCompleted: run.bagsCompleted,
     freed: run.freed,
+    ...(run.orderCompletions.length ? { orderCompletions: run.orderCompletions } : {}),
   };
 }
 
@@ -280,8 +284,8 @@ async function writePlan(
   ctx: OrdersContext,
   target: LocationRow | null,
   input: Common,
-): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[] } | { ok: false; status: number; error: string }> {
-  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[] };
+): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[]; orderCompletions: OrderAutoComplete[] } | { ok: false; status: number; error: string }> {
+  const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[], orderCompletions: [] as OrderAutoComplete[] };
   if (!plan.moves.length) return out;
   const by = input.by;
   const sessionId = input.sessionId && UUID.test(input.sessionId) ? input.sessionId : null;
@@ -366,6 +370,12 @@ async function writePlan(
   if (completed.length) {
     const bagIds = [...new Set(ctx.cards.filter((c) => completed.includes(c.id) && c.bag_id).map((c) => c.bag_id as string))];
     out.bagsCompleted = (await refreshBagCompletion(admin, bagIds)).completed;
+  }
+
+  // 7. Orders whose last cards were just marked done: Completed, once each
+  if (completed.length) {
+    const orderIds = ctx.cards.filter((c) => completed.includes(c.id)).map((c) => c.order_id);
+    out.orderCompletions = await completeOrdersIfAllDone(admin, orderIds, by);
   }
 
   // Slots left empty (best effort: the move itself is saved)

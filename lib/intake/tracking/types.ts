@@ -18,6 +18,7 @@
  * for a card not started.
  */
 import type { CodeKind } from "@/lib/intake/codes";
+import type { OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 
 /** What a place is: a slot of a work station, a due-date shelf slot, the Done place, Shipping, anything else. */
 export type LocationKind = "station" | "shelf" | "done" | "shipping" | "other";
@@ -256,6 +257,13 @@ export type TrackActionResponse = {
   bagsCompleted: string[];
   /** Slots that are empty now because of this request. */
   freed: LocationRef[];
+  /**
+   * Cards were marked done: the order auto-complete check for each of their
+   * orders (lib/intake/order-autocomplete.ts). `completed` = this request
+   * made the order Completed and `emailed` = the customer got the usual
+   * email; show `message` when set.
+   */
+  orderCompletions?: OrderAutoComplete[];
 };
 
 /** assign / move 409 when the slot would hold more than its capacity (send again with force: true to add anyway). */

@@ -30,7 +30,7 @@ const Body = z
  *   Old shape, still accepted: { orderId, cardIds, fromStage } = one step on.
  *   → { moved: string[], completed: string[], newStep: string[],
  *       skipped: { cardId, reason, current }[], target: { kind, stage?, label },
- *       emailed: boolean, bagsCompleted: string[] }
+ *       emailed: boolean, bagsCompleted: string[], orderCompletion? }
  * Puts the cards at the chosen step, in any order (skip ahead, go back), or
  * marks them done, the way the order page's stage buttons record it. Cards
  * whose step changed meanwhile are skipped and listed (reason
@@ -39,7 +39,10 @@ const Body = z
  * lists the cards at a step new to the customer (`newStep`: past the
  * furthest step they reached this round); going back or re-entering a step
  * sends none, and no email for done. Bags whose cards are all done become
- * completed.
+ * completed. When cards were marked done, `orderCompletion` is the order
+ * auto-complete check (lib/intake/order-autocomplete.ts): the order's last
+ * card done makes the order Completed with the customer's usual email
+ * (`completed`, `emailed`, `message`).
  */
 export async function POST(request: Request) {
   if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -66,5 +69,6 @@ export async function POST(request: Request) {
     target: result.target,
     emailed: result.emailed,
     bagsCompleted: result.bagsCompleted,
+    ...(result.orderCompletion ? { orderCompletion: result.orderCompletion } : {}),
   });
 }

@@ -1,7 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAdmin } from "@/lib/admin-auth";
-import { refreshBagCompletionForCard } from "@/lib/intake/stages";
+import { getAdminSession, isAdmin } from "@/lib/admin-auth";
+import { toggleCardCompletion } from "@/lib/intake/card-completion";
 
+/**
+ * POST (no body) → { completed, orderCompletion? }
+ * Toggles the card's Done and refreshes its tier bag. When this marked the
+ * order's last non-refunded card done, the order becomes Completed with the
+ * customer's usual email (lib/intake/order-autocomplete.ts); `orderCompletion`
+ * is that check's result (`completed`, `emailed`, `message`), present only
+ * when the card was just marked done.
+ */
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -11,36 +19,12 @@ export async function POST(
   }
 
   const { id } = await params;
-  const admin = createAdminClient();
+  const by = (await getAdminSession())?.username ?? null;
+  const result = await toggleCardCompletion(createAdminClient(), { cardId: id, by });
+  if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
 
-  // Read current value
-  const { data: card, error: fetchErr } = await admin
-    .from("cards")
-    .select("completed")
-    .eq("id", id)
-    .single();
-
-  if (fetchErr || !card) {
-    console.error("[card complete] fetch error:", fetchErr);
-    return Response.json({ error: fetchErr?.message ?? "Card not found" }, { status: fetchErr ? 500 : 404 });
-  }
-
-  const newState = !card.completed;
-
-  // Update and read back the actual persisted value
-  const { data: updated, error: updateErr } = await admin
-    .from("cards")
-    .update({ completed: newState, completed_at: newState ? new Date().toISOString() : null })
-    .eq("id", id)
-    .select("completed")
-    .single();
-
-  if (updateErr || !updated) {
-    console.error("[card complete] update error:", updateErr);
-    return Response.json({ error: updateErr?.message ?? "Update failed" }, { status: 500 });
-  }
-
-  await refreshBagCompletionForCard(id, admin); // its tier bag completes or reopens with it
-
-  return Response.json({ completed: updated.completed });
+  return Response.json({
+    completed: result.completed,
+    ...(result.orderCompletion ? { orderCompletion: result.orderCompletion } : {}),
+  });
 }

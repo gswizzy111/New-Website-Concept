@@ -596,3 +596,50 @@ export function buildLabelsAnySeed() {
     },
   };
 }
+
+// ─── The finished-card flow (done-* scenarios, owner, Nov 25 2026): one extra order, on demand ───
+// Not part of buildSeed() on purpose (selftest.mjs counts the default seed's cards and events).
+// The done-order-complete* scenarios insert it after their reset (seedDone() in
+// ../e2e/scenarios.mjs, POST /__rows/<table>), then receive its cards through the API.
+// A real-looking last name on purpose: the Open bags box files a bag under the customer's LAST
+// name's first letter ("Test Customer Reyes" -> R), and the done message names it ("REYES's bag").
+
+export const DONE_IDS = {
+  // (l) mail-in, awaiting cards, mixed tiers (order tier null), paid: 2 Platinum + 3 Gold.
+  //     Restorer notes saved before completion and held for it (a completion_notes_held event),
+  //     so completing the order also sends the notes email (lib/completion-notes-email.ts).
+  doneOrder: id("2a000000", 1),
+  doneCards: Array.from({ length: 5 }, (_, i) => id("2a00000c", i + 1)),
+};
+export const DONE_ORDER_NUMBER = "CD-2700";
+export const DONE_CUSTOMER = { name: "Test Customer Reyes", email: "test.customer.reyes@example.com", lastName: "Reyes", letter: "R" };
+/** (l) cards.tier (index into DONE_IDS.doneCards): Platinum, Platinum, Gold, Gold, Gold. */
+export const DONE_CARD_TIERS = ["ultra_premium", "ultra_premium", "premium", "premium", "premium"];
+export const DONE_CARD_NAMES = ["Test Done Card One", "Test Done Card Two", "Test Done Card Three", "Test Done Card Four", "Test Done Card Five"];
+/** (l) admin_notes: the restorer's notes, held for completion. */
+export const DONE_ORDER_NOTES = "Test restorer notes: every card cleaned and pressed.";
+
+/** Rows for the done-* scenarios, by table (orders, cards, order_events). */
+export function buildDoneSeed() {
+  const created = "2026-11-12T16:00:00.000Z";
+  const total = DONE_CARD_TIERS.reduce((s, t) => s + TIER_PRICES[t], 0);
+  const orders = [order({
+    id: DONE_IDS.doneOrder, order_number: DONE_ORDER_NUMBER, created_at: created,
+    customer_name: DONE_CUSTOMER.name, customer_email: DONE_CUSTOMER.email,
+    status: "awaiting_cards", restoration_tier: null, inbound_method: "buy_label",
+    inbound_tracking_number: "9400100000000000000027", inbound_carrier: "usps",
+    admin_notes: DONE_ORDER_NOTES,
+    subtotal_cents: total, total_cents: total,
+  })];
+  const cards = DONE_IDS.doneCards.map((cid, i) => card({
+    id: cid, order_id: DONE_IDS.doneOrder, created_at: created, tier: DONE_CARD_TIERS[i],
+    card_name: DONE_CARD_NAMES[i], card_number: `${110 + i}/130`, service_price_cents: TIER_PRICES[DONE_CARD_TIERS[i]],
+  }));
+  const events = [
+    ev(DONE_IDS.doneOrder, "2026-11-12T16:01:00.000Z", "payment_received", "Payment received"),
+    // saved on this site before the work was done: held, sent when the order becomes Completed
+    ev(DONE_IDS.doneOrder, "2026-11-13T15:00:00.000Z", "completion_notes_held",
+      "Restoration notes saved. They go to the customer by email when the order is Completed.", null, false),
+  ];
+  return { tables: { orders, cards, order_events: events } };
+}

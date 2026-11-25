@@ -9,6 +9,7 @@ import {
   type AdvanceCard, type AdvancePlan, type SkipReason,
 } from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
+import { completeOrderIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 
 /**
  * Moving cards through the 8 steps and keeping bag completion in step, server
@@ -122,6 +123,8 @@ export type AdvanceResult =
       emailed: boolean;
       /** Bags that became complete with this move (show the alert). */
       bagsCompleted: string[];
+      /** Cards were marked done: the order auto-complete check (lib/intake/order-autocomplete.ts). */
+      orderCompletion?: OrderAutoComplete;
     }
   | { ok: false; status: number; error: string };
 
@@ -239,6 +242,8 @@ export async function advanceCards(
 
   const bagIds = [...new Set(rows.filter((c) => completed.includes(c.id as string) && c.bag_id).map((c) => c.bag_id as string))];
   const { completed: bagsCompleted } = await refreshBagCompletion(admin, bagIds);
+  // The order's last cards done: the order becomes Completed (once)
+  const orderCompletion = completed.length ? await completeOrderIfAllDone(admin, input.orderId, input.by) : undefined;
 
   return {
     ok: true,
@@ -248,6 +253,7 @@ export async function advanceCards(
     skipped: [...plan.skipped, ...plan.completes.filter((id) => !completed.includes(id)).map((id) => ({ cardId: id, reason: "done" as const, current: null }))],
     emailed,
     bagsCompleted,
+    ...(orderCompletion ? { orderCompletion } : {}),
   };
 }
 
