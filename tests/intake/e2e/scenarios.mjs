@@ -5522,6 +5522,64 @@ async function openDoneLanding(page, code) {
 const doneButtonsIn = (page, code, codes) => UI.doneCard(UI.openPanel(page, code, codes)).count();
 
 const DONE_SCENARIOS = {
+  // A done card put back in a holder (or left on the Done shelf) holds its bag back: no bin step, bag-ready 409,
+  // the card says "Done · in CLAMP 07" with a Done that puts it back; a shipped-back order gets no bin step at all
+  async "done-card-out"({ page, ctx, s, mockUrl }) {
+    const OUT = "CD-2549-08";
+    let t = null;
+    await s.step(`setup: as bag-open-qr; CLAMP 01..07; ${BO_PLAT.join(", ")} all done (POST done); then ${OUT} (done) put in CLAMP 07 again`, async () => {
+      t = await bagOpenSetup(ctx, mockUrl);
+      await bulkSlots(ctx, "clamp", 7);
+      await trackOk(ctx, ROUTES.trackDone, { cardIds: BO_PLAT.map((c) => cardIdOf(t, c)) });
+      await assignOk(ctx, "LOC-CLAMP-07", [cardIdOf(t, OUT)]);
+      t = await tables();
+      eq([cardByCode(t, OUT).completed, cardsIn(t, "LOC-CLAMP-07")], [true, [OUT]], `${OUT} done, in CLAMP 07`);
+    }, { critical: true, shot: false });
+    await s.step(`POST bag-ready for ${BO_BAG}: refused "${OUT} is still in CLAMP 07: tap Done on it first."; the bag stays put`, async () => {
+      const was = bagPlaceCode(await tables(), BO_BAG);
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t, BO_BAG).id });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      eq(r.body?.error, `${OUT} is still in CLAMP 07: tap Done on it first.`, "error");
+      eq(bagPlaceCode(await tables(), BO_BAG), was, `${BO_BAG} place`);
+      return r.body.error;
+    }, { shot: false });
+    await s.step(`${ROUTES.open(BO_BAG)}: "3 of 3 done" but NO "Bag finished" step; ${OUT} says "Done · in CLAMP 07" with ONE "Done" button`, async () => {
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (!(await textSeen(page, UI.doneCount(3, 3), 15_000))) problems.push('no "3 of 3 done"');
+      if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" shows while a card is in CLAMP 07');
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push("the Ready to ship button shows");
+      const txt = await openPanelText(page, OUT);
+      if (!/done · in CLAMP 07/i.test(txt)) problems.push(`${OUT}: "${txt.slice(0, 160)}"`);
+      if ((await doneButtonsIn(page, OUT, BO_ALL)) !== 1) problems.push(`${OUT}: ${await doneButtonsIn(page, OUT, BO_ALL)} Done buttons`);
+      for (const c of BO_PLAT.filter((c) => c !== OUT)) if (await doneButtonsIn(page, c, BO_ALL)) problems.push(`${c} (in its bag) has a Done button`);
+      assert(!problems.length, problems.join(" | "));
+    });
+    await s.step(`tap ${OUT}'s "Done": back in its bag (no place, CLAMP 07 freed, one 'done' row); then the "Bag finished" step shows`, async () => {
+      const before = await dump();
+      const tap = await tapAndLand(page, UI.doneCard(UI.openPanel(page, OUT, BO_ALL)), async () => (cardByCode(await tables(), OUT)?.location_id ?? null) === null, { scope: UI.openPanel(page, OUT, BO_ALL) });
+      if (!tap.ok) await trackOk(ctx, ROUTES.trackDone, { cardIds: [cardIdOf(t, OUT)] });
+      const after = await dump();
+      const problems = doneInBagProblems(before, after, OUT, "LOC-CLAMP-07");
+      if (!tap.ok) problems.unshift(`the tap didn't put it back (POSTs: ${tap.posts.join(", ") || "none"}; done through the API instead)`);
+      const step = await saidOnPage(page, UI.bagFinished, 20_000);
+      if (!step) problems.push(`no "Bag finished" step after (the page says: "${flat(await mainText(page)).slice(0, 240)}")`);
+      assert(!problems.length, problems.join(" | "));
+      return tap.answer?.message ?? "";
+    });
+    await s.step(`the order shipped back (in the mock): reloaded, no "Bag finished" step; bag-ready refused "… the order was shipped back already."`, async () => {
+      await mockUpdate(mockUrl, "orders", { status: "shipped_back" }, "order_number", BO_ORDER);
+      await openDoneLanding(page, BO_BAG);
+      const problems = [];
+      if (UI.bagFinished.test(await mainText(page))) problems.push('"Bag finished" shows for a shipped-back order');
+      if (await page.getByRole("button", { name: UI.readyToShipRe }).count()) problems.push("the Ready to ship button shows");
+      const r = await api(ctx, "POST", ROUTES.trackBagReady, { bagId: bagByCode(t, BO_BAG).id });
+      if (r.status !== 409 || r.body?.error !== `${BO_BAG} isn't going in the Ready to ship bin: the order was shipped back already.`) problems.push(`bag-ready HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      assert(!problems.length, problems.join(" | "));
+      return r.body?.error;
+    });
+  },
+
   // One card done on the scan landing: back in its bag, its holder freed, the bag counts it
   async "done-one"({ page, ctx, s, mockUrl }) {
     const C = BO_STEP.code; // CD-2549-07
