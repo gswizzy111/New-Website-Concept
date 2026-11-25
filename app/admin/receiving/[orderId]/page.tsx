@@ -15,6 +15,8 @@ import { ReceivingCards } from "./receiving-cards";
 import { AddCardForm } from "./add-card-form";
 import { BagReceivedDate } from "./bag-received-date";
 import { OrderLabelPrint } from "@/components/intake/order-label-print";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
+import { loadPreparePlan, type PreparePlan } from "@/lib/intake/prepare-labels";
 import { getLabelSettings } from "@/lib/intake/labels/data";
 import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
 import type { WorkspaceCard } from "./types";
@@ -171,6 +173,20 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   const labelBags = bags.filter((b) => b.cardCount > 0);
   const stock = LABEL_STOCKS[(await getLabelSettings(admin)).stock];
   const paper = { widthIn: stock.widthIn, heightIn: stock.heightIn };
+  // One "Print labels" at the top, no ticking (owner, Nov 24 2026): cards in the shop but in no bag yet
+  // (older orders, orders marked received from the order page) are bagged and printed; an Awaiting
+  // Cards order is received all at once ("Cards arrived?"). What it covers is the server's own plan
+  // (cards added after the order arrived stay for the ticks below), so the box says what the tap does.
+  const printBox = ["awaiting_cards", "received", "in_progress", "completed", "shipped_back", "delivered"].includes(order.status) && payment !== "refunded";
+  let prepare: PreparePlan | null = null;
+  if (printBox) {
+    const r = await loadPreparePlan(admin, orderId, { intake }).catch((e: unknown) => ({ ok: false as const, status: 500, error: e instanceof Error ? e.message : String(e) }));
+    if (r.ok) prepare = r.plan;
+    else console.warn("[receiving] print labels box not shown:", r.error);
+  }
+  const toBag = prepare && (prepare.mode === "bag_in_shop" || prepare.mode === "receive_first") ? prepare.toBag : 0;
+  const toDate = prepare && prepare.mode !== "not_allowed" ? prepare.dueDatesToFill : 0;
+  const receiveAll = prepare?.mode === "receive_first";
   // Where each newly received bag goes: its due date's shelf slot (none before the card tracking update)
   const received = cards.filter((c) => !c.refunded && c.bagId);
   let shelfGroups: ShelfGroup[] = [];
@@ -233,6 +249,35 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             <p className="mt-3 text-xs text-muted-foreground">Marked received before Receiving existed, on {dayText(order.historicalReceivedOn)}. Receiving starts from that date; change it if the cards really arrived another day.</p>
           )}
         </header>
+
+        {/* Kept mounted after the cards are bagged, so the reload doesn't take its "Print 3 labels" away */}
+        {printBox && prepare && (
+          <PrintOrderLabels
+            layout="panel"
+            className="mt-4"
+            hidden={toBag === 0 && toDate === 0}
+            returnFocusTo="bags-h"
+            orderId={order.id}
+            orderNumber={order.orderNumber}
+            status={order.status}
+            paymentStatus={order.paymentStatus}
+            paper={paper}
+            variant="primary"
+            refreshAfterBagging
+            heading={receiveAll ? "Cards arrived?" : "Print labels"}
+            hint={
+              receiveAll
+                ? `One tap receives all ${toBag} card${toBag === 1 ? "" : "s"}, fills in missing tiers (it asks only when unsure), puts them in their tier bags and prints each bag's label. The order moves to Cards Received and the customer gets the usual email, as with Receive.`
+                : toBag > 0
+                  ? `${toBag} card${toBag === 1 ? " isn't" : "s aren't"} in a bag yet. One tap fills in missing tiers (it asks only when unsure), puts every card in its tier bag and prints each bag's label. The order's status stays the same and the customer isn't emailed.`
+                  : toDate > 0
+                    ? `${toDate === 1 ? "A bag has" : `${toDate} bags have`} no due date yet, and ${toDate === 1 ? "its" : "their"} tier's turnaround is set now. One tap works the date out and prints the labels with it.`
+                    : "Every card is in its tier bag."
+            }
+          >
+            {receiveAll ? "Receive all and print" : undefined}
+          </PrintOrderLabels>
+        )}
 
         {/* Flags */}
         {(counts.missingImage > 0 || counts.missingTier > 0 || counts.missingReceivedDate > 0 || bagsMissingDate.length > 0 || bagsNeedReview.length > 0 || counts.awaiting > 0) && (

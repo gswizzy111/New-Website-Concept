@@ -101,6 +101,10 @@ export async function newAdminContext(browser, { phone = false, appUrl = process
   });
   const host = new URL(appUrl ?? "http://localhost").hostname;
   await ctx.addCookies([{ name: "admin_session", value: ADMIN_TOKEN, domain: host, path: "/", httpOnly: true, sameSite: "Lax" }]);
+  // No QZ Tray here, as on a computer without it: its websockets are refused. (The sandbox's outbound
+  // proxy otherwise accepts ws://localhost.qz.io:8182, so qz.websocket.isActive() turns true with no
+  // QZ Tray behind it and label prints take the QZ path, fail, and never stamp label_printed_at.)
+  await ctx.routeWebSocket(/^wss?:\/\/(localhost|localhost\.qz\.io):(818[12]|828[23]|838[34]|848[45])(\/|$)/, (ws) => ws.close());
   return ctx;
 }
 

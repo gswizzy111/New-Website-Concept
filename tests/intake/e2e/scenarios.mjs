@@ -8,6 +8,7 @@
 //   node tests/intake/e2e/scenarios.mjs --only 'track-*'  card tracking with serial-numbered slots
 //   node tests/intake/e2e/scenarios.mjs --only 'desk-*'   the Desk: a heat press stack to the desk, the Desk page
 //   node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   what a bag / order QR opens: the person, "Move all N cards to my desk"
+//   node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   "Print labels" for any order (prepare-labels)
 //   HARNESS_APP_URL=… HARNESS_MOCK_URL=… node tests/intake/e2e/scenarios.mjs   reuse a running harness
 //   INTERCEPT_UPLOAD=1 …                                 answer /api/upload in the browser instead of the app
 //
@@ -24,6 +25,11 @@ import { PDFDocument } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
 import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows, RUN_DIR } from "../harness/start.mjs";
 import { IDS, ORDER_NUMBERS, MAIL_CARD_TIERS, HOLIDAYS, BIG_CARD_TIERS, BIG_CUSTOMER_NAME, DEFAULT_PLACES } from "../harness/seed.mjs";
+import {
+  LABELS_ANY_IDS, LABELS_ANY_ORDER_NUMBERS, LABELS_ANY_CUSTOMERS, buildLabelsAnySeed,
+  IN_SHOP_ORDER_TIER, IN_SHOP_CARD_TIERS, IN_SHOP_RECEIVED_ON, SIGNED_CARD_TIERS, SIGNED_RECEIVED_ON,
+  UNKNOWN_TIER_RECEIVED_ON, AWAITING_ORDER_TIER, AWAITING_CARD_TIERS,
+} from "../harness/seed.mjs";
 import { placeholderPng } from "../harness/mock-supabase.mjs";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
@@ -96,6 +102,15 @@ export const ROUTES = {
   // openCodePath): the customer, the order, "Move all N cards to my desk", a panel per card.
   // <code> is a Bag ID (CD-2549-P) or an order number (CD-2549), any case.
   open: (code) => `/admin/receiving/open/${code}`,
+
+  // ── Print labels for any order (owner, Nov 24; contract: lib/intake/prepare-labels.ts) ──
+  // GET -> PreparePlan { mode: ready | bag_in_shop | receive_first | not_allowed, toBag,
+  // tierQuestions, needsAnswers, receivedOn, receivedOnSource, bags, skipped, reason? };
+  // POST { tiers?, confirmReceive?, allowUnpaid? } -> 200 PrepareResponse { ok, bags: [{ id, code,
+  // tier, tierName, cardCount }], newlyBagged, emailed, orderStatusChanged, message }, 409
+  // PrepareConflict (the plan + error, needsConfirmReceive, unanswered) or { error }.
+  prepareLabelsApi: (orderId) => `/api/admin/intake/orders/${orderId}/prepare-labels`,
+  cardTierApi: (cardId) => `/api/admin/cards/${cardId}/tier`,
 };
 
 // ─── UI wording (from the brief and the components built so far) ────────────
@@ -305,6 +320,39 @@ export const UI = {
   },
   // The segment's not-found page (h1 "Code not found"), or Next.js's plain 404
   openNotFound: /code not found|could not be found/i,
+
+  // ── Print labels for any order (components/intake/print-order-labels.tsx: the order page,
+  // Receiving rows, the workspace; being built while these were written: wording from the contract) ──
+  // The one action: "Print labels" (modes ready / bag_in_shop); also "Print 3 labels"
+  prepareLabels: (scope) => scope.getByRole("button", { name: /^print (\d+ )?labels\b/i }),
+  // Counted on the workspace (exactly ONE): "Print labels" / "Print 3 labels"; not the bag panel's
+  // "Print all 3 labels", not a bag's "Print label"
+  prepareLabelsExact: /^print (\d+ )?labels$/i,
+  // Awaiting Cards (mode receive_first): "Cards arrived? Receive all and print"
+  receiveAllAndPrint: (scope) => scope.getByRole("button", { name: /cards arrived|receive all/i }),
+  // Whatever the component shows, in any mode (the not-allowed check: disabled, or absent)
+  anyPrepare: (scope) => scope.getByRole("button", { name: /^print (\d+ )?labels\b|cards arrived|receive all/i }),
+  // A confirm the receive_first tap may ask in the page first: "Yes, receive all and print", "Confirm", "Receive all"
+  confirmReceiveAll: (scope) => scope.getByRole("button", { name: /^(yes\b|confirm\b|receive all\b|receive and print\b)/i }),
+  // The second tap (the same button renamed, or one the first tap showed): "Print 2 labels",
+  // "Print labels", "Print all 2 labels", "Reprint labels"; never a tag
+  printPrepared: (scope) => scope.getByRole("button", { name: /^(re)?print (all )?(the )?(\d+ )?((order|bag) )?labels?\b/i }),
+  // Preferred for the second tap: the one naming how many ("Print 2 labels", "Print 1 label", "Print all 2 labels")
+  printCounted: (scope) => scope.getByRole("button", { name: /^(re)?print (all )?(the )?\d+ labels?\b/i }),
+  // The tier question ("Tier for these 3 cards: [Gold v]"): a dialog, or the block that asks it
+  tierQuestion: /tier for (these|this|the)?\s*(\d+ )?cards?|which tier|(pick|choose) (a|the) tier/i,
+  tierScope: (page) => page.getByRole("dialog").or(page.getByRole("alertdialog"))
+    .or(page.locator("form, section, [role='region'], [role='group']").filter({ hasText: UI.tierQuestion })).first(),
+  // One tier control per question (or per card): a <select>, a combobox (shadcn Select) or a radio group
+  // (the label printer choice is a radiogroup too, named "Printer…": not a tier)
+  tierControls: (scope) => scope.locator("select, [role='combobox'], [role='radiogroup']:not([aria-label*='rinter' i])"),
+  // The question's confirm: "Print labels", "Confirm and print", "Save tiers", "Use these tiers"… (not Cancel / Close / Back)
+  tierConfirm: (scope) => scope.getByRole("button", { name: /^(?!.*\b(cancel|close|back|not now)\b).*\b(print|confirm|save|continue|use|bag|ok|done|yes)\b/i }).last(),
+  // The disabled button's reason on an unpaid order (PreparePlan.reason, shown as is, or words like these)
+  notAllowedReason: /not (been |yet )?paid|unpaid|awaiting payment|hasn'?t (been )?paid|no payment|payment (is )?pending/i,
+  // A Receiving search row (li / tr) of an order that carries the action
+  receivingRow: (page, orderNumber) => page.locator("li, tr, [role='row'], article").filter({ hasText: orderNumber })
+    .filter({ has: page.getByRole("button", { name: /print (\d+ )?labels|cards arrived|receive all/i }) }).last(),
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -4142,6 +4190,1061 @@ const SCENARIOS = {
     }
   },
 };
+
+// ─── Print labels for any order (labels-any-*: the owner's request of Nov 24) ─────
+// One "Print labels" action for ANY order (contract: lib/intake/prepare-labels.ts): an order whose
+// cards are in the shop gets its unbagged cards bagged (tiers filled: card -> order -> signed
+// checkout record -> price paid -> ask once), with no status change and no customer email; an
+// Awaiting Cards order asks "Cards arrived? Receive all and print" (the normal receive); an unpaid
+// order gets no working button. The orders are extra seed rows (seed.mjs buildLabelsAnySeed),
+// inserted after each reset by seedLabelsAny().
+const LA = LABELS_ANY_IDS;
+const LAN = LABELS_ANY_ORDER_NUMBERS;
+const LAC = LABELS_ANY_CUSTOMERS;
+const LA_RECEIVED_EVENT = "Status updated to: Cards Received";
+/** Bag ID letters and the fastest-first order (lib/intake/codes.ts TIER_LETTERS / TIER_ORDER), kept independent of the app. */
+const LA_TIER_LETTER = { fast_pass: "F", elite: "D", ultra_premium: "P", premium: "G", expedited: "S", regular: "B", prep: "R" };
+const LA_FASTEST_FIRST = ["fast_pass", "elite", "ultra_premium", "premium", "expedited", "regular", "prep"];
+const LA_RESTORATION_TIERS = ["regular", "expedited", "premium", "ultra_premium", "elite", "fast_pass"];
+
+/**
+ * Puts the labels-any orders (CD-2470 in shop, CD-2480 signed, CD-2490 unknown tier, CD-2610
+ * awaiting, CD-2620 unpaid) into the running mock, once per reset. Exported for a harness
+ * started by hand: HARNESS_MOCK_URL=… node --input-type=module -e "await (await
+ * import('./tests/intake/e2e/scenarios.mjs')).seedLabelsAny()".
+ */
+export async function seedLabelsAny() {
+  const t = await tables();
+  if (t.orders.some((o) => o.id === LA.inShopOrder)) return false;
+  for (const [table, rows] of Object.entries(buildLabelsAnySeed().tables)) if (rows.length) await insertRows(table, rows);
+  return true;
+}
+/** Setup step shared by the labels-any scenarios: the extra orders are there, none bagged yet. */
+async function laSetup(s) {
+  await s.step("setup: the labels-any orders are in the mock (CD-2470, CD-2480, CD-2490, CD-2610, CD-2620), none in a bag", async () => {
+    await seedLabelsAny();
+    const t = await tables();
+    for (const [key, num] of Object.entries(LAN)) {
+      const o = t.orders.find((x) => x.id === LA[key]);
+      assert(o?.order_number === num, `${num} not in the mock`);
+      eq(bagsOf(t, o.id).length, 0, `${num} bags`);
+    }
+    return Object.values(LAN).join(", ");
+  }, { critical: true, shot: false });
+}
+
+/** What the labels-any checks compare for one order: status, bags, cards, events and the customer's emails. */
+function laState(d, orderId, email) {
+  const t = d.tables;
+  const evs = t.order_events.filter((e) => e.order_id === orderId);
+  return {
+    status: t.orders.find((o) => o.id === orderId)?.status ?? null,
+    bags: bagsOf(t, orderId).map((b) => ({ id: b.id, code: b.bag_code, tier: b.tier, received_on: b.received_on })).sort((a, b) => a.code.localeCompare(b.code)),
+    cards: cardsOf(t, orderId).map((c) => ({ id: c.id, tier: c.tier, bag_id: c.bag_id, received: !!c.received_at, awaiting: !!c.awaiting_arrival })).sort((a, b) => a.id.localeCompare(b.id)),
+    events: evs.length,
+    visibleEvents: evs.filter((e) => e.is_customer_visible).length,
+    statusEvents: evs.filter((e) => e.event_type === "status_updated").length,
+    receivedEvents: evs.filter((e) => e.description === LA_RECEIVED_EVENT).length,
+    stageEvents: evs.filter((e) => e.event_type === "stage_update").length,
+    customerEmails: mailsTo(d.emails, email).length,
+  };
+}
+/** Nothing about the order changed since `before` (a refused request writes nothing). */
+async function laUnchanged(before, orderId, email, what) {
+  eq(laState(await dump(), orderId, email), before, `${what}: order, bags, cards, events, emails`);
+}
+
+/** GET the plan (PreparePlan); fails unless it is one. */
+async function laPlan(ctx, orderId) {
+  const r = await api(ctx, "GET", ROUTES.prepareLabelsApi(orderId));
+  assert(r.status === 200 && r.body && typeof r.body.mode === "string", `GET prepare-labels: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 240)}`);
+  return r.body;
+}
+const laPost = (ctx, orderId, data = {}) => api(ctx, "POST", ROUTES.prepareLabelsApi(orderId), data);
+/** A 200 PrepareResponse, or the step fails with what came back. */
+function laPrepared(r, what = "POST prepare-labels") {
+  assert(r.status === 200 && r.body?.ok === true && Array.isArray(r.body.bags), `${what}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 240)}`);
+  return r.body;
+}
+/** The bags expected for these cards and tiers: one per tier, Bag ID <order>-<letter> (batch 1), fastest tier first. */
+function laExpectedBags(orderNumber, cardIds, tiers) {
+  const by = new Map();
+  cardIds.forEach((id, i) => { if (!by.has(tiers[i])) by.set(tiers[i], []); by.get(tiers[i]).push(id); });
+  return [...by.entries()]
+    .sort(([a], [b]) => LA_FASTEST_FIRST.indexOf(a) - LA_FASTEST_FIRST.indexOf(b))
+    .map(([tier, ids]) => ({ tier, code: `${orderNumber}-${LA_TIER_LETTER[tier]}`, cardIds: ids }));
+}
+/** The answer's bags against the expected ones: [code, tier, cardCount], in the answer's (fastest-first) order. */
+function laCheckAnswerBags(body, orderNumber, cardIds, tiers) {
+  eq(body.bags.map((b) => [b.code, b.tier, b.cardCount]), laExpectedBags(orderNumber, cardIds, tiers).map((w) => [w.code, w.tier, w.cardIds.length]), "bags in the answer (fastest tier first)");
+  return body.bags.map((b) => `${b.code} (${b.cardCount})`).join(", ");
+}
+/**
+ * The order's cards are bagged: one bag per tier (Bag ID <order>-<letter>, received `receivedOn`),
+ * each card in its tier's bag and received, its tier written to cards.tier, Card IDs <order>-01…
+ */
+function laCheckBagged(t, orderId, orderNumber, cardIds, tiers, receivedOn) {
+  const want = laExpectedBags(orderNumber, cardIds, tiers);
+  const bags = bagsOf(t, orderId);
+  eq(bags.map((b) => b.bag_code).sort(), want.map((w) => w.code).sort(), "Bag IDs");
+  for (const w of want) {
+    const bag = bags.find((b) => b.bag_code === w.code);
+    eq(bag.tier, w.tier, `${w.code} tier`);
+    eq(bag.received_on, receivedOn, `${w.code} received_on`);
+    eq(t.cards.filter((c) => c.bag_id === bag.id).map((c) => c.id).sort(), [...w.cardIds].sort(), `${w.code} cards`);
+  }
+  cardIds.forEach((cid, i) => {
+    const c = t.cards.find((x) => x.id === cid);
+    eq(c.tier, tiers[i], `${c.card_name}: cards.tier`);
+    assert(c.received_at && !c.awaiting_arrival, `${c.card_name}: not received (received_at ${c.received_at}, awaiting_arrival ${c.awaiting_arrival})`);
+  });
+  const codes = cardIds.map((cid) => t.cards.find((x) => x.id === cid).card_code);
+  eq(codes, cardIds.map((_, i) => `${orderNumber}-${nn(i + 1)}`), "Card IDs");
+  return want.map((w) => {
+    const b = bags.find((x) => x.bag_code === w.code);
+    return `${w.code} (${w.cardIds.length}) received ${b.received_on}, due ${b.due_date ?? "-"} ${b.due_status}`;
+  }).join("; ");
+}
+/** Every bag of the order has label_printed_at (the print stamps it), waiting up to `ms`. */
+async function laStamped(orderId, ms = 10_000) {
+  const t = await until(async () => { const x = await tables(); const b = bagsOf(x, orderId); return b.length && b.every((y) => y.label_printed_at) ? x : null; }, ms);
+  const bags = bagsOf(t ?? (await tables()), orderId);
+  assert(t, `not marked printed: ${bags.filter((b) => !b.label_printed_at).map((b) => b.bag_code).join(", ")}`);
+  return bags.map((b) => `${b.bag_code} ${b.label_printed_at}`).join(", ");
+}
+
+// ─── Printing in the browser: what a tap opened ───
+/**
+ * Records what print taps do in a browser context: new tabs, downloads, GETs of the label routes
+ * (/api/admin/intake/labels/…), and window.open / navigator.share calls (wrapped, never replaced).
+ * Call before the page loads (the wrapper is an init script).
+ */
+async function watchPrints(ctx) {
+  await ctx.addInitScript(() => {
+    const log = (window.__harnessPrints = []);
+    const open = window.open;
+    window.open = function (...args) { log.push({ kind: "open", url: String(args[0] ?? ""), at: Date.now() }); return open.apply(window, args); };
+    if (typeof navigator.share === "function") {
+      const share = navigator.share.bind(navigator);
+      navigator.share = (data) => { log.push({ kind: "share", files: (data?.files ?? []).map((f) => f.name), at: Date.now() }); return share(data); };
+    }
+  });
+  const w = { requests: [], pages: [], downloads: [] };
+  const onDownload = (d) => w.downloads.push({ name: d.suggestedFilename(), url: d.url(), download: d, at: Date.now() });
+  for (const p of ctx.pages()) p.on("download", onDownload);
+  ctx.on("page", (p) => { w.pages.push({ page: p, at: Date.now() }); p.on("download", onDownload); });
+  ctx.on("request", (r) => { if (r.method() === "GET" && r.url().includes("/api/admin/intake/labels/")) w.requests.push({ url: r.url(), at: Date.now() }); });
+  return w;
+}
+/** Every sign of printing since `t0`: { kind: open | share | tab | download | get, url?, text }. */
+async function printsSince(page, w, t0) {
+  const calls = await page.evaluate(() => window.__harnessPrints ?? []).catch(() => []);
+  const short = (u) => String(u).replace(/^https?:\/\/[^/]+/, "");
+  return [
+    ...calls.filter((c) => c.at >= t0).map((c) => (c.kind === "open" ? { kind: "open", url: c.url, text: `window.open ${short(c.url)}` } : { kind: "share", text: `share sheet: ${c.files.join(", ")}` })),
+    ...w.pages.filter((p) => p.at >= t0).map((p) => ({ kind: "tab", url: p.page.url(), text: `new tab ${short(p.page.url())}` })),
+    ...w.downloads.filter((d) => d.at >= t0).map((d) => ({ kind: "download", url: d.url, name: d.name, download: d.download, text: `download ${d.name}` })),
+    ...w.requests.filter((r) => r.at >= t0).map((r) => ({ kind: "get", url: r.url, text: `GET ${short(r.url)}` })),
+  ];
+}
+/**
+ * The first tap: marks the button's surroundings (to find the print button it leaves there), taps
+ * it and waits for the POST to prepare-labels. Returns { status, body, request }.
+ */
+async function tapPrepare(page, button) {
+  await button.evaluate((el) => {
+    document.querySelectorAll("[data-harness-print]").forEach((n) => n.removeAttribute("data-harness-print"));
+    let n = el;
+    for (let i = 0; i < 2 && n.parentElement && n.parentElement !== document.body; i++) n = n.parentElement;
+    n.setAttribute("data-harness-print", "");
+  });
+  const res = await clickForApi(page, button, "/prepare-labels");
+  let body = null;
+  let request = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  try { request = res.request().postDataJSON(); } catch { /* no body */ }
+  return { status: res.status(), body, request };
+}
+/**
+ * The second tap: the print button the first one left (in a dialog, where the first button was,
+ * else the page's first), then waits for a sign of printing. Returns { name, signs }.
+ */
+async function tapPrint(page, w) {
+  const scopes = [page.getByRole("dialog"), page.locator("[data-harness-print]"), page.locator("main").first(), page.locator("body")];
+  // "Print 2 labels" first; a plain "Print labels" only after 8 s (it may be the first button, not yet re-rendered)
+  const t1 = Date.now();
+  const btn = await until(async () => {
+    const any = Date.now() - t1 > 8_000;
+    for (const sc of scopes) {
+      for (const loc of any ? [UI.printCounted(sc), UI.printPrepared(sc)] : [UI.printCounted(sc)]) {
+        const b = loc.first();
+        if (await b.isVisible().catch(() => false)) return b;
+      }
+    }
+    return null;
+  }, 25_000);
+  assert(btn, "no print button after the first tap (looked for \"Print 2 labels\" / \"Print labels\" / \"Print all 2 labels\")");
+  const name = (await btn.innerText()).replace(/\s+/g, " ").trim();
+  assert(await waitEnabled(btn, 30_000), `"${name}" stays disabled`);
+  const t0 = Date.now();
+  await btn.click();
+  const signs = await until(async () => { const x = await printsSince(page, w, t0); return x.length ? x : null; }, 20_000);
+  assert(signs, `tapped "${name}": no new tab, download, share sheet or label request followed`);
+  await page.waitForTimeout(1_500);
+  return { name, signs: await printsSince(page, w, t0) };
+}
+/** What the print opened holds the order's labels: the PDF (one page per bag), the label JSON (one entry per bag) or one picture per bag. */
+async function checkPrintOutput(ctx, printed, nBags) {
+  const what = printed.signs.map((x) => x.text).slice(0, 3).join("; ");
+  const labelUrl = (u) => !!u && /\/api\/admin\/intake\/labels\/(order|bag)\//.test(u);
+  const pdfUrl = printed.signs.map((x) => x.url).find((u) => labelUrl(u) && !/format=json/.test(u));
+  if (pdfUrl) {
+    const doc = await labelPdf(ctx, pdfUrl);
+    eq(doc.getPageCount(), nBags, `pages of ${pdfUrl.replace(/^https?:\/\/[^/]+/, "")} (one per bag)`);
+    return `"${printed.name}": ${what}; PDF ${doc.getPageCount()} page(s)`;
+  }
+  const pdfDownload = printed.signs.find((x) => x.kind === "download" && /\.pdf$/i.test(x.name ?? ""));
+  if (pdfDownload) {
+    const doc = await PDFDocument.load(fs.readFileSync(await pdfDownload.download.path()));
+    eq(doc.getPageCount(), nBags, `pages of the downloaded ${pdfDownload.name} (one per bag)`);
+    return `"${printed.name}": ${what}; PDF ${doc.getPageCount()} page(s)`;
+  }
+  const jsonUrl = printed.signs.map((x) => x.url).find((u) => labelUrl(u) && /format=json/.test(u));
+  if (jsonUrl) {
+    const body = await labelJson(ctx, jsonUrl);
+    eq((body.bags ?? []).length, nBags, "bags in the label pictures' JSON (one per bag)");
+    const pictures = printed.signs.filter((x) => x.kind === "download").length;
+    return `"${printed.name}": ${what}; ${nBags} label(s) as pictures${pictures ? `, ${pictures} downloaded` : ""}`;
+  }
+  return `"${printed.name}": ${what}`;
+}
+
+// ─── The tier question (one per group of cards with no tier; the guess preselected) ───
+/** What a tier control shows now: { kind, value, text } (text: the choice shown, a placeholder or ''). */
+function readTierControl(loc) {
+  return loc.evaluate((el) => {
+    if (el.tagName === "SELECT") {
+      const o = el.selectedOptions[0];
+      return { kind: "select", value: el.value, text: (o?.textContent ?? "").trim() };
+    }
+    if (el.getAttribute("role") === "radiogroup") {
+      const r = el.querySelector("[role='radio'][aria-checked='true'], input[type='radio']:checked");
+      const text = r ? (r.getAttribute("aria-label") || r.closest("label")?.textContent || r.textContent || "") : "";
+      return { kind: "radio", value: r?.getAttribute("value") ?? r?.getAttribute("data-value") ?? "", text: text.trim() };
+    }
+    return { kind: "combobox", value: el.getAttribute("data-value") ?? "", text: (el.textContent ?? "").trim() };
+  });
+}
+const tierWord = (tier) => new RegExp(`\\b${esc(TIER_NAMES[tier])}\\b`, "i");
+const controlShows = (ctl, tier) => ctl.value === tier || tierWord(tier).test(ctl.text);
+const controlShowsNone = (ctl) => !LA_RESTORATION_TIERS.some((t) => controlShows(ctl, t));
+/** Picks a tier in a tier control (a <select> option by value or name, a radio, or a combobox option). */
+async function setTierControl(page, loc, tier) {
+  const { kind } = await readTierControl(loc);
+  if (kind === "select") {
+    const value = await loc.evaluate((el, [key, name]) => [...el.options].find((o) => o.value === key || new RegExp(`\\b${name}\\b`, "i").test(o.textContent ?? ""))?.value ?? null, [tier, TIER_NAMES[tier]]);
+    assert(value != null, `no ${TIER_NAMES[tier]} option in the tier list`);
+    await loc.selectOption(value);
+  } else if (kind === "radio") {
+    await loc.getByRole("radio", { name: tierWord(tier) }).first().click();
+  } else {
+    await loc.click();
+    await page.getByRole("option", { name: tierWord(tier) }).first().click();
+  }
+}
+/** The visible tier controls in a scope, each with what it shows. */
+async function tierControlsIn(scope) {
+  const out = [];
+  for (const loc of await UI.tierControls(scope).all()) if (await loc.isVisible().catch(() => false)) out.push({ loc, ...(await readTierControl(loc)) });
+  return out;
+}
+
+/**
+ * The Awaiting Cards tap: the button ("Print labels", or "Cards arrived? Receive all and print"
+ * itself), then the question it asks ("Cards arrived?" with "Receive all and print", in a dialog
+ * or in place) answered yes, and waits for the POST that succeeds (a first 409 asking to confirm
+ * is fine). Returns { status, body, request, label, asked } (asked: the question's text, if any).
+ */
+async function tapReceiveAll(page, button) {
+  await button.evaluate((el) => {
+    document.querySelectorAll("[data-harness-print]").forEach((n) => n.removeAttribute("data-harness-print"));
+    let n = el;
+    for (let i = 0; i < 2 && n.parentElement && n.parentElement !== document.body; i++) n = n.parentElement;
+    n.setAttribute("data-harness-print", "");
+  });
+  const label = (await button.innerText()).replace(/\s+/g, " ").trim();
+  let done = false;
+  const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST" && r.status() === 200, { timeout: 90_000 })
+    .then((r) => { done = true; return r; });
+  ok.catch(() => {}); // awaited below; this keeps an early timeout from being an unhandled rejection
+  await button.click();
+  const found = await until(async () => {
+    if (done) return { none: true };
+    for (const sc of [page.getByRole("dialog"), page.getByRole("alertdialog"), page.locator("[data-harness-print]")]) {
+      const b = UI.confirmReceiveAll(sc).first();
+      if (await b.isVisible().catch(() => false)) return { b, sc };
+    }
+    return null;
+  }, 45_000);
+  let asked = "";
+  if (found?.b) {
+    asked = (await found.sc.first().innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+    await found.b.click();
+  }
+  const res = await ok;
+  await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+  let body = null;
+  let request = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  try { request = res.request().postDataJSON(); } catch { /* no body */ }
+  return { status: res.status(), body, request, label, asked };
+}
+/** A button counts as disabled by the attribute or by aria-disabled="true" (the print button uses the latter). */
+const laDisabled = async (btn) => (await btn.isDisabled().catch(() => false)) || (await btn.getAttribute("aria-disabled")) === "true";
+/** One phone (390 px) pass over a page: screenshot, no sideways scroll, no browser errors. */
+async function laPhoneCheck(phone, name) {
+  await phone.page.screenshot({ path: path.join(OUT, `${name}-390.png`), fullPage: true });
+  const over = await sidewaysScroll(phone.page);
+  assert(over <= 1, `the page scrolls sideways by ${over}px at 390`);
+  assert(!phone.errors.length, `browser errors: ${phone.errors.slice(0, 3).join(" | ").slice(0, 300)}`);
+}
+
+const LABELS_ANY_SCENARIOS = {
+  // CD-2470, in progress since Nov 5 (before Receiving), order tier Gold, 2 of 5 cards with no
+  // tier of their own: through the API, one POST bags them all without touching the order
+  async "labels-any-in-shop"({ ctx, s, appUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const email = LAC.inShopOrder.email;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    await laSetup(s);
+    await s.step("GET plan: bag_in_shop, 5 cards to bag, no tier question (card or order tier), received on 2026-11-05 (the 'Cards Received' day), no bags yet", async () => {
+      const plan = await laPlan(ctx, id);
+      eq(plan.orderId, id, "orderId");
+      eq(plan.orderNumber, num, "orderNumber");
+      eq(plan.status, "in_progress", "status");
+      eq(plan.mode, "bag_in_shop", "mode");
+      eq(plan.toBag, 5, "toBag");
+      eq(plan.tierQuestions ?? [], [], "tierQuestions");
+      eq(plan.needsAnswers, false, "needsAnswers");
+      eq(plan.receivedOn, IN_SHOP_RECEIVED_ON, "receivedOn");
+      eq(plan.receivedOnSource, "event", "receivedOnSource");
+      eq((plan.bags ?? []).length, 0, "bags");
+      eq([plan.skipped?.refunded, plan.skipped?.awaitingArrival], [0, 0], "skipped (refunded, awaitingArrival)");
+      return `${plan.mode}, ${plan.toBag} to bag, received ${plan.receivedOn} (${plan.receivedOnSource})`;
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    let first = null;
+    await s.step("POST (no body): 200, newlyBagged 5, bags CD-2470-P (2) + CD-2470-G (3), emailed false, orderStatusChanged false, a message", async () => {
+      first = laPrepared(await laPost(ctx, id));
+      eq(first.newlyBagged, 5, "newlyBagged");
+      eq(first.emailed, false, "emailed");
+      eq(first.orderStatusChanged, false, "orderStatusChanged");
+      laCheckAnswerBags(first, num, LA.inShopCards, tiers);
+      assert(typeof first.message === "string" && first.message.trim(), "no message for staff");
+      return first.message;
+    }, { critical: true, shot: false });
+    await s.step("DB: one bag per tier, received_on 2026-11-05, each card in its tier's bag, cards.tier filled from the order (cards 3 and 5 -> Gold), Card IDs CD-2470-01..05", async () =>
+      laCheckBagged(await tables(), id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON), { shot: false });
+    await s.step("order untouched: still in_progress, no 'Status updated' or customer-visible event, no stage event, no customer email", async () => {
+      const d = await dump();
+      const after = laState(d, id, email);
+      eq(after.status, "in_progress", "order status");
+      eq(after.statusEvents, before.statusEvents, "'Status updated to' events");
+      eq(after.visibleEvents, before.visibleEvents, "customer-visible order events");
+      eq(after.stageEvents, before.stageEvents, "stage_update events");
+      eq(after.customerEmails, 0, "emails to the customer");
+      const added = d.tables.order_events.filter((e) => e.order_id === id).slice(before.events).map((e) => `${e.event_type}: ${e.description}`);
+      return `${added.length} staff-only event(s)${added.length ? `: ${added.join(" | ").slice(0, 200)}` : ""}; ${d.emails.length} email(s) captured in all`;
+    }, { shot: false });
+    await s.step("the bagged cards' tier is now locked: PATCH card 3's tier -> 409, tier unchanged", async () => {
+      const r = await api(ctx, "PATCH", ROUTES.cardTierApi(LA.inShopCards[2]), { tier: "regular" });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
+      eq((await tables()).cards.find((c) => c.id === LA.inShopCards[2]).tier, IN_SHOP_ORDER_TIER, "card 3 tier");
+      return r.body?.error ?? "";
+    }, { shot: false });
+    await s.step("POST again: 200, newlyBagged 0, the same bags; nothing written (idempotent)", async () => {
+      const d0 = await dump();
+      const again = laPrepared(await laPost(ctx, id), "second POST");
+      eq(again.newlyBagged, 0, "newlyBagged");
+      eq(again.emailed, false, "emailed");
+      eq(again.orderStatusChanged, false, "orderStatusChanged");
+      eq(again.bags.map((b) => [b.id, b.code, b.cardCount]), first.bags.map((b) => [b.id, b.code, b.cardCount]), "bags");
+      const d1 = await dump();
+      eq(laState(d1, id, email), laState(d0, id, email), "order, bags, cards, events, emails");
+      eq(d1.tables.tier_bags.length, d0.tables.tier_bags.length, "tier_bags rows");
+      return again.message ?? "";
+    }, { shot: false });
+    await s.step("GET plan again: ready, nothing to bag, the order's 2 bags", async () => {
+      const plan = await laPlan(ctx, id);
+      eq(plan.mode, "ready", "mode");
+      eq(plan.toBag, 0, "toBag");
+      eq((plan.bags ?? []).map((b) => b.code).sort(), ["CD-2470-G", "CD-2470-P"], "bags");
+    }, { shot: false });
+    // The labels: one per tier bag, one PDF page per bag (the existing label checks)
+    await labelSteps(s, ctx, { appUrl, orderId: id, customerName: LAC.inShopOrder.name, title: "CD-2470 labels" });
+  },
+
+  // CD-2480: no tier on the cards or the order; the signed checkout record names them (Silver,
+  // Silver + slab removal, Platinum): filled for sure, no question, one POST bags them
+  async "labels-any-signed"({ ctx, s }) {
+    const id = LA.signedOrder;
+    const num = LAN.signedOrder;
+    const email = LAC.signedOrder.email;
+    await laSetup(s);
+    await s.step("GET plan: bag_in_shop, 3 to bag, the tiers from the signed record (sure, needsAnswer false): Silver, Silver, Platinum; received on 2026-11-09", async () => {
+      const plan = await laPlan(ctx, id);
+      eq(plan.mode, "bag_in_shop", "mode");
+      eq(plan.toBag, 3, "toBag");
+      eq(plan.needsAnswers, false, "needsAnswers");
+      eq(plan.receivedOn, SIGNED_RECEIVED_ON, "receivedOn");
+      const qs = plan.tierQuestions ?? [];
+      assert(qs.length, "no tier question (expected the signed tiers shown for information)");
+      for (const q of qs) {
+        eq([q.confidence, q.source, q.needsAnswer], ["sure", "signed", false], `question for ${(q.cardNames ?? []).join(", ")}: confidence, source, needsAnswer`);
+        assert(typeof q.why === "string" && q.why.trim(), "a question with no why");
+      }
+      const guessOf = (cid) => qs.find((q) => (q.cardIds ?? []).includes(cid))?.guess ?? "(no question)";
+      eq(LA.signedCards.map(guessOf), SIGNED_CARD_TIERS, "guess per card (from the signed record)");
+      return qs.map((q) => `${q.why} (${q.cardIds.length})`).join("; ");
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST (no tiers): 200, newlyBagged 3, bags CD-2480-P (1) + CD-2480-S (2), no email, status not changed", async () => {
+      const body = laPrepared(await laPost(ctx, id));
+      eq(body.newlyBagged, 3, "newlyBagged");
+      eq([body.emailed, body.orderStatusChanged], [false, false], "emailed, orderStatusChanged");
+      return laCheckAnswerBags(body, num, LA.signedCards, SIGNED_CARD_TIERS);
+    }, { critical: true, shot: false });
+    await s.step("DB: cards.tier from the signed record, bags received 2026-11-09, Card IDs CD-2480-01..03; order still received, no customer email, no status event", async () => {
+      const d = await dump();
+      const out = laCheckBagged(d.tables, id, num, LA.signedCards, SIGNED_CARD_TIERS, SIGNED_RECEIVED_ON);
+      const after = laState(d, id, email);
+      eq(after.status, "received", "order status");
+      eq([after.statusEvents, after.visibleEvents, after.customerEmails], [before.statusEvents, before.visibleEvents, 0], "status events, customer-visible events, customer emails");
+      return out;
+    }, { shot: false });
+  },
+
+  // CD-2490: no tier anywhere and no signature; cards 1-2 were paid Silver's price (a likely guess),
+  // card 3 a price no tier has (unknown): staff must answer, once
+  async "labels-any-unknown-tier"({ ctx, s }) {
+    const id = LA.unknownTierOrder;
+    const num = LAN.unknownTierOrder;
+    const email = LAC.unknownTierOrder.email;
+    const [c1, c2, c3] = LA.unknownTierCards;
+    await laSetup(s);
+    await s.step("GET plan: needsAnswers; question 1 = cards 1-2, guess Silver (likely, from the price), question 2 = card 3, no guess (unknown); every tier offered", async () => {
+      const plan = await laPlan(ctx, id);
+      eq(plan.mode, "bag_in_shop", "mode");
+      eq(plan.toBag, 3, "toBag");
+      eq(plan.needsAnswers, true, "needsAnswers");
+      eq(plan.receivedOn, UNKNOWN_TIER_RECEIVED_ON, "receivedOn");
+      const qs = plan.tierQuestions ?? [];
+      const of = (cid) => qs.find((q) => (q.cardIds ?? []).includes(cid));
+      const likely = of(c1);
+      const unknown = of(c3);
+      assert(likely && unknown, `no question for card 1 or card 3: ${JSON.stringify(qs).slice(0, 240)}`);
+      eq([...likely.cardIds].sort(), [c1, c2].sort(), "the Silver question's cards");
+      eq([likely.guess, likely.confidence, likely.source, likely.needsAnswer], ["expedited", "likely", "price", true], "Silver question: guess, confidence, source, needsAnswer");
+      eq(unknown.cardIds, [c3], "the unknown question's cards");
+      eq([unknown.guess, unknown.confidence, unknown.needsAnswer], [null, "unknown", true], "unknown question: guess, confidence, needsAnswer");
+      for (const q of qs) {
+        assert(typeof q.why === "string" && q.why.trim(), "a question with no why");
+        const keys = (q.choices ?? []).map((c) => c.key);
+        const missing = LA_RESTORATION_TIERS.filter((k) => !keys.includes(k));
+        assert(!missing.length, `choices miss ${missing.join(", ")}`);
+      }
+      return qs.map((q) => `"${q.why}" ${q.guess ?? "no guess"} x${q.cardIds.length}`).join("; ");
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST without tiers: 409 with the question (error, unanswered = all 3 cards, the tierQuestions, needsConfirmReceive false); nothing written", async () => {
+      const r = await laPost(ctx, id);
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      assert(typeof r.body?.error === "string" && r.body.error.trim(), "no error text");
+      eq([...(r.body.unanswered ?? [])].sort(), [c1, c2, c3].sort(), "unanswered");
+      eq(r.body.needsConfirmReceive, false, "needsConfirmReceive");
+      assert((r.body.tierQuestions ?? []).length >= 1, "the 409 doesn't carry the question");
+      await laUnchanged(before, id, email, "after the 409");
+      return r.body.error;
+    }, { critical: true, shot: false });
+    await s.step("POST with an unknown tier key ('gold'): 400; nothing written", async () => {
+      const r = await laPost(ctx, id, { tiers: { [c1]: "expedited", [c2]: "expedited", [c3]: "gold" } });
+      eq(r.status, 400, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      await laUnchanged(before, id, email, "after the 400");
+      return r.body?.error ?? "";
+    }, { shot: false });
+    await s.step("POST answering card 3 only: 409, unanswered = cards 1-2 (a likely guess still needs its confirm tap); nothing written", async () => {
+      const r = await laPost(ctx, id, { tiers: { [c3]: "regular" } });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq([...(r.body?.unanswered ?? [])].sort(), [c1, c2].sort(), "unanswered");
+      await laUnchanged(before, id, email, "after the 409");
+    }, { shot: false });
+    await s.step("POST with every answer (cards 1-2 Silver, card 3 Bronze): 200, bags CD-2490-S (2) + CD-2490-B (1), cards.tier written, received 2026-11-10, no email", async () => {
+      const body = laPrepared(await laPost(ctx, id, { tiers: { [c1]: "expedited", [c2]: "expedited", [c3]: "regular" } }));
+      eq(body.newlyBagged, 3, "newlyBagged");
+      eq(body.emailed, false, "emailed");
+      laCheckAnswerBags(body, num, LA.unknownTierCards, ["expedited", "expedited", "regular"]);
+      const d = await dump();
+      const out = laCheckBagged(d.tables, id, num, LA.unknownTierCards, ["expedited", "expedited", "regular"], UNKNOWN_TIER_RECEIVED_ON);
+      const after = laState(d, id, email);
+      eq([after.status, after.customerEmails, after.statusEvents], ["in_progress", 0, before.statusEvents], "status, customer emails, status events");
+      return out;
+    }, { critical: true, shot: false });
+    await s.step("GET plan again: ready, no question left", async () => {
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.toBag, plan.needsAnswers, (plan.tierQuestions ?? []).length], ["ready", 0, false, 0], "mode, toBag, needsAnswers, questions");
+    }, { shot: false });
+  },
+
+  // CD-2610, Awaiting Cards: "Cards arrived? Receive all and print" = the normal receive (status
+  // -> Cards Received, the usual customer email), then the labels
+  async "labels-any-awaiting"({ page, ctx, s }) {
+    const id = LA.awaitingOrder;
+    const num = LAN.awaitingOrder;
+    const email = LAC.awaitingOrder.email;
+    const tiers = AWAITING_CARD_TIERS.map((t) => t ?? AWAITING_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    await s.step("GET plan: receive_first, awaiting_cards, 3 to bag, no tier question (order tier Silver), received today", async () => {
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.status, plan.toBag, plan.needsAnswers], ["receive_first", "awaiting_cards", 3, false], "mode, status, toBag, needsAnswers");
+      eq(plan.tierQuestions ?? [], [], "tierQuestions");
+      eq(plan.receivedOn, todayNy(), "receivedOn");
+      return `${plan.receivedOn} (${plan.receivedOnSource})`;
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST without confirmReceive: 409 needsConfirmReceive; nothing written (still awaiting, no bag, no email, no event)", async () => {
+      const r = await laPost(ctx, id);
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq(r.body?.needsConfirmReceive, true, "needsConfirmReceive");
+      assert(typeof r.body?.error === "string" && r.body.error.trim(), "no error text");
+      await laUnchanged(before, id, email, "after the 409");
+      return r.body.error;
+    }, { critical: true, shot: false });
+    let answer = null;
+    await s.step("order page: the button asks \"Cards arrived?\", \"Receive all and print\" -> POST { confirmReceive: true } -> 200", async () => {
+      await goto(page, ROUTES.order(id));
+      const btn = UI.receiveAllAndPrint(page).or(UI.prepareLabels(page)).first();
+      await btn.waitFor({ timeout: 60_000 });
+      assert(await waitEnabled(btn), "the button is disabled");
+      const r = await tapReceiveAll(page, btn);
+      answer = r.body;
+      eq(r.request?.confirmReceive, true, "confirmReceive in the request");
+      assert(/cards arrived/i.test(`${r.label} ${r.asked}`), `never asked "Cards arrived?" (button "${r.label}", question "${r.asked.slice(0, 120)}")`);
+      return `"${r.label}" -> "${r.asked.slice(0, 80)}…": ${r.body?.message ?? ""}`;
+    });
+    if (!answer) await s.step("(fallback) POST { confirmReceive: true } through the API", async () => { answer = laPrepared(await laPost(ctx, id, { confirmReceive: true })); }, { critical: true, shot: false });
+    await s.step("answer: newlyBagged 3, orderStatusChanged, emailed, bag CD-2610-S (3)", async () => {
+      assert(answer?.ok === true, `answer: ${JSON.stringify(answer).slice(0, 200)}`);
+      eq([answer.newlyBagged, answer.orderStatusChanged, answer.emailed], [3, true, true], "newlyBagged, orderStatusChanged, emailed");
+      return laCheckAnswerBags(answer, num, LA.awaitingCards, tiers);
+    }, { shot: false });
+    await s.step("DB: status received, ONE 'Cards Received' event, exactly one customer email (as Receive), bag CD-2610-S received today, cards.tier Silver", async () => {
+      const d = await dump();
+      const after = laState(d, id, email);
+      eq(after.status, "received", "order status");
+      eq(after.receivedEvents, 1, "'Cards Received' events");
+      eq(after.customerEmails, 1, "emails to the customer");
+      const out = laCheckBagged(d.tables, id, num, LA.awaitingCards, tiers, todayNy());
+      return `${out}; customer email "${mailsTo(d.emails, email)[0]?.subject ?? ""}"`;
+    }, { critical: true, shot: false });
+    await s.step("then the labels print (second tap): 1 page", async () => checkPrintOutput(ctx, await tapPrint(page, w), 1));
+    await s.step("POST { confirmReceive: true } again: 200, newlyBagged 0, no second email or event, still received", async () => {
+      const d0 = await dump();
+      const again = laPrepared(await laPost(ctx, id, { confirmReceive: true }), "second POST");
+      eq([again.newlyBagged, again.emailed, again.orderStatusChanged], [0, false, false], "newlyBagged, emailed, orderStatusChanged");
+      eq(laState(await dump(), id, email), laState(d0, id, email), "order, bags, cards, events, emails");
+    }, { shot: false });
+  },
+
+  // CD-2620, never paid: no working button (disabled, with the reason) and the API refuses
+  async "labels-any-not-allowed"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.unpaidOrder;
+    const email = LAC.unpaidOrder.email;
+    await laSetup(s);
+    let plan = null;
+    await s.step("GET plan: not_allowed, with a reason", async () => {
+      plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.status], ["not_allowed", "awaiting_payment"], "mode, status");
+      assert(typeof plan.reason === "string" && plan.reason.trim(), "no reason");
+      return plan.reason;
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST, and POST { confirmReceive: true, tiers }: refused (409 { error }); nothing written", async () => {
+      const out = [];
+      for (const data of [{}, { confirmReceive: true, tiers: Object.fromEntries(LA.unpaidCards.map((c) => [c, "premium"])) }]) {
+        const r = await laPost(ctx, id, data);
+        eq(r.status, 409, `HTTP for ${JSON.stringify(data).slice(0, 60)} (${JSON.stringify(r.body).slice(0, 160)})`);
+        assert(typeof r.body?.error === "string" && r.body.error.trim(), "no error text");
+        out.push(r.body.error);
+      }
+      await laUnchanged(before, id, email, "after the refusals");
+      return out[0];
+    }, { shot: false });
+    const check = async (p) => {
+      await goto(p, ROUTES.order(id));
+      await p.waitForTimeout(1_000);
+      const all = UI.anyPrepare(p);
+      const n = await all.count();
+      assert(n > 0, "no \"Print labels\" button on the unpaid order (expected one, disabled, with the reason)");
+      const btn = all.first();
+      assert(await laDisabled(btn), `"${(await btn.innerText()).trim()}" is enabled on an unpaid order`);
+      const near = await btn.evaluate((el) => {
+        const ids = (el.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+        let n2 = el;
+        for (let i = 0; i < 3 && n2.parentElement; i++) n2 = n2.parentElement;
+        return { title: el.getAttribute("title") ?? "", desc: ids.map((x) => document.getElementById(x)?.textContent ?? "").join(" "), around: n2.innerText ?? "" };
+      });
+      const reason = plan.reason.trim();
+      const said = [near.title, near.desc, near.around].find((x) => x.includes(reason) || UI.notAllowedReason.test(x));
+      assert(said, `no reason next to the button (expected "${reason}" or words like "not paid")`);
+      // a tap does nothing
+      const posts = [];
+      const onReq = (r) => { if (r.method() === "POST" && r.url().includes("/prepare-labels")) posts.push(r.url()); };
+      p.on("request", onReq);
+      await btn.click({ force: true, timeout: 5_000 }).catch(() => {});
+      await p.waitForTimeout(2_000);
+      p.off("request", onReq);
+      eq(posts.length, 0, "POSTs after tapping the disabled button");
+      return `"${(await btn.innerText()).replace(/\s+/g, " ").trim()}" disabled: ${(near.desc || near.title || reason).slice(0, 120)}`;
+    };
+    await s.step("1440: the order page shows the button disabled with the reason; a tap sends nothing", () => check(page));
+    await s.step("390: the same on a phone, no sideways scroll", async () => {
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        const out = await check(phone.page);
+        await laPhoneCheck(phone, "labels-any-not-allowed");
+        return out;
+      } finally {
+        await phone.ctx.close();
+      }
+    }, { shot: false });
+    await s.step("still nothing written", () => laUnchanged(before, id, email, "after the taps"), { shot: false });
+  },
+
+  // The order page of CD-2470 (in progress, no bags): one tap prepares, a second tap prints;
+  // at 1440, then again from a fresh seed at 390
+  async "labels-any-order-page"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const email = LAC.inShopOrder.email;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const flow = async (p, pw, size) => {
+      await s.step(`${size}: the order page of ${num} has an enabled "Print labels"`, async () => {
+        await goto(p, ROUTES.order(id));
+        const btn = UI.prepareLabels(p).first();
+        await btn.waitFor({ timeout: 60_000 });
+        assert(await waitEnabled(btn), "the button is disabled");
+        return (await btn.innerText()).replace(/\s+/g, " ").trim();
+      }, { critical: true, shot: size === "1440" });
+      await s.step(`${size}: tap 1 prepares: POST 200, CD-2470-P (2) + CD-2470-G (3) received 2026-11-05, still in_progress, no customer email`, async () => {
+        const tTap = Date.now();
+        const r = await tapPrepare(p, UI.prepareLabels(p).first());
+        eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+        const d = await dump();
+        const out = laCheckBagged(d.tables, id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON);
+        const st = laState(d, id, email);
+        eq([st.status, st.customerEmails], ["in_progress", 0], "status, customer emails");
+        await p.waitForTimeout(1_500);
+        const early = await printsSince(p, pw, tTap);
+        const printedEarly = early.filter((x) => x.kind !== "get");
+        return `${r.body?.message ?? out}${printedEarly.length ? ` (already printing after tap 1: ${printedEarly.map((x) => x.text).join("; ")})` : ""}`;
+      }, { critical: true, shot: size === "1440" });
+      await s.step(`${size}: tap 2 prints: a new tab / download / share sheet with the labels (PDF: one page per bag)`, async () => checkPrintOutput(ctx, await tapPrint(p, pw), 2), { shot: size === "1440" });
+      await s.step(`${size}: both bags are marked printed (label_printed_at)`, () => laStamped(id), { shot: false });
+    };
+    await flow(page, w, "1440");
+    await s.step("390: fresh seed (CD-2470 unbagged again)", async () => {
+      await reset();
+      await seedLabelsAny();
+      eq(bagsOf(await tables(), id).length, 0, "bags");
+    }, { critical: true, shot: false });
+    const phone = await phoneContext(browser, appUrl);
+    try {
+      const pw = await watchPrints(phone.ctx);
+      await flow(phone.page, pw, "390");
+      await s.step("390: the order page fits (no sideways scroll), no browser errors", () => laPhoneCheck(phone, "labels-any-order-page"), { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+  },
+
+  // CD-2490 (no tier anywhere): the tap asks once, Silver preselected for cards 1-2 and nothing
+  // for card 3; Bronze picked, confirmed: one POST with every card's tier, then the labels
+  async "labels-any-tier-dialog"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.unknownTierOrder;
+    const num = LAN.unknownTierOrder;
+    const email = LAC.unknownTierOrder.email;
+    const [c1, c2, c3] = LA.unknownTierCards;
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const before = laState(await dump(), id, email);
+    const openQuestion = async (p) => {
+      await goto(p, ROUTES.order(id));
+      const btn = UI.prepareLabels(p).first();
+      await btn.waitFor({ timeout: 60_000 });
+      assert(await waitEnabled(btn), "the button is disabled");
+      await btn.click();
+      const scope = UI.tierScope(p);
+      await scope.waitFor({ timeout: 30_000 });
+      const ctls = await until(async () => { const x = await tierControlsIn(scope); return x.length ? x : null; }, 15_000);
+      assert(ctls, "the tier question shows no tier list");
+      return { scope, ctls };
+    };
+    await s.step("390: the tap asks the tier question on a phone (nothing saved yet), no sideways scroll", async () => {
+      const phone = await phoneContext(browser, appUrl);
+      try {
+        const { ctls } = await openQuestion(phone.page);
+        await laPhoneCheck(phone, "labels-any-tier-dialog");
+        return ctls.map((c) => c.text || c.value || "(none)").join(" | ");
+      } finally {
+        await phone.ctx.close();
+      }
+    }, { shot: false });
+    let q = null;
+    await s.step("1440: tap \"Print labels\": the question shows Silver preselected (cards 1-2) and no tier for card 3; nothing saved yet", async () => {
+      q = await openQuestion(page);
+      const silver = q.ctls.filter((c) => controlShows(c, "expedited"));
+      const none = q.ctls.filter((c) => controlShowsNone(c));
+      assert(silver.length >= 1, `no control preselected Silver: ${q.ctls.map((c) => `${c.kind} "${c.text}" ${c.value}`).join(" | ")}`);
+      assert(none.length >= 1, `no control left without a tier for card 3: ${q.ctls.map((c) => `${c.kind} "${c.text}" ${c.value}`).join(" | ")}`);
+      const text = await q.scope.innerText();
+      const named = [...LA.unknownTierCards.keys()].map((i) => `Test Unknown-Tier Card ${i + 1}`).filter((n) => text.includes(n));
+      await laUnchanged(before, id, email, "with the question open");
+      return `${q.ctls.length} control(s): ${q.ctls.map((c) => c.text || c.value || "(none)").join(" | ")}; names shown: ${named.join(", ") || "none"}`;
+    }, { critical: true });
+    await s.step("1440: pick Bronze where no tier is set, confirm: POST with every card's tier (1-2 Silver, 3 Bronze) -> 200", async () => {
+      for (const c of q.ctls.filter((x) => controlShowsNone(x))) await setTierControl(page, c.loc, "regular");
+      const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST" && r.status() === 200, { timeout: 60_000 });
+      await UI.tierConfirm(q.scope).click();
+      const res = await ok;
+      await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+      const sent = res.request().postDataJSON()?.tiers ?? {};
+      eq([c1, c2, c3].map((c) => sent[c] ?? null), ["expedited", "expedited", "regular"], "tiers sent per card");
+      const d = await dump();
+      return laCheckBagged(d.tables, id, num, LA.unknownTierCards, ["expedited", "expedited", "regular"], UNKNOWN_TIER_RECEIVED_ON);
+    }, { critical: true });
+    await s.step("1440: then the labels print: 2 pages (CD-2490-S, CD-2490-B)", async () => checkPrintOutput(ctx, await tapPrint(page, w), 2));
+    await s.step("no customer email, status unchanged", async () => {
+      const st = laState(await dump(), id, email);
+      eq([st.status, st.customerEmails, st.statusEvents], ["in_progress", 0, before.statusEvents], "status, customer emails, status events");
+    }, { shot: false });
+  },
+
+  // The receiving workspace of CD-2470: ONE "Print labels", nothing to tick first
+  async "labels-any-workspace"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const email = LAC.inShopOrder.email;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const countExact = async () => {
+      let n = 0;
+      for (const b of await page.getByRole("button", { name: UI.prepareLabelsExact }).all()) if (await b.isVisible().catch(() => false)) n++;
+      return n;
+    };
+    await s.step("the workspace shows ONE \"Print labels\", enabled, with no card ticked", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      await UI.prepareLabels(page).first().waitFor({ timeout: 60_000 });
+      eq(await countExact(), 1, "visible \"Print labels\" buttons");
+      assert(await waitEnabled(UI.prepareLabels(page).first()), "the button is disabled");
+      let ticked = 0;
+      for (const box of await page.getByRole("checkbox", { name: /^Arrived:/i }).all()) if (await box.isChecked().catch(() => false)) ticked++;
+      eq(ticked, 0, "ticked \"Arrived\" boxes");
+      return (await UI.prepareLabels(page).first().innerText()).replace(/\s+/g, " ").trim();
+    }, { critical: true });
+    await s.step("tap it without ticking anything: POST 200, the 5 cards in CD-2470-P + CD-2470-G (received 2026-11-05), status unchanged, no email", async () => {
+      const r = await tapPrepare(page, UI.prepareLabels(page).first());
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      const d = await dump();
+      const out = laCheckBagged(d.tables, id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON);
+      const st = laState(d, id, email);
+      eq([st.status, st.customerEmails], ["in_progress", 0], "status, customer emails");
+      return out;
+    }, { critical: true });
+    await s.step("tap 2 prints the 2 labels", async () => checkPrintOutput(ctx, await tapPrint(page, w), 2));
+    await s.step("reloaded: the bags show (CD-2470-P, CD-2470-G) and at most ONE \"Print labels\" / \"Print N labels\" (no second print step)", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      const text = await page.locator("main").first().innerText();
+      for (const code of ["CD-2470-P", "CD-2470-G"]) assert(text.includes(code), `${code} not shown`);
+      const n = await countExact();
+      assert(n <= 1, `${n} visible "Print labels" / "Print N labels" buttons`);
+      return `${n} such button(s) once every card is bagged and printed`;
+    });
+    await s.step("390: the workspace fits (no sideways scroll)", async () => {
+      const msg = await phoneShot(browser, appUrl, ROUTES.receivingOrder(id), "labels-any-workspace");
+      assert(!msg, msg);
+    }, { shot: false });
+  },
+
+  // Receiving: a search result row carries the action (tap it right there, the order isn't opened)
+  async "labels-any-receiving-row"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const email = LAC.inShopOrder.email;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const search = `${ROUTES.receiving}?q=${encodeURIComponent(num)}`;
+    await s.step(`search ${num} on Receiving: its row has "Print labels" (enabled)`, async () => {
+      await goto(page, search);
+      const row = UI.receivingRow(page, num);
+      await row.waitFor({ timeout: 30_000 });
+      const btn = UI.prepareLabels(row).first();
+      assert(await btn.isVisible(), "the row's action isn't \"Print labels\"");
+      assert(await waitEnabled(btn), "the button is disabled");
+      return (await btn.innerText()).replace(/\s+/g, " ").trim();
+    }, { critical: true });
+    await s.step("tap it in the row: POST 200, the 5 cards bagged (CD-2470-P, CD-2470-G), still on Receiving, no email", async () => {
+      const r = await tapPrepare(page, UI.prepareLabels(UI.receivingRow(page, num)).first());
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      assert(new URL(page.url()).pathname === ROUTES.receiving, `the tap left Receiving for ${page.url()}`);
+      const d = await dump();
+      const out = laCheckBagged(d.tables, id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON);
+      eq(laState(d, id, email).customerEmails, 0, "customer emails");
+      return out;
+    }, { critical: true });
+    await s.step("tap 2 prints the 2 labels", async () => checkPrintOutput(ctx, await tapPrint(page, w), 2));
+    await s.step(`search ${LAN.awaitingOrder} (Awaiting Cards): its row's action asks "Cards arrived?" with "Receive all and print"; Cancel saves nothing`, async () => {
+      const aId = LA.awaitingOrder;
+      const aEmail = LAC.awaitingOrder.email;
+      const before = laState(await dump(), aId, aEmail);
+      await goto(page, `${ROUTES.receiving}?q=${encodeURIComponent(LAN.awaitingOrder)}`);
+      const row = UI.receivingRow(page, LAN.awaitingOrder);
+      await row.waitFor({ timeout: 30_000 });
+      const btn = UI.receiveAllAndPrint(row).or(UI.prepareLabels(row)).first();
+      const label = (await btn.innerText()).replace(/\s+/g, " ").trim();
+      await btn.click();
+      const dlg = page.getByRole("dialog").first();
+      await dlg.waitFor({ timeout: 30_000 });
+      const asked = (await dlg.innerText()).replace(/\s+/g, " ").trim();
+      assert(/cards arrived/i.test(`${label} ${asked}`), `never asked "Cards arrived?" ("${label}" / "${asked.slice(0, 120)}")`);
+      assert(await UI.confirmReceiveAll(dlg).first().isVisible(), "no \"Receive all and print\" in the question");
+      await dlg.getByRole("button", { name: /^(cancel|close|not now|no)\b/i }).first().click();
+      await page.waitForTimeout(1_000);
+      await laUnchanged(before, aId, aEmail, "after Cancel");
+      return `"${label}" -> "${asked.slice(0, 100)}…"`;
+    });
+    await s.step("390: the search results fit (no sideways scroll)", async () => {
+      const msg = await phoneShot(browser, appUrl, search, "labels-any-receiving-row");
+      assert(!msg, msg);
+    }, { shot: false });
+  },
+  // CD-2610 made unpaid: "Receive all and print" asks the Receive button's own question first and
+  // sends allowUnpaid only after the tick; without it the API refuses exactly like /receive
+  async "labels-any-unpaid-receive"({ page, ctx, s, mockUrl }) {
+    const id = LA.awaitingOrder;
+    const num = LAN.awaitingOrder;
+    const email = LAC.awaitingOrder.email;
+    const tiers = AWAITING_CARD_TIERS.map((t) => t ?? AWAITING_ORDER_TIER);
+    const UNPAID_ERROR = "This order hasn't been paid. Confirm to receive anyway.";
+    const UNPAID_CONFIRM = "This order hasn't been paid. Receive anyway?";
+    await laSetup(s);
+    await s.step("setup: CD-2610 not paid (payment_status pending), Awaiting Cards: plan receive_first, payment unpaid, 3 to bag", async () => {
+      await mockUpdate(mockUrl, "orders", { payment_status: "pending" }, "id", id);
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.payment, plan.toBag], ["receive_first", "unpaid", 3], "mode, payment, toBag");
+    }, { critical: true, shot: false });
+    const before = laState(await dump(), id, email);
+    await s.step("POST { confirmReceive: true } without allowUnpaid: 409 as the receive route (UNPAID_ERROR, unpaid: true, needsAllowUnpaid); nothing written", async () => {
+      const r = await laPost(ctx, id, { confirmReceive: true });
+      eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq([r.body?.needsAllowUnpaid, r.body?.unpaid, r.body?.payment, r.body?.error], [true, true, "unpaid", UNPAID_ERROR], "needsAllowUnpaid, unpaid, payment, error");
+      const rr = await api(ctx, "POST", `/api/admin/intake/orders/${id}/receive`, { cardIds: LA.awaitingCards });
+      eq([rr.status, rr.body?.error, rr.body?.unpaid], [409, UNPAID_ERROR, true], "the receive route's own answer");
+      await laUnchanged(before, id, email, "after the 409s");
+      return r.body.error;
+    }, { critical: true, shot: false });
+    await s.step("POST a body that isn't JSON: 400 (not read as {}); an empty body is {} (409, needs the confirm); nothing written", async () => {
+      const raw = (data) => ctx.request.fetch(ROUTES.prepareLabelsApi(id), { method: "POST", headers: { "Content-Type": "application/json" }, data, failOnStatusCode: false, maxRedirects: 0 });
+      const bad = await raw("{not json");
+      eq(bad.status(), 400, `HTTP for a malformed body (${(await bad.text()).slice(0, 120)})`);
+      const empty = await raw(undefined); // no body at all
+      eq(empty.status(), 409, `HTTP for an empty body (${(await empty.text()).slice(0, 120)})`);
+      await laUnchanged(before, id, email, "after the raw POSTs");
+    }, { shot: false });
+    await s.step(`order page: the dialog asks "${UNPAID_CONFIRM}" with a tick box; "Receive all and print" without the tick sends nothing`, async () => {
+      await goto(page, ROUTES.order(id));
+      const btn = UI.prepareLabels(page).first();
+      await btn.waitFor({ timeout: 60_000 });
+      assert(await waitEnabled(btn), "the button is disabled");
+      await btn.click();
+      const dlg = page.getByRole("dialog").first();
+      await dlg.waitFor({ timeout: 30_000 });
+      const text = (await dlg.innerText()).replace(/\s+/g, " ");
+      assert(text.includes(UNPAID_CONFIRM), `the dialog doesn't ask "${UNPAID_CONFIRM}": "${text.slice(0, 200)}"`);
+      assert(/cards arrived/i.test(text), "not the \"Cards arrived?\" question");
+      const box = dlg.getByRole("checkbox");
+      eq(await box.count(), 1, "tick boxes in the dialog");
+      const posts = [];
+      const onReq = (r) => { if (r.method() === "POST" && r.url().includes("/prepare-labels")) posts.push(r.url()); };
+      page.on("request", onReq);
+      await UI.confirmReceiveAll(dlg).first().click();
+      await page.waitForTimeout(1_500);
+      page.off("request", onReq);
+      eq(posts.length, 0, "POSTs without the tick");
+      assert(await dlg.isVisible(), "the dialog closed");
+      assert(/tick the box/i.test(await dlg.innerText()), "no message asking for the tick");
+      await laUnchanged(before, id, email, "after the unticked tap");
+      return text.slice(0, 140);
+    }, { critical: true });
+    await s.step("tick it, \"Receive all and print\": POST { confirmReceive, allowUnpaid } -> 200; Cards Received, ONE customer email, a received_unpaid line, CD-2610-S", async () => {
+      const dlg = page.getByRole("dialog").first();
+      await dlg.getByRole("checkbox").check();
+      const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST", { timeout: 90_000 });
+      await UI.confirmReceiveAll(dlg).first().click();
+      const res = await ok;
+      eq(res.status(), 200, `HTTP (${(await res.text()).slice(0, 200)})`);
+      const req = res.request().postDataJSON();
+      eq([req.confirmReceive, req.allowUnpaid], [true, true], "confirmReceive, allowUnpaid in the request");
+      const d = await dump();
+      const st = laState(d, id, email);
+      eq([st.status, st.receivedEvents, st.customerEmails], ["received", 1, 1], "status, 'Cards Received' events, customer emails");
+      eq(d.tables.order_events.filter((e) => e.order_id === id && e.event_type === "received_unpaid").length, 1, "received_unpaid lines");
+      return laCheckBagged(d.tables, id, num, LA.awaitingCards, tiers, todayNy());
+    }, { critical: true });
+  },
+
+  // CD-2470 with a card added after it arrived (Nov 20, after Cards Received Nov 5): the workspace box
+  // counts what the server bags (5, not 6), goes away once they are bagged, and the late card stays
+  // for the ticks below (planOrderSetup addedLater)
+  async "labels-any-added-later"({ page, ctx, s, mockUrl }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const tiers = IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER);
+    const late = "1a00000c-0000-4000-8000-000000000099";
+    const lateName = "Test Added-Later Card";
+    await laSetup(s);
+    await s.step("setup: a 6th card created 2026-11-20 (after Cards Received on 2026-11-05), Gold; plan: bag_in_shop, toBag 5, the reason says 1 card was added later", async () => {
+      const { error } = await mockDb(mockUrl).from("cards").insert({ id: late, order_id: id, card_name: lateName, tier: "premium", created_at: "2026-11-20T15:00:00.000Z" });
+      assert(!error, `insert: ${error?.message}`);
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.toBag], ["bag_in_shop", 5], "mode, toBag");
+      assert(/1 card was added after the order arrived/.test(plan.reason ?? ""), `reason: ${plan.reason}`);
+      return plan.reason;
+    }, { critical: true, shot: false });
+    await s.step("the workspace box says 5 cards (the server's count), not 6", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      const box = page.getByRole("region", { name: /^print labels$/i }).filter({ hasText: /in a bag yet/ }).first();
+      await box.waitFor({ timeout: 60_000 });
+      const text = (await box.innerText()).replace(/\s+/g, " ");
+      assert(/\b5 cards aren't in a bag yet\b/.test(text), `box: "${text.slice(0, 160)}"`);
+      return text.slice(0, 120);
+    }, { critical: true });
+    await s.step("tap: 200, newlyBagged 5 (CD-2470-P + CD-2470-G); the late card has no bag and isn't received", async () => {
+      const box = page.getByRole("region", { name: /^print labels$/i }).filter({ hasText: /in a bag yet/ }).first();
+      const r = await tapPrepare(page, UI.prepareLabels(box).first());
+      eq([r.status, r.body?.newlyBagged], [200, 5], `HTTP, newlyBagged (${JSON.stringify(r.body).slice(0, 200)})`);
+      const d = await dump();
+      const c = d.tables.cards.find((x) => x.id === late);
+      eq([c.bag_id ?? null, c.received_at ?? null], [null, null], "late card bag_id, received_at");
+      return laCheckBagged(d.tables, id, num, LA.inShopCards, tiers, IN_SHOP_RECEIVED_ON);
+    }, { critical: true });
+    await s.step("close (X) without printing: the box is gone, the keyboard is on the Bags heading, the late card still has its Arrived tick box", async () => {
+      await page.getByRole("button", { name: /^close without printing$/i }).first().click();
+      await page.waitForTimeout(2_000);
+      await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+      const boxes = await page.getByText(/in a bag yet/).count();
+      eq(boxes, 0, "\"…in a bag yet\" boxes");
+      const focused = await page.evaluate(() => document.activeElement?.id ?? document.activeElement?.tagName ?? "");
+      eq(focused, "bags-h", "focused element");
+      assert(await UI.arrived(page, lateName).isVisible(), `no Arrived tick box for ${lateName}`);
+      return `focus on #${focused}`;
+    });
+  },
+
+  // A bag whose cards were all refunded has no live card: no "Print label" for it on the Bags board
+  // or the "Bags missing labels" queue (the label route has nothing to print)
+  async "labels-any-empty-bag"({ page, ctx, s, mockUrl }) {
+    const id = LA.inShopOrder;
+    await laSetup(s);
+    await s.step("setup: CD-2470 bagged (POST), then both Platinum cards refunded: CD-2470-P has no live card", async () => {
+      laPrepared(await laPost(ctx, id));
+      const t = await tables();
+      const p = bagsOf(t, id).find((b) => b.bag_code === "CD-2470-P");
+      assert(p, "no CD-2470-P");
+      const inP = t.cards.filter((c) => c.bag_id === p.id);
+      eq(inP.length, 2, "cards in CD-2470-P");
+      for (const c of inP) await mockUpdate(mockUrl, "cards", { status: "refunded" }, "id", c.id);
+      return inP.map((c) => c.card_code).join(", ");
+    }, { critical: true, shot: false });
+    const printBtn = (scope) => scope.getByRole("button", { name: /^(re)?print label$/i });
+    await s.step("Bags board: CD-2470-G has \"Print label\"; CD-2470-P has none (or isn't listed)", async () => {
+      await goto(page, ROUTES.bags);
+      const rowOf = (code) => page.locator("li").filter({ has: page.getByRole("link", { name: `Open bag ${code}`, exact: true }) }).last();
+      await rowOf("CD-2470-G").waitFor({ timeout: 60_000 });
+      eq(await printBtn(rowOf("CD-2470-G")).count(), 1, "CD-2470-G print buttons");
+      const pRows = await rowOf("CD-2470-P").count();
+      const pBtns = pRows ? await printBtn(rowOf("CD-2470-P")).count() : 0;
+      eq(pBtns, 0, "CD-2470-P print buttons");
+      return `CD-2470-P ${pRows ? "listed without a print button" : "not listed"}`;
+    });
+    await s.step("\"Bags missing labels\" queue: CD-2470-G has \"Print label\"; CD-2470-P is listed without one", async () => {
+      await goto(page, `${ROUTES.receiving}?queue=labels`);
+      const rowOf = (code) => page.locator("li").filter({ hasText: code }).filter({ has: page.getByRole("link", { name: new RegExp(`^${code}\\b`) }) }).last();
+      await page.getByText("CD-2470-G").first().waitFor({ timeout: 60_000 });
+      eq(await printBtn(page.locator("li").filter({ hasText: "CD-2470-G" }).last()).count(), 1, "CD-2470-G print buttons");
+      const pRow = page.locator("li").filter({ hasText: "CD-2470-P" }).last();
+      assert(await pRow.count(), "CD-2470-P isn't in the queue");
+      eq(await printBtn(pRow).count(), 0, "CD-2470-P print buttons");
+      void rowOf;
+    });
+  },
+
+  // The receiving workspace of an Awaiting Cards order (CD-2610): a "Cards arrived?" box receives
+  // all and prints, tiers filled from the order, the shelf slot made as the Receive button does
+  async "labels-any-workspace-awaiting"({ page, ctx, s, browser, appUrl }) {
+    const id = LA.awaitingOrder;
+    const num = LAN.awaitingOrder;
+    const email = LAC.awaitingOrder.email;
+    const tiers = AWAITING_CARD_TIERS.map((t) => t ?? AWAITING_ORDER_TIER);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    const boxOf = (p) => p.getByRole("region", { name: /^cards arrived\?$/i }).first();
+    await s.step("390: the workspace shows the \"Cards arrived?\" box, no sideways scroll", async () => {
+      const msg = await phoneShot(browser, appUrl, ROUTES.receivingOrder(id), "labels-any-workspace-awaiting");
+      assert(!msg, msg);
+    }, { shot: false });
+    await s.step("1440: the box says it receives all 3 cards and has an enabled \"Receive all and print\"", async () => {
+      await goto(page, ROUTES.receivingOrder(id));
+      const box = boxOf(page);
+      await box.waitFor({ timeout: 60_000 });
+      const text = (await box.innerText()).replace(/\s+/g, " ");
+      assert(/receives all 3 cards/.test(text), `box: "${text.slice(0, 160)}"`);
+      const btn = box.getByRole("button", { name: /^receive all and print$/i });
+      assert(await waitEnabled(btn), "the button is disabled");
+      return text.slice(0, 120);
+    }, { critical: true });
+    let answer = null;
+    await s.step("tap it, then \"Receive all and print\" in the question: POST { confirmReceive: true } -> 200, one bag CD-2610-S, a shelf slot", async () => {
+      await boxOf(page).getByRole("button", { name: /^receive all and print$/i }).click();
+      const dlg = page.getByRole("dialog").first();
+      await dlg.waitFor({ timeout: 30_000 });
+      assert(/cards arrived/i.test(await dlg.innerText()), "the question isn't \"Cards arrived?\"");
+      const ok = page.waitForResponse((r) => r.url().includes("/prepare-labels") && r.request().method() === "POST", { timeout: 90_000 });
+      await UI.confirmReceiveAll(dlg).first().click();
+      const res = await ok;
+      answer = await res.json();
+      eq(res.status(), 200, `HTTP (${JSON.stringify(answer).slice(0, 200)})`);
+      eq(res.request().postDataJSON()?.confirmReceive, true, "confirmReceive");
+      eq([answer.newlyBagged, answer.orderStatusChanged, answer.emailed], [3, true, true], "newlyBagged, orderStatusChanged, emailed");
+      laCheckAnswerBags(answer, num, LA.awaitingCards, tiers);
+      const d = await dump();
+      const bag = bagsOf(d.tables, id)[0];
+      const shelf = `LOC-SHELF-${String(bag.due_date).replaceAll("-", "")}`;
+      eq(answer.shelves?.map((x) => [x.bagCode, x.location?.code]), [[`${num}-S`, shelf]], "shelves in the answer");
+      assert(d.tables.locations.some((l) => l.code === shelf && l.kind === "shelf"), `${shelf} not made`);
+      const st = laState(d, id, email);
+      eq([st.status, st.receivedEvents, st.customerEmails], ["received", 1, 1], "status, 'Cards Received' events, customer emails");
+      return `${answer.message}`;
+    }, { critical: true });
+    await s.step("then the label prints: 1 page", async () => checkPrintOutput(ctx, await tapPrint(page, w), 1));
+  },
+};
+Object.assign(SCENARIOS, LABELS_ANY_SCENARIOS);
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export async function runScenarios({ only = null } = {}) {

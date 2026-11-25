@@ -359,3 +359,240 @@ export function buildSeed({ baseUrl }) {
     storage,
   };
 }
+
+// ─── "Print labels" for any order (owner, Nov 24 2026): extra orders, loaded on demand ─────────
+// Not part of buildSeed() on purpose: selftest.mjs counts the default seed's received /
+// in-progress cards (7) and its 'Cards Received' events (2). The labels-any-* scenarios insert
+// these rows after their reset (seedLabelsAny() in ../e2e/scenarios.mjs, through POST
+// /__rows/<table>); to look at them in a running harness, see the README ("Print labels for any
+// order"). Every one was created before Receiving went live (INTAKE_START, Nov 23 1 p.m. New
+// York): the owner wants the button on any order, older ones included.
+
+export const LABELS_ANY_IDS = {
+  // (g) In progress since before Receiving: created Oct 28, 'Cards Received' Nov 5, order tier
+  //     Gold. 5 cards: 2 Platinum and 1 Gold of their own, 2 with no tier (-> Gold, the order's).
+  //     Two have stage history. No Card IDs, no bags (as most live orders today).
+  inShopOrder: id("1a000000", 1),
+  inShopCards: Array.from({ length: 5 }, (_, i) => id("1a00000c", i + 1)),
+  // (h) Received Nov 9, no tier on the cards or the order; only the signed checkout record
+  //     (signatures, master_terms) says which: Silver, Silver (+ slab removal), Platinum.
+  //     Card 2 also has its slab_removal signature (no tier in it), as a real checkout leaves.
+  signedOrder: id("1b000000", 1),
+  signedCards: Array.from({ length: 3 }, (_, i) => id("1b00000c", i + 1)),
+  signatures: [id("1b0000a5", 1), id("1b0000a5", 2)],
+  termsVersion: id("1b0000f1", 1),
+  // (i) In progress (Cards Received Nov 10), no tier anywhere and no signature: cards 1-2 were
+  //     paid $99.99 (Silver's price: a likely guess), card 3 $130.00 (no tier's price: unknown).
+  unknownTierOrder: id("1c000000", 1),
+  unknownTierCards: Array.from({ length: 3 }, (_, i) => id("1c00000c", i + 1)),
+  // (j) Awaiting cards, created Nov 18 (before Receiving went live), order tier Silver:
+  //     1 Silver card of its own, 2 with no tier (-> Silver).
+  awaitingOrder: id("1d000000", 1),
+  awaitingCards: Array.from({ length: 3 }, (_, i) => id("1d00000c", i + 1)),
+  // (k) Never paid: awaiting_payment, payment_status pending, Gold, 2 cards.
+  unpaidOrder: id("1e000000", 1),
+  unpaidCards: Array.from({ length: 2 }, (_, i) => id("1e00000c", i + 1)),
+};
+
+export const LABELS_ANY_ORDER_NUMBERS = {
+  inShopOrder: "CD-2470",
+  signedOrder: "CD-2480",
+  unknownTierOrder: "CD-2490",
+  awaitingOrder: "CD-2610",
+  unpaidOrder: "CD-2620",
+};
+
+export const LABELS_ANY_CUSTOMERS = {
+  inShopOrder: { name: "Test Customer H", email: "test.customer.h@example.com" },
+  signedOrder: { name: "Test Customer I", email: "test.customer.i@example.com" },
+  unknownTierOrder: { name: "Test Customer J", email: "test.customer.j@example.com" },
+  awaitingOrder: { name: "Test Customer K", email: "test.customer.k@example.com" },
+  unpaidOrder: { name: "Test Customer L", email: "test.customer.l@example.com" },
+};
+
+/** (g) cards.tier as seeded (null = none of its own; the order's tier is Gold). */
+export const IN_SHOP_ORDER_TIER = "premium";
+export const IN_SHOP_CARD_TIERS = ["ultra_premium", "premium", null, "ultra_premium", null];
+export const IN_SHOP_CARD_NAMES = Array.from({ length: 5 }, (_, i) => `Test Any-Order Card ${i + 1}`);
+/** The New York day of (g)'s first 'Status updated to: Cards Received' event. */
+export const IN_SHOP_RECEIVED_ON = "2026-11-05";
+/** (h) the tiers the signed record names, card by card (cards.tier and orders.restoration_tier are null). */
+export const SIGNED_CARD_TIERS = ["expedited", "expedited", "ultra_premium"];
+export const SIGNED_CARD_NAMES = ["Test Signed Card One", "Test Signed Card Two", "Test Signed Card Three"];
+export const SIGNED_RECEIVED_ON = "2026-11-09";
+/** (i) what each card was paid (cards.service_price_cents): Silver's price twice, then no tier's price. */
+export const UNKNOWN_TIER_PRICES = [9999, 9999, 13000];
+export const UNKNOWN_TIER_CARD_NAMES = ["Test Unknown-Tier Card 1", "Test Unknown-Tier Card 2", "Test Unknown-Tier Card 3"];
+export const UNKNOWN_TIER_RECEIVED_ON = "2026-11-10";
+/** (j) cards.tier as seeded; the order's tier is Silver. */
+export const AWAITING_ORDER_TIER = "expedited";
+export const AWAITING_CARD_TIERS = ["expedited", null, null];
+export const AWAITING_CARD_NAMES = ["Test Awaiting Card 1", "Test Awaiting Card 2", "Test Awaiting Card 3"];
+
+const SERVICE_NAMES = { regular: "Bronze", expedited: "Silver", premium: "Gold", ultra_premium: "Platinum", elite: "Diamond", fast_pass: "Fast Pass" };
+const TIER_PRICES = Object.fromEntries(TIER_SETTINGS.map((t) => [t.tier, t.price_cents]));
+const usd = (cents) => `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * The signed checkout text as lib/checkout-signing.ts authorizedOrderText() writes it (after the
+ * master signature text): each card, its declared value, then its services ("- Silver - Full
+ * Restoration & PSA Prep: $99.99"), the order lines and the total.
+ */
+function authorizedText(a) {
+  const line = (l) => `- ${l.name}${l.cents == null ? "" : `: ${usd(l.cents)}`}`;
+  const blocks = [`## Services authorized on order ${a.order_number}`];
+  a.cards.forEach((c, i) => {
+    const holder = c.grading_company || c.cert_number ? ` Holder: ${c.grading_company ?? "Graded holder"}${c.grade ? ` ${c.grade}` : ""}${c.cert_number ? `, cert #${c.cert_number}` : ""}.` : "";
+    blocks.push(`Card ${i + 1}: ${c.card_year} ${c.card_set} ${c.card_name} #${c.card_number}.${holder} Declared value: ${usd(c.declared_value_cents)}.`);
+    if (c.services.length) blocks.push(c.services.map(line).join("\n"));
+  });
+  if (a.order_lines.length) blocks.push("Order:", a.order_lines.map(line).join("\n"));
+  blocks.push(`Order total: ${usd(a.total_cents)}`);
+  if (a.choices.length) blocks.push("Your choices:", a.choices.map((c) => `- ${c}`).join("\n"));
+  return blocks.join("\n\n");
+}
+
+/** Rows for the labels-any-* scenarios, by table (orders, cards, order_events, signatures, terms_versions). */
+export function buildLabelsAnySeed() {
+  const L = LABELS_ANY_IDS;
+  const N = LABELS_ANY_ORDER_NUMBERS;
+  const C = LABELS_ANY_CUSTOMERS;
+  const orders = [];
+  const cards = [];
+  const events = [];
+  const signatures = [];
+  const who = (key) => ({ customer_name: C[key].name, customer_email: C[key].email });
+  // admin_notes set on every one, like CD-2600, so selftest's "admin_notes is null" list never sees them
+  const note = "Test: a labels-any order.";
+
+  // (g) in progress, order tier Gold, 2 cards with no tier of their own
+  const gCreated = "2026-10-28T16:00:00.000Z";
+  const gTotal = IN_SHOP_CARD_TIERS.reduce((s, t) => s + TIER_PRICES[t ?? IN_SHOP_ORDER_TIER], 0);
+  orders.push(order({
+    id: L.inShopOrder, order_number: N.inShopOrder, created_at: gCreated, ...who("inShopOrder"),
+    status: "in_progress", restoration_tier: IN_SHOP_ORDER_TIER, inbound_method: "buy_label",
+    subtotal_cents: gTotal, total_cents: gTotal, admin_notes: note,
+  }));
+  L.inShopCards.forEach((cid, i) => cards.push(card({
+    id: cid, order_id: L.inShopOrder, created_at: gCreated, tier: IN_SHOP_CARD_TIERS[i],
+    card_name: IN_SHOP_CARD_NAMES[i], card_number: `${70 + i}/102`,
+    service_price_cents: TIER_PRICES[IN_SHOP_CARD_TIERS[i] ?? IN_SHOP_ORDER_TIER],
+  })));
+  events.push(ev(L.inShopOrder, "2026-10-28T16:01:00.000Z", "payment_received", "Payment received"));
+  events.push(ev(L.inShopOrder, "2026-11-05T15:00:00.000Z", "status_updated", "Status updated to: Cards Received"));
+  events.push(ev(L.inShopOrder, "2026-11-06T15:00:00.000Z", "status_updated", "Status updated to: In Progress"));
+  events.push(...stageEvents(L.inShopOrder, L.inShopCards[0], "Humidor", "2026-11-07T15:00:00.000Z"));
+  events.push(...stageEvents(L.inShopOrder, L.inShopCards[2], "Ready for Slab Crack", "2026-11-07T16:00:00.000Z"));
+
+  // (h) received, tiers only in the signed checkout record
+  const hCreated = "2026-11-03T17:00:00.000Z";
+  const hCards = L.signedCards.map((cid, i) => ({
+    id: cid, card_name: SIGNED_CARD_NAMES[i], card_set: "Base Set", card_year: "1999", card_number: `${61 + i}/102`,
+    variation: null, grading_company: i === 1 ? "PSA" : null, grade: i === 1 ? "8" : null, cert_number: i === 1 ? "12345678" : null,
+    known_defects: null, declared_value_cents: 15000, slab: i === 1,
+  }));
+  const authorized = {
+    order_number: N.signedOrder,
+    cards: hCards.map((c, i) => ({
+      card_name: c.card_name, card_set: c.card_set, card_year: c.card_year, card_number: c.card_number, variation: null,
+      grading_company: c.grading_company, grade: c.grade, cert_number: c.cert_number, known_defects: null,
+      declared_value_cents: c.declared_value_cents,
+      services: [
+        { name: `${SERVICE_NAMES[SIGNED_CARD_TIERS[i]]} - Full Restoration & PSA Prep`, cents: TIER_PRICES[SIGNED_CARD_TIERS[i]] },
+        ...(c.slab ? [{ name: "Slab removal (signed authorization)", cents: 700 }] : []),
+      ],
+    })),
+    order_lines: [
+      { name: "Prepaid shipping label, to us and back", cents: 0 },
+      { name: "Shipping insurance: declined" },
+      { name: "Sales tax", cents: 0 },
+    ],
+    total_cents: SIGNED_CARD_TIERS.reduce((s, t) => s + TIER_PRICES[t], 0) + 700,
+    choices: ["You may feature photos/videos of my card(s) on social media. No", "You may tag or name me. No"],
+  };
+  orders.push(order({
+    id: L.signedOrder, order_number: N.signedOrder, created_at: hCreated, ...who("signedOrder"),
+    status: "received", restoration_tier: null, inbound_method: "buy_label", slab_crack_count: 1,
+    subtotal_cents: authorized.total_cents, total_cents: authorized.total_cents, admin_notes: note,
+  }));
+  hCards.forEach((c, i) => cards.push(card({
+    id: c.id, order_id: L.signedOrder, created_at: hCreated, tier: null,
+    card_name: c.card_name, card_number: c.card_number, grading_company: c.grading_company, grade: c.grade, cert_number: c.cert_number,
+    slab_removal_selected: c.slab, service_price_cents: TIER_PRICES[SIGNED_CARD_TIERS[i]],
+  })));
+  const signedAt = "2026-11-03T17:02:00.000Z";
+  const sig = (over) => ({
+    terms_version_id: L.termsVersion, document_sha256: sha256(over.document_text), typed_full_name: C.signedOrder.name,
+    email: C.signedOrder.email, email_verified: false, signed_at: signedAt, created_at: signedAt, ip_address: "127.0.0.1",
+    user_agent: "harness", signed_pdf_url: null, order_item_id: null, ...over,
+  });
+  signatures.push(sig({
+    id: L.signatures[0], order_id: L.signedOrder, type: "master_terms", document_title: "Terms of Service v1.1",
+    document_text: ["Test master signature text: I agree to the Terms of Service v1.1 and to electronic records and signatures.", authorizedText(authorized)].join("\n\n"),
+    card_snapshot: authorized,
+  }));
+  signatures.push(sig({
+    id: L.signatures[1], order_id: L.signedOrder, order_item_id: hCards[1].id, type: "slab_removal",
+    document_title: "Slab Removal Authorization",
+    document_text: `Test slab removal text.\n\nCard: 1999 Base Set ${hCards[1].card_name} #${hCards[1].card_number}. Holder: PSA 8, cert #12345678.`,
+    card_snapshot: { card_name: hCards[1].card_name, card_set: "Base Set", card_year: "1999", card_number: hCards[1].card_number, grading_company: "PSA", grade: "8", cert_number: "12345678", declared_value_cents: 15000 },
+  }));
+  events.push(ev(L.signedOrder, "2026-11-03T17:03:00.000Z", "payment_received", "Payment received"));
+  events.push(ev(L.signedOrder, "2026-11-09T16:00:00.000Z", "status_updated", "Status updated to: Cards Received"));
+
+  // (i) in progress, no tier anywhere, no signature: the price paid is the only hint
+  const iCreated = "2026-11-04T15:00:00.000Z";
+  const iTotal = UNKNOWN_TIER_PRICES.reduce((s, p) => s + p, 0);
+  orders.push(order({
+    id: L.unknownTierOrder, order_number: N.unknownTierOrder, created_at: iCreated, ...who("unknownTierOrder"),
+    status: "in_progress", restoration_tier: null, inbound_method: "self_ship",
+    subtotal_cents: iTotal, total_cents: iTotal, admin_notes: note,
+  }));
+  L.unknownTierCards.forEach((cid, i) => cards.push(card({
+    id: cid, order_id: L.unknownTierOrder, created_at: iCreated, tier: null,
+    card_name: UNKNOWN_TIER_CARD_NAMES[i], card_number: `${80 + i}/102`, service_price_cents: UNKNOWN_TIER_PRICES[i],
+  })));
+  events.push(ev(L.unknownTierOrder, "2026-11-04T15:01:00.000Z", "payment_received", "Payment received"));
+  events.push(ev(L.unknownTierOrder, "2026-11-10T15:00:00.000Z", "status_updated", "Status updated to: Cards Received"));
+  events.push(ev(L.unknownTierOrder, "2026-11-11T15:00:00.000Z", "status_updated", "Status updated to: In Progress"));
+
+  // (j) awaiting cards, order tier Silver
+  const jCreated = "2026-11-18T15:00:00.000Z";
+  const jTotal = AWAITING_CARD_TIERS.length * TIER_PRICES[AWAITING_ORDER_TIER];
+  orders.push(order({
+    id: L.awaitingOrder, order_number: N.awaitingOrder, created_at: jCreated, ...who("awaitingOrder"),
+    status: "awaiting_cards", restoration_tier: AWAITING_ORDER_TIER, inbound_method: "buy_label",
+    inbound_tracking_number: "9400100000000000000003", inbound_carrier: "usps",
+    subtotal_cents: jTotal, total_cents: jTotal, admin_notes: note,
+  }));
+  L.awaitingCards.forEach((cid, i) => cards.push(card({
+    id: cid, order_id: L.awaitingOrder, created_at: jCreated, tier: AWAITING_CARD_TIERS[i],
+    card_name: AWAITING_CARD_NAMES[i], card_number: `${90 + i}/64`, service_price_cents: TIER_PRICES[AWAITING_ORDER_TIER],
+  })));
+  events.push(ev(L.awaitingOrder, "2026-11-18T15:01:00.000Z", "payment_received", "Payment received"));
+
+  // (k) never paid: the checkout was started, not finished
+  const kCreated = "2026-11-22T18:00:00.000Z";
+  orders.push(order({
+    id: L.unpaidOrder, order_number: N.unpaidOrder, created_at: kCreated, ...who("unpaidOrder"),
+    status: "awaiting_payment", payment_status: "pending", restoration_tier: "premium", inbound_method: "buy_label",
+    subtotal_cents: 2 * TIER_PRICES.premium, total_cents: 2 * TIER_PRICES.premium, admin_notes: note,
+  }));
+  L.unpaidCards.forEach((cid, i) => cards.push(card({
+    id: cid, order_id: L.unpaidOrder, created_at: kCreated, tier: "premium",
+    card_name: `Test Unpaid Card ${i + 1}`, card_number: `${95 + i}/102`,
+  })));
+
+  return {
+    tables: {
+      terms_versions: [{
+        id: L.termsVersion, version: "1.1", effective_date: "2026-10-23", content_markdown: "Test Terms of Service v1.1.",
+        content_sha256: sha256("Test Terms of Service v1.1."), pdf_url: null, created_at: "2026-10-23T12:00:00.000Z",
+      }],
+      orders,
+      cards,
+      order_events: events,
+      signatures,
+    },
+  };
+}

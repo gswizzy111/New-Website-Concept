@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AdminLink } from "@/components/admin-ui/admin-link";
+import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
@@ -247,8 +248,8 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
   const orderRow = (o: OrderRow, note?: string) => {
     const c = counts.get(o.id);
     return (
-      <li key={o.id}>
-        <AdminLink href={`/admin/receiving/${o.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-5 py-3 min-h-14 hover:bg-secondary/40 transition-colors">
+      <li key={o.id} className="flex flex-wrap items-center hover:bg-secondary/40 transition-colors">
+        <AdminLink href={`/admin/receiving/${o.id}`} className="flex flex-1 basis-[22rem] flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-5 py-3 min-h-14">
           <span className="font-heading font-black text-foreground w-20 shrink-0">{o.order_number}</span>
           <span className="flex-1 min-w-[10rem]">
             <span className="block text-sm font-semibold text-foreground truncate">{o.customer_name ?? "—"}</span>
@@ -270,6 +271,10 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
           ) : null}
           <span className="text-xs text-muted-foreground w-24 sm:text-right">{etDate(o.created_at)}</span>
         </AdminLink>
+        {/* Any order: fills missing tiers, bags the cards, prints every bag's label */}
+        <div className="px-4 pb-3 sm:px-5 sm:py-2">
+          <PrintOrderLabels orderId={o.id} orderNumber={o.order_number} status={o.status} paymentStatus={o.payment_status} size="sm" whenBlocked="hide" />
+        </div>
       </li>
     );
   };
@@ -378,8 +383,8 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
                   ) : (
                     <ul className="bg-white rounded-xl border border-border divide-y divide-border">
                       {q.bags.map((b) => (
-                        <li key={b.id}>
-                          <AdminLink href={`/admin/receiving/${b.order_id}#bags`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-5 py-3 min-h-14 hover:bg-secondary/40 transition-colors">
+                        <li key={b.id} className="flex flex-wrap items-center hover:bg-secondary/40 transition-colors">
+                          <AdminLink href={`/admin/receiving/${b.order_id}#bags`} className="flex flex-1 basis-[22rem] flex-wrap items-center gap-x-4 gap-y-1 px-4 sm:px-5 py-3 min-h-14">
                             <span className="font-heading font-black text-foreground">{b.bag_code}</span>
                             <span className="flex-1 min-w-[10rem] text-sm">
                               <span className="font-semibold text-foreground">{b.orders?.customer_name ?? "—"}</span>
@@ -389,6 +394,12 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
                             {b.due_date && <span className="text-xs font-bold text-foreground">Due {etDay(b.due_date)}</span>}
                             <span className="text-xs text-muted-foreground">{b.received_on ? `Received ${etDay(b.received_on)}` : "No received date"}</span>
                           </AdminLink>
+                          {/* No label for a bag whose cards were all refunded */}
+                          {(bagSize.get(b.id) ?? 0) > 0 && (
+                            <div className="px-4 pb-3 sm:px-5 sm:py-2">
+                              <PrintOrderLabels orderId={b.order_id} orderNumber={b.orders?.order_number ?? ""} bags={[{ id: b.id, code: b.bag_code }]} size="sm" />
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
