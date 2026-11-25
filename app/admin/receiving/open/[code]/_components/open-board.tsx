@@ -8,8 +8,8 @@ import * as api from "@/components/intake/scan/api";
 import { deskPagePath } from "@/lib/intake/tracking/desk-codes";
 import type { LocationRef } from "@/lib/intake/tracking/types";
 import {
-  alreadyText, chooseDesk, failedMove, moveAllLabel, moveAllState, moveOutcome,
-  type MoveOutcome, type OpenDesk, type OpenGroup,
+  alreadyText, chooseDesk, chunkedMoveOutcome, moveAllLabel, moveAllState, moveChunks,
+  type MoveOutcome, type MovePart, type OpenDesk, type OpenGroup,
 } from "../_lib/view";
 import { storeDesk, useStoredDesk } from "./desk-choice";
 import { OpenCardPanel, whereId } from "./open-card";
@@ -19,11 +19,13 @@ import { OpenCardPanel, whereId } from "./open-card";
  * desk" button (beside the person on a computer, under it on a phone), the
  * desk picker when there are several desks, and the cards, a panel each with
  * its own "Move to my desk". Every move is POST /api/admin/track/assign
- * { locationCode: <desk>, cardIds } (the Scan and Desk pages' call): the
- * card's place changes, never its step, and no email goes out. The cards
- * show on the desk at once (optimistic) and the page's data reloads
- * (router.refresh) so "Where it is now" comes from the server; a refused
- * card or a failed request shows the server's own words.
+ * { locationCode: <desk>, cardIds } (the Scan and Desk pages' call; at most
+ * 200 cards per request, so a bigger order goes in several): the card's place
+ * changes, never its step, and no email goes out. The cards show on the desk
+ * at once and the page's data reloads (router.refresh, also after a failed
+ * move, so a desk switched off meanwhile drops out of the picker) so "Where it
+ * is now" comes from the server; a refused card or a failed request shows the
+ * server's own words.
  */
 
 type Props = {
@@ -41,6 +43,7 @@ const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-
 const bigButton = `inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl px-5 text-lg font-black transition-colors disabled:opacity-60 ${focusRing}`;
 
 const deskRef = (d: OpenDesk): LocationRef => ({ id: d.id, code: d.code, name: d.name, kind: "other", station: null, serial: null, stage: null });
+const NONE_PLACED: ReadonlyMap<string, LocationRef> = new Map();
 
 export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }: Props) {
   const router = useRouter();
@@ -49,8 +52,16 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
   const desk = chooseDesk(desks, stored, defaultDeskId);
   const deskId = desk?.id ?? null;
 
-  // Cards moved by this page, shown on the desk until the reloaded data (new `groups`) says where they are
-  const [placed, setPlaced] = useState<{ for: OpenGroup[]; at: Map<string, LocationRef> } | null>(null);
+  // Cards this page moved (every move adds to it), shown on the desk until the server's data says where
+  // they are. Each move starts a refresh right after it lands; `refreshing` (the transition's pending
+  // flag) stays on until every refresh started so far has committed its data, so when it goes off,
+  // every placement has been overtaken by a refresh started after it, never by an older one.
+  const [placed, setPlaced] = useState<ReadonlyMap<string, LocationRef>>(NONE_PLACED);
+  const [wasRefreshing, setWasRefreshing] = useState(refreshing);
+  if (wasRefreshing !== refreshing) {
+    setWasRefreshing(refreshing);
+    if (!refreshing && placed.size) setPlaced(NONE_PLACED);
+  }
   const [moving, setMoving] = useState<{ ids: Set<string>; all: boolean } | null>(null);
   const [outcome, setOutcome] = useState<MoveOutcome | null>(null);
   const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
@@ -58,9 +69,8 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
   const outcomeBox = useRef<HTMLDivElement>(null);
 
   const shown = useMemo(() => {
-    const at = placed?.for === groups ? placed.at : null;
-    if (!at?.size) return groups;
-    return groups.map((g) => ({ ...g, cards: g.cards.map((c) => (at.has(c.id) ? { ...c, location: at.get(c.id)! } : c)) }));
+    if (!placed.size) return groups;
+    return groups.map((g) => ({ ...g, cards: g.cards.map((c) => (placed.has(c.id) ? { ...c, location: placed.get(c.id)! } : c)) }));
   }, [groups, placed]);
   const cards = useMemo(() => shown.flatMap((g) => g.cards), [shown]);
   const state = moveAllState(cards, deskId);
@@ -88,25 +98,30 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
       for (const id of ids) delete next[id];
       return next;
     });
-    const res = await api.assign({ locationCode: desk.code, cardIds: ids });
+    const target = desk;
+    // At most 200 cards per request (the route's limit); a request refused as a whole (desk switched
+    // off, signed out) would refuse the rest too, so they count as not moved with its message
+    const parts: MovePart[] = [];
+    let sent = 0;
+    for (const chunk of moveChunks(ids)) {
+      const res = await api.assign({ locationCode: target.code, cardIds: chunk });
+      if (!res.ok) {
+        parts.push({ ok: false, error: res.error, count: ids.length - sent });
+        break;
+      }
+      parts.push({ ok: true, results: res.data.results });
+      sent += chunk.length;
+    }
     running.current = false;
     setMoving(null);
 
-    if (!res.ok) {
-      if (all) {
-        setOutcome(failedMove(res.error));
-      } else {
-        setCardErrors((e) => ({ ...e, [ids[0]]: res.error }));
-      }
-      return;
-    }
-    const out = moveOutcome(res.data);
+    const out = chunkedMoveOutcome(parts);
     if (out.movedIds.length) {
-      const ref = deskRef(desk);
+      const ref = deskRef(target);
       setPlaced((p) => {
-        const at = new Map(p?.for === groups ? p.at : []);
+        const at = new Map(p);
         for (const id of out.movedIds) at.set(id, ref);
-        return { for: groups, at };
+        return at;
       });
     }
     if (all) {
@@ -117,6 +132,7 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
       // The button is gone with the move: keep keyboard focus on the card, which now says "On your desk"
       requestAnimationFrame(() => document.getElementById(whereId(ids[0]))?.focus({ preventScroll: true }));
     }
+    // Also after a failure: a desk switched off or gone meanwhile drops out, and the picker falls back
     startTransition(() => router.refresh());
   }
 

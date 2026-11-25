@@ -238,6 +238,43 @@ export function failedMove(error: string): MoveOutcome {
   return { tone: "error", title: "Not moved", failedTitle: null, failed: [{ key: "error", label: "", message: error }], movedIds: [] };
 }
 
+/** At most this many Card IDs per request (the assign route's limit, MAX_CARDS in lib/intake/tracking/moves.ts). */
+export const MOVE_CHUNK = 200;
+
+/** The cards to move, in requests of at most `size` (one request for 200 or fewer). */
+export function moveChunks<T>(ids: readonly T[], size = MOVE_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
+/** One request of a chunked move: its answer, or the error of a request that failed as a whole (and how many cards it held). */
+export type MovePart =
+  | { ok: true; results: TrackActionResponse["results"] }
+  | { ok: false; error: string; count: number };
+
+/**
+ * What a move sent in several requests did, as one outcome: the cards that
+ * went from every answer, then each refused card and each failed request in
+ * the server's own words. One request that failed as a whole reads exactly
+ * as `failedMove`.
+ */
+export function chunkedMoveOutcome(parts: readonly MovePart[]): MoveOutcome {
+  const results = parts.flatMap((p) => (p.ok ? p.results ?? [] : []));
+  const failedParts = parts.filter((p): p is Extract<MovePart, { ok: false }> => !p.ok);
+  if (!failedParts.length) return moveOutcome({ results });
+  if (!results.length) return failedMove([...new Set(failedParts.map((p) => p.error))].join(" "));
+  const out = moveOutcome({ results });
+  const bad = results.filter((r) => !r.ok).length + failedParts.reduce((n, p) => n + p.count, 0);
+  return {
+    tone: out.movedIds.length ? "warn" : "error",
+    title: out.title,
+    failedTitle: `${bad} not moved:`,
+    failed: [...out.failed, ...failedParts.map((p, i) => ({ key: `request-${i}`, label: "", message: p.error }))],
+    movedIds: out.movedIds,
+  };
+}
+
 /**
  * The desk to use: the one this phone remembered (its code) while it is
  * still a switched-on desk, else `fallbackId` (LOC-DESK, the first one),

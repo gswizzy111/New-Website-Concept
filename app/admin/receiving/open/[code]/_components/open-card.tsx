@@ -128,7 +128,8 @@ export function OpenCardPanel({ card, deskId, moving, busy, error, eager, onMove
               type="button"
               onClick={onMove}
               disabled={busy}
-              aria-label={moving ? undefined : `Move ${card.short} to my desk`}
+              // The visible words first (WCAG 2.5.3, label in name), then which card
+              aria-label={moving ? undefined : `Move to my desk: ${card.short}`}
               className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-primary bg-white px-4 text-base font-bold text-primary transition-colors hover:bg-primary/5 disabled:opacity-60 ${focusRing}`}
             >
               {moving && <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" strokeWidth={1.75} aria-hidden="true" />}

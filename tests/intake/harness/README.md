@@ -222,11 +222,11 @@ still say whether the backend is right.
   order, CD-2550-03, Gold bag, photo saved.
 - `card-photo`: a receiving photo per card; customer photos untouched.
 - `qr`: `/q/<card code>` and lower case → card page; `/Q/<bag code>` and lower
-  case (the label's QR) → that bag's photos (`/admin/receiving/<orderId>/photos?bag=<bagId>`);
-  `/q/<order code>`, `/Q/…`, lower case → the whole order's photos; unknown → 404;
-  signed out → `/admin/login?next=/q/<CODE>` (card, bag, order, unknown: no lookup)
-  and `next=<page>` for admin pages; the browser lands on the card page and on
-  the bag's photos.
+  case (the label's QR) → the scan landing (`/admin/receiving/open/CD-2549-P`);
+  `/q/<order code>`, `/Q/…`, lower case → the scan landing (`/admin/receiving/open/CD-2549`);
+  unknown → 404; signed out → `/admin/login?next=/q/<CODE>` (card, bag, order,
+  unknown: no lookup) and `next=<page>` for admin pages (the scan landing, the
+  photos page); the browser lands on the card page and on the bag's scan landing.
 - `card-page`: Card ID, customer, order, tier, received and due dates, stage,
   customer photo; phone width.
 - `bag-bulk-advance`: one card already at Humidor; the Not started group's
@@ -334,7 +334,8 @@ mock (`mockUpdate()`), not left to the station type's default.
   setting doesn't change them; `&stock=4x6`; the Dec 7 shelf sign; the bag
   label on 50 x 80 mm (stock `50x80mm`).
 - `track-q`: `/q/LOC-CLAMP-01`, `/Q/…`, lower case → `/admin/scan?loc=LOC-CLAMP-01`;
-  LOC-DONE, LOC-SHIP; bag/order/card codes unchanged; signed out → sign in
+  LOC-DONE, LOC-SHIP; bag/order codes → the scan landing, a Card ID → its card
+  page; signed out → sign in
   with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page.
 - `track-shelf`: Receive on the workspace says "Put in shelf: DUE MON DEC 7";
   Print shelf sign; one LOC-SHELF-20261207 slot shared by bags due that day
@@ -491,9 +492,10 @@ through the API (slots, desks, Done) or written to the mock (a refund).
   browser errors. Screenshots `bag-open-1440-{bag,order}.png`,
   `bag-open-390-{bag,order}.png` (+ `-first-screen`), `bag-open-viewer-*.png`.
 
-The older `qr` and `track-q` steps that expect a bag or order code to open the
-photos page predate this change: a bag or order code now opens the scan
-landing (the photos page stays one tap away, "All photos").
+The `qr` and `track-q` scenarios expect a bag or order code to open the scan
+landing (`ROUTES.open`, upper case) since this change; a Card ID still opens
+its card page and a place code the Scan page. The photos page stays one tap
+away ("All photos").
 
 ### Print labels for any order (`labels-any-*`, the owner's request of Nov 24)
 

@@ -18,8 +18,8 @@ import { normalizeLabelSettings, stockPoints } from "@/lib/intake/labels/stock";
 import type { LabelBag, LabelText } from "@/lib/intake/labels/types";
 import type { LocationRef, TrackActionResponse } from "@/lib/intake/tracking/types";
 import {
-  alreadyText, buildOpenView, canMove, cardState, chooseDesk, dueText, failedMove, moveAllLabel, moveAllState,
-  moveOutcome, onDeskText, stateText, whereText, type OpenCard,
+  alreadyText, buildOpenView, canMove, cardState, chooseDesk, chunkedMoveOutcome, dueText, failedMove, moveAllLabel, moveAllState,
+  moveChunks, moveOutcome, MOVE_CHUNK, onDeskText, stateText, whereText, type OpenCard,
 } from "@/app/admin/receiving/open/[code]/_lib/view";
 
 // ─── Pure ───────────────────────────────────────────────────────────────
@@ -108,6 +108,32 @@ test("what a move says: \"N cards are on your desk\", and the server's words for
   assert.deepEqual([none.tone, none.title, none.movedIds], ["error", "Not moved", []]);
   const failed = failedMove("DESK is switched off. Turn it back on in Places.");
   assert.deepEqual([failed.tone, failed.title, failed.failed.map((f) => f.message)], ["error", "Not moved", ["DESK is switched off. Turn it back on in Places."]]);
+});
+
+test("a big order moves in requests of at most 200 cards; the answers read as one", () => {
+  assert.equal(MOVE_CHUNK, 200); // = MAX_CARDS of lib/intake/tracking/moves.ts (checked with the database tests below)
+  const ids = Array.from({ length: 401 }, (_, i) => `c${i}`);
+  assert.deepEqual(moveChunks(ids).map((c) => c.length), [200, 200, 1]);
+  assert.deepEqual(moveChunks(ids).flat(), ids, "every card once, in order");
+  assert.deepEqual(moveChunks(["a"]), [["a"]]);
+  assert.deepEqual(moveChunks([]), []);
+
+  const ok = (cardId: string) => ({ cardId, code: cardId.toUpperCase(), name: null, ok: true, changed: true, message: "In DESK." });
+  const all = chunkedMoveOutcome([{ ok: true, results: [ok("a"), ok("b")] }, { ok: true, results: [ok("c")] }]);
+  assert.deepEqual([all.tone, all.title, all.failedTitle, all.movedIds], ["ok", "3 cards are on your desk", null, ["a", "b", "c"]]);
+  // The first request went, the second was refused as a whole: the 2 cards of it (and any after) are not moved
+  const half = chunkedMoveOutcome([
+    { ok: true, results: [ok("a"), { cardId: "r", code: "CD-1-09", name: null, ok: false, changed: false, message: "CD-1-09 was refunded. Not moved." }] },
+    { ok: false, error: "DESK is switched off. Turn it back on in Places.", count: 2 },
+  ]);
+  assert.deepEqual([half.tone, half.title, half.failedTitle, half.movedIds], ["warn", "1 card is on your desk", "3 not moved:", ["a"]]);
+  assert.deepEqual(half.failed.map((f) => [f.label, f.message]), [
+    ["CD-1-09", "CD-1-09 was refunded. Not moved."],
+    ["", "DESK is switched off. Turn it back on in Places."],
+  ]);
+  // One request refused as a whole reads as before
+  assert.deepEqual(chunkedMoveOutcome([{ ok: false, error: "You're signed out. Sign in again, then scan again.", count: 3 }]),
+    failedMove("You're signed out. Sign in again, then scan again."));
 });
 
 test("which desk: the one this phone kept while it's still switched on, else LOC-DESK", () => {
@@ -275,6 +301,7 @@ test("an order code: every card under its bag (fastest tier first), then the car
 });
 
 test("the desk: LOC-DESK is made on the first visit; \"Move all 3 cards to my desk\" moves them there, steps kept, no email", async () => {
+  assert.equal(MOVE_CHUNK, moves.MAX_CARDS, "the page's requests are at most the assign route's limit");
   const first = await load.loadDeskChoice(admin, "gavin");
   assert.equal(first.problem, null);
   assert.deepEqual(first.desks.map((d) => [d.code, d.name]), [["LOC-DESK", "DESK"]]);

@@ -16,15 +16,17 @@ function redirect(request: Request, to: string) {
 
 /**
  * Where a scanned QR code goes (`/q/<CODE>`): the bag QR on each tier bag's
- * label and tag (CD-2549-P), an order code (CD-2549), a Card ID (CD-2549-03)
+ * label (CD-2549-P), an order code (CD-2549), a Card ID (CD-2549-03)
  * and the slot labels and place signs (LOC-CLAMP-07: the Scan page, ready to
  * put cards there, /admin/scan?loc=LOC-CLAMP-07). Public on
  * purpose, so the phone camera can open it, but it shows nothing itself and tells a signed-out visitor
  * nothing: without a full admin session it never looks the code up, it sends
  * them to sign in and back here (`/admin/login?next=/q/<CODE>`). Signed in, a known code
- * redirects to its admin page (codeTargetPath: an order to its photos, a bag
- * to that bag's photos, a card to its page); an unknown code gets a plain
- * "not found" page. Codes match in any letter case.
+ * redirects to its admin page (codeTargetPath: an order code or a Bag ID to the
+ * scan landing, /admin/receiving/open/<CODE>, with the customer, the cards and
+ * "Move all N cards to my desk"; a Card ID to its card page; a place code to
+ * the Scan page); an unknown code gets a plain "not found" page. Codes match
+ * in any letter case.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code: raw } = await params;

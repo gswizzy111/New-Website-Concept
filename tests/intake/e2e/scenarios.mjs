@@ -40,8 +40,8 @@ export const ROUTES = {
   receivingOrder: (orderId) => `/admin/receiving/${orderId}`,
   bag: (bagId) => `/admin/receiving/bag/${bagId}`,
   card: (cardId) => `/admin/receiving/card/${cardId}`,
-  // Every card of an order with all its images (where the order code leads); ?bag=<bagId> = only
-  // that bag's cards (where the bag QR leads)
+  // Every card of an order with all its images; ?bag=<bagId> = only that bag's cards (the scan
+  // landing's "All photos"; a bag or order QR opens the scan landing, ROUTES.open, since Nov 25)
   photos: (orderId, bagId) => `/admin/receiving/${orderId}/photos${bagId ? `?bag=${bagId}` : ""}`,
   // The "Bags" work board: every open bag as its own work order, by due date
   bags: "/admin/receiving/bags",
@@ -275,7 +275,7 @@ export const UI = {
   // The one big button: "Move all 3 cards to my desk" (N >= 2) / "Move 1 card to my desk"
   openMoveAllRe: /^move\s+(all\s+\d+\s+cards|\d+\s+cards?)\s+to\b/i,
   openMoveAll: (page) => page.getByRole("button", { name: UI.openMoveAllRe }).first(),
-  // A card's own button: shown "Move to my desk", named "Move CD-2549-08 to my desk" (aria-label)
+  // A card's own button: shown "Move to my desk", named "Move to my desk: CD-2549-08" (aria-label, the visible words first)
   openMoveOne: (scope) => scope.getByRole("button", { name: /^move\b(?!\s+all\b)(?!\s+\d+\s+cards?\b).*\bdesk\b/i }).first(),
   // After it works (role=status): "3 cards are on your desk" / "1 card is on your desk" + "Open my desk"
   openMoved: (n) => new RegExp(`(^|[^0-9])${n} cards? (are|is) on your desk`, "i"),
@@ -1685,9 +1685,9 @@ const SCENARIOS = {
     }, { shot: false });
   },
 
-  // /q/<CODE> and /Q/<CODE>: a card code -> its card page, a bag code (the label's QR) -> that bag's
-  // photos (/admin/receiving/<orderId>/photos?bag=<bagId>), the order code -> the whole order's
-  // photos; unknown -> 404; signed out -> sign in, then back
+  // /q/<CODE> and /Q/<CODE>: a card code -> its card page, a bag code (the label's QR) and the order
+  // code -> the scan landing (/admin/receiving/open/<CODE>, upper case; the photos pages are one tap
+  // away from it, "All photos"); unknown -> 404; signed out -> sign in, then back
   async qr({ page, ctx, s, browser, appUrl }) {
     await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0), mailCard(6)], "2026-11-15");
     const t = await tables();
@@ -1711,19 +1711,19 @@ const SCENARIOS = {
       if (loc.pathname.startsWith("/q/")) loc = new URL((await api(ctx, "GET", loc.pathname)).headers.location ?? "/", appUrl);
       return loc;
     };
-    const photosOf = (loc) => `${loc.pathname}${loc.searchParams.get("bag") ? `?bag=${loc.searchParams.get("bag")}` : ""}`;
-    await s.step(`/Q/${bag.bag_code} (upper-case path, the label's QR) -> that bag's photos`, async () => {
-      eq(photosOf(await scanTo(ROUTES.qrUpper(bag.bag_code))), ROUTES.photos(IDS.mailOrder, bag.id), "redirect");
+    const openOf = (loc) => `${loc.pathname}${loc.search}`;
+    await s.step(`/Q/${bag.bag_code} (upper-case path, the label's QR) -> the scan landing ${ROUTES.open(bag.bag_code)}`, async () => {
+      eq(openOf(await scanTo(ROUTES.qrUpper(bag.bag_code))), ROUTES.open(bag.bag_code), "redirect");
     }, { shot: false });
-    await s.step(`/q/${bag.bag_code.toLowerCase()} (bag code in lower case) -> that bag's photos`, async () => {
-      eq(photosOf(await scanTo(ROUTES.qr(bag.bag_code.toLowerCase()))), ROUTES.photos(IDS.mailOrder, bag.id), "redirect");
+    await s.step(`/q/${bag.bag_code.toLowerCase()} (bag code in lower case) -> the scan landing ${ROUTES.open(bag.bag_code)}`, async () => {
+      eq(openOf(await scanTo(ROUTES.qr(bag.bag_code.toLowerCase()))), ROUTES.open(bag.bag_code), "redirect");
     }, { shot: false });
-    await s.step(`/q/${ORDER_NUMBERS.mailOrder} (order code) -> the whole order's photos`, async () => {
-      eq(photosOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder))), ROUTES.photos(IDS.mailOrder), "redirect");
+    await s.step(`/q/${ORDER_NUMBERS.mailOrder} (order code) -> the scan landing ${ROUTES.open(ORDER_NUMBERS.mailOrder)}`, async () => {
+      eq(openOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder))), ROUTES.open(ORDER_NUMBERS.mailOrder), "redirect");
     }, { shot: false });
-    await s.step(`/Q/${ORDER_NUMBERS.mailOrder} and /q/${ORDER_NUMBERS.mailOrder.toLowerCase()} -> the whole order's photos`, async () => {
-      eq(photosOf(await scanTo(ROUTES.qrUpper(ORDER_NUMBERS.mailOrder))), ROUTES.photos(IDS.mailOrder), "redirect (/Q)");
-      eq(photosOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder.toLowerCase()))), ROUTES.photos(IDS.mailOrder), "redirect (lower case)");
+    await s.step(`/Q/${ORDER_NUMBERS.mailOrder} and /q/${ORDER_NUMBERS.mailOrder.toLowerCase()} -> the scan landing`, async () => {
+      eq(openOf(await scanTo(ROUTES.qrUpper(ORDER_NUMBERS.mailOrder))), ROUTES.open(ORDER_NUMBERS.mailOrder), "redirect (/Q)");
+      eq(openOf(await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder.toLowerCase()))), ROUTES.open(ORDER_NUMBERS.mailOrder), "redirect (lower case)");
     }, { shot: false });
     await s.step("unknown code -> 404", async () => {
       const r = await api(ctx, "GET", ROUTES.qr("CD-0000-99"));
@@ -1750,7 +1750,7 @@ const SCENARIOS = {
       await goto(page, ROUTES.qr(card.card_code));
       eq(new URL(page.url()).pathname, ROUTES.card(card.id), "landed on");
     });
-    await s.step("signed out: the order code and the bag's photos page go to sign-in, with next= (no lookup)", async () => {
+    await s.step("signed out: the order code, the bag's scan landing and its photos page go to sign-in, with next= (no lookup)", async () => {
       const anon = await browser.newContext({ baseURL: appUrl, ignoreHTTPSErrors: true });
       try {
         const signIn = async (url) => {
@@ -1766,13 +1766,14 @@ const SCENARIOS = {
         };
         eq(await signIn(ROUTES.qr(ORDER_NUMBERS.mailOrder.toLowerCase())), `/q/${ORDER_NUMBERS.mailOrder}`, "next (order code, lower case scanned)");
         eq(await signIn(ROUTES.qrUpper(ORDER_NUMBERS.mailOrder)), `/q/${ORDER_NUMBERS.mailOrder}`, "next (order code, /Q)");
+        eq(await signIn(ROUTES.open(bag.bag_code)), ROUTES.open(bag.bag_code), "next (bag scan landing)");
         eq(await signIn(ROUTES.photos(IDS.mailOrder, bag.id)), ROUTES.photos(IDS.mailOrder, bag.id), "next (bag photos page)");
       } finally { await anon.close(); }
     }, { shot: false });
-    await s.step("scanning the bag's label QR in the signed-in browser lands on that bag's photos", async () => {
+    await s.step("scanning the bag's label QR in the signed-in browser lands on the scan landing for that bag", async () => {
       await goto(page, ROUTES.qrUpper(bag.bag_code));
       const u = new URL(page.url());
-      eq(`${u.pathname}?bag=${u.searchParams.get("bag")}`, ROUTES.photos(IDS.mailOrder, bag.id), "landed on");
+      eq(`${u.pathname}${u.search}`, ROUTES.open(bag.bag_code), "landed on");
     });
   },
 
@@ -2010,8 +2011,8 @@ const SCENARIOS = {
     await labelSteps(s, ctx, { appUrl, orderId: IDS.bigOrder, customerName: BIG_CUSTOMER_NAME, title: "CD-2600 G40" });
   },
 
-  // The photos page (where the order code and each bag's QR lead): every card with all its images,
-  // grouped by bag; with ?bag=<bagId> only that bag's cards
+  // The photos page (the scan landing's "All photos"; until Nov 25 where the order code and each
+  // bag's QR led): every card with all its images, grouped by bag; with ?bag=<bagId> only that bag's cards
   async "photos-page"({ page, ctx, s, browser, appUrl, mockUrl }) {
     let t = null;
     await s.step("setup: Bronze for the no-tier card (in the mock), receive all 10 on 2026-11-15, a receiving photo on each", async () => {
@@ -2944,12 +2945,13 @@ const SCENARIOS = {
         eq([loc.pathname, loc.searchParams.get("loc")], [ROUTES.scan, code], `${code} redirect`);
       }
     }, { shot: false });
-    await s.step("bag and order codes still open their photos; a Card ID its card page", async () => {
+    await s.step("bag and order codes open the scan landing; a Card ID its card page", async () => {
       await receiveViaApi(ctx, IDS.mailOrder, [mailCard(6)], "2026-11-15");
-      const bag = bagByCode(await tables(), "CD-2549-P");
+      assert(bagByCode(await tables(), "CD-2549-P"), "receive did not make bag CD-2549-P");
       const b = await scanTo(ROUTES.qrUpper("CD-2549-P"));
-      eq(`${b.pathname}?bag=${b.searchParams.get("bag")}`, ROUTES.photos(IDS.mailOrder, bag.id), "bag redirect");
-      eq((await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder))).pathname, ROUTES.photos(IDS.mailOrder), "order redirect");
+      eq(`${b.pathname}${b.search}`, ROUTES.open("CD-2549-P"), "bag redirect");
+      const o = await scanTo(ROUTES.qr(ORDER_NUMBERS.mailOrder));
+      eq(`${o.pathname}${o.search}`, ROUTES.open(ORDER_NUMBERS.mailOrder), "order redirect");
       eq((await scanTo(ROUTES.qr("CD-2549-07"))).pathname, ROUTES.card(mailCard(6)), "card redirect");
     }, { shot: false });
     await s.step("signed out: /q/loc-clamp-01 and /Q/LOC-CLAMP-01 -> sign in with next=/q/LOC-CLAMP-01", async () => {
