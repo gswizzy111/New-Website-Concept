@@ -30,7 +30,7 @@ const Body = z
  *   Old shape, still accepted: { orderId, cardIds, fromStage } = one step on.
  *   → { moved: string[], completed: string[], newStep: string[],
  *       skipped: { cardId, reason, current }[], target: { kind, stage?, label },
- *       emailed: boolean, bagsCompleted: string[], orderCompletion? }
+ *       emailed: boolean, bagsCompleted: string[], orderCompletion?, bagPlaces? }
  * Puts the cards at the chosen step, in any order (skip ahead, go back), or
  * marks them done, the way the order page's stage buttons record it. Cards
  * whose step changed meanwhile are skipped and listed (reason
@@ -42,7 +42,9 @@ const Body = z
  * completed. When cards were marked done, `orderCompletion` is the order
  * auto-complete check (lib/intake/order-autocomplete.ts): the order's last
  * card done makes the order Completed with the customer's usual email
- * (`completed`, `emailed`, `message`).
+ * (`completed`, `emailed`, `message`). Cards marked done go back in their
+ * bag (out of any holder or desk); `bagPlaces` (TrackBagPlace[]) says where
+ * each bag is, for "Put it back in REYES's bag: Open bags box, under R."
  */
 export async function POST(request: Request) {
   if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -70,5 +72,6 @@ export async function POST(request: Request) {
     emailed: result.emailed,
     bagsCompleted: result.bagsCompleted,
     ...(result.orderCompletion ? { orderCompletion: result.orderCompletion } : {}),
+    ...(result.bagPlaces ? { bagPlaces: result.bagPlaces } : {}),
   });
 }

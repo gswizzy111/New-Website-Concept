@@ -1,3 +1,5 @@
+import { filingLetter } from "../filing-letter";
+import { FONT_METRICS } from "./fonts/metrics";
 import { labelQrData, qrMatrix } from "./qr";
 import { baselineIn, fitLine, printable, textWidth, truncate, wrapLines } from "./text";
 import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage, LabelStock, LabelText } from "./types";
@@ -282,13 +284,58 @@ export function dueParts(bag: Pick<LabelBag, "dueDate" | "dueStatus" | "received
   return { weekday: DAYS[p.wd].toUpperCase(), date: `${MONTHS[p.m - 1]} ${p.d}`.toUpperCase(), year: p.y === ref ? "" : String(p.y) };
 }
 
+/** The filing tab as laid out: its letter, its side and the letter's type size (points), its left edge, and its top below the banner's. */
+export type FilingTab = { letter: string; side: number; size: number; x: number; top: number };
+
+/** The tab drawn on a banner whose top is at `y`: a white square, the letter black and centered in it. */
+function tabElements(tab: FilingTab, y: number, radius: number): LabelElement[] {
+  const top = y + tab.top;
+  const letter = text(tab.letter, 0, 0, tab.size, "display900", "ink");
+  letter.x = tab.x + (tab.side - letter.width) / 2;
+  // Centered on its cap height (a "#" stands about as tall as the capitals)
+  letter.y = top + (tab.side + (FONT_METRICS.display900.capHeight / 1000) * tab.size) / 2;
+  return [{ kind: "rect", x: tab.x, y: top, w: tab.side, h: tab.side, fill: "paper", radius }, letter];
+}
+
+/** The filing tab's inner margin, as a share of its side. */
+const TAB_PAD = 0.1;
+/** The filing tab is never smaller than this (a quarter inch: its letter about 5 mm tall). */
+const TAB_MIN = 0.25 * PT;
+
+/**
+ * The filing tab's side on this stock: 0.8 of the largest name, at least a
+ * quarter inch, so every bag on one stock has the same tab in the same place.
+ */
+function tabSide(s: S): number {
+  return Math.max(TAB_MIN, 0.8 * s.px(64) * (s.compact ? 0.62 : 1));
+}
+
+/** The filing letter's type size in a tab of side `side`: the letter fills it, less its margin, width or cap height. */
+export function tabLetterSize(letter: string, side: number): number {
+  const m = FONT_METRICS.display900;
+  const inner = side * (1 - 2 * TAB_PAD);
+  return floor2(inner / Math.max(m.capHeight / 1000, textWidth(letter, "display900", 1)));
+}
+
 /**
  * The black banner across the printed width: "THE CARD DOC · CUSTOMER", the
  * customer's name huge in white on the left, and at the right the due date
  * in big white letters ("DUE", the weekday, then "DEC 7" at about two thirds
  * of the name's size), centered on the name.
+ *
+ * In its top right corner, the filing tab (owner, Nov 25 2026: bags with
+ * cards out are filed in ONE A-Z "Open bags" box by the customer's last
+ * name): a white square with the big black letter the bag is filed under
+ * ("R" for JORDAN REYES, lib/intake/filing-letter.ts), seen first when bags
+ * stand in the box. The name and the due date are fitted first, exactly as
+ * without the tab, so the tab never makes the name smaller: it stands above
+ * the due block, in the column the date already keeps free; beside it the
+ * kicker gives up letter-spacing (never size), else the tab goes under the
+ * kicker. When the tab and the due block don't fit in the name's height, the
+ * banner grows (the card list below gives up that room). The letter is never
+ * smaller than the due date.
  */
-function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelBag, nameScale = 1): Block & { nameSize: number; nameLines: number } {
+function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelBag, nameScale = 1, tab = tabSide(s)): Block & { nameSize: number; nameLines: number; tab: FilingTab | null } {
   const padTop = s.sp(16);
   const padBottom = s.sp(14);
   const kTrack = s.px(2);
@@ -340,19 +387,69 @@ function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelB
   // touches the line or the kicker over it
   const above = name.lines.map((l) => (/[̀-̕]/.test(l.normalize("NFD")) ? 0.2 * name.size : 0));
   const nameH = name.lines.length * name.size * lh + above.reduce((a, b) => a + b, 0);
-  const rowH = Math.max(nameH, d.h);
-  const h = padTop + kicker.size * 1.2 + kGap + rowH + padBottom;
+  const rowOff = padTop + kicker.size * 1.2 + kGap;
+  // Without the tab: the name and the due block centered on each other in the row (offsets from the banner's top)
+  let rowH = Math.max(nameH, d.h);
+  let nameTop = rowOff + (rowH - nameH) / 2;
+  let dueTop = rowOff + (rowH - d.h) / 2;
+  let kickerTrack = kTrack;
+  let filing: FilingTab | null = null;
+  if (tab > 0) {
+    const letter = filingLetter(bag.customerName);
+    const kickGap = Math.max(4, s.px(10));
+    const below = Math.max(2, s.px(5));
+    const chars = [...kicker.text].length;
+    const lineW = name.lines.map((l) => textWidth(l, "display900", name.size));
+    const placeTab = (side: number) => {
+      // Beside the tab the kicker keeps its size and gives up letter-spacing; if even none is too wide, the tab goes under it
+      const room = (Wi - side - kickGap - textWidth(kicker.text, "body800", kicker.size)) / Math.max(1, chars - 1);
+      const besideKicker = room >= 0 && !kicker.text.endsWith("…");
+      const top = besideKicker ? padTop : rowOff;
+      // The due block stands under the tab; the row grows only when the two don't fit in the name's height
+      const rh = Math.max(nameH, d.h, top + side + below + d.h - rowOff);
+      const nt = rowOff + (rh - nameH) / 2;
+      // The name's lines that stand beside the tab, and the widest of them
+      let ty = nt;
+      const beside = lineW.filter((_, i) => {
+        const lineTop = ty;
+        ty += above[i] + name.size * lh;
+        return lineTop < top + side + below && ty > top;
+      });
+      return { side, top, track: besideKicker ? Math.min(kTrack, room) : kTrack, rh, nt, widest: Math.max(0, ...beside) };
+    };
+    // Never smaller than the due date
+    let at = placeTab(Math.max(tab, d.dateSize));
+    const nameGap = s.px(12);
+    const fits = (p: typeof at) => p.widest <= Wi - p.side - nameGap;
+    // A name too wide for the tab beside it (only when the date keeps little room): the tab takes the room there is, while
+    // it holds a letter as large as the date; else the name goes under the tab
+    if (!fits(at)) {
+      const smaller = placeTab(floor2(Wi - nameGap - at.widest));
+      if (smaller.side >= d.dateSize && fits(smaller)) at = smaller;
+    }
+    rowH = at.rh;
+    nameTop = at.nt;
+    if (!fits(at)) {
+      nameTop = at.top + at.side + below;
+      rowH = Math.max(rowH, nameTop + nameH - rowOff);
+    }
+    dueTop = Math.max(rowOff + (rowH - d.h) / 2, at.top + at.side + below);
+    kickerTrack = at.track;
+    filing = { letter, side: at.side, size: tabLetterSize(letter, at.side), x: xi + Wi - at.side, top: at.top };
+  }
+  const h = rowOff + rowH + padBottom;
   return {
     h,
     nameSize: name.size,
     nameLines: name.lines.length,
+    tab: filing,
     draw: (y) => {
       const out: LabelElement[] = [
         { kind: "rect", x: x0, y, w: W, h, fill: "ink", radius: s.px(4) },
-        text(kicker.text, xi, baselineIn(y + padTop, "body800", kicker.size, 1.2), kicker.size, "body800", "paper", kTrack),
+        text(kicker.text, xi, baselineIn(y + padTop, "body800", kicker.size, 1.2), kicker.size, "body800", "paper", kickerTrack),
       ];
-      const rowTop = y + padTop + kicker.size * 1.2 + kGap;
-      let ty = rowTop + (rowH - nameH) / 2;
+      if (filing) out.push(...tabElements(filing, y, s.px(3)));
+      let ty = y + nameTop;
       name.lines.forEach((line, i) => {
         ty += above[i];
         out.push(text(line, xi, baselineIn(ty, "display900", name.size, lh), name.size, "display900", "paper"));
@@ -361,7 +458,7 @@ function banner(s: S, x0: number, W: number, xi: number, Wi: number, bag: LabelB
       // The due block, right-aligned
       const right = xi + Wi;
       const alignRight = (e: LabelText) => ((e.x = right - e.width), e);
-      let dy = rowTop + (rowH - d.h) / 2;
+      let dy = y + dueTop;
       out.push(alignRight(text("DUE", 0, baselineIn(dy, "body800", kSize, 1.2), kSize, "body800", "paper", kTrack)));
       dy += kSize * 1.2 + d.gap;
       if (due.weekday) {
@@ -734,17 +831,23 @@ export type LabelFit = {
   /** The customer name's type size and number of lines. */
   nameSize: number;
   nameLines: number;
+  /** The filing tab: the Open bags box letter ("R"), the tab's side and the letter's type size, in points (null: laid out without it). */
+  filing: { letter: string; side: number; size: number } | null;
 };
 
-/** The bag's label and how its cards were fitted. */
-export function planBagLabel(bag: LabelBag, stock: LabelStock): { page: LabelPage; fit: LabelFit } {
+/**
+ * The bag's label and how its cards were fitted. `filingTab: false` lays it
+ * out without the filing tab, as before it (for comparing; nothing prints that way).
+ */
+export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab?: boolean } = {}): { page: LabelPage; fit: LabelFit } {
   const { W, x0, xi, Wi, s, narrow } = frame(stock);
   const cards = [...bag.cards].sort((a, b) => a.seq - b.seq);
   const padY = Math.max(0.08 * PT, s.sp(12) * 0.6);
+  const fullTab = opts.filingTab === false ? 0 : tabSide(s);
 
   // The banner first: nothing else on the label is as large as the name
-  const place = (nameScale: number, withAlso: boolean) => {
-    const top = banner(s, x0, W, xi, Wi, bag, nameScale);
+  const place = (nameScale: number, withAlso: boolean, tab = fullTab) => {
+    const top = banner(s, x0, W, xi, Wi, bag, nameScale, tab);
     const cap = top.nameSize * 0.9;
     const tier = tierRow(s, xi, Wi, bag, cap);
     const bottom = bottomBlock(s, xi, Wi, bag, cap, narrow);

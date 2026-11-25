@@ -10,6 +10,8 @@ import {
 } from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
 import { completeOrderIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
+import { returnCardsToBags } from "@/lib/intake/tracking/bag-places";
+import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
  * Moving cards through the 8 steps and keeping bag completion in step, server
@@ -125,6 +127,8 @@ export type AdvanceResult =
       bagsCompleted: string[];
       /** Cards were marked done: the order auto-complete check (lib/intake/order-autocomplete.ts). */
       orderCompletion?: OrderAutoComplete;
+      /** Cards were marked done: they went back in their bag (out of any holder); each bag and where it is. */
+      bagPlaces?: TrackBagPlace[];
     }
   | { ok: false; status: number; error: string };
 
@@ -142,7 +146,9 @@ export type AdvanceResult =
  * (stepEmailsCustomer): one email lists every card that moved to a step past
  * the furthest it reached this round (customer visible events); going back or
  * re-entering a step sends nothing and its event is staff only. No email for
- * "done", as before.
+ * "done", as before. Cards marked done go back in their bag like the
+ * tracking Done (out of any holder or desk; returnCardsToBags), and
+ * `bagPlaces` says where each bag is.
  */
 export async function advanceCards(
   admin: SupabaseClient,
@@ -242,6 +248,11 @@ export async function advanceCards(
 
   const bagIds = [...new Set(rows.filter((c) => completed.includes(c.id as string) && c.bag_id).map((c) => c.bag_id as string))];
   const { completed: bagsCompleted } = await refreshBagCompletion(admin, bagIds);
+  // Done cards go back in their bag, out of any holder or desk (as the tracking Done)
+  const current = new Map(advanceCardsIn.map((c) => [c.id, c.current]));
+  const home = completed.length
+    ? await returnCardsToBags(admin, { cards: completed.map((id) => ({ id, stageBefore: current.get(id) ?? null })), by: input.by })
+    : null;
   // The order's last cards done: the order becomes Completed (once)
   const orderCompletion = completed.length ? await completeOrderIfAllDone(admin, input.orderId, input.by) : undefined;
 
@@ -254,6 +265,7 @@ export async function advanceCards(
     emailed,
     bagsCompleted,
     ...(orderCompletion ? { orderCompletion } : {}),
+    ...(home?.bags.length ? { bagPlaces: home.bags } : {}),
   };
 }
 

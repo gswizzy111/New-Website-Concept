@@ -5,8 +5,10 @@
  * with a QR label: CLAMP 07 = LOC-CLAMP-07. Staff scan a slot, then pick the
  * card(s) (from a bag QR or a search) to put in it; scanning a full slot
  * shows its card(s) to move on, finish (Done) or take out. Bags wait on
- * due-date shelf slots (LOC-SHELF-YYYYMMDD). LOC-DONE and LOC-SHIP are places
- * too.
+ * due-date shelf slots (LOC-SHELF-YYYYMMDD) until a card comes out, then in
+ * the Open bags box (LOC-OPEN-BAGS, A-Z by last name); a finished bag goes in
+ * the Ready to ship bin (LOC-SHIP). A done card goes back in its bag (no
+ * place). LOC-DONE is still a place for anyone scanning cards to it.
  *
  * Pure types (safe in client components and tests). Server code:
  * lib/intake/tracking/*.ts; routes: app/api/admin/track/**.
@@ -137,9 +139,11 @@ export type TrackCardSummary = {
   refunded: boolean;
   awaiting: boolean;               // flagged awaiting arrival
   received: boolean;               // arrived through Receiving (received_at or a bag) and not awaiting
-  /** The slot or place the card is in now (null = not in a slot). */
+  /** The slot or place the card is in now (null = not in a slot: in its bag). */
   location: LocationRef | null;
   locatedAt: string | null;
+  /** Where the card's bag is (Open bags box, its due-date shelf, Ready to ship); null when not recorded. */
+  bagLocation?: LocationRef | null;
   photoUrl: string | null;         // first receiving photo, else customer photo, else catalog image
   photosUrl: string;               // /admin/receiving/<orderId>/photos[?bag=<bagId>]
   cardUrl: string;                 // /admin/receiving/card/<cardId>
@@ -224,7 +228,7 @@ export type MoveRequest = {
 /** POST /api/admin/track/release: take cards out of their slot (no place). */
 export type ReleaseRequest = { cardIds: string[]; sessionId?: string };
 
-/** POST /api/admin/track/done: mark cards done; they leave their slot and go to the Done place (LOC-DONE). */
+/** POST /api/admin/track/done: mark cards done; they leave their slot and go back in their bag (no place). */
 export type DoneRequest = { cardIds: string[]; sessionId?: string };
 
 /** One card's outcome. */
@@ -264,7 +268,37 @@ export type TrackActionResponse = {
    * email; show `message` when set.
    */
   orderCompletions?: OrderAutoComplete[];
+  /**
+   * The bags of the cards this request changed, and where each is now
+   * (lib/intake/tracking/bag-home.ts words them; `message` already ends
+   * with those words: "Put it back in REYES's bag: Open bags box, under R.").
+   */
+  bags?: TrackBagPlace[];
 };
+
+/** A bag a request touched, and where it is now. */
+export type TrackBagPlace = {
+  id: string;
+  /** Bag ID, CD-2549-P. */
+  code: string;
+  customer: string | null;
+  /** The Open bags box divider: the customer's last name's first letter ("R"), "#" without one (lib/intake/filing-letter.ts). */
+  letter: string;
+  /** Where the bag is now (null: not recorded). */
+  location: LocationRef | null;
+  /** This request filed the bag in the Open bags box: a card of it came out to a desk or holder. */
+  opened: boolean;
+  /** Cards of this bag that this request marked done or put back in it. */
+  returned: number;
+  /** Every non-refunded card of the bag is done. */
+  finished: boolean;
+  doneCount: number;
+  /** Non-refunded cards. */
+  cardCount: number;
+};
+
+/** POST /api/admin/track/bag-ready { bagId }: the finished bag is in the Ready to ship bin (LOC-SHIP). */
+export type BagReadyResponse = { bag: TrackBagPlace; changed: boolean; message: string };
 
 /** assign / move 409 when the slot would hold more than its capacity (send again with force: true to add anyway). */
 export type CapacityConflict = {

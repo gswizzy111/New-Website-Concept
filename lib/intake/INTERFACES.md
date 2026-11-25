@@ -218,13 +218,45 @@ The former body of `POST /api/admin/orders/[id]/status`, unchanged: order row,
 "Cards Arrived" email, completion notes email. `onlyIfCurrent` changes the
 status only while it still has that value (`skipped: true` otherwise).
 
+## order-autocomplete.ts (server): the last card done completes the order
+
+Owner, Nov 25 2026 ("Do it automatically"). `completeOrderIfAllDone(admin,
+orderId, by): OrderAutoComplete` (never throws; `completeOrdersIfAllDone` for
+several orders, each once). Called once per order by every request that
+newly marked a card done: `advanceCards` (stages route, step picker),
+`markCardsDone` / assigning to the Done place (tracking `writePlan` step 7),
+and the order page's Done toggle (`toggleCardCompletion` in
+`card-completion.ts`, the former body of `POST /api/admin/cards/[id]/complete`).
+
+- Completes only when every non-refunded card is `completed` (at least one;
+  a card still on its way counts as not done), the order is `received` or
+  `in_progress` (`AUTO_COMPLETE_FROM`) and `payment_status` is `paid`.
+  Never from Awaiting Payment / Awaiting Cards / Cancelled, never again once
+  Completed / Shipped Back / Delivered; un-doing a card never un-completes.
+- Through `setOrderStatus({ status: "completed", onlyIfCurrent: <status read> })`:
+  the status button's event, customer email and held completion-notes
+  email; the conditional update means two requests finishing the last cards
+  at once send ONE email (the other gets `reason: "taken"`). Then a
+  staff-only `order_auto_completed` line: "Order completed automatically:
+  last card done by gavin." (metadata `{ auto, by, cards }`).
+- `OrderAutoComplete` = { orderId, orderNumber, customerName, completed,
+  emailed, reason? (`not_all_done | no_cards | already_done | wrong_status |
+  not_paid | taken | failed`), status, notesEmailed?, message?, error? }.
+  `message` is the staff line: "Order completed. Pat Collector emailed.",
+  "Order completed. No email sent: the order has no email address.", or
+  for `wrong_status` / `not_paid` / `failed` why it wasn't completed.
+- Responses (optional fields, present only when a card was newly marked
+  done): `POST /api/admin/intake/stages` and `POST /api/admin/cards/[id]/complete`
+  → `orderCompletion`; tracking `TrackActionResponse` (`done`, `assign` to
+  the Done place) → `orderCompletions` (one per order of the cards marked done).
+
 ## Existing routes (contracts unchanged)
 
 | route | body | response |
 |---|---|---|
 | `POST /api/admin/orders/[id]/status` | `{ status, tracking_number? }` | `{ ok: true, emailFailed?, notesEmailed? }`; 400 `Invalid status`, 404, 500 |
 | `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (`setCardStage`: emails only a step past the furthest this round; for bulk use `advanceCards`) |
-| `POST /api/admin/cards/[id]/complete` | none | `{ completed }` (toggles; now also refreshes the bag) |
+| `POST /api/admin/cards/[id]/complete` | none | `{ completed, orderCompletion? }` (toggles; now also refreshes the bag; the last card done completes the order, above) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
 | `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
 | `PATCH /api/admin/orders/[id]/tier` | `{ tier }` | set the order's tier; 409 likewise when it would move bagged cards to another tier |

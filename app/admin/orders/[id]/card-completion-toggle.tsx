@@ -20,16 +20,20 @@ export function CardCompletionToggle({
   }
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // The order's last card done: the order was completed ("Order completed. Pat emailed.")
+  const [note, setNote] = useState<{ text: string; done: boolean } | null>(null);
   const router = useRouter();
 
   async function toggle() {
     setLoading(true);
     setErr(null);
+    setNote(null);
     try {
       const res = await fetch(`/api/admin/cards/${cardId}/complete`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setCompleted(data.completed);
+        if (typeof data.orderCompletion?.message === "string") setNote({ text: data.orderCompletion.message, done: !!data.orderCompletion.completed });
         // Refresh so the done counts and the other sections update
         router.refresh();
       } else {
@@ -67,6 +71,7 @@ export function CardCompletionToggle({
         {loading ? "…" : completed ? "Done" : "Mark Done"}
       </button>
       {err && <p className="text-xs text-red-500 max-w-[180px] text-right">{err}</p>}
+      {note && <p role="status" className={`text-xs font-semibold max-w-[220px] text-right ${note.done ? "text-green-700" : "text-amber-700"}`}>{note.text}</p>}
     </div>
   );
 }

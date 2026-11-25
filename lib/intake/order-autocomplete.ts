@@ -74,11 +74,11 @@ const statusLabel = (s: string) => ORDER_STATUSES[s as keyof typeof ORDER_STATUS
 
 /** The staff line for a result (also set as `message` by completeOrderIfAllDone). */
 export function autoCompleteMessage(r: Omit<OrderAutoComplete, "message">, hasEmail: boolean): string | undefined {
-  const name = r.customerName?.trim() || "The customer";
+  const name = r.customerName?.trim();
   if (r.completed) {
-    if (r.emailed) return `Order completed. ${name} emailed.`;
+    if (r.emailed) return `Order completed. ${name || "Customer"} emailed.`;
     return hasEmail
-      ? `Order completed, but the email to ${name} didn't send.`
+      ? `Order completed, but the email to ${name || "the customer"} didn't send.`
       : "Order completed. No email sent: the order has no email address.";
   }
   switch (r.reason) {

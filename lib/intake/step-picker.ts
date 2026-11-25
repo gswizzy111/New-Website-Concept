@@ -1,5 +1,7 @@
 import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
 import { DONE_LABEL } from "@/lib/intake/stage-plan";
+import { bagSentences } from "@/lib/intake/tracking/bag-home";
+import type { TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
  * The step picker's logic (StepPicker in components/intake/tracking-actions.tsx),
@@ -90,6 +92,8 @@ export type PickerResponse = {
   newStep?: unknown;
   skipped?: { reason?: string }[];
   emailed?: boolean;
+  /** Done: the cards' bags and where each is ("Put it back in REYES's bag: Open bags box, under R."). */
+  bagPlaces?: TrackBagPlace[];
 };
 
 const count = (x: unknown) => (Array.isArray(x) ? x.length : Number(x) || 0);
@@ -107,8 +111,14 @@ export function pickerOutcome(target: string, requested: number, res: PickerResp
   const parts: string[] = [];
 
   if (moved) {
-    if (target === DONE_TARGET) parts.push(requested === 1 && moved === 1 ? "Marked done." : `${cards(moved)} marked done.`);
-    else parts.push(requested === 1 && moved === 1 ? `Now at ${label}.` : `${cards(moved)} moved to ${label}.`);
+    if (target === DONE_TARGET) {
+      parts.push(requested === 1 && moved === 1 ? "Marked done." : `${cards(moved)} marked done.`);
+      // Done cards go back in their own bag: say whose and where it is
+      const back = bagSentences(res.bagPlaces ?? [], moved);
+      if (back) parts.push(back);
+    } else {
+      parts.push(requested === 1 && moved === 1 ? `Now at ${label}.` : `${cards(moved)} moved to ${label}.`);
+    }
     if (target !== DONE_TARGET) {
       if (!fresh) parts.push("No customer email: they already heard about this step or a later one.");
       else if (res.emailed) parts.push(fresh === moved ? "Customer emailed." : `Customer emailed about ${fresh} of them.`);
