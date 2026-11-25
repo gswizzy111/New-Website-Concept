@@ -308,7 +308,8 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
         {ready.length > 0 && (
           <section aria-labelledby="ready-to-ship" className="mt-10">
             <h2 id="ready-to-ship" className="flex items-center gap-2 font-heading font-black text-2xl text-foreground">
-              Ready to ship <Count n={ready.length} active={false} />
+              Ready to ship
+              <span className="min-w-7 px-2 py-0.5 rounded-full bg-secondary font-sans text-sm font-black tabular-nums text-center text-foreground">{ready.length}</span>
             </h2>
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
               Finished bags: every card done, not shipped yet.

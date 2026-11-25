@@ -261,7 +261,7 @@ and the order page's Done toggle (`toggleCardCompletion` in
 |---|---|---|
 | `POST /api/admin/orders/[id]/status` | `{ status, tracking_number? }` | `{ ok: true, emailFailed?, notesEmailed? }`; 400 `Invalid status`, 404, 500 |
 | `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (`setCardStage`: emails only a step past the furthest this round; for bulk use `advanceCards`) |
-| `POST /api/admin/cards/[id]/complete` | none | `{ completed, orderCompletion? }` (toggles; now also refreshes the bag; the last card done completes the order, above) |
+| `POST /api/admin/cards/[id]/complete` | none | `{ completed, orderCompletion?, bagPlaces?, unbinned? }` (toggles; refreshes the bag; a card marked done goes back in its bag like every Done (`bagPlaces`, "Put it back in REYES's bag: …"); the last card done completes the order, above; un-doing a card of a bag in the Ready to ship bin files the bag back in the Open bags box (`unbinned`); 500 "Marked done, but not put back in the bag: …" when the move or its history row can't be saved) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
 | `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
 | `PATCH /api/admin/orders/[id]/tier` | `{ tier }` | set the order's tier; 409 likewise when it would move bagged cards to another tier |
@@ -466,17 +466,33 @@ with A-Z dividers by the customer's last name.
 
 - **Filing letter** (`lib/intake/filing-letter.ts`, pure): `filingLetter(name)`
   = first letter of the customer's LAST name (the last word; suffixes such as
-  Jr. skipped; "Reyes, Maria" keeps Reyes; accents dropped), else the first
-  letter of the name, else `"#"`. `customerLastName(name)`. The bag label
-  prints it too.
+  Jr., LLC, Inc., Co., Ltd skipped, Roman numerals II-IV only in capitals or
+  in a 3+ word name, so "Lee Iv" is I; "Reyes, Maria" keeps Reyes; accents
+  dropped and Ø Ł Æ Œ Đ ß Þ read as O L A O D S T), else the first letter of
+  the name, else `"#"`. `customerLastName(name)`. The bag label prints it in
+  a tab at the banner's top right; where even the smallest tab would make
+  the name smaller or hide every card (4 x 3 in), no tab and the kicker reads
+  "FILE UNDER R · THE CARD DOC" (`LabelFit.filing.inKicker`).
 - **Done** (tracking `POST done`, the Desk, the scan landing, the ship check,
   and the step picker's Done through `advanceCards` → `returnCardsToBags`):
   the card is marked done, leaves its holder or desk (location null, "In the
-  bag"; a `card_moves` 'done' row) and the answer says where the bag is:
+  bag"; a `card_moves` 'done' row, written right after each holder's move:
+  a failed write answers 500, never a silent unlogged move) and the answer
+  says where the bag is:
   `message` "Done. Put it back in REYES's bag: Open bags box, under R."
   (TrackActionResponse `bags: TrackBagPlace[]`; the stages route
   `bagPlaces`). The bag's last card adds "Bag finished: put it in the Ready
-  to ship bin."
+  to ship bin." The order page's Done toggle does the same
+  (`toggleCardCompletion`). Bags of one customer (a mixed-tier order) in one
+  answer are named apart, with the cards for each: "Put each back in its
+  bag: CD-2549-07, CD-2549-08 in REYES's Platinum bag CD-2549-P (Open bags
+  box, under R); CD-2549-01 in REYES's Gold bag CD-2549-G (on shelf …)."
+  (`TrackBagPlace.tierName`, `returnedCodes`).
+- **Back in the bag** (`isBackInBag`, pure): a done card is in its bag with no
+  place or at a bag's place (a due-date shelf, the Open bags box, the Ready to
+  ship bin). One in a holder, on a desk or on the old Done shelf (LOC-DONE, a
+  loose pile) is still out: its bag isn't `finished`, the scan landing shows
+  it "Done · in CLAMP 07" with a Done that puts it back, and no bin step.
 - **Open bags box** (`LOC-OPEN-BAGS` "OPEN BAGS", kind 'other', made on first
   use by `ensureOpenBags`, switched back on if off): every assign / move
   (`settleBags` after `writePlan`) files in it the bag of any card that comes
@@ -487,8 +503,15 @@ with A-Z dividers by the customer's last name.
   holder files nothing. Best effort: a failure leaves the bag where it was.
 - **Ready to ship** (`POST /api/admin/track/bag-ready { bagId }`,
   `putBagReadyToShip`): the finished bag's place becomes `LOC-SHIP` (made if
-  missing); refused (409 "Not every card in CD-2549-P is done yet (3 of 4
-  done).") while a non-refunded card is still to do.
+  missing); refused (409) while a non-refunded card is still to do ("Not
+  every card in CD-2549-P is done yet (3 of 4 done)."), while a done card is
+  out of the bag ("CD-2549-03 is still in CLAMP 07: tap Done on it first."),
+  and for an order shipped back, delivered or cancelled ("CD-2549-P isn't
+  going in the Ready to ship bin: the order was shipped back already."; the
+  scan landing shows no bin step then). Un-doing a card reopens its bag
+  (`refreshBagCompletion`); a reopened bag in the bin goes back in the Open
+  bags box (`unbinReopenedBags`; the toggle says "Take REYES's bag out of
+  the Ready to ship bin: Open bags box, under R.").
 - **Words** (`lib/intake/tracking/bag-home.ts`, pure): `bagPlaceText(loc,
   letter, compact?)` "Open bags box · R" (Bags board: "Open bags · R"),
   "Shelf DUE MON DEC 7", "Ready to ship"; `bagPlacePhrase` "Open bags box,
@@ -500,8 +523,14 @@ with A-Z dividers by the customer's last name.
 - **Pages**: the scan landing ("Bag: Open bags box · R", "3 of 4 done", a
   card's Done, "Mark all N done", the one big "Bag finished" step with "It's
   in the Ready to ship bin"), the Desk (Done says the same), the Scan page
-  (search rows and bag headers: "Bag: Open bags box · R"), the Bags board
-  (the bag's place, "3 of 4 done"), the step picker (its Done line).
+  (search rows and bag headers: "Bag: Open bags box · R"; after a Done the
+  order's line, green, or amber when it wasn't completed), the ship check
+  (the order's line under a card's Mark done), the Bags board (the bag's
+  place, "3 of 4 done"; below the open bags a "Ready to ship" section: the
+  finished bags not shipped yet, a Completed order's included, the ones not
+  in the bin first, each with "Open bag" to its scan landing), the step
+  picker (its Done line), the order page's Done toggle (the bag line and the
+  order's line).
 - `TrackCardSummary.bagLocation` (optional): where the card's bag is.
 
 ## Prepare labels (any order)

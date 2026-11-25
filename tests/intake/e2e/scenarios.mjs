@@ -785,7 +785,7 @@ async function setLabelStock(mockUrl, stock) {
   assert(!error, `label stock setting: ${error?.message}`);
 }
 /** Change cards or places directly in the mock (test setup: a refund, an old placement, a capacity). */
-async function mockUpdate(mockUrl, table, patch, column, value) {
+export async function mockUpdate(mockUrl, table, patch, column, value) {
   const { data, error } = await mockDb(mockUrl).from(table).update(patch).eq(column, value).select("*");
   assert(!error && data?.length, `${table} ${column}=${value}: ${error?.message ?? "no such row"}`);
   return data;
@@ -4073,7 +4073,8 @@ const SCENARIOS = {
       t = await tables();
       eq([cardByCode(t, DONE).completed, cardByCode(t, DONE).location_id ?? null], [true, null], `${DONE} done, in its bag (no place)`);
     }, { critical: true, shot: false });
-    await s.step(`bag CD-2549-G: 4 panels; ${DONE} "Done" and ${REFUNDED} "Refunded" without a move button; 01, 04 "In the bag" with one; "Move all 2 cards to my desk"; "3 cards" (refunded not counted)`, async () => {
+    // The count reads "N of M done" once a card is done (done flow, Nov 25 2026): "1 of 3 done" here, the refunded card not counted
+    await s.step(`bag CD-2549-G: 4 panels; ${DONE} "Done" and ${REFUNDED} "Refunded" without a move button; 01, 04 "In the bag" with one; "Move all 2 cards to my desk"; "1 of 3 done" (refunded not counted)`, async () => {
       await goto(page, ROUTES.open("CD-2549-G"));
       await openReady(page);
       eq(await openPanelsShown(page), BO_GOLD, "cards with a panel");
@@ -4092,7 +4093,7 @@ const SCENARIOS = {
         }
       }
       if ((await moveAllN(page)) !== 2) problems.push(`N is ${await moveAllN(page)}`);
-      if (!countShown((await mainText(page)).split(/cards in this bag/i)[0], 3)) problems.push('no "3 cards" (the refunded card not counted)');
+      if (!UI.doneCount(1, 3).test((await mainText(page)).split(/cards in this bag/i)[0])) problems.push('no "1 of 3 done" (the refunded card not counted)');
       assert(!problems.length, problems.slice(0, 5).join(" | "));
       // "shown greyed": reported, not asserted (how a panel is greyed is the page's choice)
       const look = async (code) => UI.openPanel(page, code, BO_ALL).evaluate((el) => { const st = getComputedStyle(el); return `opacity ${st.opacity}, filter ${st.filter}, bg ${st.backgroundColor}`; }).catch(() => "?");
@@ -5358,7 +5359,7 @@ export async function seedDone() {
  * photo on 01-04; then the cards in `done` marked done through POST done, and `status` / `payment`
  * written to the order in the mock. Returns the tables.
  */
-async function doneOrderSetup(ctx, mockUrl, { done = [], status = null, payment = null } = {}) {
+export async function doneOrderSetup(ctx, mockUrl, { done = [], status = null, payment = null } = {}) {
   await seedDone();
   await receiveViaApi(ctx, DONE_ORDER, DONE_IDS.doneCards, "2026-11-20");
   let t = await tables();

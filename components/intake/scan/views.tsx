@@ -126,9 +126,10 @@ export function CardRow({
         )}
         {/* Where its bag is: "Open bags box · R", "Shelf DUE MON DEC 7", "Ready to ship" */}
         {showOrder && card.bagCode && bagPlaceLine(card) && (
-          <p className="mt-0.5 inline-flex items-center gap-1 text-sm font-semibold text-foreground">
+          <p className="mt-0.5 mr-3 inline-flex items-center gap-1 text-sm font-semibold text-foreground">
             <Package className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-            Bag: {bagPlaceLine(card)}
+            {/* The spaces keep "bag CD-2549-P", "Bag: … · R" and the card's own place apart for copy and screen readers */}
+            {" "}Bag: {bagPlaceLine(card)}{" "}
           </p>
         )}
         {card.location && onOpenSlot ? (
@@ -269,7 +270,7 @@ export function BagHeader({ bag, shipHref }: { bag: TrackBagSummary; shipHref: s
       {bag.location && (
         <p className="inline-flex items-center gap-1 text-base font-bold text-foreground">
           <Package className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-          Bag: {bagPlaceText(bag.location, filingLetter(bag.customer))}
+          Bag: {bagPlaceText(bag.location, filingLetter(bag.customer))}{" "}
         </p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">

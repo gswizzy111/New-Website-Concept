@@ -680,6 +680,13 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
   A" after a reload; the Bags board's rows of both say "Open bags · A";
   CD-2700-P "Move all 2 cards to my desk": "under R"; the
   bag labels' JSON has the letter as its own text (A, R; sizes reported).
+- `done-card-out`: 07-09 done (API), then 08 (done) into CLAMP 07: `bag-ready`
+  refused "CD-2549-08 is still in CLAMP 07: tap Done on it first.", the bag
+  unmoved; the scan landing reads "3 of 3 done" with NO bin step, 08 "Done ·
+  in CLAMP 07" with ONE Done (07, 09 none); tapping it: no place, one `done`
+  row CLAMP 07 -> no place, then the "Bag finished" step; the order shipped
+  back (mock): no bin step, `bag-ready` refused "… the order was shipped back
+  already."
 - `done-bag-finished`: 07 + 08 done (API: no place), 09 on the desk; "2 of 3
   done"; 09's Done: done, off the desk, bag `completed_at` but still in the Open
   bags box, order not completed, no email, `bags[]` `finished`; ONE "Bag
@@ -689,15 +696,18 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
   reloaded: "3 of 3 done", "Bag: Ready to ship", no Done or bin button;
   `bag-ready` for CD-2549-G refused "Not every card in CD-2549-G is done yet (0
   of 4 done)."; the Bags board's CD-2549-P row says "Ready to ship", CD-2549-G's
-  "0 of 4 done" (or 0/4); ship check ready; board at 390.
+  "0 of 4 done" (or 0/4); CD-2549-P under the board's "Ready to ship" section
+  ("In the Ready to ship bin", "Open bag" to its scan landing), CD-2549-G not;
+  ship check ready; board at 390.
 - `done-order-complete`: CD-2700, 01 + 02 done (no Completed email yet); the
   CD-2700-G page: "2 cards", 05 "Refunded" without Done, ONE "Mark all 2 done";
   tapped (its "Yes, mark 2 done" answered): 03 + 04 done, the order Completed
   with exactly ONE "Completed" email and ONE notes email to Reyes and nothing
   else, one customer-visible status event, the notes logged once, at most one
   staff `order_auto_completed` line; 05 still refunded and not done; "Bag
-  finished…" and "Order completed. Test Customer Reyes emailed."; the same
-  request again: nothing; un-doing 03 (order page toggle) keeps Completed, no
+  finished…" and "Order completed. Test Customer Reyes emailed."; the Bags
+  board lists CD-2700-P and -G under "Ready to ship" ("Not in the bin yet"),
+  not among the open bags; the same request again: nothing; un-doing 03 (order page toggle) keeps Completed, no
   email; done again: still Completed, no second email.
 - `done-order-complete-desk`: the order In Progress, 01-03 done, 04 on the desk;
   the Desk's Done (confirm answered) -> Completed, one email + notes; "Done. Put
@@ -707,10 +717,13 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
 - `done-order-complete-card-page`: 01-03 done; 04's card page step picker
   "Done" (stages API) -> Completed, one email + notes ("Marked done. Put it back
   in …" reported).
-- `done-order-complete-admin`: 01-03 done; the order page's "Mark Done" on 04
-  -> `{ completed: true, orderCompletion: { completed: true } }`, "Order
-  completed. Test Customer Reyes emailed." (role status), Completed with one
-  email + notes; toggled back: no `orderCompletion`, still Completed, no email.
+- `done-order-complete-admin`: 01-03 done, 04 on the desk (CD-2700-G in the
+  Open bags box); the order page's "Mark Done" on 04 -> `{ completed: true,
+  orderCompletion: { completed: true }, bagPlaces }`: 04 back in its bag (off
+  the desk, one `done` row), "Put it back in REYES's bag: Open bags box,
+  under R." and "Order completed. Test Customer Reyes emailed." (role
+  status), Completed with one email + notes; toggled back: no
+  `orderCompletion`, still Completed, no email.
 - `done-order-complete-race`: the last card in two `POST done` at once; the last
   two cards in two requests at once; the scan landing's Done on 03 and 04 back
   to back; 04's Done double-tapped: each from a fresh seed, each exactly ONE
