@@ -176,7 +176,9 @@ shows progress). A new round starts from nothing. Done never emails.
   - Puts the chosen cards at `toStage`: any stage name, earlier or later than now, or `"complete"` (done, like the Done toggle, from any step). Without `toStage`: the step after `fromStage` (the old one-tap advance; from Final Dry it marks the card done). Only cards still at the step the page showed move (`fromStages[id]`, else `fromStage`; null = not started).
   - Writes exactly what the stage buttons write: `order_events` `stage_update`, description `Stage: <stage> [card:<id>]`, metadata `{ card_id, stage, round, by, bulk }`; customer visible only when the step is new for the customer (`moved[].email`).
   - ok: `{ target, moved: { cardId, stage, round, email }[], completed: cardId[], skipped: { cardId, reason, current }[], emailed, bagsCompleted: bagId[] }`. One customer email per call listing the moved cards with `email` (none for going back, re-entering or "done"). Show `skipped` to staff.
+  - Reads the order's cards and stage events in pages (`fetchAll`, events newest first by `created_at`, then `id`), so a big order's furthest step and the `fromStages` guard see every event.
 - `POST /api/admin/intake/stages` `{ orderId, cardIds, toStage?: <stage> | "done", fromStage?, fromStages?: { [cardId]: stage | null } }` -> `{ moved, completed, newStep (cardIds in the email), skipped, target, emailed, bagsCompleted }`; the old `{ orderId, cardIds, fromStage }` still advances one step.
+- `setCardStage(admin, { orderId, cardId, stage, by }): { ok: true, changed, email, emailed } | refusal`: one card to one of the 8 steps (the order page's Restoration Stages buttons, `POST /api/admin/orders/[id]/stage`), same email rule: customer visible and emailed only past the furthest step this round; going back or re-entering is staff only; a card already at that step writes nothing (`changed: false`). Done cards can still be given a step, as before. 400 unknown stage, 404 card not on the order.
 
 ## step-picker.ts (pure)
 
@@ -187,7 +189,10 @@ steps reached this round; one tap sends `toStage` + `fromStages`. Card page:
 open; bag page: open for the whole bag, behind "Move these N cards" (a group,
 when the bag's cards differ) and "Change step" (a card row); Bags board: "Set
 the step". Done for several cards asks "Yes, mark done". `pickerChips(cards,
-reached?)`, `pickerRequest(orderId, cards, target)` (null: nothing to move),
+reached?)` (a step chip is current when every card NOT done is at it, so a bag
+of 2 done + 3 at Humidor shows Humidor pressed; Done when every card is done),
+`pickerRequest(orderId, cards, target)` (null: nothing to move; the picker then
+says `pickerNothingToMove(target)`: "Already at Humidor." / "Already done."),
 `pickerNeedsConfirm`, `pickerOutcome(target, requested, response)` (the line
 after a tap), `groupPickerCards(stageGroups)`, `DONE_TARGET = "done"`.
 - `refreshBagCompletion(admin, bagIds): { completed: bagId[], reopened: bagId[] }`: never throws. Sets `completed_at` once every non-refunded card is done (keeps the earliest), clears it and `completion_seen_at` when a card reopens. Call it after anything that changes `cards.completed` or `bag_id`.
@@ -218,7 +223,7 @@ status only while it still has that value (`skipped: true` otherwise).
 | route | body | response |
 |---|---|---|
 | `POST /api/admin/orders/[id]/status` | `{ status, tracking_number? }` | `{ ok: true, emailFailed?, notesEmailed? }`; 400 `Invalid status`, 404, 500 |
-| `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (one email per click; for bulk use `advanceCards`) |
+| `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (`setCardStage`: emails only a step past the furthest this round; for bulk use `advanceCards`) |
 | `POST /api/admin/cards/[id]/complete` | none | `{ completed }` (toggles; now also refreshes the bag) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
 | `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
@@ -265,8 +270,16 @@ found", the /q wording).
   (no new route): the place only, never the step, no email. N = cards received,
   not done, not refunded and not on that desk; then "N cards are on your desk" +
   "Open my desk" (`deskPagePath(code)`), or "All on your desk". Each refused
-  card or a failed request shows the server's message. The page shows the cards
-  on the desk at once, then `router.refresh()`.
+  card or a failed request shows the server's message. At most 200 cards per
+  request (`MOVE_CHUNK` = the route's `MAX_CARDS`; `moveChunks`,
+  `chunkedMoveOutcome` merge the answers). The page shows the moved cards on
+  the desk at once and keeps them there until every `router.refresh()` started
+  so far has landed (the transition's pending flag); it refreshes after a
+  failed move too, so a desk switched off meanwhile drops out of the picker.
+- **Layout**: on a phone the customer's name, order, bag, due date and card
+  count, then the big button (on the first screen, 390 x 664), then the order's
+  bags, the customer's notes and the links; on a computer those two parts read
+  as one card with the button panel beside it.
 - **Desk**: `LOC-DESK` by default (`ensureDesk` makes it on the first visit when
   there is no desk, as the Desk page does); with 2+ switched-on desks a
   "Desk" select, remembered per phone (localStorage `intake.openPage.desk`).

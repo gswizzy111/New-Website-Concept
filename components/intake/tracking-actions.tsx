@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { DONE_TARGET, pickerChips, pickerNeedsConfirm, pickerOutcome, pickerRequest, type PickerCard } from "@/lib/intake/step-picker";
+import { DONE_TARGET, pickerChips, pickerNeedsConfirm, pickerNothingToMove, pickerOutcome, pickerRequest, type PickerCard } from "@/lib/intake/step-picker";
 
 // The buttons of the card, bag and Completed pages and the Bags board
 // (/admin/receiving/card, /bag, /completed, /bags). Each one saves, then
@@ -73,7 +73,10 @@ export function StepPicker({
     }
     setConfirming(false);
     const body = pickerRequest(orderId, cards, target);
-    if (!body) return;
+    if (!body) {
+      setOutcome({ tone: "ok", text: pickerNothingToMove(target) });
+      return;
+    }
     setBusy(target);
     try {
       const { ok, data } = await post("/api/admin/intake/stages", body);

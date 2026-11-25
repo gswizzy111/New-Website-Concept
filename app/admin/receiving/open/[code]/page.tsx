@@ -42,10 +42,16 @@ function Due({ due }: { due: OpenBagLine["due"] }) {
   );
 }
 
-function Person({ header }: { header: OpenHeader }) {
+/**
+ * The person, in two parts so the big button stays on a phone's first screen
+ * whatever the order holds: who and what (name, order, bag, due date, card
+ * count), then, under the button, the order's bags, the customer's notes and
+ * the links. On a computer the two parts read as one card beside the button.
+ */
+function PersonTop({ header }: { header: OpenHeader }) {
   const { bag } = header;
   return (
-    <section aria-labelledby="open-customer" className="min-w-0 rounded-2xl border border-border bg-white p-4 sm:p-6">
+    <section aria-labelledby="open-customer" className="min-w-0 rounded-2xl border border-border bg-white p-4 sm:p-6 lg:rounded-b-none lg:border-b-0 lg:pb-0">
       <h1 id="open-customer" className="font-heading text-5xl font-black leading-[1.02] text-foreground break-words sm:text-6xl">{header.customer}</h1>
 
       <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-lg font-bold text-foreground">
@@ -61,9 +67,15 @@ function Person({ header }: { header: OpenHeader }) {
         {bag && <><Due due={bag.due} /><span aria-hidden="true" className="mx-2 text-muted-foreground">·</span></>}
         {cardsText(header.cardCount)}
       </p>
+    </section>
+  );
+}
 
+function PersonMore({ header }: { header: OpenHeader }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-border bg-white px-4 pb-1 pt-3 sm:px-6 lg:rounded-t-none lg:border-t-0 lg:pt-3">
       {header.bags.length > 0 && (
-        <ul aria-label="Bags" className="mt-3 flex flex-col gap-1.5">
+        <ul aria-label="Bags" className="flex flex-col gap-1.5">
           {header.bags.map((b) => (
             <li key={b.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl bg-secondary/50 px-3 py-2 text-sm font-semibold text-foreground">
               <TierBadge tier={b.tier} name={b.tierName} />
@@ -76,13 +88,13 @@ function Person({ header }: { header: OpenHeader }) {
       )}
 
       {header.customerNotes && (
-        <div className="mt-4 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-amber-950">
+        <div className={`${header.bags.length > 0 ? "mt-3" : ""} rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-amber-950`}>
           <h2 className="text-xs font-black uppercase tracking-widest">Customer&apos;s notes</h2>
           <p className="mt-1 whitespace-pre-wrap break-words text-base">{header.customerNotes}</p>
         </div>
       )}
 
-      <nav aria-label="More about this order" className="mt-3 flex flex-wrap gap-x-4">
+      <nav aria-label="More about this order" className={`${header.bags.length > 0 || header.customerNotes ? "mt-2" : ""} flex flex-wrap gap-x-4`}>
         <AdminLink href={header.orderUrl} className={smallLink}>
           <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
           Open full order
@@ -92,7 +104,7 @@ function Person({ header }: { header: OpenHeader }) {
           All photos
         </AdminLink>
       </nav>
-    </section>
+    </div>
   );
 }
 
@@ -132,7 +144,8 @@ export default async function OpenCodePage({ params }: { params: Promise<{ code:
   return (
     <Shell>
       <OpenBoard
-        person={<Person header={view.header} />}
+        person={<PersonTop header={view.header} />}
+        personMore={<PersonMore header={view.header} />}
         groups={view.groups}
         desks={desks.desks}
         defaultDeskId={desks.defaultId}

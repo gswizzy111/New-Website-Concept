@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { STAGES } from "@/lib/restoration-stages";
 import { stageGroups, cardStageState } from "@/lib/intake/stage-plan";
 import {
-  DONE_TARGET, groupPickerCards, pickerChips, pickerNeedsConfirm, pickerOutcome, pickerRequest, type PickerCard,
+  DONE_TARGET, groupPickerCards, pickerChips, pickerNeedsConfirm, pickerNothingToMove, pickerOutcome, pickerRequest, type PickerCard,
 } from "@/lib/intake/step-picker";
 
 test("chips: all 8 steps in order with their admin names, then Done; one card's step highlighted, reached steps checked", () => {
@@ -23,7 +23,7 @@ test("chips: all 8 steps in order with their admin names, then Done; one card's 
   assert.equal(pickerChips([{ id: "a", current: "Humidor" }], ["Humidor"])[1].reached, false);
 });
 
-test("chips for a bag: counts per step; highlighted only when every card is there", () => {
+test("chips for a bag: counts per step; highlighted only when every card not done is there", () => {
   const cards: PickerCard[] = [
     { id: "a", current: "Humidor" }, { id: "b", current: "Humidor" }, { id: "c", current: null }, { id: "d", current: null, completed: true },
   ];
@@ -32,6 +32,29 @@ test("chips for a bag: counts per step; highlighted only when every card is ther
   assert.equal(chips.some((c) => c.current), false);
   const same = pickerChips([{ id: "a", current: "Book" }, { id: "b", current: "Book" }]);
   assert.deepEqual(same.filter((c) => c.current).map((c) => c.label), ["Drying"]);
+});
+
+test("a bag with done cards and the rest at one step: that step is current (the cards not done are there), Done isn't", () => {
+  const cards: PickerCard[] = [
+    { id: "a", current: null, completed: true }, { id: "b", current: null, completed: true },
+    { id: "c", current: "Humidor" }, { id: "d", current: "Humidor" }, { id: "e", current: "Humidor" },
+  ];
+  const chips = pickerChips(cards);
+  assert.deepEqual(chips.filter((c) => c.current).map((c) => [c.target, c.count]), [["Humidor", 3]]);
+  assert.equal(chips.find((c) => c.target === DONE_TARGET)!.count, 2);
+  // Tapping it has nothing to send; the picker says so instead of nothing
+  assert.equal(pickerRequest("o1", cards, "Humidor"), null);
+  assert.equal(pickerNothingToMove("Humidor"), "Already at Humidor.");
+  assert.equal(pickerNothingToMove("Book"), "Already at Drying.");
+  assert.equal(pickerNothingToMove(DONE_TARGET), "Already done.");
+  // Another step still moves the 3 not done
+  assert.deepEqual(pickerRequest("o1", cards, "Heat Press")?.cardIds, ["c", "d", "e"]);
+  // Every card done: only Done is current; no step chip is (no card is at a step)
+  const allDone = pickerChips(cards.map((c) => ({ ...c, completed: true })));
+  assert.deepEqual(allDone.filter((c) => c.current).map((c) => c.target), [DONE_TARGET]);
+  assert.equal(pickerRequest("o1", cards.map((c) => ({ ...c, completed: true })), DONE_TARGET), null);
+  // One done, one not started: nothing current
+  assert.equal(pickerChips([{ id: "a", current: null, completed: true }, { id: "b", current: null }]).some((c) => c.current), false);
 });
 
 test("request: every card not done and not there yet, each with the step the page shows (the route's guard)", () => {

@@ -1,9 +1,13 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { STAGE_INFO, friendlyStage } from "@/lib/restoration-stages";
+import { fetchAll } from "@/lib/fetch-all";
+import { STAGES, STAGE_INFO, currentStages, friendlyStage } from "@/lib/restoration-stages";
 import { escapeHtml, sendOrderUpdateEmail } from "@/lib/customer-email";
-import { bagCompletionPatch, cardStageState, planAdvance, type AdvanceCard, type AdvancePlan, type SkipReason } from "@/lib/intake/stage-plan";
+import {
+  bagCompletionPatch, cardStageState, furthestStageIndex, planAdvance, stepEmailsCustomer,
+  type AdvanceCard, type AdvancePlan, type SkipReason,
+} from "@/lib/intake/stage-plan";
 import type { NextStep, StageEventRow } from "@/lib/intake/types";
 
 /**
@@ -16,6 +20,95 @@ export {
   cardStageState, furthestStageIndex, isBagComplete, nextStepAfter, planAdvance, stageGroups, stageIndex, stepEmailsCustomer,
 } from "@/lib/intake/stage-plan";
 export type { AdvanceCard, AdvancePlan, SkipReason } from "@/lib/intake/stage-plan";
+
+/**
+ * Every stage event of an order, newest first, read in pages (the API returns
+ * at most 1,000 rows per request, so a big order's furthest step and the
+ * fromStages guard would read a cut list). Stable order: created_at, then id.
+ */
+async function loadStageEvents(admin: SupabaseClient, orderId: string): Promise<StageEventRow[]> {
+  return fetchAll((from, to) => admin.from("order_events").select("event_type, description, metadata, created_at").eq("order_id", orderId)
+    .eq("event_type", "stage_update").order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, to)) as Promise<StageEventRow[]>;
+}
+
+const stageBox = (stage: string, friendly: string) => `
+     <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:16px;margin:20px 0">
+       <p style="margin:0;font-size:13px;color:#6d28d9;font-weight:700">${escapeHtml(friendly)}</p>
+       <p style="margin:6px 0 0;font-size:15px">${escapeHtml(STAGE_INFO[stage]?.explanation ?? "")}</p>
+     </div>`;
+
+export type SetCardStageResult =
+  | {
+      ok: true;
+      /** An event was written (false: the card was at that step already). */
+      changed: boolean;
+      /** A step past the furthest this round: customer visible and emailed. */
+      email: boolean;
+      /** The email went out. */
+      emailed: boolean;
+    }
+  | { ok: false; status: number; error: string };
+
+/**
+ * One card to one of the 8 steps (POST /api/admin/orders/[id]/stage, the
+ * order page's Restoration Stages buttons), under the same email rule as
+ * advanceCards: only a step past the furthest the card reached this round is
+ * customer visible and emails the customer ("Restoration Update"); going back
+ * or re-entering a step writes a staff-only event and sends nothing. A card
+ * already at that step writes nothing. Done cards can still be given a step
+ * (as before); the step is the card's newest stage event of its round.
+ */
+export async function setCardStage(
+  admin: SupabaseClient,
+  input: { orderId: string; cardId: string; stage: string; by: string | null },
+): Promise<SetCardStageResult> {
+  const { orderId, cardId, stage } = input;
+  if (!(STAGES as readonly string[]).includes(stage)) return { ok: false, status: 400, error: "Unknown stage" };
+  let read: [
+    { data: Record<string, unknown> | null; error: { message: string } | null },
+    { data: Record<string, unknown> | null; error: { message: string } | null },
+    StageEventRow[],
+  ];
+  try {
+    read = await Promise.all([
+      admin.from("cards").select("id, card_name, current_round").eq("id", cardId).eq("order_id", orderId).maybeSingle(),
+      admin.from("orders").select("customer_email, customer_name, order_number").eq("id", orderId).maybeSingle(),
+      loadStageEvents(admin, orderId),
+    ]);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${e instanceof Error ? e.message : e})` };
+  }
+  const [{ data: card, error: cErr }, { data: order, error: oErr }, events] = read;
+  const readErr = cErr ?? oErr;
+  if (readErr) return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${readErr.message})` };
+  if (!card || !order) return { ok: false, status: 404, error: "Card not found on this order" };
+
+  const round = (card.current_round as number | null) ?? 1;
+  if (currentStages(events, { [cardId]: round })[cardId] === stage) return { ok: true, changed: false, email: false, emailed: false };
+  const email = stepEmailsCustomer(stage, furthestStageIndex(cardId, round, events));
+
+  // The description keeps the old format for anything still reading it; the
+  // card, stage and round are read from metadata
+  const { error } = await admin.from("order_events").insert({
+    order_id: orderId,
+    event_type: "stage_update",
+    description: `Stage: ${stage} [card:${cardId}]`,
+    metadata: { card_id: cardId, stage, round, by: input.by },
+    // Going back (or to a step it already reached) isn't news for the customer
+    is_customer_visible: email,
+  });
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!email) return { ok: true, changed: true, email, emailed: false };
+
+  const friendly = friendlyStage(stage, round);
+  const emailed = await sendOrderUpdateEmail(
+    order as { customer_email: string | null; customer_name: string | null; order_number: string },
+    `Update on your card — ${friendly} (Order #${order.order_number})`,
+    "Restoration Update",
+    `<p><strong>${escapeHtml((card.card_name as string | null) ?? "Your card")}</strong> has moved to a new stage.</p>${stageBox(stage, friendly)}`,
+  );
+  return { ok: true, changed: true, email, emailed };
+}
 
 export type AdvanceResult =
   | {
@@ -59,18 +152,26 @@ export async function advanceCards(
     by: string | null;
   },
 ): Promise<AdvanceResult> {
-  const [{ data: order, error: oErr }, { data: cards, error: cErr }, { data: events, error: eErr }] = await Promise.all([
-    admin.from("orders").select("customer_email, customer_name, order_number").eq("id", input.orderId).maybeSingle(),
-    admin.from("cards").select("id, card_name, completed, current_round, status, awaiting_arrival, bag_id").eq("order_id", input.orderId),
-    admin.from("order_events").select("event_type, description, metadata, created_at").eq("order_id", input.orderId)
-      .eq("event_type", "stage_update").order("created_at", { ascending: false }),
-  ]);
-  const readErr = oErr ?? cErr ?? eErr;
-  if (readErr) return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${readErr.message})` };
+  let read: [
+    { data: Record<string, unknown> | null; error: { message: string } | null },
+    Record<string, unknown>[],
+    StageEventRow[],
+  ];
+  try {
+    read = await Promise.all([
+      admin.from("orders").select("customer_email, customer_name, order_number").eq("id", input.orderId).maybeSingle(),
+      // Paged, both: the API returns at most 1,000 rows per request
+      fetchAll((from, to) => admin.from("cards").select("id, card_name, completed, current_round, status, awaiting_arrival, bag_id")
+        .eq("order_id", input.orderId).order("created_at").order("id").range(from, to)),
+      loadStageEvents(admin, input.orderId),
+    ]);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${e instanceof Error ? e.message : e})` };
+  }
+  const [{ data: order, error: oErr }, rows, evs] = read;
+  if (oErr) return { ok: false, status: 500, error: `Couldn't read the order. Nothing was changed. (${oErr.message})` };
   if (!order) return { ok: false, status: 404, error: "Order not found" };
 
-  const rows = cards ?? [];
-  const evs = (events ?? []) as StageEventRow[];
   const advanceCardsIn: AdvanceCard[] = rows.map((c) => {
     const st = cardStageState({ id: c.id as string, completed: c.completed as boolean | null, current_round: c.current_round as number | null }, evs);
     return {
@@ -121,11 +222,7 @@ export async function advanceCards(
     const lines = news.map((m) => ({ name: nameOf.get(m.cardId) ?? "Your card", stage: m.stage, friendly: friendlyStage(m.stage, m.round) }));
     const friendlies = [...new Set(lines.map((l) => l.friendly))];
     const stages = [...new Set(lines.map((l) => l.stage))];
-    const box = (stage: string, friendly: string) => `
-     <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:16px;margin:20px 0">
-       <p style="margin:0;font-size:13px;color:#6d28d9;font-weight:700">${escapeHtml(friendly)}</p>
-       <p style="margin:6px 0 0;font-size:15px">${escapeHtml(STAGE_INFO[stage]?.explanation ?? "")}</p>
-     </div>`;
+    const box = stageBox;
     const single = lines.length === 1;
     const subject = single
       ? `Update on your card — ${lines[0].friendly} (Order #${order.order_number})`

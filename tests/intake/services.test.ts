@@ -12,7 +12,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 type Row = Record<string, unknown>;
-type Mock = { url: string; store: { table(name: string): Row[]; load(seed: { tables: Record<string, Row[]> }): void; emails: Row[] }; close(): Promise<void> };
+type Mock = {
+  url: string;
+  store: { table(name: string): Row[]; load(seed: { tables: Record<string, Row[]> }): void; emails: Row[]; requests: { method: string; path: string }[] };
+  close(): Promise<void>;
+};
 
 let mock: Mock;
 let admin: SupabaseClient;
@@ -404,4 +408,62 @@ test("steps in any order (the step picker): skip ahead, go back, come back; only
   await tick();
   const legacy = await svc.stages.advanceCards(admin, { orderId: ORDER2, cardIds: [a], fromStage: "Humidor", by: "gavin" });
   assert.ok(legacy.ok && legacy.moved[0].stage === "Humidity Press" && legacy.moved[0].email === false && !legacy.emailed);
+});
+
+test("the order page's stage buttons (POST /api/admin/orders/[id]/stage) follow the same email rule; stage events are read in pages", async () => {
+  const ORDER4 = "00000000-0000-4000-8000-0000000000a4";
+  mock.store.table("orders").push(order(ORDER4, "CD-3010", "in_progress"));
+  const x = card(41, "premium", ORDER4);
+  const y = card(42, "premium", ORDER4);
+  mock.store.table("cards").push(x, y);
+  const [X, Y] = [x.id as string, y.id as string];
+  const ev = (cardId: string, stage: string, at: string): Row => ({
+    id: crypto.randomUUID(), order_id: ORDER4, event_type: "stage_update", description: `Stage: ${stage} [card:${cardId}]`,
+    metadata: { card_id: cardId, stage, round: 1 }, is_customer_visible: true, created_at: at,
+  });
+  // X reached Final Dry, then went back to Humidor; 1,000 events of other cards sit between (a big order),
+  // so its Final Dry is past the first 1,000 rows of the newest-first read
+  const seeded = [ev(X, "Final Dry", "2026-11-01T10:00:00.000Z")];
+  for (let i = 0; i < 1000; i++) seeded.push(ev("00000000-0000-4000-8000-00000000ffff", "Humidor", new Date(Date.parse("2026-11-02T00:00:00Z") + i * 1000).toISOString()));
+  seeded.push(ev(X, "Humidor", "2026-11-03T10:00:00.000Z"));
+  mock.store.table("order_events").push(...seeded);
+  const stageOf = (id: string) => events().filter((e) => e.order_id === ORDER4 && (e.metadata as Row).card_id === id);
+  const set = (cardId: string, stage: string) => svc.stages.setCardStage(admin, { orderId: ORDER4, cardId, stage, by: "gavin" });
+
+  // Clamp Work: past Humidor, but not past Final Dry (reached this round): staff only, no email
+  const sent0 = mock.store.emails.length;
+  const reqs0 = mock.store.requests.length;
+  assert.deepEqual(await set(X, "Clamp Work"), { ok: true, changed: true, email: false, emailed: false });
+  assert.equal(stageOf(X).at(-1)!.is_customer_visible, false);
+  assert.deepEqual(stageOf(X).at(-1)!.metadata, { card_id: X, stage: "Clamp Work", round: 1, by: "gavin" });
+  assert.equal(mock.store.emails.length, sent0, "no email going back");
+  const reads = mock.store.requests.slice(reqs0).filter((r) => r.method === "GET" && r.path.startsWith("/rest/v1/order_events")).map((r) => r.path);
+  assert.ok(reads.some((p) => /offset=1000\b/.test(p)), `stage events read in pages of 1,000: ${reads.join(" | ")}`);
+  assert.ok(reads.every((p) => p.includes("order=created_at.desc,id.desc")), `a stable order: ${reads.join(" | ")}`);
+
+  // The same step again: nothing written, no email
+  const before = stageOf(X).length;
+  assert.deepEqual(await set(X, "Clamp Work"), { ok: true, changed: false, email: false, emailed: false });
+  assert.equal(stageOf(X).length, before);
+
+  // Y, not started -> Humidor: new for the customer, customer visible, the one email as before
+  assert.deepEqual(await set(Y, "Humidor"), { ok: true, changed: true, email: true, emailed: true });
+  assert.equal(stageOf(Y).at(-1)!.is_customer_visible, true);
+  assert.equal(mock.store.emails.length, sent0 + 1);
+  assert.equal(mock.store.emails.at(-1)!.subject, "Update on your card — Humidity treatment (Order #CD-3010)");
+  // Y back to Ready for Slab Crack: staff only, no email
+  assert.deepEqual(await set(Y, "Ready for Slab Crack"), { ok: true, changed: true, email: false, emailed: false });
+  assert.equal(stageOf(Y).at(-1)!.is_customer_visible, false);
+  assert.equal(mock.store.emails.length, sent0 + 1);
+
+  // A new round starts from nothing: Humidor is news again
+  cardRow(X).current_round = 2;
+  const round2 = await set(X, "Humidor");
+  assert.ok(round2.ok && round2.email && round2.emailed, JSON.stringify(round2));
+  assert.equal(mock.store.emails.length, sent0 + 2);
+
+  // Refusals: an unknown step, a card of another order
+  assert.deepEqual(await set(X, "Polish"), { ok: false, status: 400, error: "Unknown stage" });
+  assert.deepEqual(await svc.stages.setCardStage(admin, { orderId: ORDER4, cardId: ids(plat)[0], stage: "Humidor", by: null }),
+    { ok: false, status: 404, error: "Card not found on this order" });
 });

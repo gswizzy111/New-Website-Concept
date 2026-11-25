@@ -21,7 +21,11 @@ export type PickerChip = {
   number: number | null;
   /** "Ready for Slab Crack", "Drying", "Done". */
   label: string;
-  /** Every card is here already: highlighted, nothing to tap. */
+  /**
+   * Every card is here already: highlighted, nothing to tap. A step chip is
+   * judged against the cards not done (a bag with 2 done and 3 at Humidor is
+   * at Humidor); Done against all of them.
+   */
   current: boolean;
   /** Cards here now. */
   count: number;
@@ -36,9 +40,10 @@ export type PickerChip = {
  */
 export function pickerChips(cards: readonly PickerCard[], reached: readonly string[] = []): PickerChip[] {
   const at = (target: string) => cards.filter((c) => (target === DONE_TARGET ? !!c.completed : !c.completed && c.current === target)).length;
+  const open = cards.filter((c) => !c.completed).length;
   const chip = (target: string, number: number | null, label: string): PickerChip => {
     const count = at(target);
-    const current = cards.length > 0 && count === cards.length;
+    const current = target === DONE_TARGET ? cards.length > 0 && count === cards.length : open > 0 && count === open;
     return { target, number, label, current, count, reached: !current && target !== DONE_TARGET && reached.includes(target) };
   };
   return [...STAGES.map((s, i) => chip(s, i + 1, adminStageLabel(s))), chip(DONE_TARGET, null, DONE_LABEL)];
@@ -67,6 +72,11 @@ export function pickerRequest(orderId: string, cards: readonly PickerCard[], tar
     toStage: target,
     fromStages: Object.fromEntries(moving.map((c) => [c.id, c.current])),
   };
+}
+
+/** The line after a tap that has nothing to move (pickerRequest gave null): every card not done is there already, or all are done. */
+export function pickerNothingToMove(target: string): string {
+  return target === DONE_TARGET ? "Already done." : `Already at ${adminStageLabel(target)}.`;
 }
 
 /** Done for more than one card asks once more (a bag's cards all marked done completes the bag). */

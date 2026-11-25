@@ -29,8 +29,10 @@ import { OpenCardPanel, whereId } from "./open-card";
  */
 
 type Props = {
-  /** The person: name, order, notes, links (made on the server). */
+  /** The person: name, order, bag, due date, card count (made on the server); above the button on a phone. */
   person: ReactNode;
+  /** The order's bags, the customer's notes and the links; under the button on a phone, under the person on a computer. */
+  personMore: ReactNode;
   groups: OpenGroup[];
   /** Switched-on desks, LOC-DESK first. */
   desks: OpenDesk[];
@@ -45,7 +47,7 @@ const bigButton = `inline-flex min-h-14 w-full items-center justify-center gap-2
 const deskRef = (d: OpenDesk): LocationRef => ({ id: d.id, code: d.code, name: d.name, kind: "other", station: null, serial: null, stage: null });
 const NONE_PLACED: ReadonlyMap<string, LocationRef> = new Map();
 
-export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }: Props) {
+export function OpenBoard({ person, personMore, groups, desks, defaultDeskId, deskProblem }: Props) {
   const router = useRouter();
   const [refreshing, startTransition] = useTransition();
   const stored = useStoredDesk();
@@ -150,10 +152,13 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
-        {person}
+      {/* Phone: the person, the button, then the rest (the button is on the first screen even for an
+          order with several bags and a long note); computer: the person's two parts as one card, the
+          button panel beside them */}
+      <div className="grid gap-4 [grid-template-areas:'top'_'move'_'more'] lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start lg:gap-y-0 lg:[grid-template-areas:'top_move'_'more_move']">
+        <div className="min-w-0 [grid-area:top] lg:self-stretch [&>section]:h-full">{person}</div>
 
-        <section aria-labelledby="move-h" className="rounded-2xl border border-border bg-white p-4 sm:p-5">
+        <section aria-labelledby="move-h" className="[grid-area:move] rounded-2xl border border-border bg-white p-4 sm:p-5">
           <h2 id="move-h" className="sr-only">Move to my desk</h2>
 
           {desk && desks.length > 1 && (
@@ -224,6 +229,8 @@ export function OpenBoard({ person, groups, desks, defaultDeskId, deskProblem }:
             </p>
           )}
         </section>
+
+        <div className="min-w-0 [grid-area:more]">{personMore}</div>
       </div>
 
       <div className="mt-6 flex flex-col gap-6">
