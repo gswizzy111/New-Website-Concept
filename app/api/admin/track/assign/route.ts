@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
  *     (send again with force: true to add anyway); 409 { error } for a switched-off slot
  *   → 400 / 404 { error }
  * Puts the cards in the slot (or any place). Each card leaves its old slot; in
- * a slot its step becomes the slot's step (never backwards), with at most one
- * customer email per order. Refunded and not-received cards are refused in
+ * a slot its step becomes the slot's step (later or earlier: any order), with at
+ * most one customer email per order, for steps new to the customer only. Refunded and not-received cards are refused in
  * their result.
  */
 export async function POST(request: Request) {

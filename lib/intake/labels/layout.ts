@@ -7,8 +7,9 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 // with the customer's name huge and the due date in big white letters at its
 // right; the bag's tier and Bag ID; the bag's card rows; and at the bottom
 // ONE bag QR (never under 1 in) with the Bag ID,
-// order number, card count, received date and "SCAN FOR EVERY CARD'S
-// PHOTOS". No per-card QR codes. Black only.
+// order number, card count, received date and "SCAN TO OPEN THE ORDER" (the
+// QR opens the scan landing, /admin/receiving/open/<Bag ID>, with the order
+// and "Move all N cards to my desk"). No per-card QR codes. Black only.
 //
 // Sizes come from the approved mock (three.html, middle label: 384px label,
 // 30px side padding), scaled to the printed width. The card rows start at a
@@ -20,10 +21,12 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 //
 // On the 50 x 80 mm Katasymbol label (printed width under 2 in) the QR keeps
 // its 1 in and the words go beside it in a narrow column (card count,
-// received date, "SCAN FOR EVERY CARD'S PHOTOS"; the Bag ID is on the tier
+// received date, "SCAN TO OPEN THE ORDER"; the Bag ID is on the tier
 // row), and "Also in this order" gives way when it would hide cards.
 
 export const PT = 72;
+/** The words beside the bag QR: what scanning it opens (the order, with its cards and "Move to my desk"). */
+export const BAG_QR_CAPTION = "SCAN TO OPEN THE ORDER";
 export const LABEL_LIMITS = {
   /** Smallest text anywhere on a label: 6.5 pt is about 18 printer dots to the em at 203 dpi. */
   minTextPt: 6.5,
@@ -573,7 +576,7 @@ function bottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number, n
   const received = fitLine(recv, "body800", small, colW, LABEL_LIMITS.minTextPt);
   const scanSize = s.fs(8.5);
   const scanTrack = s.px(1.2);
-  const scan = wrapLines("SCAN FOR EVERY CARD'S PHOTOS", "body800", scanSize, colW, 2, scanTrack);
+  const scan = wrapLines(BAG_QR_CAPTION, "body800", scanSize, colW, 2, scanTrack);
   const scanTop = s.px(3);
   const lines: [string, FontRole, number, number, number][] = [
     [id.text, "mono600", id.size, 1.15, 0],
@@ -607,7 +610,7 @@ function bottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: number, n
 /**
  * The bottom of a label printed under 2 in wide (50 x 80 mm): the bag QR (1 in)
  * at the left, and in the narrow column at its right the card count, the
- * received date and "SCAN FOR EVERY CARD'S PHOTOS", each wrapped to the
+ * received date and "SCAN TO OPEN THE ORDER" (BAG_QR_CAPTION), each wrapped to the
  * column; the received date goes first when the column would stand taller
  * than the QR. The Bag ID is on the tier row above.
  */
@@ -620,7 +623,7 @@ function narrowBottomBlock(s: S, xi: number, Wi: number, bag: LabelBag, cap: num
   const small = min;
   const recvLines = recvDay ? wrapLines(`Received ${MONTHS[recvDay.m - 1]} ${recvDay.d}`, "body800", small, colW, 2) : [];
   const scanTrack = 0.3;
-  const scan = wrapLines("SCAN FOR EVERY CARD'S PHOTOS", "body800", small, colW, 5, scanTrack);
+  const scan = wrapLines(BAG_QR_CAPTION, "body800", small, colW, 5, scanTrack);
   const gap = 2.5;
   type Line = [string, FontRole, number, number, number];
   const head: Line[] = [[count.text, "display900", count.size, 1.05, 0.2]];

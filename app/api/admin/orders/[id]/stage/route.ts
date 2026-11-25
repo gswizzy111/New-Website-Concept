@@ -1,8 +1,16 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAdmin } from "@/lib/admin-auth";
-import { STAGES, STAGE_INFO, friendlyStage } from "@/lib/restoration-stages";
-import { escapeHtml, sendOrderUpdateEmail } from "@/lib/customer-email";
+import { getAdminSession, isAdmin } from "@/lib/admin-auth";
+import { STAGES } from "@/lib/restoration-stages";
+import { setCardStage } from "@/lib/intake/stages";
 
+/**
+ * One card to one of the 8 steps (the order page's Restoration Stages
+ * buttons). Body `{ stage, card_id }`, answer `{ ok, emailed }`. The email
+ * rule is the step picker's (setCardStage in lib/intake/stages.ts): only a
+ * step past the furthest the card reached this round emails the customer
+ * and shows on their order page; going back or re-entering a step is staff
+ * only; a card already at that step changes nothing.
+ */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isAdmin())) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,36 +28,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return Response.json({ error: "Unknown stage" }, { status: 400 });
   }
 
-  const admin = createAdminClient();
-  const [{ data: card }, { data: order }] = await Promise.all([
-    admin.from("cards").select("id, card_name, current_round").eq("id", cardId).eq("order_id", id).maybeSingle(),
-    admin.from("orders").select("customer_email, customer_name, order_number").eq("id", id).maybeSingle(),
-  ]);
-  if (!card || !order) return Response.json({ error: "Card not found on this order" }, { status: 404 });
-
-  const round = card.current_round ?? 1;
-  const friendly = friendlyStage(stage, round);
-  // The description keeps the old format for anything still reading it; the
-  // card, stage and round are read from metadata
-  const { error } = await admin.from("order_events").insert({
-    order_id: id,
-    event_type: "stage_update",
-    description: `Stage: ${stage} [card:${cardId}]`,
-    metadata: { card_id: cardId, stage, round },
-    is_customer_visible: true,
-  });
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  const emailed = await sendOrderUpdateEmail(
-    order,
-    `Update on your card — ${friendly} (Order #${order.order_number})`,
-    "Restoration Update",
-    `<p><strong>${escapeHtml(card.card_name)}</strong> has moved to a new stage.</p>
-     <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:12px;padding:16px;margin:20px 0">
-       <p style="margin:0;font-size:13px;color:#6d28d9;font-weight:700">${escapeHtml(friendly)}</p>
-       <p style="margin:6px 0 0;font-size:15px">${escapeHtml(STAGE_INFO[stage].explanation)}</p>
-     </div>`,
-  );
-
-  return Response.json({ ok: true, emailed });
+  const by = (await getAdminSession())?.username ?? null;
+  const result = await setCardStage(createAdminClient(), { orderId: id, cardId, stage, by });
+  if (!result.ok) return Response.json({ error: result.error }, { status: result.status });
+  return Response.json({ ok: true, emailed: result.emailed });
 }

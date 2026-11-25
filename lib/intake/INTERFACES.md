@@ -7,7 +7,7 @@ doc comment.
 ## Ground rules
 
 - **Server vs client.** Pure modules (safe in client components and tests):
-  `types.ts`, `codes.ts`, `business-days.ts`, `stage-plan.ts`,
+  `types.ts`, `codes.ts`, `business-days.ts`, `stage-plan.ts`, `step-picker.ts`,
   `receiving-plan.ts`, `views.ts`, and `computeDueDate` in `due-dates.ts`
   (`due-dates.ts` has no server-only import; its loaders take a client).
   Server only (`import "server-only"`): `receiving.ts`, `stages.ts`, `data.ts`,
@@ -72,7 +72,10 @@ and the view models:
   with no receipt record and no historical received day).
 - `CardStageState`: round, completed, currentIndex (-1 not started, 0-7, 8 done),
   current (stored name or null), currentLabel ("Not started", "Drying", "Done"),
-  doneStages, remainingStages, `next: NextStep | null`, updatedAt,
+  doneStages (steps reached this round, not the current one; any order, so
+  a skipped step isn't done), remainingStages (not reached this round),
+  furthestIndex (furthest step reached this round, -1 none: the email rule's
+  mark), `next: NextStep | null` (the following step in STAGES order), updatedAt,
   `history: StageHistoryEntry[]` (oldest first; kinds `received | stage |
   round_started | completed`, with at, by, round, stage, label, bulk).
 - `NextStep`: `{ kind: "stage", stage, label } | { kind: "complete", label: "Done" }`.
@@ -112,7 +115,8 @@ and the view models:
 | `type CodeKind = "order" \| "card" \| "bag"` | |
 | `codeKind(code): CodeKind \| null` | shape only, on a normalized code: order `^[A-Z]+-\d+$` (CD-2549, CD-12345), card `^[A-Z]+-\d+-\d{2,}$` (CD-2549-03, -104), bag `^[A-Z]+-\d+-[A-Z]\d*$` (CD-2549-P, -P2..-P99); never overlap |
 | `orderPhotosPath(orderId, bagId?): string` | `/admin/receiving/<orderId>/photos`, with `bagId` `...?bag=<bagId>` (ids URL-encoded) |
-| `codeTargetPath(kind, id, orderId?): string` | where `/q` sends a resolved code: order -> `orderPhotosPath(orderId \|\| id)`; bag -> `orderPhotosPath(orderId, id)` (`/admin/receiving/bag/<id>` without an orderId); card -> `/admin/receiving/card/<id>` |
+| `openCodePath(code): string` | the scan landing: `/admin/receiving/open/CD-2549-P` (normalized code) |
+| `codeTargetPath(kind, id, orderId?, code?): string` | where `/q` sends a resolved code: order and bag -> `openCodePath(code)` (the scan landing); without `code` (or a code of another kind) as before: order -> `orderPhotosPath(orderId \|\| id)`, bag -> `orderPhotosPath(orderId, id)` (`/admin/receiving/bag/<id>` without an orderId); card -> `/admin/receiving/card/<id>`; location -> `scanPathForLocation(code \|\| id)` |
 | `qrPath(code): string` | `/q/CD-2549-03` |
 | `qrUrl(code): string` | QR content, ALL upper case: `HTTPS://THECARDDOC1.COM/Q/CD-2549-P` (uses `siteUrl()`); the tier bag label's one QR is `qrUrl(bagCode)` |
 | `compareCardsForSeq(a, b)` | (created_at, id) order with microseconds |
@@ -152,15 +156,45 @@ after fromDay; 2026-11-15 + 15 with 2026-11-26 off = 2026-12-07),
 
 ## stage-plan.ts (pure) and stages.ts (server)
 
+**Steps in any order** (the owner, Nov 25 2026): staff put a card at any of the
+8 steps, skipping ahead or going back; a card's step is its newest stage event
+of the round. **Customer email rule** (`stepEmailsCustomer(target, furthest)`,
+pure): only a step PAST the furthest step the card reached this round emails
+the customer (one email per order per request, as before) and its event is
+customer visible; going back (even to a skipped step) or re-entering a step
+already reached sends no email and writes a staff-only event
+(`is_customer_visible: false`, so the customer's order page timeline only
+shows progress). A new round starts from nothing. Done never emails.
+
 - `NOT_STARTED_LABEL`, `DONE_LABEL`, `stageIndex(stage)`, `nextStepAfter(stage | null): NextStep`.
+- `furthestStageIndex(cardId, round, events): number` (-1 none), `stepEmailsCustomer(target, furthest): boolean`.
 - `cardStageState(card, events): CardStageState`: `card` = { id, completed, completed_at?, current_round?, received_at?, received_by? }; `events` = the order's order_events NEWEST FIRST (stage_update and round_started rows are used). Current stage uses the existing `currentStages()`.
-- `planAdvance({ cards: AdvanceCard[], cardIds, fromStage, toStage? }): { ok, plan: AdvancePlan } | refusal`; `AdvanceCard` = { id, current, completed, refunded, awaiting, round }; `SkipReason` = `different_stage | done | refunded | awaiting_arrival | not_on_order`.
+- `planAdvance({ cards: AdvanceCard[], cardIds, fromStage?, fromStages?, toStage? }): { ok, plan: AdvancePlan } | refusal`; `AdvanceCard` = { id, current, completed, refunded, awaiting, round, furthest? }; `AdvancePlan.moves` = { cardId, stage, round, email }[]; `SkipReason` = `different_stage | already_there | done | refunded | awaiting_arrival | not_on_order`. Guard: a card moves only while its step is still `fromStages[id]` (else `fromStage`; one of them is required); a card at the target already is `already_there` (checked first, so a repeat is a no-op).
 - `isBagComplete(cards)`, `bagCompletionPatch(bag, cards, now, orderStatus?)`, `stageGroups(cards)`.
 - `keepsHistoricalCompletion(bag, orderStatus)`: a `migration` bag of a finished order (completed / shipped_back / delivered) stays complete even though its old cards were never ticked done (finished historical orders are never reopened). `refreshBagCompletion`, the loaders' healing and `bagView().complete` all follow it.
-- `advanceCards(admin, { orderId, cardIds, fromStage, toStage?, by }): AdvanceResult`
-  - Moves only the chosen cards whose current step equals `fromStage` (null = not started) to the next step, or `toStage` (a stage name, or `"complete"`). From Final Dry the next step marks the card done (`completed = true`, like the Done toggle).
-  - Writes exactly what the stage buttons write: `order_events` `stage_update`, description `Stage: <stage> [card:<id>]`, metadata `{ card_id, stage, round, by, bulk }`, customer visible.
-  - ok: `{ target, moved: { cardId, stage, round }[], completed: cardId[], skipped: { cardId, reason, current }[], emailed, bagsCompleted: bagId[] }`. One customer email per call listing every moved card (no email for "done", as before). Show `skipped` to staff ("2 cards were at another step and were left alone").
+- `advanceCards(admin, { orderId, cardIds, fromStage?, fromStages?, toStage?, by }): AdvanceResult`
+  - Puts the chosen cards at `toStage`: any stage name, earlier or later than now, or `"complete"` (done, like the Done toggle, from any step). Without `toStage`: the step after `fromStage` (the old one-tap advance; from Final Dry it marks the card done). Only cards still at the step the page showed move (`fromStages[id]`, else `fromStage`; null = not started).
+  - Writes exactly what the stage buttons write: `order_events` `stage_update`, description `Stage: <stage> [card:<id>]`, metadata `{ card_id, stage, round, by, bulk }`; customer visible only when the step is new for the customer (`moved[].email`).
+  - ok: `{ target, moved: { cardId, stage, round, email }[], completed: cardId[], skipped: { cardId, reason, current }[], emailed, bagsCompleted: bagId[] }`. One customer email per call listing the moved cards with `email` (none for going back, re-entering or "done"). Show `skipped` to staff.
+  - Reads the order's cards and stage events in pages (`fetchAll`, events newest first by `created_at`, then `id`), so a big order's furthest step and the `fromStages` guard see every event.
+- `POST /api/admin/intake/stages` `{ orderId, cardIds, toStage?: <stage> | "done", fromStage?, fromStages?: { [cardId]: stage | null } }` -> `{ moved, completed, newStep (cardIds in the email), skipped, target, emailed, bagsCompleted }`; the old `{ orderId, cardIds, fromStage }` still advances one step.
+- `setCardStage(admin, { orderId, cardId, stage, by }): { ok: true, changed, email, emailed } | refusal`: one card to one of the 8 steps (the order page's Restoration Stages buttons, `POST /api/admin/orders/[id]/stage`), same email rule: customer visible and emailed only past the furthest step this round; going back or re-entering is staff only; a card already at that step writes nothing (`changed: false`). Done cards can still be given a step, as before. 400 unknown stage, 404 card not on the order.
+
+## step-picker.ts (pure)
+
+The step picker (`StepPicker` in `components/intake/tracking-actions.tsx`): the
+8 steps (admin names, "Drying" for Book) and Done as 9 buttons in order in a
+`role="group"` named "Step for …", the current one `aria-pressed`, a check on
+steps reached this round; one tap sends `toStage` + `fromStages`. Card page:
+open; bag page: open for the whole bag, behind "Move these N cards" (a group,
+when the bag's cards differ) and "Change step" (a card row); Bags board: "Set
+the step". Done for several cards asks "Yes, mark done". `pickerChips(cards,
+reached?)` (a step chip is current when every card NOT done is at it, so a bag
+of 2 done + 3 at Humidor shows Humidor pressed; Done when every card is done),
+`pickerRequest(orderId, cards, target)` (null: nothing to move; the picker then
+says `pickerNothingToMove(target)`: "Already at Humidor." / "Already done."),
+`pickerNeedsConfirm`, `pickerOutcome(target, requested, response)` (the line
+after a tap), `groupPickerCards(stageGroups)`, `DONE_TARGET = "done"`.
 - `refreshBagCompletion(admin, bagIds): { completed: bagId[], reopened: bagId[] }`: never throws. Sets `completed_at` once every non-refunded card is done (keeps the earliest), clears it and `completion_seen_at` when a card reopens. Call it after anything that changes `cards.completed` or `bag_id`.
 - `refreshBagCompletionForCard(cardId, admin?)`: hook used by the existing `cards/[id]/complete` and `cards/[id]/round` routes.
 
@@ -189,7 +223,7 @@ status only while it still has that value (`skipped: true` otherwise).
 | route | body | response |
 |---|---|---|
 | `POST /api/admin/orders/[id]/status` | `{ status, tracking_number? }` | `{ ok: true, emailFailed?, notesEmailed? }`; 400 `Invalid status`, 404, 500 |
-| `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (one email per click; for bulk use `advanceCards`) |
+| `POST /api/admin/orders/[id]/stage` | `{ stage, card_id }` | `{ ok, emailed }` (`setCardStage`: emails only a step past the furthest this round; for bulk use `advanceCards`) |
 | `POST /api/admin/cards/[id]/complete` | none | `{ completed }` (toggles; now also refreshes the bag) |
 | `POST /api/admin/cards/[id]/round` | none | `{ ok, round }` (now also reopens the bag) |
 | `PATCH /api/admin/cards/[id]/tier` | `{ tier }` | set a card's tier (use for `needsTier`); 409 `{ error, receivingUrl }` when the card is already in a bag (`lib/intake/tier-lock.ts`) |
@@ -206,13 +240,57 @@ without any lookup. Without a full admin session a well-formed code is never
 looked up: it redirects to `/admin/login?next=/q/<CODE>` (the normalized code;
 the login page accepts `/q/[A-Za-z0-9-]{1,40}` and same-site `/admin/...`
 paths), so a signed-out visitor can't tell a real code from a made-up one.
-Signed in, `resolveCode` then `codeTargetPath`: an order code to its photos
-page, a Bag ID to that bag's photos (`?bag=<bagId>`), a Card ID to its card
+Signed in, `resolveCode` then `codeTargetPath`: an order code or a Bag ID to
+the scan landing (`/admin/receiving/open/<CODE>`, below), a Card ID to its card
 page, a place code (`LOC-…`) to the Scan page at that place
 (`/admin/scan?loc=LOC-CLAMP-07`); an unknown code (or a failed read, which is
 logged) is 404. Every
 response is `no-store`. A signed-out GET of any other `/admin/...` page redirects to
 `/admin/login?next=<path+query>`.
+
+## Scan landing (bag/order QR)
+
+What a bag QR (`/q/CD-2549-P`) or an order QR (`/q/CD-2549`) opens (owner, Nov
+25 2026: "a page that is very simple ... move the card to my desk"); labels
+already printed land here with no reprint. Page
+`app/admin/receiving/open/[code]/page.tsx`, full admins only (`requireAdmin`);
+`[code]` is a Bag ID or order number in any case (normalized). Any other code,
+or one nothing has, is `notFound()` (the segment's `not-found.tsx`: "Code not
+found", the /q wording).
+
+- **Shows**: the customer's name big; order number; a bag's tier, Bag ID and
+  "Due Mon Dec 7" (an order code lists its bags); the card count (refunded not
+  counted); the order's customer notes; links "Open full order" and "All
+  photos" (the photos page, `?bag=` for a bag code). Then one big "Move all N
+  cards to my desk", and each card (photos with the photos page's viewer, name,
+  year / set / #, Card ID, declared value, notes, known defects, "Where it is
+  now", the step read only, "Move to my desk"), grouped per bag for an order
+  code. Done, refunded and not-arrived cards are greyed, no button.
+- **Moves**: `POST /api/admin/track/assign { locationCode: <desk code>, cardIds }`
+  (no new route): the place only, never the step, no email. N = cards received,
+  not done, not refunded and not on that desk; then "N cards are on your desk" +
+  "Open my desk" (`deskPagePath(code)`), or "All on your desk". Each refused
+  card or a failed request shows the server's message. At most 200 cards per
+  request (`MOVE_CHUNK` = the route's `MAX_CARDS`; `moveChunks`,
+  `chunkedMoveOutcome` merge the answers). The page shows the moved cards on
+  the desk at once and keeps them there until every `router.refresh()` started
+  so far has landed (the transition's pending flag); it refreshes after a
+  failed move too, so a desk switched off meanwhile drops out of the picker.
+- **Layout**: on a phone the customer's name, order, bag, due date and card
+  count, then the big button (on the first screen, 390 x 664), then the order's
+  bags, the customer's notes and the links; on a computer those two parts read
+  as one card with the button panel beside it.
+- **Desk**: `LOC-DESK` by default (`ensureDesk` makes it on the first visit when
+  there is no desk, as the Desk page does); with 2+ switched-on desks a
+  "Desk" select, remembered per phone (localStorage `intake.openPage.desk`).
+- **Code**: `_lib/load.ts` (server: `loadOpen` = `resolveCode` +
+  `loadOrdersContext` + the Desk's extra columns through `deskCardView`;
+  `loadDeskChoice`), `_lib/view.ts` (pure: `buildOpenView`, `whereText`,
+  `moveAllState`, `moveOutcome`, `dueText`, `chooseDesk`),
+  `_components/open-board.tsx`, `open-card.tsx`, `desk-choice.ts`. Tests:
+  `tests/intake/bag-open.test.ts`.
+- The bag label's QR caption is `BAG_QR_CAPTION` = "SCAN TO OPEN THE ORDER"
+  (`lib/intake/labels/layout.ts`).
 
 ## Tracking (slots)
 
@@ -264,10 +342,12 @@ page.
 
 **Rules** (`tracking/move-plan.ts`, pure): a card is in one place at a time
 (putting it somewhere else frees the old slot); in a slot its step becomes the
-slot's stage, **forward only** (Heat Press comes before Clamp Work in STAGES, so
-a Clamp Work card put in a heat press keeps Clamp Work and says so); at most one
-customer email per order per request (`tracking/stage-email.ts`, same email as
-`advanceCards`); refunded and not-received cards are refused; repeating a
+slot's stage, **later or earlier** (steps in any order: a Clamp Work card put in
+a heat press is at Heat Press; a done card stays done); at most one customer
+email per order per request (`tracking/stage-email.ts`, same email as
+`advanceCards`), listing only the cards at a step past the furthest they
+reached this round (`stepEmailsCustomer`, `PlannedMove.email`; the other step
+events are staff only); refunded and not-received cards are refused; repeating a
 request changes nothing. Done marks the card done (as the Done toggle), frees
 its slot, puts it at `LOC-DONE` and refreshes bag completion; no email.
 

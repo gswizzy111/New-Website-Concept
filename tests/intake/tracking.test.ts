@@ -1,6 +1,6 @@
 /**
  * Slot tracking without a database (lib/intake/tracking): place codes, slot
- * and shelf names, the planner's rules (forward-only steps, done, take out,
+ * and shelf names, the planner's rules (steps in any order, the email rule, done, take out,
  * idempotency, refused cards), capacity and ship-check statuses.
  */
 import { test } from "node:test";
@@ -134,7 +134,7 @@ test("places list order: slots by step then number, shelves by date, Done, Shipp
   ]);
 });
 
-test("into a slot: the step jumps forward to the slot's step, the old slot frees up", () => {
+test("into a slot: the step jumps to the slot's step, the old slot frees up; a new step emails", () => {
   const plan = planCards({
     action: "assign", target: CLAMP, cardIds: ["c01", "c02"],
     cards: [card("c01", { current: "Humidor", locationId: "loc-humidor-1" }), card("c02")],
@@ -149,27 +149,47 @@ test("into a slot: the step jumps forward to the slot's step, the old slot frees
     [true, true, "Clamp Work", "In CLAMP 07. Step: Clamp Work."],
   ]);
   assert.equal(plan.message, "2 cards in CLAMP 07. Step: Clamp Work.");
+  assert.deepEqual(plan.moves.map((m) => m.email), [true, true]);
 });
 
-test("never backwards: a card past the slot's step keeps its step (said so); a done card stays done", () => {
+test("backwards too: a card past the slot's step takes the slot's step, with no email; a done card stays done", () => {
   const plan = planCards({
     action: "move", target: HEAT, cardIds: ["c01", "c02"],
     cards: [card("c01", { current: "Book with Weights", locationId: "loc-clamp-07" }), card("c02", { completed: true, locationId: "loc-clamp-07" })],
   });
-  assert.deepEqual(plan.moves.map((m) => [m.stageEvent, m.stageBefore, m.stageAfter, m.locationChanges, m.complete, m.action]), [
-    [null, "Book with Weights", "Book with Weights", true, false, "move"],
-    [null, "done", "done", true, false, "move"],
+  assert.deepEqual(plan.moves.map((m) => [m.stageEvent, m.stageBefore, m.stageAfter, m.locationChanges, m.complete, m.email, m.action]), [
+    [{ stage: "Heat Press", round: 1 }, "Book with Weights", "Heat Press", true, false, false, "move"],
+    [null, "done", "done", true, false, false, "move"],
   ]);
-  assert.equal(plan.results[0].message, "In HEAT PRESS 03. Step stays Book with Weights (past Heat Press).");
-  assert.equal(plan.results[0].stage, undefined, "not at the slot's step");
+  assert.equal(plan.results[0].message, "In HEAT PRESS 03. Step: Heat Press.");
+  assert.equal(plan.results[0].stage, "Heat Press");
   assert.equal(plan.results[1].message, "In HEAT PRESS 03. It's done, so the step wasn't changed.");
-  assert.match(plan.message, /1 card past Heat Press kept its step \(Book with Weights\)/);
+  assert.equal(plan.message, "2 cards in HEAT PRESS 03. Step: Heat Press for 1 card. 1 card already done.");
+});
+
+test("email rule in a slot: past the furthest step this round emails; going back or coming back doesn't", () => {
+  const plan = planCards({
+    action: "assign", target: CLAMP, cardIds: ["c01", "c02", "c03", "c04"],
+    cards: [
+      card("c01", { current: "Humidor", furthest: 1 }),         // forward: news
+      card("c02", { current: "Humidor", furthest: 5 }),         // was at Clamp Work, went back: coming back
+      card("c03", { current: "Heat Press", furthest: 7 }),      // reached Final Dry: going back
+      card("c04", { current: null, furthest: -1, round: 2 }),   // new round: news again
+    ],
+  });
+  assert.deepEqual(plan.moves.map((m) => [m.cardId, m.stageEvent?.stage, m.email]), [
+    ["c01", "Clamp Work", true], ["c02", "Clamp Work", false], ["c03", "Clamp Work", false], ["c04", "Clamp Work", true],
+  ]);
+  // Without furthest the current step stands in for it
+  const legacy = planCards({ action: "assign", target: HEAT, cardIds: ["c01"], cards: [card("c01", { current: "Clamp Work" })] });
+  assert.deepEqual([legacy.moves[0].stageEvent?.stage, legacy.moves[0].email], ["Heat Press", false]);
 });
 
 test("the same step in another slot: only the place changes, no event", () => {
   const plan = planCards({ action: "move", target: CLAMP, cardIds: ["c01"], cards: [card("c01", { current: "Clamp Work", locationId: "loc-clamp-03" })] });
   assert.equal(plan.moves.length, 1);
   assert.equal(plan.moves[0].stageEvent, null);
+  assert.equal(plan.moves[0].email, false);
   assert.equal(plan.results[0].stage, "Clamp Work");
   assert.equal(plan.results[0].message, "In CLAMP 07.");
 });
@@ -230,9 +250,10 @@ test("a shelf only changes the place; the move row's action can be overridden (r
   assert.equal(plan.results[0].message, "In DUE MON DEC 7.");
 });
 
-test("a later round restarts the steps: a new-round card with no step yet goes forward", () => {
+test("a later round restarts the steps: a new-round card with no step yet takes the slot's step", () => {
   const plan = planCards({ action: "assign", target: HEAT, cardIds: ["c01"], cards: [card("c01", { current: null, round: 2 })] });
   assert.deepEqual(plan.moves[0].stageEvent, { stage: "Heat Press", round: 2 });
+  assert.equal(plan.moves[0].email, true);
 });
 
 test("capacity: null = no limit; cards already inside count once", () => {

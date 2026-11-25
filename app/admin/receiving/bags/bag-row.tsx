@@ -2,6 +2,8 @@ import { Camera, TriangleAlert } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { orderPhotosPath } from "@/lib/intake/codes";
+import { groupPickerCards } from "@/lib/intake/step-picker";
+import { StepPicker } from "@/components/intake/tracking-actions";
 import type { BoardBag } from "./load-board";
 import { DoneBar, DUE_TEXT, LabelStatus, shortDay, StepSummary, TierBadge, type DueInfo } from "./_components/bag-bits";
 
@@ -10,7 +12,8 @@ import { DoneBar, DUE_TEXT, LabelStatus, shortDay, StepSummary, TierBadge, type 
  * and up to 1279 px (Bag ID and customer, then due | cards side by side,
  * then the steps, then the label and links); one dense row from 1280 px
  * (four columns, steps under the card count), where the steps get room
- * next to the 224 px admin sidebar.
+ * next to the 224 px admin sidebar. "Set the step" opens the bag's step
+ * picker: any of the 8 steps or Done for every card not done yet.
  */
 
 export const ROW_COLUMNS = "xl:grid-cols-[minmax(0,15rem)_minmax(0,11rem)_minmax(0,1fr)_minmax(0,13rem)]";
@@ -26,6 +29,7 @@ const ACCENT: Partial<Record<DueInfo["kind"], string>> = {
 
 export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today: string }) {
   const bagHref = `/admin/receiving/bag/${bag.id}`;
+  const pickerCards = groupPickerCards(bag.stageGroups);
   return (
     <li
       className={`bg-white rounded-xl border border-border ${ACCENT[due.kind] ?? ""} p-4 sm:px-5 grid grid-cols-2 gap-x-4 gap-y-3 [grid-template-areas:'bag_bag'_'due_cards'_'steps_steps'_'act_act'] ${ROW_COLUMNS} xl:grid-rows-[auto_1fr] xl:gap-x-5 xl:gap-y-2 xl:[grid-template-areas:'bag_due_cards_act'_'bag_due_steps_act']`}
@@ -101,8 +105,13 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
       </div>
 
       {/* Which steps the cards are at */}
-      <div className="[grid-area:steps] min-w-0">
+      <div className="[grid-area:steps] min-w-0 flex flex-col gap-2">
         {bag.cardCount > 0 && <StepSummary groups={bag.stageGroups} />}
+        {pickerCards.some((c) => !c.completed) && (
+          <div className="max-w-md">
+            <StepPicker orderId={bag.orderId} cards={pickerCards} label={`Step for every card in bag ${bag.code}`} collapsed="Set the step" />
+          </div>
+        )}
       </div>
 
       {/* Label and links */}

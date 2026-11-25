@@ -70,7 +70,7 @@ export function RestorationStageUpdater({
   return (
     <div className="bg-white rounded-xl border border-purple-200 p-6">
       <h2 className="font-heading font-black text-lg text-foreground mb-1">Restoration Stages</h2>
-      <p className="text-xs text-muted-foreground mb-5">Track each card through the restoration process. Click a stage to mark it current — the customer is emailed each time.</p>
+      <p className="text-xs text-muted-foreground mb-5">Track each card through the restoration process. Click a stage to mark it current. The customer is emailed when a card reaches a step it hasn&apos;t reached yet this round; going back sends no email.</p>
       {error && <p role="alert" className="text-xs text-red-600 mb-3">{error}</p>}
 
       <div className="flex flex-col divide-y divide-border">
