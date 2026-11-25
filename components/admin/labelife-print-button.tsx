@@ -3,28 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import { connectQZ, findPrinter, printLabel, isQZActive } from "@/lib/qz-print";
 
+export type LabelPrintStatus = "loading" | "ready" | "error" | "sharing";
+
 /**
- * Print a shipping label. On a computer running QZ Tray it goes straight to
- * the label printer. Otherwise it's for the Bluetooth printer: it hands the label PDF
- * to the share sheet, where Labelife picks it up and prints it. The PDF is
- * fetched ahead of time because Safari only opens the share sheet straight
- * from a tap. Where the share sheet can't take files, the PDF opens instead.
+ * The print path of a shipping label, for any button: on a computer running
+ * QZ Tray it goes straight to the label printer (the D520). Otherwise it's
+ * for the Bluetooth printer: it hands the label PDF to the share sheet,
+ * where Labelife picks it up and prints it. The PDF is fetched ahead of time
+ * because Safari only opens the share sheet straight from a tap. Where the
+ * share sheet can't take files, the PDF opens instead.
  *
  * `autoPrint` opens the share sheet as soon as the PDF is ready (right after a
  * label is purchased); if the browser won't allow that, the button is there.
  */
-export function LabelifePrintButton({ labelUrl, fileName = "shipping-label.pdf", autoPrint = false, size = "sm" }: {
-  labelUrl: string;
-  fileName?: string;
-  autoPrint?: boolean;
-  size?: "xs" | "sm";
-}) {
+export function useLabelPrint(labelUrl: string, { fileName = "shipping-label.pdf", autoPrint = false }: { fileName?: string; autoPrint?: boolean } = {}): {
+  status: LabelPrintStatus;
+  print: () => Promise<void>;
+} {
   // The fetched PDF, kept with the URL it came from so a new label shows as loading
   const [loaded, setLoaded] = useState<{ url: string; file: File | null } | null>(null);
   const [sharing, setSharing] = useState(false);
   const autoTried = useRef(false);
   const file = loaded?.url === labelUrl ? loaded.file : null;
-  const status = sharing ? "sharing" : loaded?.url !== labelUrl ? "loading" : file ? "ready" : "error";
+  const status: LabelPrintStatus = sharing ? "sharing" : loaded?.url !== labelUrl ? "loading" : file ? "ready" : "error";
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +78,20 @@ export function LabelifePrintButton({ labelUrl, fileName = "shipping-label.pdf",
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPrint, status, file]);
 
+  return { status, print };
+}
+
+/**
+ * Print a shipping label (useLabelPrint): QZ Tray, else the share sheet for
+ * Labelife, else the PDF opens.
+ */
+export function LabelifePrintButton({ labelUrl, fileName = "shipping-label.pdf", autoPrint = false, size = "sm" }: {
+  labelUrl: string;
+  fileName?: string;
+  autoPrint?: boolean;
+  size?: "xs" | "sm";
+}) {
+  const { status, print } = useLabelPrint(labelUrl, { fileName, autoPrint });
   const cls = size === "xs" ? "text-xs px-3 py-1.5" : "text-sm px-4 py-2";
   return (
     <button

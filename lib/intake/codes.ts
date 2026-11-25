@@ -159,6 +159,16 @@ export function openCodePath(code: string): string {
 }
 
 /**
+ * The packing page of one bag (app/admin/receiving/pack/[code]): the ship
+ * check by eye, then "Buy return label", print, "Mark shipped" ("ship each
+ * bag when done", owner, Nov 25 2026). `code` is the Bag ID, any case:
+ * /admin/receiving/pack/CD-2549-P.
+ */
+export function packCodePath(code: string): string {
+  return `/admin/receiving/pack/${encodeURIComponent(normalizeCode(code) || code.trim().toUpperCase())}`;
+}
+
+/**
  * The admin page a scanned code opens (app/q/[code]/route.ts), from what
  * resolveCode found: `id` is the order's, card's or bag's id, `orderId` its
  * order's, `code` the normalized code.
