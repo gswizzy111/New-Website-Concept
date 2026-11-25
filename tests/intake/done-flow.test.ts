@@ -16,6 +16,7 @@ import {
 } from "@/lib/intake/tracking/bag-home";
 import type { LocationRef, TrackActionResponse, TrackBagPlace } from "@/lib/intake/tracking/types";
 import { pickerOutcome } from "@/lib/intake/step-picker";
+import { placeSubtitle } from "@/components/intake/scan/format";
 import { outcomeOf } from "@/app/admin/receiving/desk/_lib/outcome";
 import {
   bagStepTitle, bagSteps, canFinish, doneAllIds, doneAllLabel, doneAllQuestion, doneOutcome, openBagsLine, type OpenCard,
@@ -83,6 +84,8 @@ test("where a bag is, short: Open bags box · R, Shelf DUE MON DEC 7, Ready to s
   assert.equal(bagPlaceText(BENCH, "R"), "BENCH 2");
   assert.equal(bagPlaceText(null, "R"), null);
   assert.equal(bagPlaceOrNone(null, "R"), "No place yet");
+  // Scanning the box's own sign on the Scan page
+  assert.equal(placeSubtitle({ kind: "other", code: OPEN_BAGS_CODE, stationName: null, stageLabel: null, dueDate: null }), "Bags with a card out, A-Z by last name");
 });
 
 test("where a bag is, in a sentence", () => {

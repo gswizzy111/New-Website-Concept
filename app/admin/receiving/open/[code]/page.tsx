@@ -18,13 +18,16 @@ import { buildOpenView, type OpenBagLine, type OpenHeader } from "./_lib/view";
  * "a page that is very simple ... see the persons order ... move the card to
  * my desk"): the customer's name big, the order, the bag's tier and due date,
  * the customer's notes; ONE big "Move all N cards to my desk"; then each
- * card with its photos, where it is now and its own "Move to my desk".
- * Nothing else: steps, due dates and labels are on their own pages (the
- * photos page stays one tap away, "All photos").
+ * card with its photos, where it is now and its own "Move to my desk" and
+ * "Done". The header counts "3 of 4 done" and says where the bag is ("Bag:
+ * Open bags box · R"); a finished bag gets one big step, "Bag finished: put
+ * it in the Ready to ship bin" (the done flow, owner Nov 25 2026). Nothing
+ * else: steps, due dates and labels are on their own pages (the photos page
+ * stays one tap away, "All photos").
  *
  * Full admins only. Reads only, except making the first desk (LOC-DESK)
- * when there is none, as the Desk page does. Moves go through the tracking
- * API (POST /api/admin/track/assign).
+ * when there is none, as the Desk page does. Moves, Done and Ready to ship go
+ * through the tracking API (POST /api/admin/track/assign, done, bag-ready).
  */
 
 export const dynamic = "force-dynamic";

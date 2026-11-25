@@ -269,6 +269,9 @@ export function OpenBoard({ person, personMore, groups, bags, desks, defaultDesk
         <section aria-labelledby="move-h" className="[grid-area:move] flex flex-col gap-3 rounded-2xl border border-border bg-white p-4 sm:p-5">
           <h2 id="move-h" className="sr-only">What to do now</h2>
 
+          {/* What the last "Move all" / "Mark all done" did (put the cards back first), then a finished bag's step */}
+          {feedback && <FeedbackBox feedback={feedback} boxRef={feedbackBox} />}
+
           {steps.map((step) => (
             <BagStepBox
               key={step.id}
@@ -281,9 +284,7 @@ export function OpenBoard({ person, personMore, groups, bags, desks, defaultDesk
             />
           ))}
 
-          {feedback && <FeedbackBox feedback={feedback} boxRef={feedbackBox} />}
-
-          {desk && desks.length > 1 && state.kind !== "nothing" && (
+          {desk && desks.length > 1 && (
             <label className="flex items-center gap-3">
               <span className="text-sm font-bold text-foreground">Desk</span>
               <select
