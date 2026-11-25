@@ -8,6 +8,17 @@ import { deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/view";
 import type { PhotoGroup } from "@/app/admin/receiving/[orderId]/photos/photo-grid";
 
 /**
+ * The card's receiving and customer photos side by side (two across on a
+ * phone) instead of one stacked group each, so a bag's cards fit on a few
+ * screens. The full-screen viewer still names each photo's kind.
+ */
+export function onePhotoRow(groups: PhotoGroup[]): PhotoGroup[] {
+  if (groups.length <= 1) return groups;
+  const photos = groups.flatMap((g) => g.photos);
+  return [{ kind: groups[0].kind, title: `Photos (${photos.length})`, photos }];
+}
+
+/**
  * The scan landing (/admin/receiving/open/<Bag ID or order number>, where a
  * bag or order QR opens): what the page shows and says, without the
  * database. buildOpenView runs on the server (photo addresses come from
@@ -307,7 +318,7 @@ export function openCard(c: DeskCard): OpenCard {
     state: cardState(c),
     bagId: c.bagId,
     location: c.location,
-    photos: deskPhotoGroups(c, label),
+    photos: onePhotoRow(deskPhotoGroups(c, label)),
   };
 }
 
