@@ -184,7 +184,8 @@ test("bag label on 50 x 80 mm: one label, the 1 in QR with its words beside it, 
     }
   }
   assert.equal(planBagLabel(bag(4), BAG_STOCK).fit.more, 0, "a 4-card bag lists every card");
-  assert.ok(planBagLabel(bag(16), BAG_STOCK).fit.shown >= 6, "16 cards: at least 6 listed");
+  // 5 rows above "+N more" since the 3 mm check boxes (6 before them)
+  assert.ok(planBagLabel(bag(16), BAG_STOCK).fit.shown >= 5, "16 cards: at least 5 listed");
   // The inch stocks keep their layout: words under the QR at 2 in, beside it at 3.2 in
   const wide = planBagLabel(bag(4), stockPoints("4x6", 3.2)).page;
   assert.equal(texts(wide).filter((t) => t.text === "CD-10482-P" && t.font === "mono600").length, 2);
@@ -454,7 +455,8 @@ test("the code under the QR is never cut: a long one breaks after a hyphen onto 
 test("bag label on 50 x 80 mm: a set and number aren't cut while a smaller row size shows them whole", () => {
   const one = planBagLabel(bag(1), BAG_STOCK);
   assert.ok(words(one.page).includes("1986 Fleer Basketball #57"), `1 card: the set whole (${words(one.page).join(" | ")})`);
-  assert.ok(one.fit.bodyPt >= 8, `1 card: rows at ${one.fit.bodyPt} pt`);
+  // 7.5 pt since the check box takes its width from the row (8 pt before it)
+  assert.ok(one.fit.bodyPt >= 7.5, `1 card: rows at ${one.fit.bodyPt} pt`);
   // A set too long for any row size: still the largest rows that hold the card, the number kept
   const long = planBagLabel(bag(1, { cards: [{ seq: 1, code: "CD-10482-01", name: "Pikachu", year: "1999", set: "Pokemon Base Set 1st Edition Shadowless Holo Rare Thick Stamp", number: "58/102" }] }), BAG_STOCK);
   assert.equal(long.fit.style, 0);

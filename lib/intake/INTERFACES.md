@@ -340,6 +340,11 @@ found", the /q wording).
   `tests/intake/bag-open.test.ts`.
 - The bag label's QR caption is `BAG_QR_CAPTION` = "SCAN TO OPEN THE ORDER"
   (`lib/intake/labels/layout.ts`).
+- Each card row on the bag label (owner, Nov 26 2026) starts with an empty
+  check box to tick by pen (4 mm; 3 mm on 50 x 80 mm), centered on the row's
+  first line, and ends with "PG" and a write-in line; a submitted pre-grade
+  (`cards.pregrade_result` once `pregrade_submitted_at` is set, loaded as
+  `LabelCard.pregrade`) is printed on the line (`ROW_MARKS`, `LabelFit.checkBox`).
 
 ## Tracking (slots)
 
