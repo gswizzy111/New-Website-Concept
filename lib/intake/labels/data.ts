@@ -33,6 +33,8 @@ type CardRow = {
   card_year: string | null;
   card_number: string | null;
   status: string | null;
+  pregrade_result?: string | null;
+  pregrade_submitted_at?: string | null;
 };
 
 /**
@@ -67,7 +69,7 @@ export async function loadLabelBags(
     admin.from("orders").select("id, order_number, customer_name").in("id", orderIds),
     admin
       .from("cards")
-      .select("id, bag_id, card_seq, card_code, card_name, card_set, card_year, card_number, status")
+      .select("id, bag_id, card_seq, card_code, card_name, card_set, card_year, card_number, status, pregrade_result, pregrade_submitted_at")
       .in("bag_id", bagRows.map((b) => b.id)),
     admin.from("restoration_settings").select("tier, display_name"),
   ]);
@@ -110,6 +112,8 @@ export async function loadLabelBags(
             set: c.card_set,
             year: c.card_year,
             number: c.card_number,
+            // Printed on the row's PG line once submitted; a draft or a flag alone leaves the line blank
+            pregrade: c.pregrade_submitted_at ? c.pregrade_result?.trim() || null : null,
           })),
       };
     });

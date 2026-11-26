@@ -19,6 +19,12 @@ export type LabelCard = {
   number?: string | null;
   /** Not printed: labels have no per-card QR codes any more (kept so older callers still type-check). */
   qrUrl?: string | null;
+  /**
+   * The card's submitted pre-grade (cards.pregrade_result once
+   * pregrade_submitted_at is set), printed on the row's PG line. Null or
+   * absent: the PG line is left blank to write on.
+   */
+  pregrade?: string | null;
 };
 
 /** Another bag of the same order, for the label's "Also in this order" line. */
