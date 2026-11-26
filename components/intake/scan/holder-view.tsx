@@ -104,8 +104,6 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
   const [flash, setFlash] = useState<FlashState | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
-  const bar = useRef<HTMLDivElement>(null);
-  const [barHeight, setBarHeight] = useState(0);
 
   // A new scan: the last result, an open question or the picker go (the answer to the scan shows)
   useEffect(() => {
@@ -130,15 +128,6 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
   useEffect(() => () => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
   }, []);
-
-  // On a phone the buttons are a bar fixed at the bottom: keep the same room under the cards so nothing hides behind it
-  useEffect(() => {
-    const el = bar.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setBarHeight(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [cards.length]);
 
   // The newest result: this view's own, or the Scan page's save into this holder (its desk link is in the header already)
   const incoming: Shown | null = lastSave && lastSave.res.location?.code === slot.code
@@ -327,7 +316,6 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                 <div className="flex items-start gap-2">
                   <label className="-ml-1.5 -mt-1.5 flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg hover:bg-secondary">
                     <input
-                      id={`pick-${card.id}`}
                       type="checkbox"
                       checked={picked.has(card.id)}
                       onChange={() => toggle(card.id)}
@@ -336,7 +324,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                     <span className="sr-only">Pick {cardPhotoLabel(card)}</span>
                   </label>
                   <div className="min-w-0 flex-1">
-                    <CardBody card={card} slot={slot} now={now} compact={cards.length > 3} pickId={`pick-${card.id}`} />
+                    <CardBody card={card} slot={slot} now={now} compact={cards.length > 3} onPick={() => toggle(card.id)} />
                   </div>
                 </div>
               </li>
@@ -349,37 +337,13 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
         </article>
       )}
 
-      {/* With 2+ desks: which one is "my desk" on this phone (the bag page's choice too) */}
-      {cards.length > 0 && severalDesks && slot.desks && (
-        <label className="flex flex-wrap items-center gap-2 px-1 text-sm">
-          <span className="font-bold text-foreground">My desk</span>
-          <select
-            value={desk?.code ?? ""}
-            onChange={(e) => {
-              storeDesk(e.target.value);
-              // A focused select would take the scanner's typing
-              e.currentTarget.blur();
-            }}
-            className="min-h-11 rounded-xl border border-border bg-white px-3 text-base font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-          >
-            {slot.desks.map((d) => (
-              <option key={d.id} value={d.code}>{d.name}</option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {children}
-
-      {/* The buttons: a bar at the bottom of a phone (thumb reach), under the cards on a computer */}
+      {/* The buttons, right under the cards: on a phone they stay in thumb reach at the bottom of the screen while the cards scroll (sticky) */}
       {cards.length > 0 && (
         <>
-          <div aria-hidden="true" className="lg:hidden" style={{ height: barHeight }} />
           <div
-            ref={bar}
             role="group"
             aria-label={stack ? `What to do with the cards in ${slot.name}` : `What to do with ${what ?? "the card"}`}
-            className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none"
+            className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)] backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:z-auto lg:mx-0 lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:shadow-none lg:backdrop-blur-none"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
               {saving ? (
@@ -391,7 +355,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                 <div role="group" aria-label="Mark done?" className="flex flex-col gap-2">
                   <p className="text-base font-bold text-foreground">{doneQuestion(confirm.length)}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => markDone(confirm)} disabled={blocked} className={`${otherButton} min-h-14 border-green-700 bg-green-700 text-base text-white hover:bg-green-800`}>
+                    <button type="button" autoFocus onClick={() => markDone(confirm)} disabled={blocked} className={`${otherButton} min-h-14 border-green-700 bg-green-700 text-base text-white hover:bg-green-800`}>
                       <PackageCheck className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                       {doneYesLabel(confirm.length)}
                     </button>
@@ -449,6 +413,28 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
           </div>
         </>
       )}
+
+      {/* With 2+ desks: which one is "my desk" on this phone (the bag page's choice too) */}
+      {cards.length > 0 && severalDesks && slot.desks && (
+        <label className="flex flex-wrap items-center gap-2 px-1 text-sm">
+          <span className="font-bold text-foreground">My desk</span>
+          <select
+            value={desk?.code ?? ""}
+            onChange={(e) => {
+              storeDesk(e.target.value);
+              // A focused select would take the scanner's typing
+              e.currentTarget.blur();
+            }}
+            className="min-h-11 rounded-xl border border-border bg-white px-3 text-base font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          >
+            {slot.desks.map((d) => (
+              <option key={d.id} value={d.code}>{d.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {children}
 
       <HolderPicker
         cardIds={picker ? picker.map((c) => c.id) : null}
@@ -509,47 +495,44 @@ function HolderHeader({ slot, onOpenBag }: { slot: TrackSlotSummary; onOpenBag?:
 }
 
 /** One card, big: photos, name, year / set / #, Card ID, whose, due, step, how long it has been here. */
-function CardBody({ card, slot, now, compact = false, pickId }: { card: TrackCardSummary; slot: TrackSlotSummary; now: number; compact?: boolean; pickId?: string }) {
+function CardBody({ card, slot, now, compact = false, onPick }: { card: TrackCardSummary; slot: TrackSlotSummary; now: number; compact?: boolean; onPick?: () => void }) {
   const due = dueLine(card.dueDate);
   const details = cardDetails(card);
-  const text = (
-    <>
-      <p className={`font-black leading-tight text-foreground break-words ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>{card.name?.trim() || "No card name"}</p>
-      {details && <p className="mt-0.5 text-base text-muted-foreground break-words">{details}</p>}
-      <p className="mt-1.5 flex flex-wrap items-center gap-2">
-        <span className="rounded-lg bg-secondary px-2 py-0.5 font-mono text-lg font-black text-foreground">{card.code ?? "No Card ID"}</span>
-        {card.done && (
-          <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">
-            <Check className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
-            Done
-          </span>
-        )}
-        {card.refunded && <span className="rounded-full bg-gray-900 px-2 py-0.5 text-xs font-bold text-white">Refunded</span>}
-        {card.awaiting && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">Not arrived</span>}
-      </p>
-      <ul className="mt-2 flex flex-col gap-1 text-base text-foreground">
-        <li className="font-semibold break-words">{orderLine(card)}</li>
-        <li className={due.late ? "inline-flex items-center gap-1.5 font-bold text-red-700" : undefined}>
-          {due.late && <TriangleAlert className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
-          {due.text}
-        </li>
-        <li>
-          Step: <span className={`font-bold ${card.done ? "text-green-700" : ""}`}>{card.stageLabel}</span>
-        </li>
-        <li className="inline-flex items-center gap-1.5 font-semibold">
-          <Clock className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
-          {inHolderText(card.location ?? slot, card.locatedAt, now)}
-        </li>
-      </ul>
-      {card.refunded && <p className="mt-2 text-sm font-semibold text-muted-foreground">{REFUNDED_TEXT}</p>}
-    </>
-  );
   return (
     <div className="flex flex-col gap-3">
-      {/* Photos first: tell the card by eye (a tap opens them full screen; never inside the tick box's label) */}
+      {/* Photos first: tell the card by eye (a tap opens them full screen) */}
       <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size={compact ? "list" : "large"} />
-      {/* In a stack, tapping the words ticks the card too */}
-      {pickId ? <label htmlFor={pickId} className="block min-w-0 cursor-pointer">{text}</label> : <div className="min-w-0">{text}</div>}
+      {/* In a stack a tap on the words ticks the card too (the tick box is the control for keyboards and screen readers) */}
+      <div onClick={onPick} className={`min-w-0 ${onPick ? "cursor-pointer" : ""}`}>
+        <p className={`font-black leading-tight text-foreground break-words ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>{card.name?.trim() || "No card name"}</p>
+        {details && <p className="mt-0.5 text-base text-muted-foreground break-words">{details}</p>}
+        <p className="mt-1.5 flex flex-wrap items-center gap-2">
+          <span className="rounded-lg bg-secondary px-2 py-0.5 font-mono text-lg font-black text-foreground">{card.code ?? "No Card ID"}</span>
+          {card.done && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-green-100 px-2 py-0.5 text-xs font-bold text-green-800">
+              <Check className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+              Done
+            </span>
+          )}
+          {card.refunded && <span className="rounded-full bg-gray-900 px-2 py-0.5 text-xs font-bold text-white">Refunded</span>}
+          {card.awaiting && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">Not arrived</span>}
+        </p>
+        <ul className="mt-2 flex flex-col gap-1 text-base text-foreground">
+          <li className="font-semibold break-words">{orderLine(card)}</li>
+          <li className={due.late ? "flex items-center gap-1.5 font-bold text-red-700" : undefined}>
+            {due.late && <TriangleAlert className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+            {due.text}
+          </li>
+          <li>
+            Step: <span className={`font-bold ${card.done ? "text-green-700" : ""}`}>{card.stageLabel}</span>
+          </li>
+          <li className="flex items-center gap-1.5 font-semibold">
+            <Clock className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden="true" />
+            {inHolderText(card.location ?? slot, card.locatedAt, now)}
+          </li>
+        </ul>
+        {card.refunded && <p className="mt-2 text-sm font-semibold text-muted-foreground">{REFUNDED_TEXT}</p>}
+      </div>
     </div>
   );
 }
