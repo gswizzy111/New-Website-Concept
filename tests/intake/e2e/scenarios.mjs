@@ -7302,9 +7302,12 @@ Object.assign(SCENARIOS, LA_LATER_SCENARIOS);
 
 // ─── Bag label tick boxes and the PG line (labels-checkbox-pg; the owner, Nov 26 2026) ─────────────
 // "next to the cards on the label there are boxes you can check. Also have like a line for the
-// pregrade": every card row on the bag label gets an empty tick box at its left and "PG" with a
-// write-in line at its right, the submitted pre-grade (cards.pregrade_result once
-// pregrade_submitted_at is set) printed on the line. Checked on the 4 x 6 in label (PDF and
+// pregrade": every card row on the bag label gets an empty tick box at its left; "PG" with a
+// write-in line at its right only on a card whose pre-grade was paid for or submitted ("the people
+// that pay for the pregrade have the sticker with teh spot for the pregrade and the people that dont
+// dont": cards.pregrade_selected, pregrade_submitted_at, or every card of an order that paid for more
+// pre-grades than it has cards flagged; lib/pregrade.ts pregradeOnLabel), the submitted pre-grade
+// (cards.pregrade_result once pregrade_submitted_at is set) printed on the line. Checked on the 4 x 6 in label (PDF and
 // ?format=json) and on the Katasymbol's 50 x 80 mm label (?format=json&stock=50x80mm, the PDF at
 // that stock, and the PNG the order page's Print baggy label downloads with the Katasymbol picked).
 // The PDF is read with pdf-lib's own parser: its content stream gives the text (through each font's
@@ -7490,11 +7493,12 @@ function lcpNameSize(textsList, customerName) {
 }
 
 /**
- * One label's card rows (LabelPage JSON): for each listed card, its tick box, Card ID number, "PG"
- * and the line, and what is printed on the line. Fails on anything missing, doubled or overlapping.
- * `want`: Card ID -> the pre-grade expected on the line (null: blank; { cut: prefix }: a long one
- * cut with "…"). A wrong pre-grade is pushed to `problems` (when given) instead of failing at once, so
- * the rows still come back for the PDF and picture checks.
+ * One label's card rows (LabelPage JSON): for each listed card, its tick box, Card ID number, and on
+ * a card with a paid or submitted pre-grade "PG", the line and what is printed on it. Fails on
+ * anything missing, doubled or overlapping. `want`: Card ID -> the pre-grade expected on the line
+ * (null: a blank line; { cut: prefix }: a long one cut with "…"; false or not listed: no PG field at
+ * all). A wrong pre-grade is pushed to `problems` (when given) instead of failing at once, so the rows
+ * still come back for the PDF and picture checks.
  */
 function lcpRows(label, stockId, want, problems = null) {
   const els = label.elements;
@@ -7503,13 +7507,16 @@ function lcpRows(label, stockId, want, problems = null) {
   const boxes = els.filter((e) => e.kind === "rect" && e.stroke && !e.fill);
   const pgs = ts.filter((e) => e.text === "PG");
   const solid = els.filter((e) => e.kind === "line" && !e.dash && Math.abs(e.y1 - e.y2) < 0.01);
+  const hasField = (code) => want[code] !== undefined && want[code] !== false;
   const ids = label.cardCodes.map((code) => {
     const id = ts.filter((e) => e.font === "mono600" && e.text === lcpTail(code));
     eq(id.length, 1, `${code}: its number "${lcpTail(code)}" on the label`);
     return { code, id: id[0] };
   });
   eq(boxes.length, ids.length, `tick boxes (one per listed card: ${label.cardCodes.join(", ")})`);
-  eq(pgs.length, ids.length, `"PG" fields (one per listed card)`);
+  const fielded = label.cardCodes.filter(hasField);
+  eq(pgs.length, fielded.length, `"PG" fields (one per listed card with a paid or submitted pre-grade: ${fielded.join(", ") || "none"})`);
+  eq(solid.length, fielded.length, "PG write-in lines (one per PG field)");
   const rows = [];
   for (const { code, id } of ids) {
     const lineH = id.size * 1.25;
@@ -7534,6 +7541,12 @@ function lcpRows(label, stockId, want, problems = null) {
   const out = [];
   for (const r of rows) {
     const { code, id, pg, box: b, lineH } = r;
+    if (!hasField(code)) {
+      // No pre-grade paid for: no "PG" and no line on its row (the check above: every "PG" belongs to a row)
+      assert(!pg, `${code}: "PG" on a card without a paid pre-grade`);
+      out.push({ code, box: b, pg: null, line: null, value: null });
+      continue;
+    }
     assert(pg, `${code}: no "PG" on its row`);
     assert(pg.y - id.y <= 2 * lineH + 0.5, `${code}: "PG" ${(pg.y - id.y).toFixed(1)} pt under its line`);
     const line = solid.filter((l) => Math.min(l.x1, l.x2) >= pg.x + pg.width - 0.5 && Math.min(l.x1, l.x2) - (pg.x + pg.width) < pg.size * 1.5 && l.y1 >= pg.y - 0.01 && l.y1 <= pg.y + pg.size * 0.6);
@@ -7580,10 +7593,12 @@ function lcpCheckPdfPage(drawn, label, rows, { customerName, absent }) {
     assert(hit, `${r.code}: no box in the PDF at ${r.box.x.toFixed(2)},${r.box.y.toFixed(2)} (${r.box.w.toFixed(2)} pt)`);
   }
   const pdfTexts = drawn.texts.map((t) => t.text);
-  eq(pdfTexts.filter((t) => t === "PG").length, rows.length, `"PG" texts in the PDF`);
+  const fielded = rows.filter((r) => r.pg);
+  eq(pdfTexts.filter((t) => t === "PG").length, fielded.length, `"PG" texts in the PDF (${fielded.map((r) => lcpTail(r.code)).join(", ") || "none"})`);
+  eq(drawn.strokes.filter((s) => !s.dash.length && s.subpaths.length === 1 && s.subpaths[0].points.length === 2 && s.bbox.h < 0.01).length, fielded.length, "PG write-in lines in the PDF");
   for (const r of rows) if (r.value) assert(pdfTexts.includes(r.value), `${r.code}: "${r.value}" not in the PDF's text`);
   for (const a of absent) assert(!pdfTexts.some((t) => t.includes(a)), `"${a}" (a pre-grade not submitted) is printed in the PDF`);
-  for (const r of rows) {
+  for (const r of fielded) {
     const line = drawn.strokes.find((s) => !s.dash.length && s.subpaths.length === 1 && Math.abs(s.bbox.y - r.line.y) < 0.1 && Math.abs(s.bbox.x - r.line.x1) < 0.1 && Math.abs(s.bbox.w - (r.line.x2 - r.line.x1)) < 0.1);
     assert(line, `${r.code}: no PG line in the PDF at y ${r.line.y.toFixed(2)}`);
   }
@@ -7618,6 +7633,8 @@ function lcpCheckPng(buf, label, rows) {
     const sw = 1.2 / 2;
     for (const [a, b] of [[x + w / 2, y + sw], [x + w / 2, y + h - sw], [x + sw, y + h / 2], [x + w - sw, y + h / 2]]) assert(inkNear(a, b), `${r.code}: the tick box's side at ${a.toFixed(1)},${b.toFixed(1)} pt isn't black in the picture`);
     eq(inkIn(x + w * 0.3, y + h * 0.3, x + w * 0.7, y + h * 0.7), 0, `${r.code}: black dots inside the empty tick box`);
+    // A card without a paid pre-grade: no PG field to look for (the JSON and the PDF checked it isn't there)
+    if (!r.pg) continue;
     assert(inkNear((r.line.x1 + r.line.x2) / 2, r.line.y) && inkNear(r.line.x1 + 1, r.line.y) && inkNear(r.line.x2 - 1, r.line.y), `${r.code}: the PG line isn't black in the picture`);
     const above = inkIn(r.line.x1 + 0.5, r.pg.y - r.pg.size * 0.75, r.line.x2 - 0.5, r.pg.y - 0.3);
     if (r.value) assert(above > 10, `${r.code}: "${r.value}" isn't in the picture (${above} black dots on its line)`);
@@ -7631,8 +7648,11 @@ const LCP_GOLD = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"];
 const LCP_PLAT = ["CD-2549-07"];
 /** CD-2549-04's pre-grade: longer than its line, so it is cut with "…". */
 const LCP_LONG = "PSA 8–9, centering 60/40 on the back, light whitening on two corners";
-/** What each row's PG line shows: 01 a result typed but never submitted (blank), 03 only flagged (blank). */
-const LCP_WANT = { "CD-2549-02": "PSA 8–9", "CD-2549-04": { cut: "PSA 8" }, "CD-2549-07": "PSA 9" };
+/**
+ * What each row shows: 01 paid for, a result typed but never submitted (a blank PG line); 02, 04 and
+ * 07 submitted (on the line; 04's cut); 03 no pre-grade paid for (no PG field at all).
+ */
+const LCP_WANT = { "CD-2549-01": null, "CD-2549-02": "PSA 8–9", "CD-2549-03": false, "CD-2549-04": { cut: "PSA 8" }, "CD-2549-07": "PSA 9" };
 const LCP_DRAFT = "PSA 10";
 /** The stocks: the D520's 4 x 6 in (the saved setting) and the Katasymbol's 50 x 80 mm (the picture path asks for it). */
 const LCP_STOCKS = { "4x6": { json: "?format=json", pdf: "" }, "50x80mm": { json: "?format=json&stock=50x80mm", pdf: "?stock=50x80mm" } };
@@ -7649,8 +7669,9 @@ const lcpCard = (t, code) => cardByCode(t, code);
 
 /**
  * CD-2549 Gold 01-04 and Platinum 07 received on 2026-11-15 (bags CD-2549-G, CD-2549-P), with
- * pre-grades: 02 submitted through the pre-grade API ("PSA 8–9"), 03 flagged only (API), and in the
- * mock 01 a typed result never submitted ("PSA 10"), 04 a long one submitted, 07 "PSA 9" submitted.
+ * pre-grades: 02 submitted through the pre-grade API ("PSA 8–9"), 03 none paid for, and in the mock
+ * 01 paid for with a typed result never submitted ("PSA 10"), 04 a long one submitted, 07 "PSA 9"
+ * submitted. The order has no pre-grade service line (its flagged cards are what it paid for).
  * Exported for scripts that reuse a running harness (screenshots).
  */
 export async function lcpSetup(ctx, mockUrl) {
@@ -7659,8 +7680,6 @@ export async function lcpSetup(ctx, mockUrl) {
   const id = (code) => lcpCard(t, code)?.id;
   const sub = await api(ctx, "POST", `/api/admin/cards/${id("CD-2549-02")}/pregrade`, { action: "submit", result: "PSA 8–9" });
   assert(sub.status === 200, `pre-grade submit: HTTP ${sub.status} ${JSON.stringify(sub.body).slice(0, 160)}`);
-  const flag = await api(ctx, "POST", `/api/admin/cards/${id("CD-2549-03")}/pregrade`, { action: "flag", selected: true });
-  assert(flag.status === 200, `pre-grade flag: HTTP ${flag.status} ${JSON.stringify(flag.body).slice(0, 160)}`);
   const at = "2026-11-16T15:00:00.000Z";
   await mockUpdate(mockUrl, "cards", { pregrade_selected: true, pregrade_result: LCP_DRAFT, pregrade_submitted_at: null }, "card_code", "CD-2549-01");
   await mockUpdate(mockUrl, "cards", { pregrade_selected: true, pregrade_result: LCP_LONG, pregrade_submitted_at: at, pregrade_submitted_by: "harness-admin" }, "card_code", "CD-2549-04");
@@ -7698,25 +7717,27 @@ function lcpSizes(label, stockId, bagCode, customerName) {
 }
 
 const LCP_SCENARIOS = {
-  // Bag labels (4 x 6 in PDF + JSON, the Katasymbol's 50 x 80 mm JSON, PDF and picture): a tick box
-  // and a "PG ____" line on every card row, the submitted pre-grade printed on it, name and QR as before
+  // Bag labels (4 x 6 in PDF + JSON, the Katasymbol's 50 x 80 mm JSON, PDF and picture): a tick box on
+  // every card row; a "PG ____" line only on the cards whose pre-grade was paid for (blank) or
+  // submitted (printed on it); name and QR as before
   async "labels-checkbox-pg"({ page, ctx, s, mockUrl }) {
     const rows = {}; // stock -> bag code -> rows
     const labelsBy = {}; // stock -> bag code -> LabelPage
     let bags = [];
-    await s.step("setup: CD-2549 Gold 01-04 + Platinum 07 received 2026-11-15; pre-grades: 02 submitted (API), 03 flagged (API), 01 typed not submitted, 04 long, 07 submitted", async () => {
+    await s.step("setup: CD-2549 Gold 01-04 + Platinum 07 received 2026-11-15; pre-grades: 01 paid, typed not submitted; 02 submitted (API); 03 none paid; 04 long; 07 submitted", async () => {
       bags = await lcpSetup(ctx, mockUrl);
       eq(bags.map((b) => [b.bag.bag_code, b.cards.map((c) => c.card_code)]).sort(), [["CD-2549-G", LCP_GOLD], ["CD-2549-P", LCP_PLAT]], "bags and their cards");
       const t = await tables();
-      const pg = (code) => { const c = lcpCard(t, code); return [c.pregrade_result ?? null, !!c.pregrade_submitted_at]; };
-      eq(pg("CD-2549-02"), ["PSA 8–9", true], "CD-2549-02 pre-grade (submitted through the API)");
-      eq(pg("CD-2549-03"), [null, false], "CD-2549-03 pre-grade (flagged only)");
-      eq(pg("CD-2549-01"), [LCP_DRAFT, false], "CD-2549-01 pre-grade (not submitted)");
+      const pg = (code) => { const c = lcpCard(t, code); return [!!c.pregrade_selected, c.pregrade_result ?? null, !!c.pregrade_submitted_at]; };
+      eq(pg("CD-2549-02"), [true, "PSA 8–9", true], "CD-2549-02 pre-grade (submitted through the API)");
+      eq(pg("CD-2549-03"), [false, null, false], "CD-2549-03 pre-grade (none paid for)");
+      eq(pg("CD-2549-01"), [true, LCP_DRAFT, false], "CD-2549-01 pre-grade (paid for, not submitted)");
+      eq(t.order_services.filter((l) => l.order_id === IDS.mailOrder), [], "CD-2549's service lines (no pre-grade count)");
       return bags.map((b) => `${b.bag.bag_code} ${b.cards.length}`).join(", ");
     }, { critical: true, shot: false });
 
     for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
-      await s.step(`${stockId} ?format=json: every card row has a tick box (${LCP_BOX_MM[stockId]} mm), its number, "PG" and a write-in line; the submitted pre-grades on their lines (04's cut with "…"), "${LCP_DRAFT}" nowhere; name and QR as before the boxes`, async () => {
+      await s.step(`${stockId} ?format=json: every card row has a tick box (${LCP_BOX_MM[stockId]} mm) and its number; "PG" and a write-in line on the paid ones only (03 none); the submitted pre-grades on their lines (04's cut with "…"), 01's blank, "${LCP_DRAFT}" nowhere; name and QR as before the boxes`, async () => {
         const body = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, q.json));
         eq(body.settings?.stock, stockId, "the stock the labels are laid out on");
         rows[stockId] = {};
@@ -7735,7 +7756,7 @@ const LCP_SCENARIOS = {
           if (stockId === "4x6") {
             for (const c of cards) assert(texts(label).some((x) => x.text === c.card_name), `${bag.bag_code}: "${c.card_name}" not printed in full on 4 x 6`);
           }
-          out.push(`${bag.bag_code}: ${lcpSizes(label, stockId, bag.bag_code, "Test Customer A")}; ${rows[stockId][bag.bag_code].map((r) => `${lcpTail(r.code)} ${r.value ? `PG "${r.value}"` : "PG ____"}`).join(", ")}`);
+          out.push(`${bag.bag_code}: ${lcpSizes(label, stockId, bag.bag_code, "Test Customer A")}; ${rows[stockId][bag.bag_code].map((r) => `${lcpTail(r.code)} ${r.value ? `PG "${r.value}"` : r.pg ? "PG ____" : "(no PG)"}`).join(", ")}`);
         }
         assert(!wrong.length, wrong.join("; "));
         return out.join(" · ");
@@ -7749,7 +7770,7 @@ const LCP_SCENARIOS = {
         return `${bags.length} bag routes`;
       }, { shot: false });
 
-      await s.step(`${stockId} PDF (order route${q.pdf ? ` ${q.pdf}` : ""}): one stroked box per card where the layout puts it, "PG" and its line per card, the pre-grades in the text, "${LCP_DRAFT}" absent; name and QR as the layout`, async () => {
+      await s.step(`${stockId} PDF (order route${q.pdf ? ` ${q.pdf}` : ""}): one stroked box per card where the layout puts it, "PG" and its line per paid card (none on 03), the pre-grades in the text, "${LCP_DRAFT}" absent; name and QR as the layout`, async () => {
         assert(rows[stockId], "no layout (see the JSON step)");
         const doc = await labelPdf(ctx, ROUTES.orderLabel(IDS.mailOrder, q.pdf));
         eq(doc.getPageCount(), bags.length, "PDF pages (one per bag)");
@@ -7760,13 +7781,13 @@ const LCP_SCENARIOS = {
           assert(ordered.includes(e.bagCode), `page ${i + 1}: ${e.bagCode}`);
           const drawn = lcpReadPdfPage(doc, doc.getPage(i));
           const r = lcpCheckPdfPage(drawn, labelsBy[stockId][e.bagCode], rows[stockId][e.bagCode], { customerName: "Test Customer A", absent: [LCP_DRAFT] });
-          out.push(`p${i + 1} ${e.bagCode}: ${rows[stockId][e.bagCode].length} boxes, name ${r.name.toFixed(2)} pt, QR ${r.qr.toFixed(1)} pt`);
+          out.push(`p${i + 1} ${e.bagCode}: ${rows[stockId][e.bagCode].length} boxes, ${rows[stockId][e.bagCode].filter((x) => x.pg).length} PG, name ${r.name.toFixed(2)} pt, QR ${r.qr.toFixed(1)} pt`);
         });
         return out.join("; ");
       }, { shot: false });
     }
 
-    await s.step("Katasymbol picked (this browser): the order page's Print baggy label, then Print 2 labels, downloads one 400 x 640 picture per bag: black box sides, empty middles, the PG lines, the pre-grades and nothing on the blank lines; both bags stamped printed", async () => {
+    await s.step("Katasymbol picked (this browser): the order page's Print baggy label, then Print 2 labels, downloads one 400 x 640 picture per bag: black box sides, empty middles, the paid cards' PG lines, the pre-grades and nothing on the blank lines; both bags stamped printed", async () => {
       assert(rows["50x80mm"], "no 50 x 80 mm layout (see its JSON step)");
       await ctx.addInitScript(() => { try { localStorage.setItem("intake_label_printer", "katasymbol"); } catch { /* private mode */ } });
       const w = await watchPrints(ctx);
@@ -7789,20 +7810,35 @@ const LCP_SCENARIOS = {
       return `"${printed.name}": ${out.join("; ")}`;
     });
 
+    await s.step("staff mark 03 for a pre-grade (API flag, as on the order page): the next label has a blank PG line on 03, on both stocks", async () => {
+      const t = await tables();
+      const r = await api(ctx, "POST", `/api/admin/cards/${lcpCard(t, "CD-2549-03").id}/pregrade`, { action: "flag", selected: true });
+      assert(r.status === 200, `pre-grade flag: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      const G = bags.find((b) => b.bag.bag_code === "CD-2549-G").bag;
+      const out = [];
+      for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
+        const one = await labelJson(ctx, ROUTES.bagLabel(G.id, q.json));
+        const got = lcpRows(one.bags[0].labels[0], stockId, { ...LCP_WANT, "CD-2549-03": null });
+        out.push(`${stockId}: ${got.map((x) => `${lcpTail(x.code)} ${x.value ?? (x.pg ? "____" : "-")}`).join(", ")}`);
+      }
+      return out.join("; ");
+    }, { shot: false });
+
     await s.step("a pre-grade edited after it was submitted (API edit 02 → \"PSA 9\"): the next label prints the new one", async () => {
       const t = await tables();
       const r = await api(ctx, "POST", `/api/admin/cards/${lcpCard(t, "CD-2549-02").id}/pregrade`, { action: "edit", result: "PSA 9" });
       assert(r.status === 200, `pre-grade edit: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
       const G = bags.find((b) => b.bag.bag_code === "CD-2549-G").bag;
       const one = await labelJson(ctx, ROUTES.bagLabel(G.id, "?format=json"));
-      const got = lcpRows(one.bags[0].labels[0], "4x6", { ...LCP_WANT, "CD-2549-02": "PSA 9" });
+      const got = lcpRows(one.bags[0].labels[0], "4x6", { ...LCP_WANT, "CD-2549-02": "PSA 9", "CD-2549-03": null });
       return got.map((x) => `${lcpTail(x.code)} ${x.value ?? "____"}`).join(", ");
     }, { shot: false });
 
-    await s.step("a bag of 16 (CD-2600 Gold, received 2026-11-20): every listed row has its box and PG line on both stocks; name and QR as before the boxes; cards listed vs before", async () => {
+    let big = null;
+    await s.step("a bag of 16 with no pre-grades paid for (CD-2600 Gold, received 2026-11-20): every listed row has its box and no PG field on both stocks; name and QR as before the boxes; cards listed vs before", async () => {
       const gold = IDS.bigCards.filter((_, i) => BIG_CARD_TIERS[i] === "premium").slice(0, 16);
       await receiveViaApi(ctx, IDS.bigOrder, gold, "2026-11-20");
-      const [big] = receivedByBag(await tables(), IDS.bigOrder);
+      [big] = receivedByBag(await tables(), IDS.bigOrder);
       eq(big?.cards.length, 16, "cards in the bag");
       const out = [];
       for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
@@ -7810,7 +7846,21 @@ const LCP_SCENARIOS = {
         const r = lcpRows(label, stockId, {});
         const base = LCP_BASE[stockId]["CD-2600-G"];
         const sizes = lcpSizes(label, stockId, big.bag.bag_code, BIG_CUSTOMER_NAME);
-        out.push(`${stockId}: ${r.length} of 16 listed (${base.listed} before), ${sizes}`);
+        out.push(`${stockId}: ${r.length} of 16 listed (${base.listed} before the boxes), no PG, ${sizes}`);
+      }
+      return out.join("; ");
+    }, { shot: false });
+
+    await s.step("an older order that paid for 2 pre-grades with no card flagged (a \"pregrade\" service line on CD-2600): the label can't tell which, so every listed row of the bag gets a blank PG line, on both stocks", async () => {
+      assert(big, "no CD-2600 bag (see the step before)");
+      const { error } = await mockDb(mockUrl).from("order_services").insert({ id: "1a00000d-0000-4000-8000-000000000001", order_id: IDS.bigOrder, service_id: "pregrade", service_name: "Pregrade", price_cents: 2500, quantity: 2 });
+      assert(!error, `order_services: ${error?.message}`);
+      const out = [];
+      for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
+        const label = (await labelJson(ctx, ROUTES.bagLabel(big.bag.id, q.json))).bags[0].labels[0];
+        const r = lcpRows(label, stockId, Object.fromEntries(label.cardCodes.map((c) => [c, null])));
+        const sizes = lcpSizes(label, stockId, big.bag.bag_code, BIG_CUSTOMER_NAME);
+        out.push(`${stockId}: ${r.length} of 16 listed, ${r.filter((x) => x.pg).length} blank PG lines, ${sizes}`);
       }
       return out.join("; ");
     }, { shot: false });

@@ -342,13 +342,24 @@ found", the /q wording).
   (`lib/intake/labels/layout.ts`).
 - Each card row on the bag label (owner, Nov 26 2026) starts with an empty
   check box to tick by pen (4 mm; 3 mm on 50 x 80 mm), centered on the row's
-  first line, and has "PG" and a write-in line at a line's right end; a
-  submitted pre-grade (`cards.pregrade_result` once `pregrade_submitted_at` is
-  set, loaded as `LabelCard.pregrade`) is printed on the line, never cut up to
-  10 characters ("PSA 9", "BGS 9.5"). On 50 x 80 mm the PG field is always
-  on the line under the name (beside the set, cut with its number kept, or on
-  a line of its own), so the name has the whole line; on the inch stocks it
-  ends the name's line when the whole name fits before it (`ROW_MARKS`,
+  first line. Only a card whose pre-grade was paid for or submitted has "PG"
+  and a write-in line at a line's right end (owner, Nov 26 2026: "the people
+  that pay for the pregrade have the sticker with teh spot for the pregrade
+  and the people that dont dont"): `loadLabelBags` sets `LabelCard.pregrade`
+  from `pregradeOnLabel` (`lib/pregrade.ts`, pure: `cards.pregrade_selected`
+  or `pregrade_submitted_at`; when the order's pre-grade service lines,
+  `PREGRADE_SERVICE_IDS` quantities, are more than its flagged cards, any
+  status, as the order page counts them, every card of the order, since the
+  label can't tell which). A submitted pre-grade (`cards.pregrade_result`
+  once `pregrade_submitted_at` is set, loaded as `LabelCard.pregradeResult`)
+  is printed on the line, never cut up to 10 characters ("PSA 9", "BGS
+  9.5"); a draft or a paid one not yet done leaves it blank. On 50 x 80 mm
+  the PG field is always on the line under the name (beside the set, cut with
+  its number kept, or on a line of its own), so the name has the whole line;
+  on the inch stocks it ends the name's line when the whole name fits before
+  it. A row without the field gives its name and set the whole row (on 50 x
+  80 mm one line when they fit on it, else the set under the name), and the
+  rows are fitted by each one's own height (`ROW_MARKS`, `hasPgField`,
   `LabelFit.checkBox`, `LabelFit.namesCut`).
 
 ## Tracking (slots)

@@ -23,12 +23,14 @@ import type { FontRole, LabelBag, LabelCard, LabelColor, LabelElement, LabelPage
 // (6.5 pt). Space left over goes to the sets and card numbers first: a set
 // and number that don't fit beside the name go on a second line under it.
 // Past that the label lists what fits and ends with "+N more: scan the QR".
-// Every card row starts with an empty check box (4 mm; 3 mm on 50 x 80 mm)
-// and has "PG" and a write-in line at a line's right end, the submitted
-// pre-grade printed on it and never cut up to 10 characters (ROW_MARKS): on
-// 50 x 80 mm always under the name, on the inch stocks at the end of the
-// name's line when the whole name fits before it. The box sets the height of
-// rows in small type.
+// Every card row starts with an empty check box (4 mm; 3 mm on 50 x 80 mm).
+// A card whose pre-grade was paid for or submitted (LabelCard.pregrade) has
+// "PG" and a write-in line at a line's right end, the submitted pre-grade
+// printed on it and never cut up to 10 characters (ROW_MARKS): on 50 x 80 mm
+// always under the name, on the inch stocks at the end of the name's line
+// when the whole name fits before it. Every other row has no PG field: its
+// name and set have the whole row (on 50 x 80 mm one line when they fit on
+// it). The box sets the height of rows in small type.
 //
 // On the 50 x 80 mm Katasymbol label (printed width under 2 in) the QR keeps
 // its 1 in and the words go beside it in a narrow column (card count,
@@ -94,11 +96,15 @@ const MIN_NAME_W = 36;
 const MM = PT / 25.4;
 
 /**
- * The marks on every card row (owner, Nov 26 2026: "next to the cards on
- * the label there are boxes you can check. Also have like a line for the
- * pregrade"): an empty check box at the row's left, big enough to tick with
- * a pen, and at its right end "PG" with a write-in line (the submitted
- * pre-grade printed on it). Outlines only: black on a thermal printer.
+ * The marks on the card rows (owner, Nov 26 2026: "next to the cards on the
+ * label there are boxes you can check. Also have like a line for the
+ * pregrade"): on every row an empty check box at its left, big enough to
+ * tick with a pen; and at its right end "PG" with a write-in line (the
+ * submitted pre-grade printed on it) only on the rows of cards whose
+ * pre-grade was paid for or submitted (owner, Nov 26 2026: "the people that
+ * pay for the pregrade have the sticker with teh spot for the pregrade and
+ * the people that dont dont"; hasPgField). Outlines only: black on a
+ * thermal printer.
  */
 export const ROW_MARKS = {
   /** The check box's side on the inch stocks (4 mm) and on the narrow 50 x 80 mm label (3 mm). */
@@ -591,9 +597,12 @@ function setBeforeField(set: string, num: string, size: number, maxW: number): s
 /**
  * One card row: an empty check box, the Card ID's number in mono, the name
  * in bold, set and number, the PG field ("PG" and a write-in line, the
- * submitted pre-grade printed on it) at the right end of a line, and a
- * dashed rule under it. The box is centered on the first line's capitals; a
- * box taller than the line makes the row taller.
+ * submitted pre-grade printed on it) at the right end of a line when the
+ * card has one (hasPgField), and a dashed rule under it. The box is centered
+ * on the first line's capitals; a box taller than the line makes the row
+ * taller. A row without the PG field gives its name and set the whole line:
+ * the set beside the name when it fits, else (with `mode.wrap`) on the line
+ * under it.
  *
  * Where the PG field goes (`mode.pg`): "beside" at the end of the name's
  * line, the name cut before it (but never down to less than PG_MIN_NAME em:
@@ -614,13 +623,13 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
   const lineH = size * 1.25;
   const rule = st.rules ? LABEL_LIMITS.minRulePt : 0;
   const g = rowGeometry(st, marks);
-  // A line's width with nothing else on it, and before the PG field
+  // A line's width with nothing else on it, and before the PG field (none on a card without a paid or submitted pre-grade)
   const full = w - g.textX(idW, gap);
-  const pg = pgField(c, size, full);
-  const beside = full - pg.w - g.pgGap;
+  const pg = hasPgField(c) ? pgField(c, size, full) : null;
+  const beside = pg ? full - pg.w - g.pgGap : full;
   const name = printable(c.name, "body700") || "Unnamed card";
   const fullW = textWidth(name, "body700", size);
-  const pgOnName = mode.pg === "beside" ? beside >= PG_MIN_NAME * size : mode.pg === "whole" ? fullW <= beside : false;
+  const pgOnName = !!pg && (mode.pg === "beside" ? beside >= PG_MIN_NAME * size : mode.pg === "whole" ? fullW <= beside : false);
   const avail = pgOnName ? beside : full;
   const nameText = fullW <= avail ? name : truncate(name, "body700", size, avail);
   const nameW = textWidth(nameText, "body700", size);
@@ -633,21 +642,21 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
   const [pSet, pNum] = [printable(parts.set, "body400"), printable(parts.num, "body400")];
   const wholeSet = [pSet, pNum].filter(Boolean).join(" ");
   let setText: string;
-  // The line the PG field stands on: 0 the name's
+  // The line the PG field stands on: 0 the name's (0 too on a row without it)
   let pgLine: number;
   if (wrapped) {
     // The set on the line under the name: beside the PG field when the whole set fits before it (or, sharing, cut to fit)
-    const sharesLine = !pgOnName && (textWidth(wholeSet, "body400", size) <= beside || (mode.share && beside >= PG_MIN_NAME * size));
+    const sharesLine = !!pg && !pgOnName && (textWidth(wholeSet, "body400", size) <= beside || (mode.share && beside >= PG_MIN_NAME * size));
     setText = sharesLine ? setBeforeField(pSet, pNum, size, beside) : setFitted(pSet, pNum, size, full);
-    pgLine = pgOnName ? 0 : sharesLine ? 1 : 2;
+    pgLine = !pg || pgOnName ? 0 : sharesLine ? 1 : 2;
   } else {
     // The set in full, or cut only when most of it still shows (a stub like "1986 Fle…" is noise)
     setText = set && fullW <= avail && (setW <= setAvail || setAvail >= Math.max(4 * size, 0.8 * setW)) ? truncate(set, "body400", size, setAvail) : "";
-    pgLine = pgOnName ? 0 : 1;
+    pgLine = !pg || pgOnName ? 0 : 1;
   }
   const lines = Math.max(wrapped ? 2 : 1, pgLine + 1);
   const cut = wrapped && setText !== wholeSet;
-  const h = g.height(lines, pgLine === lines - 1 ? pg.below : 0) + rule;
+  const h = g.height(lines, pg && pgLine === lines - 1 ? pg.below : 0) + rule;
   return {
     h,
     wrapped,
@@ -655,7 +664,7 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
     // The set and number show in full (or the card has none)
     whole: !set || (wrapped ? !cut : setText === set),
     nameCut: nameText !== name,
-    gradeCut: pg.gradeCut,
+    gradeCut: pg?.gradeCut ?? false,
     draw: (x, y) => {
       const lineTop = (i: number) => y + g.firstTop + i * lineH;
       const base = baselineIn(lineTop(0), "body700", size, 1.25);
@@ -669,7 +678,7 @@ function cardRow(c: LabelCard, st: ListStyle, w: number, idW: number, gap: numbe
       ];
       if (setText && wrapped) out.push(text(setText, nameEl.x, baselineIn(lineTop(1), "body400", size, 1.25), size, "body400", "ink"));
       else if (setText) out.push(text(setText, nameEl.x + nameEl.width + setGap, base, size, "body400", "ink"));
-      out.push(...pg.draw(x + w, baselineIn(lineTop(pgLine), "body800", size, 1.25)));
+      if (pg) out.push(...pg.draw(x + w, baselineIn(lineTop(pgLine), "body800", size, 1.25)));
       if (rule) out.push({ kind: "line", x1: x, y1: y + h - rule / 2, x2: x + w, y2: y + h - rule / 2, width: rule, color: "ink", dash: [2, 2] });
       return out;
     },
@@ -719,6 +728,15 @@ function rowGeometry(st: ListStyle, marks: Marks) {
 }
 
 /**
+ * Whether a card's row has the PG field: its pre-grade was paid for or
+ * submitted (LabelCard.pregrade, from pregradeOnLabel in lib/pregrade.ts),
+ * or there is a submitted pre-grade to print (never left off the label).
+ */
+export function hasPgField(c: Pick<LabelCard, "pregrade" | "pregradeResult">): boolean {
+  return c.pregrade === true || !!printable(c.pregradeResult, "body800");
+}
+
+/**
  * The PG field: "PG" in bold, then a write-in line a sixth of the row's text
  * width `lineW` (18 to 30 pt). A submitted pre-grade is printed on the line,
  * centered. One of up to ROW_MARKS.pgWholeChars characters ("PSA 9",
@@ -728,12 +746,12 @@ function rowGeometry(st: ListStyle, marks: Marks) {
  * field's whole width; `below` how far its line reaches under the text
  * line's box; `draw` takes the right edge and the baseline.
  */
-function pgField(c: Pick<LabelCard, "pregrade">, size: number, lineW: number): { w: number; below: number; gradeCut: boolean; draw: (right: number, base: number) => LabelElement[] } {
+function pgField(c: Pick<LabelCard, "pregradeResult">, size: number, lineW: number): { w: number; below: number; gradeCut: boolean; draw: (right: number, base: number) => LabelElement[] } {
   const labelW = textWidth(ROW_MARKS.pgLabel, "body800", size);
   const labelGap = size * 0.3;
   const blank = Math.min(ROW_MARKS.pgLineMaxPt, Math.max(ROW_MARKS.pgLineMinPt, lineW * ROW_MARKS.pgLineShare));
   const inset = size * 0.25;
-  const raw = printable(c.pregrade, "body800");
+  const raw = printable(c.pregradeResult, "body800");
   const short = [...raw].length <= ROW_MARKS.pgWholeChars;
   const want = short ? textWidth(raw, "body800", size) + 2 * inset : lineW * ROW_MARKS.pgValueShare - labelW - labelGap;
   const most = Math.max(blank, Math.min(want, lineW - labelW - labelGap));
@@ -771,25 +789,11 @@ function pgField(c: Pick<LabelCard, "pregrade">, size: number, lineW: number): {
  * set whole, cut a name and cut a short pre-grade.
  */
 function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, colGap: number, mode: RowMode, marks: Marks): Block & { wrapped: number; cut: number; whole: number; namesCut: number; gradesCut: number } {
-  const idW = Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
-  const gap = st.body * 0.6;
   const colW = st.cols === 2 ? (Wi - colGap) / 2 : Wi;
-  const rows = cards.map((c) => cardRow(c, st, colW, idW, gap, mode, marks));
-  const total = rows.reduce((sum, r) => sum + r.h, 0);
-  // The left column's rows: all of them, or for two columns the split with the lower taller column (ties: more on the left)
-  let split = rows.length;
-  if (st.cols === 2) {
-    let best = Infinity;
-    let left = 0;
-    for (let i = 0; i <= rows.length; i++) {
-      const tallest = Math.max(left, total - left);
-      if (tallest <= best + 1e-9) [best, split] = [tallest, i];
-      left += rows[i]?.h ?? 0;
-    }
-  }
-  const leftH = rows.slice(0, split).reduce((sum, r) => sum + r.h, 0);
+  const rows = setRows(cards, st, colW, mode, marks);
+  const { split, h } = columnSplit(rows.map((r) => r.h), st.cols);
   return {
-    h: Math.max(leftH, total - leftH),
+    h,
     wrapped: rows.filter((r) => r.wrapped).length,
     cut: rows.filter((r) => r.cut).length,
     whole: rows.filter((r) => r.whole).length,
@@ -808,30 +812,82 @@ function rowsBlock(cards: LabelCard[], st: ListStyle, xi: number, Wi: number, co
   };
 }
 
+/** The widest Card ID number of these cards in this style (the names start after it). */
+function idWidth(cards: LabelCard[], st: ListStyle): number {
+  return Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
+}
+
+/** The cards' rows in one style, in a column `colW` wide. */
+function setRows(cards: LabelCard[], st: ListStyle, colW: number, mode: RowMode, marks: Marks) {
+  const idW = idWidth(cards, st);
+  return cards.map((c) => cardRow(c, st, colW, idW, st.body * 0.6, mode, marks));
+}
+
+/**
+ * Rows of these heights in `cols` columns: the left column's rows (all of
+ * them, or for two columns the split with the lower taller column; ties:
+ * more on the left) and the taller column's height.
+ */
+function columnSplit(heights: number[], cols: 1 | 2): { split: number; h: number } {
+  const total = heights.reduce((sum, h) => sum + h, 0);
+  let split = heights.length;
+  if (cols === 2) {
+    let best = Infinity;
+    let left = 0;
+    for (let i = 0; i <= heights.length; i++) {
+      const tallest = Math.max(left, total - left);
+      if (tallest <= best + 1e-9) [best, split] = [tallest, i];
+      left += heights[i] ?? 0;
+    }
+  }
+  const leftH = heights.slice(0, split).reduce((sum, h) => sum + h, 0);
+  return { split, h: Math.max(leftH, total - leftH) };
+}
+
 /**
  * How rows are set when the bag only just fits, or doesn't: on the inch
- * stocks one line, the PG field at its end; on the narrow label two lines,
- * the field under the name with the set cut to fit before it.
+ * stocks one line, the PG field at its end; on the narrow label the field
+ * under the name with the set cut to fit before it (two lines), and a row
+ * without the field on one line when its name and set fit there, else its
+ * set under the name.
  */
 function denseMode(marks: Marks): RowMode {
   return marks.narrow ? { wrap: true, pg: "below", share: true } : { wrap: false, pg: "beside", share: false };
 }
 
-/** The height of one row in this style set densely (its check box and PG field included): one line, two on the narrow label. */
-function rowHeight(st: ListStyle, marks: Marks): number {
-  const g = rowGeometry(st, marks);
-  const lines = marks.narrow ? 2 : 1;
-  return g.height(lines, pgField({}, st.body, 0).below) + (st.rules ? LABEL_LIMITS.minRulePt : 0);
+/**
+ * Each card's row height in each style, set densely (denseMode, its check
+ * box and any PG field included): a row with the PG field and one without
+ * each take their own height. Measured once per label (fitList weighs
+ * several rooms) and only as far as asked: `(i, k)` gives at least the first
+ * `k` cards' heights in LIST_STYLES[i] (all of them when `k` is the count),
+ * in card order.
+ */
+type DenseHeights = (i: number, k: number) => readonly number[];
+function denseHeights(cards: LabelCard[], Wi: number, colGap: number, marks: Marks): DenseHeights {
+  const mode = denseMode(marks);
+  const byStyle = new Map<number, { hs: number[]; row: (c: LabelCard) => number }>();
+  return (i, k) => {
+    let at = byStyle.get(i);
+    if (!at) {
+      const st = LIST_STYLES[i];
+      const [colW, idW] = [st.cols === 2 ? (Wi - colGap) / 2 : Wi, idWidth(cards, st)];
+      at = { hs: [], row: (c) => cardRow(c, st, colW, idW, st.body * 0.6, mode, marks).h };
+      byStyle.set(i, at);
+    }
+    while (at.hs.length < Math.min(k, cards.length)) at.hs.push(at.row(cards[at.hs.length]));
+    return at.hs;
+  };
 }
 
-/** Can this style be used on this width at all? */
+/** Can this style be used on this width at all? Two columns leave each name MIN_NAME_W, beside the PG field when a card of the bag has one. */
 function usable(st: ListStyle, cards: LabelCard[], Wi: number, colGap: number, twoColsFit: boolean, marks: Marks): boolean {
   if (st.narrowOnly) return !twoColsFit;
   if (st.cols === 1) return true;
-  const idW = Math.max(0, ...cards.map((c) => textWidth(rowId(c), "mono600", st.body)));
   const g = rowGeometry(st, marks);
-  const full = (Wi - colGap) / 2 - g.textX(idW, st.body * 0.6);
-  return full - g.pgGap - pgField({}, st.body, full).w >= MIN_NAME_W;
+  const full = (Wi - colGap) / 2 - g.textX(idWidth(cards, st), st.body * 0.6);
+  const field = cards.some(hasPgField) ? g.pgGap + pgField({}, st.body, full).w : 0;
+  return full - field >= MIN_NAME_W;
 }
 
 /** "+N more: scan the QR", bold, after the last row that fits. */
@@ -991,47 +1047,66 @@ function frame(stock: LabelStock) {
 const NARROW_BELOW = 2 * PT - 0.5;
 
 /**
- * The card rows in `room`. First the dense rows (denseMode): the first style
- * that holds every card, else the last usable one, with the whole rows that
- * fit above "+N more" (in the largest type of its columns that lists as
- * many: where the check box sets the rows' height, smaller type gains no
- * row). When every card fits, the roomier ways of setting them are weighed,
- * in that style and the smaller ones (never more columns, which would cut
- * the names): sets and numbers on a line under the name, the PG field under
- * a name too long to stand beside it. The one kept cuts no short pre-grade,
- * then the fewest names, then (on the narrow label) the fewest sets; of
- * equals, the largest type, then the first way tried.
+ * The card rows in `room`. First the dense rows (denseMode, each card's own
+ * height: `dense`): the first style that holds every card, else the last
+ * usable one, with the whole rows that fit above "+N more" (in the largest
+ * type of its columns whose rows are no taller: where the check box sets
+ * the rows' height, smaller type gains no row). When every card fits, the
+ * roomier ways of setting them are weighed, in that style and the smaller
+ * ones (never more columns, which would cut the names): sets and numbers on
+ * a line under the name, the PG field under a name too long to stand beside
+ * it. The one kept cuts no short pre-grade, then the fewest names, then (on
+ * the narrow label) the fewest sets; of equals, the largest type, then the
+ * first way tried.
  */
-function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGap: number, marks: Marks) {
+function fitList(cards: LabelCard[], room: number, xi: number, Wi: number, colGap: number, marks: Marks, dense = denseHeights(cards, Wi, colGap, marks)) {
   const twoColsFit = LIST_STYLES.some((st) => st.cols === 2 && usable(st, cards, Wi, colGap, true, marks));
   const ok = (st: ListStyle) => usable(st, cards, Wi, colGap, twoColsFit, marks);
-  const dense = denseMode(marks);
+  const denseRows = denseMode(marks);
+  const moreAt = (i: number) => moreLine(cards.length, xi, Wi, LIST_STYLES[i]).h;
+  // The most cards (the first ones) whose dense rows fit in `space` in style i. A column only grows with each card,
+  // and the taller of two columns is at least half their total: rows are measured only until that passes the space
+  const most = (i: number, space: number) => {
+    const cols = LIST_STYLES[i].cols;
+    let [k, total] = [0, 0];
+    for (; k < cards.length; k++) {
+      const h = dense(i, k + 1)[k];
+      if ((total + h) / cols > space + 1e-9) break;
+      total += h;
+    }
+    if (cols === 1) return k;
+    let [lo, hi] = [0, k];
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (columnSplit(dense(i, mid).slice(0, mid), 2).h <= space + 1e-9) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
   let style = -1;
   let shown = cards;
   for (let i = 0; i < LIST_STYLES.length; i++) {
     const st = LIST_STYLES[i];
     if (!ok(st)) continue;
     style = i;
-    const perCol = st.cols === 2 ? Math.ceil(cards.length / 2) : cards.length;
-    if (perCol * rowHeight(st, marks) <= room) break;
+    if (most(i, room) === cards.length) break;
     if (i === LIST_STYLES.length - 1 || !LIST_STYLES.slice(i + 1).some(ok)) {
-      // Out of room: whole rows that fit above the "+N more" line
-      const h = rowHeight(st, marks);
-      style = LIST_STYLES.findIndex((n, j) => j <= i && n.cols === st.cols && ok(n) && rowHeight(n, marks) <= h + 1e-9);
-      const pick = LIST_STYLES[style];
-      const more = moreLine(cards.length, xi, Wi, pick);
-      const rows = Math.max(0, Math.floor((room - more.h) / rowHeight(pick, marks)));
-      shown = cards.slice(0, Math.min(cards.length, rows * pick.cols));
+      // Out of room: whole rows that fit above the "+N more" line, in the first style of these columns whose rows (those
+      // it lists, at least one) are no taller
+      const k = Math.min(cards.length, Math.max(1, most(i, room - moreAt(i))));
+      const hs = dense(i, k);
+      style = LIST_STYLES.findIndex((n, j) => j <= i && n.cols === st.cols && ok(n) && dense(j, k).slice(0, k).every((h, r) => h <= hs[r] + 1e-9));
+      shown = cards.slice(0, most(style, room - moreAt(style)));
       break;
     }
   }
   const st0 = LIST_STYLES[style];
-  let list = rowsBlock(shown, st0, xi, Wi, colGap, dense, marks);
-  // A row taller than the style's (a pre-grade that sent its PG field under the name): fewer rows, never past the room
+  let list = rowsBlock(shown, st0, xi, Wi, colGap, denseRows, marks);
+  // Never past the room (the rows as drawn measure their Card ID numbers on the listed cards only)
   const moreH = (n: number) => (n < cards.length ? moreLine(cards.length, xi, Wi, st0).h : 0);
   while (shown.length && list.h + moreH(shown.length) > room + 1e-9) {
     shown = shown.slice(0, shown.length - 1);
-    list = rowsBlock(shown, st0, xi, Wi, colGap, dense, marks);
+    list = rowsBlock(shown, st0, xi, Wi, colGap, denseRows, marks);
   }
   if (shown.length === cards.length && list.h <= room) {
     const modes: RowMode[] = marks.narrow
@@ -1095,6 +1170,9 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
   const cards = [...bag.cards].sort((a, b) => a.seq - b.seq);
   const padY = Math.max(0.08 * PT, s.sp(12) * 0.6);
   const stockTab = opts.filingTab === false ? 0 : tabSide(s);
+  const colGap = Math.max(6, s.px(14));
+  // The rows' heights, the same whatever room the banner and the other blocks leave
+  const dense = denseHeights(cards, Wi, colGap, marks);
 
   // The whole fit with the stock's tab (0: none; `letterInKicker`: the letter in the kicker instead)
   const fitAll = (fullTab: number, letterInKicker: boolean) => {
@@ -1126,17 +1204,16 @@ export function planBagLabel(bag: LabelBag, stock: LabelStock, opts: { filingTab
     // The smallest tab: a letter the size of the due date (banner())
     if (fullTab && at.room < need) tab = 1;
     for (let k = 0.85; at.room < need && k > 0.3; k *= 0.85) at = place(k, false, tab);
-    const colGap = Math.max(6, s.px(14));
-    let fitted = fitList(cards, at.room, xi, Wi, colGap, marks);
+    let fitted = fitList(cards, at.room, xi, Wi, colGap, marks, dense);
     // "Also in this order" gives way (the QR shows the whole order): on the narrow label to every card
     // listed, then every name and every set and number in full; on any label to cards the filing tab would hide. The
     // tab keeps its size (the same on every bag of a stock): when the cards still don't all fit, the
     // last rows go behind "+N more: scan the QR".
     if (at.also && (fitted.shown.length < cards.length || (narrow && (fitted.list.whole < cards.length || fitted.list.namesCut > 0)))) {
       const without = place(1, false, tab);
-      const refit = fitList(cards, without.room, xi, Wi, colGap, marks);
+      const refit = fitList(cards, without.room, xi, Wi, colGap, marks, dense);
       const more = refit.shown.length > fitted.shown.length;
-      const tabHides = () => fullTab > 0 && fitList(cards, place(1, true, 0).room, xi, Wi, colGap, marks).shown.length > fitted.shown.length;
+      const tabHides = () => fullTab > 0 && fitList(cards, place(1, true, 0).room, xi, Wi, colGap, marks, dense).shown.length > fitted.shown.length;
       const lost = (f: typeof fitted) => [f.list.gradesCut, f.list.namesCut, f.list.cut, -f.list.whole];
       const wholer = refit.shown.length === fitted.shown.length && lexLess(lost(refit), lost(fitted));
       if (narrow ? more || wholer : more && tabHides()) [at, fitted] = [without, refit];
