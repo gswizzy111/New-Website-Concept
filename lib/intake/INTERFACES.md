@@ -467,12 +467,20 @@ images under each card"):
   Bluetooth keyboard: it types the label's text, e.g.
   `HTTPS://THECARDDOC1.COM/Q/CD-2549-P`, and presses Enter; the phone's
   on-screen keyboard stays hidden while it's connected) is caught anywhere on
-  the page with nothing focused (`scan-input.tsx` `useKeyboardWedge`: fast
-  keystrokes ending in Enter or Tab; a focused button or link never gets the
-  scan's keys or its Enter). It listens from the moment the page has loaded,
-  after a result shows, and after a photo or any other overlay closes; a scan
-  while a photo is open full screen closes it (`SCAN_READ_EVENT`) so the
-  answer shows.
+  the page with nothing focused (`scan-input.tsx` `useKeyboardWedge`, rules in
+  `wedge.ts`, by the key events' `timeStamp`: characters at most 300 ms apart
+  are one scan; Enter or Tab within 1 s of the last one sends it when it has
+  4+ characters; a focused button, link or `<select>` never gets the scan's
+  keys or its Enter, nor a second Enter or Tab right after it). It listens
+  from the moment the page has loaded, after a result shows, and after a
+  photo or any other overlay closes; a scan while a photo is open full screen
+  closes it (`SCAN_READ_EVENT`) without handing focus back to the thumbnail,
+  so the answer shows. The same code again within 750 ms of the last time it
+  was taken is a double read and ignored (`parse.ts` `createScanGate`: an
+  ignored read doesn't renew the time, and a code whose lookup failed is
+  let straight back in); Esc that closes a photo, a sheet or the code box
+  doesn't also drop a waiting Move or Assign. A thumbnail that can't load
+  says "Photo couldn't load" in its tile.
 - **Top panel.** While nothing is waiting for a scan: "Ready to scan" (big on
   the empty page, a slim sticky bar once something is on screen; "Getting
   ready…" until the page is listening, `data-scanner="ready"` then) and
