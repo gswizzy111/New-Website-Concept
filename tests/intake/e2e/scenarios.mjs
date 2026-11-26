@@ -7777,9 +7777,10 @@ function lcpNameSize(textsList, customerName) {
  * One label's card rows (LabelPage JSON): for each listed card, its tick box, Card ID number, "PG"
  * and the line, and what is printed on the line. Fails on anything missing, doubled or overlapping.
  * `want`: Card ID -> the pre-grade expected on the line (null: blank; { cut: prefix }: a long one
- * cut with "…").
+ * cut with "…"). A wrong pre-grade is pushed to `problems` (when given) instead of failing at once, so
+ * the rows still come back for the PDF and picture checks.
  */
-function lcpRows(label, stockId, want) {
+function lcpRows(label, stockId, want, problems = null) {
   const els = label.elements;
   const ts = texts(label);
   const side = (LCP_BOX_MM[stockId] / 25.4) * PT;
@@ -7829,8 +7830,11 @@ function lcpRows(label, stockId, want) {
     if (expect == null) eq(on.map((e) => e.text), [], `${code}: printed on its blank PG line`);
     else {
       eq(on.length, 1, `${code}: texts on its PG line (${on.map((e) => e.text).join(" | ")})`);
-      if (typeof expect === "string") eq(on[0].text, expect, `${code}: the pre-grade on its line`);
-      else assert(on[0].text.endsWith("…") && on[0].text.length > expect.cut.length && on[0].text.startsWith(expect.cut), `${code}: long pre-grade printed "${on[0].text}", want it cut with "…" after "${expect.cut}…"`);
+      const bad = typeof expect === "string"
+        ? (on[0].text !== expect ? `${code}: the pre-grade on its line: expected "${expect}", got "${on[0].text}"` : null)
+        : (!(on[0].text.endsWith("…") && on[0].text.length > expect.cut.length && on[0].text.startsWith(expect.cut)) ? `${code}: long pre-grade printed "${on[0].text}", want it cut with "…" after "${expect.cut}…"` : null);
+      if (bad && problems) problems.push(bad);
+      else assert(!bad, bad);
     }
     // Nothing of the row runs into the PG field: the name and set on its line end before "PG"
     const sameLine = ts.filter((e) => e !== pg && !on.includes(e) && Math.abs(e.y - pg.y) < 0.6 && e.x > id.x && e.x < pg.x);
@@ -8002,13 +8006,14 @@ const LCP_SCENARIOS = {
         rows[stockId] = {};
         labelsBy[stockId] = {};
         const out = [];
+        const wrong = [];
         for (const { bag, cards } of bags) {
           const e = (body.bags ?? []).find((b) => b.id === bag.id);
           assert(e?.labels?.length === 1, `${bag.bag_code}: no label`);
           const label = e.labels[0];
           eq(label.cardCodes, cards.map((c) => c.card_code), `${bag.bag_code}: cards listed`);
-          rows[stockId][bag.bag_code] = lcpRows(label, stockId, LCP_WANT);
           labelsBy[stockId][bag.bag_code] = label;
+          rows[stockId][bag.bag_code] = lcpRows(label, stockId, LCP_WANT, wrong);
           const all = texts(label).map((x) => x.text).join(" | ");
           assert(!all.includes(LCP_DRAFT), `${bag.bag_code}: "${LCP_DRAFT}" (never submitted) is on the label`);
           if (stockId === "4x6") {
@@ -8016,6 +8021,7 @@ const LCP_SCENARIOS = {
           }
           out.push(`${bag.bag_code}: ${lcpSizes(label, stockId, bag.bag_code, "Test Customer A")}; ${rows[stockId][bag.bag_code].map((r) => `${lcpTail(r.code)} ${r.value ? `PG "${r.value}"` : "PG ____"}`).join(", ")}`);
         }
+        assert(!wrong.length, wrong.join("; "));
         return out.join(" · ");
       }, { critical: stockId === "4x6", shot: false });
 
