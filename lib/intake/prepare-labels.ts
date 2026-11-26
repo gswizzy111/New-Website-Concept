@@ -34,7 +34,7 @@ import { nyToday } from "@/lib/intake/business-days";
 import { thumbnail } from "@/lib/thumbnail";
 import { fetchAll } from "@/lib/fetch-all";
 import { BAG_COLUMNS, fillMissingDueDates, lacksDueDate, loadTurnarounds } from "@/lib/intake/due-dates";
-import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
+import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, recordedArrival, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
 import { loadOrderIntake, loadTierNames } from "@/lib/intake/data";
 import { receiveCards } from "@/lib/intake/receiving";
 import { planReceiving, type PlanBag, type PlanCard } from "@/lib/intake/receiving-plan";
@@ -186,7 +186,7 @@ export type PrepareResponse = {
   emailed: boolean;
   /** The order moved Awaiting Cards -> Cards Received. */
   orderStatusChanged: boolean;
-  /** Awaiting Cards only: each received bag's due-date shelf slot, as the receive route answers them (shelvesFor). */
+  /** Each received bag's due-date shelf slot, as the receive route answers them (shelvesFor): Awaiting Cards, and new bags of added-later cards. */
   shelves: BagShelf[];
   /** Bags that got their due date now (fillMissingDueDates): the labels show it. */
   dueDatesFilled: { bagCode: string; dueDate: string }[];
@@ -334,6 +334,8 @@ export function buildPreparePlan(input: {
       };
     });
     if (addedLater.length) {
+      // (components/intake/print-order-labels.tsx withoutAddedLater drops this sentence from the dialog,
+      // which asks about the cards instead: keep the two in step)
       const n = addedLater.length;
       notes.push(`${plural(n, "card was", "cards were")} added after the order arrived, so ${n === 1 ? "it is" : "they are"} left for Receiving.`);
     }
@@ -514,7 +516,11 @@ async function loadGuesses(admin: SupabaseClient, order: OrderRow, cards: CardRo
 const readOrder = async (admin: SupabaseClient, orderId: string) =>
   admin.from("orders").select("id, order_number, status, payment_status, restoration_tier, subtotal_cents").eq("id", orderId).maybeSingle();
 
-type Context = { order: OrderRow; cards: CardRow[]; built: BuiltPlan; guesses: Record<string, TierGuess>; names: Record<string, string> };
+type Context = {
+  order: OrderRow; cards: CardRow[]; built: BuiltPlan; guesses: Record<string, TierGuess>; names: Record<string, string>;
+  /** The order's arrival day on its own record (recordedArrival), for cards added later; null when none. */
+  arrivalDay: string | null;
+};
 
 /** How many of the bags would get a due date now (lacksDueDate, and the tier has a turnaround today). Best effort: 0 on a failed read. */
 async function countDueDatesToFill(admin: SupabaseClient, bags: BagSummary[]): Promise<number> {
@@ -563,7 +569,7 @@ async function loadContext(admin: SupabaseClient, orderId: string, preloaded?: O
   const built = buildPreparePlan({
     order: order as OrderRow, cards, bags: intake.intake.bags, guesses, tierNames: names, today: nyToday(), setupInput, dueDatesToFill,
   });
-  return { ok: true, order: order as OrderRow, cards, built, guesses, names };
+  return { ok: true, order: order as OrderRow, cards, built, guesses, names, arrivalDay: setupInput ? recordedArrival(setupInput)?.day ?? null : null };
 }
 
 /**
@@ -746,13 +752,15 @@ export async function prepareLabels(
   // The added-later cards staff said are here: received now, into their tier bag (after the bagging above,
   // so they can join the bag it made for the order's arrival)
   if (included.length) {
-    const r = await receiveAddedLater(admin, { orderId: input.orderId, cardIds: included, orderDay: orderArrivalDay(plan), by: input.by });
+    const r = await receiveAddedLater(admin, { orderId: input.orderId, cardIds: included, orderDay: ctx.arrivalDay, by: input.by });
     if (!r.ok) {
       const done = newlyBagged ? ` The other ${plural(newlyBagged, "card")} ${newlyBagged === 1 ? "was" : "were"} bagged; tap Print labels again.` : "";
       return { ok: false, status: r.status, error: `${r.error}${done}` };
     }
     laterReceived = r;
     newlyBagged += r.cardIds.length;
+    // A new bag goes on its due-date shelf, as after the Receive button (a bag they joined stays where it is)
+    shelves = [...shelves, ...(await shelvesFor(admin, r.bags.filter((b) => b.created), input.by))];
     if (paymentState(ctx.order.payment_status) !== "paid" && r.cardIds.length) {
       // As the receive route logs it
       const { error } = await admin.from("order_events").insert({
@@ -799,15 +807,11 @@ export async function prepareLabels(
   };
 }
 
-/**
- * The order's own arrival day (its "Cards Received" event or its drop-off), as the plan read it; null when
- * nothing is on record (the plan's "today" is not a record).
- */
-function orderArrivalDay(plan: PreparePlan): string | null {
-  return plan.receivedOnSource === "event" || plan.receivedOnSource === "dropoff" ? plan.receivedOn : null;
-}
-
-type ReceivedLater = { cardIds: string[]; bags: { id: string; code: string; tier: string; tierName: string; cardIds: string[] }[] };
+type ReceivedLater = {
+  cardIds: string[];
+  /** Per bag the cards went into (a bag joined on two days is listed once). `created`: a new bag (its shelf slot is named). */
+  bags: { id: string; code: string; tier: string; tierName: string; cardIds: string[]; created: boolean; dueDate: string | null }[];
+};
 
 /**
  * Receive added-later cards staff confirmed are here, through the Receive button's own code (receiveCards:
@@ -843,7 +847,11 @@ async function receiveAddedLater(
     const r = await receiveCards(admin, { orderId: input.orderId, cardIds: ids, receivedOn, by: input.by, markOthersAwaiting: false });
     if (!r.ok) return { ok: false, status: r.status, error: `Couldn't add the cards that came later: ${r.error}` };
     out.cardIds.push(...r.receivedCardIds);
-    for (const b of r.bags) out.bags.push({ id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, cardIds: b.cardIds });
+    for (const b of r.bags) {
+      const seen = out.bags.find((x) => x.id === b.id);
+      if (seen) seen.cardIds.push(...b.cardIds);
+      else out.bags.push({ id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, cardIds: [...b.cardIds], created: b.created, dueDate: b.dueDate });
+    }
   }
   out.bags.sort((a, b) => tierRank(a.tier) - tierRank(b.tier));
   return { ok: true, ...out };
@@ -858,15 +866,17 @@ export function addedLaterDays(input: {
   cards: readonly { id: string; tier: string | null; status: string | null; received_at: string | null }[];
   bags: readonly { tier: string; received_on: string | null; completed_at: string | null }[];
   orderTier: string | null;
-  /** The order's arrival day on record (orderArrivalDay), or null. */
+  /** The order's arrival day on its own record (lib/intake/migration.ts recordedArrival), or null. */
   orderDay: string | null;
   today: string;
 }): Map<string, string[]> {
-  const { orderDay, today } = input;
+  const today = input.today;
+  // A day still to come is no arrival day (receiveCards refuses it)
+  const orderDay = input.orderDay && input.orderDay <= today ? input.orderDay : null;
   const byId = new Map(input.cards.map((c) => [c.id, c]));
   // Receiving's default: the order's arrival day while none of its cards is received yet
   const noneReceived = !input.cards.some((c) => c.status !== "refunded" && c.received_at);
-  const fallback = orderDay && noneReceived && orderDay <= today ? orderDay : today;
+  const fallback = orderDay && noneReceived ? orderDay : today;
   const out = new Map<string, string[]>();
   for (const id of input.cardIds) {
     const c = byId.get(id);

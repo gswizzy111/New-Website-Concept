@@ -5268,9 +5268,9 @@ const LABELS_ANY_SCENARIOS = {
       assert(/\b5 cards aren't in a bag yet\b/.test(text), `box: "${text.slice(0, 160)}"`);
       return text.slice(0, 120);
     }, { critical: true });
-    await s.step("tap: 200, newlyBagged 5 (CD-2470-P + CD-2470-G); the late card has no bag and isn't received", async () => {
+    await s.step("tap: it asks about the late card; \"Not yet, just print\": 200, newlyBagged 5 (CD-2470-P + CD-2470-G); the late card has no bag and isn't received", async () => {
       const box = page.getByRole("region", { name: /^print labels$/i }).filter({ hasText: /in a bag yet/ }).first();
-      const r = await tapPrepare(page, UI.prepareLabels(box).first());
+      const r = await laAnswerAddedLater(page, UI.prepareLabels(box).first(), "no", [lateName]);
       eq([r.status, r.body?.newlyBagged], [200, 5], `HTTP, newlyBagged (${JSON.stringify(r.body).slice(0, 200)})`);
       const d = await dump();
       const c = d.tables.cards.find((x) => x.id === late);
@@ -7437,6 +7437,140 @@ const SCAN_WEDGE_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, SCAN_WEDGE_SCENARIOS);
+
+// ─── Cards added after the order arrived (owner, Nov 26: "it wont let me print") ─────
+// The print button always prints the bags there are; cards created after the order arrived (an add-cards
+// checkout, "+ Add Card" on the order page) get one question in its dialog: "3 cards were added after the
+// order arrived. Are they here with you?" (each ticked). "Yes, add them and print" receives the ticked
+// ones into their tier bag (no status change, no email) and prints; "Not yet, just print" prints the bags
+// and leaves them for Receiving (components/intake/print-order-labels.tsx, lib/intake/prepare-labels.ts).
+const LA_LATER = {
+  question: /\b(\d+) cards? (was|were) added after the order arrived\. (Are they|Is it) here with you\?/,
+  yes: (scope) => scope.getByRole("button", { name: /^yes, add (them|it) and print$/i }),
+  notYet: (scope) => scope.getByRole("button", { name: /^not yet(, just print)?$/i }),
+  baggyLabel: (scope) => scope.getByRole("button", { name: /^print baggy label$/i }),
+};
+/**
+ * Taps a print button that asks about cards added later, checks the question names `names`
+ * (every card ticked), answers "yes" or "no" and waits for the POST. Returns { status, body, request, asked }.
+ */
+async function laAnswerAddedLater(page, button, answer, names) {
+  await button.evaluate((el) => {
+    document.querySelectorAll("[data-harness-print]").forEach((n) => n.removeAttribute("data-harness-print"));
+    let n = el;
+    for (let i = 0; i < 2 && n.parentElement && n.parentElement !== document.body; i++) n = n.parentElement;
+    n.setAttribute("data-harness-print", "");
+  });
+  await button.click();
+  const dlg = page.getByRole("dialog").first();
+  await dlg.waitFor({ timeout: 30_000 });
+  const asked = (await dlg.innerText()).replace(/\s+/g, " ").trim();
+  const m = LA_LATER.question.exec(asked);
+  assert(m, `the dialog doesn't ask "N cards were added after the order arrived. Are they here with you?": "${asked.slice(0, 200)}"`);
+  eq(Number(m[1]), names.length, "cards in the question");
+  for (const n of names) assert(asked.includes(n), `${n} not listed in the question`);
+  for (const n of names) assert(await dlg.getByRole("checkbox", { name: new RegExp(esc(n)) }).isChecked(), `${n} isn't ticked`);
+  const res = await clickForApi(page, answer === "yes" ? LA_LATER.yes(dlg) : LA_LATER.notYet(dlg), "/prepare-labels");
+  let body = null;
+  let request = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  try { request = res.request().postDataJSON(); } catch { /* no body */ }
+  return { status: res.status(), body, request, asked };
+}
+
+const LA_LATER_SCENARIOS = {
+  // CD-2470 in progress with its bags (CD-2470-P 2, CD-2470-G 3); 3 cards added on the order page
+  // ("+ Add Card": no tier of their own, the order's Gold): "Print baggy label" asks about them.
+  // "Not yet" prints the 2 bags as they are; "Yes" puts the 3 in CD-2470-G (the bag of the order's
+  // arrival day, Nov 5) and the label lists them.
+  async "labels-any-added-later-order-page"({ page, ctx, s }) {
+    const id = LA.inShopOrder;
+    const num = LAN.inShopOrder;
+    const email = LAC.inShopOrder.email;
+    const names = [1, 2, 3].map((i) => `Test Late Card ${i}`);
+    const w = await watchPrints(ctx);
+    await laSetup(s);
+    await s.step("setup: CD-2470 bagged (POST): CD-2470-P (2) + CD-2470-G (3), received 2026-11-05", async () => {
+      const body = laPrepared(await laPost(ctx, id));
+      return laCheckAnswerBags(body, num, LA.inShopCards, IN_SHOP_CARD_TIERS.map((t) => t ?? IN_SHOP_ORDER_TIER));
+    }, { critical: true, shot: false });
+    let late = [];
+    await s.step("the order page: \"+ Add Card\" three times (no tier on the cards; created today, after Cards Received)", async () => {
+      await goto(page, ROUTES.order(id));
+      for (const n of names) {
+        await page.getByRole("button", { name: /^\+ add card$/i }).first().click();
+        await page.locator("#add-card-name").fill(n);
+        // Close the catalog picker first (it folds away on blur, moving the button mid-click)
+        await page.locator("#add-card-name").press("Escape");
+        await clickForApi(page, page.getByRole("button", { name: /^add card$/i }).first(), `/api/admin/orders/${id}/cards`);
+        await page.getByText(n).first().waitFor({ timeout: 30_000 });
+      }
+      const t = await tables();
+      late = names.map((n) => cardsOf(t, id).find((c) => c.card_name === n));
+      assert(late.every(Boolean), "a card wasn't added");
+      eq(late.map((c) => [c.tier ?? null, c.bag_id ?? null, c.received_at ?? null]), names.map(() => [null, null, null]), "tier, bag, received");
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.toBag, plan.addedLater.map((c) => c.name)], ["ready", 0, names], "plan: mode, toBag, addedLater");
+      return `${late.length} cards; plan ${plan.mode}, ${plan.addedLater.length} added later`;
+    }, { critical: true });
+    let before = null;
+    await s.step("\"Print baggy label\": the question lists the 3 cards, ticked; \"Not yet, just print\": 200, the 2 bags as they are, nothing changed", async () => {
+      before = laState(await dump(), id, email);
+      const r = await laAnswerAddedLater(page, LA_LATER.baggyLabel(page).first(), "no", names);
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq(r.request?.includeAddedLater ?? [], [], "includeAddedLater sent");
+      eq([r.body.newlyBagged, r.body.addedLaterReceived, r.body.addedLaterLeft], [0, 0, 3], "newlyBagged, addedLaterReceived, addedLaterLeft");
+      eq(r.body.bags.map((b) => [b.code, b.cardCount]), [[`${num}-P`, 2], [`${num}-G`, 3]], "bags to print");
+      await laUnchanged(before, id, email, "after Not yet");
+      return `${r.asked.slice(0, 140)}… -> ${r.body.message}`;
+    }, { critical: true });
+    await s.step("tap 2 prints the bags there are: 2 pages (CD-2470-G still lists 3 cards)", async () => {
+      const out = await checkPrintOutput(ctx, await tapPrint(page, w), 2);
+      const body = await labelJson(ctx, ROUTES.orderLabel(id, "?format=json"));
+      eq(body.bags.find((b) => b.bagCode === `${num}-G`)?.cardCount, 3, "CD-2470-G cards on its label");
+      return out;
+    });
+    await s.step("\"Print baggy label\" again, \"Yes, add them and print\": 200, the 3 cards received into CD-2470-G (Nov 5), Card IDs 06-08, status and emails unchanged", async () => {
+      await goto(page, ROUTES.order(id));
+      const r = await laAnswerAddedLater(page, LA_LATER.baggyLabel(page).first(), "yes", names);
+      eq(r.status, 200, `HTTP (${JSON.stringify(r.body).slice(0, 200)})`);
+      eq([...(r.request?.includeAddedLater ?? [])].sort(), late.map((c) => c.id).sort(), "includeAddedLater sent");
+      eq([r.body.newlyBagged, r.body.addedLaterReceived, r.body.addedLaterLeft, r.body.emailed, r.body.orderStatusChanged], [3, 3, 0, false, false], "newlyBagged, received, left, emailed, status changed");
+      eq(r.body.bags.map((b) => [b.code, b.cardCount]), [[`${num}-P`, 2], [`${num}-G`, 6]], "bags to print");
+      const d = await dump();
+      const g = bagsOf(d.tables, id).find((b) => b.bag_code === `${num}-G`);
+      eq([bagsOf(d.tables, id).length, g.received_on], [2, IN_SHOP_RECEIVED_ON], "bags, CD-2470-G received_on");
+      const now = late.map((c) => d.tables.cards.find((x) => x.id === c.id));
+      eq(now.map((c) => c.bag_id), late.map(() => g.id), "the 3 cards' bag");
+      eq(now.map((c) => c.card_code), [6, 7, 8].map((n) => `${num}-${nn(n)}`), "Card IDs");
+      assert(now.every((c) => c.received_at && c.received_by && !c.awaiting_arrival), "not all received (received_at, received_by)");
+      const st = laState(d, id, email);
+      eq([st.status, st.customerEmails, st.statusEvents, st.visibleEvents], [before.status, before.customerEmails, before.statusEvents, before.visibleEvents], "status, customer emails, status events, customer-visible events");
+      return r.body.message;
+    }, { critical: true });
+    await s.step("tap 2 prints them: 2 pages, a fresh label address (v=), and CD-2470-G's label lists CD-2470-06, 07 and 08", async () => {
+      const printed = await tapPrint(page, w);
+      const out = await checkPrintOutput(ctx, printed, 2);
+      const url = printed.signs.map((x) => x.url).find((u) => u && /\/api\/admin\/intake\/labels\/order\//.test(u));
+      assert(url, `no label request among: ${printed.signs.map((x) => x.text).join("; ")}`);
+      assert(/[?&]v=/.test(url), `the label address has no v= (an old file could be shown): ${url}`);
+      const json = await labelJson(ctx, `${url.replace(/^https?:\/\/[^/]+/, "")}${url.includes("?") ? "&" : "?"}format=json`);
+      const g = json.bags.find((b) => b.bagCode === `${num}-G`);
+      eq(g?.cardCount, 6, "CD-2470-G cards");
+      const listed = g.labels[0].cardCodes;
+      for (const n of [6, 7, 8]) assert(listed.includes(`${num}-${nn(n)}`), `${num}-${nn(n)} not on the label (${listed.join(", ")})`);
+      return `${out}; G lists ${listed.join(", ")}`;
+    });
+    await s.step("again: nothing to ask, the 2 bags print (no question, nothing new)", async () => {
+      const plan = await laPlan(ctx, id);
+      eq([plan.mode, plan.addedLater.length], ["ready", 0], "mode, addedLater");
+      const body = laPrepared(await laPost(ctx, id));
+      eq([body.newlyBagged, body.bags.map((b) => b.cardCount)], [0, [2, 6]], "newlyBagged, cards per bag");
+      return body.message;
+    }, { shot: false });
+  },
+};
+Object.assign(SCENARIOS, LA_LATER_SCENARIOS);
 
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
 export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, holderSetup, HOLDER, HOLDER_TO, HOLDER_STACK, HOLDER_EMPTY };
