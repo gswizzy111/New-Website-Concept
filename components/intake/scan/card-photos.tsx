@@ -17,6 +17,7 @@ import type { TrackCardPhoto, TrackCardSummary } from "@/lib/intake/tracking/typ
  *
  *   <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} />            under a card in a list (112 px tall)
  *   <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size="large" /> a holder's own card (a third of the width each, up to 160 px wide)
+ *   <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size="side" />  the same with its notes: on a phone the first one in a 96 px column, "+N"
  */
 
 /** Thumbnails shown; the rest open from the last one ("+2"). */
@@ -53,6 +54,9 @@ const SIZES = {
   list: { list: "flex flex-wrap gap-2", item: "shrink-0", tile: "h-28 w-[84px]", sizes: "84px" },
   // three across, each a third of the width up to 160 px wide (about 136 px tall on a phone)
   large: { list: "grid max-w-[30rem] grid-cols-3 gap-2", item: "min-w-0", tile: "aspect-[3/4] w-full", sizes: "(min-width: 640px) 160px, 33vw" },
+  // a picked card with notes: on a phone its first photo only, in a 96 px column (the notes beside it; "+N" opens the rest);
+  // on a computer as large
+  side: { list: "grid grid-cols-1 gap-2 sm:max-w-[30rem] sm:grid-cols-3", item: "min-w-0", tile: "aspect-[3/4] w-full", sizes: "(min-width: 640px) 160px, 96px" },
 } as const;
 
 export function CardPhotos({
@@ -65,8 +69,8 @@ export function CardPhotos({
   photos: readonly TrackCardPhoto[] | null | undefined;
   /** "CD-2549-01 Charizard" (cardPhotoLabel): names the list ("Photos of …"), each photo and the viewer. */
   label: string;
-  /** list: under a card in a list; large: a holder's own card. */
-  size?: "list" | "large";
+  /** list: under a card in a list; large: a holder's own card; side: a holder's own card with its notes beside the photos on a phone. */
+  size?: "list" | "large" | "side";
   className?: string;
 }) {
   const viewer = usePhotoViewer();
@@ -101,12 +105,14 @@ export function CardPhotos({
   const reference = all.length === 1 && all[0].kind === "reference";
 
   return (
-    <div className={`flex gap-x-3 gap-y-2 ${size === "large" ? "flex-col" : "items-center"} ${className}`}>
+    <div className={`flex gap-x-3 gap-y-2 ${size === "list" ? "items-center" : "flex-col"} ${className}`}>
       <ul className={look.list} aria-label={`Photos of ${label}`}>
         {shown.map((p, i) => {
           const last = i === shown.length - 1 && more > 0;
+          // "side" on a phone: the first photo only, with "+N" for the others (all of them open from it)
+          const phoneMore = size === "side" && i === 0 ? all.length - 1 : 0;
           return (
-            <li key={`${i}-${p.url}`} className={look.item}>
+            <li key={`${i}-${p.url}`} className={`${look.item} ${size === "side" && i > 0 ? "hidden sm:block" : ""}`}>
               <button
                 type="button"
                 onClick={(e) => viewer.show(i, e.currentTarget)}
@@ -139,7 +145,19 @@ export function CardPhotos({
                     +{more}
                   </span>
                 )}
-                <span className="sr-only">{last ? `, and ${more} more: open full screen` : ", open full screen"}</span>
+                {phoneMore > 0 && (
+                  <span aria-hidden="true" className="absolute inset-x-1 bottom-1 rounded-b-[5px] bg-black/70 py-0.5 text-center text-xs font-bold text-white sm:hidden">
+                    +{phoneMore}
+                  </span>
+                )}
+                {phoneMore > 0 ? (
+                  <>
+                    <span className="sr-only sm:hidden">{`, and ${phoneMore} more: open full screen`}</span>
+                    <span className="sr-only max-sm:hidden">{last ? `, and ${more} more: open full screen` : ", open full screen"}</span>
+                  </>
+                ) : (
+                  <span className="sr-only">{last ? `, and ${more} more: open full screen` : ", open full screen"}</span>
+                )}
               </button>
             </li>
           );

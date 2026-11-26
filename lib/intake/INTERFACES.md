@@ -516,7 +516,7 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `POST release` | `{ cardIds, fromCode?, sessionId? }` | "Take out": no place, step kept |
 | `POST done` | `{ cardIds, fromCode?, fromBag?, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
-| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks; a bag or order with each card's slot; every card with its notes: `variation`, `notes`, `knownDefects`, `customerNotes`) |
+| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks; a bag or order with each card's slot; every card with its notes: `variation`, `notes`, `knownDefects`, `customerNotes`, `staffNotes`) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order (with their notes) |
 | `GET history` | `?code=` | last 50 moves, newest first |
 | `GET ship-check` | `?code=` bag, order or Card ID | each card `ok`, `not_done`, `in_slot`, `refunded`; `ready` |
@@ -641,17 +641,28 @@ scan on the spot along with the photo"):
   photos without a tap, each in a labelled box as the scan landing's:
   "Notes on this card" (`cards.notes`, the customer's note on it, grey),
   "Known defects" (`cards.known_defects`, red), "Customer's notes"
-  (`orders.customer_notes`, amber); a note longer than 6 lines folds with
-  "Show more". The details line adds the variation ("1999 · Base Set ·
-  #4/102 · 1st Edition"); list rows say "Has notes". Data:
-  `TrackCardSummary.variation`, `notes`, `knownDefects`, `customerNotes`
-  (optional; null = read, nothing written), built by `cardNotes` in
-  `tracking/summaries.ts` from rows read with `TRACK_CARD_NOTE_COLUMNS` /
-  `TRACK_ORDER_NOTE_COLUMNS` (`loadOrdersContext(admin, ids, { notes: true
-  })`); only the Scan page's reads add them (`GET resolve` for every kind,
-  `GET search`), other answers have no note fields. Cards have no staff
-  note column; `orders.admin_notes` (the completion notes the customer
-  gets) isn't shown.
+  (`orders.customer_notes`, amber), "Staff notes" (`orders.internal_notes`,
+  the staff's own notes on the order, blue; `[data-note="staff"]`). On a
+  phone they are on the first screen: the first photo in a 96 px column
+  ("+N" on it opens the others) with the notes beside it and a note past it
+  full width,
+  then the name, details and Card ID, then the rest; a note longer than 3
+  lines folds with "Show more" in its label row (6 lines on a computer, where
+  the photos are on the left and the name over the notes on the right); the
+  Done / Take out bar is slimmer on a phone (48 px buttons) and the panel's
+  "Picked: …" has no thumbnail there (the photo is right under it), so the
+  scenario's four notes all sit above the bar at 390 x 664. The details line
+  adds the variation ("1999 · Base Set · #4/102 · 1st Edition"); list rows
+  say "Has notes" (the card's own notes only). Data:
+  `TrackCardSummary.variation`, `notes`, `knownDefects`, `customerNotes`,
+  `staffNotes` (optional; null = read, nothing written), built by
+  `cardNotes` in `tracking/summaries.ts` from rows read with
+  `TRACK_CARD_NOTE_COLUMNS` / `TRACK_ORDER_NOTE_COLUMNS` (`customer_notes,
+  internal_notes`; `loadOrdersContext(admin, ids, { notes: true })`); only
+  the Scan page's reads add them (`GET resolve` for every kind, `GET
+  search`: full admins only), other answers have no note fields.
+  `orders.admin_notes` (the completion notes the customer gets) is never
+  read for this page.
 - **Top panel** (`panelOf`, one message at a time): a save running, else the
   waiting move, else the last result or problem (with a hide button), else
   "Picked: CD-2549-03" ("Scan an empty spot twice to move it there. Scan
@@ -696,7 +707,8 @@ scan on the spot along with the photo"):
 - **Photos under each card.** Every card the page lists (a bag's, order's,
   desk's or search's list, the picked card) shows up to 3 white-framed thumbnails under its name and details
   (`<CardPhotos photos label size>`: "list" 112 px tall; "large", the picked
-  card, three across up to 160 px wide each): its receiving photos, then the
+  card, three across up to 160 px wide each; "side", the picked card with
+  notes: on a phone its first photo in a 96 px column with "+N", else as "large"): its receiving photos, then the
   customer's; the catalog picture only when it has neither, dashed amber and
   labelled "Reference photo / Not the customer's card"; none: "No photo yet".
   More than 3: "+N" on the third. A tap opens the photos page's full-screen

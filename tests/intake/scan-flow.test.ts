@@ -494,19 +494,22 @@ test("the picked card's words: details with the variation, due, where it is and 
   assert.equal(whereText(card(1, { location: SHELF }), now), "In its bag · Bag: Shelf DUE MON DEC 7");
 });
 
-test("notes: the card's note, its known defects and the order's notes, each in its labelled box, only when written", () => {
-  assert.deepEqual(NOTE_TITLES, { card: "Notes on this card", defects: "Known defects", order: "Customer's notes" });
-  assert.deepEqual(cardNoteList({ notes: " Small crease top left ", knownDefects: "Whitening on back", customerNotes: "Please be gentle.\nCall me first." }), [
+test("notes: the card's note, its known defects, the order's notes and the staff's notes, each in its labelled box, only when written", () => {
+  assert.deepEqual(NOTE_TITLES, { card: "Notes on this card", defects: "Known defects", order: "Customer's notes", staff: "Staff notes" });
+  assert.deepEqual(cardNoteList({ notes: " Small crease top left ", knownDefects: "Whitening on back", customerNotes: "Please be gentle.\nCall me first.", staffNotes: " Owner called about this one " }), [
     { kind: "card", title: "Notes on this card", text: "Small crease top left" },
     { kind: "defects", title: "Known defects", text: "Whitening on back" },
     { kind: "order", title: "Customer's notes", text: "Please be gentle.\nCall me first." },
+    { kind: "staff", title: "Staff notes", text: "Owner called about this one" },
   ]);
+  assert.deepEqual(cardNoteList({ staffNotes: "Owner called" }).map((n) => n.kind), ["staff"], "staff notes alone");
   assert.deepEqual(cardNoteList({ notes: "  ", knownDefects: null }), []);
   assert.deepEqual(cardNoteList({}), [], "an answer without notes");
   assert.deepEqual([hasCardNotes({ notes: "x" }), hasCardNotes({ knownDefects: "y" }), hasCardNotes({ notes: " ", knownDefects: null })], [true, true, false]);
   // Built on the server only from rows read with the note columns
-  assert.deepEqual(cardNotes({ variation: " Holo ", notes: "", known_defects: "Whitening" }, { customer_notes: "Gentle" }),
-    { variation: "Holo", notes: null, knownDefects: "Whitening", customerNotes: "Gentle" });
+  assert.deepEqual(cardNotes({ variation: " Holo ", notes: "", known_defects: "Whitening" }, { customer_notes: "Gentle", internal_notes: " Called her " }),
+    { variation: "Holo", notes: null, knownDefects: "Whitening", customerNotes: "Gentle", staffNotes: "Called her" });
+  assert.deepEqual(cardNotes({}, { customer_notes: null, internal_notes: "  " }), { customerNotes: null, staffNotes: null });
   assert.deepEqual(cardNotes({}, {}), {}, "read without them: no note fields (not 'no notes')");
   assert.deepEqual(cardNotes({ notes: null }, null), { notes: null });
 });
@@ -613,7 +616,8 @@ before(async () => {
         ship_from_address: {}, ship_to_address: {}, subtotal_cents: 10000, total_cents: 10000, refunded_cents: 0,
         slab_crack_count: 0, instagram_feature: false, gift_card_discount_cents: 0, admin_notes: null,
         status: "in_progress", payment_status: "paid", restoration_tier: "premium", inbound_method: "self_ship",
-        customer_notes: "Please be gentle with the corners.\nCall me first.", created_at: "2026-11-23T19:00:00+00:00", updated_at: "2026-11-23T19:00:00+00:00",
+        customer_notes: "Please be gentle with the corners.\nCall me first.", internal_notes: "Owner called: rush this one.",
+        created_at: "2026-11-23T19:00:00+00:00", updated_at: "2026-11-23T19:00:00+00:00",
       }],
       tier_bags: [{
         id: BAG, order_id: ORDER, tier: "premium", batch: 1, bag_code: "CD-6101-G", received_on: "2026-11-16", due_date: "2026-12-07",
@@ -691,22 +695,37 @@ async function scanLive(state: FlowState, code: string, now: number): Promise<Fl
 }
 
 test("the Scan page's reads carry each card's notes: a bag, a spot, a typed Card ID and a search; other reads don't", async () => {
-  const b = await resolved("CD-6101-G");
-  assert.equal(b.kind, "bag");
-  const first = b.kind === "bag" ? b.bag.cards.find((c) => c.id === C(1)) : undefined;
-  assert.deepEqual([first?.variation, first?.notes, first?.knownDefects, first?.customerNotes],
-    ["Holo", "Small crease top left", "Whitening on back", "Please be gentle with the corners.\nCall me first."]);
-  const second = b.kind === "bag" ? b.bag.cards.find((c) => c.id === C(2)) : undefined;
-  assert.deepEqual([second?.notes, second?.knownDefects, second?.customerNotes], [null, null, "Please be gentle with the corners.\nCall me first."]);
-  const typed = await resolved("CD-6101-01");
-  assert.equal(typed.kind === "card" && typed.card.knownDefects, "Whitening on back");
-  const search = await svc.resolve.searchCards(admin, "Charizard 1");
-  assert.ok(search.ok);
-  assert.equal(search.ok && search.response.cards.find((c) => c.id === C(1))?.notes, "Small crease top left");
-  // Other reads (a move's 409 occupants, the ship check) are as before: no note fields
-  const [plain] = await svc.resolve.loadCardSummaries(admin, [C(1)]);
-  assert.equal("notes" in plain, false);
-  assert.equal("customerNotes" in plain, false);
+  // The completion notes the customer gets (orders.admin_notes) are never read for the Scan page
+  const order = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  const COMPLETION = "Completion note for the customer: pressed out the corner bend.";
+  order.admin_notes = COMPLETION;
+  try {
+    const b = await resolved("CD-6101-G");
+    assert.equal(b.kind, "bag");
+    const first = b.kind === "bag" ? b.bag.cards.find((c) => c.id === C(1)) : undefined;
+    assert.deepEqual([first?.variation, first?.notes, first?.knownDefects, first?.customerNotes, first?.staffNotes],
+      ["Holo", "Small crease top left", "Whitening on back", "Please be gentle with the corners.\nCall me first.", "Owner called: rush this one."]);
+    const second = b.kind === "bag" ? b.bag.cards.find((c) => c.id === C(2)) : undefined;
+    assert.deepEqual([second?.notes, second?.knownDefects, second?.customerNotes, second?.staffNotes],
+      [null, null, "Please be gentle with the corners.\nCall me first.", "Owner called: rush this one."]);
+    const typed = await resolved("CD-6101-01");
+    assert.equal(typed.kind === "card" && typed.card.knownDefects, "Whitening on back");
+    assert.equal(typed.kind === "card" && typed.card.staffNotes, "Owner called: rush this one.");
+    const search = await svc.resolve.searchCards(admin, "Charizard 1");
+    assert.ok(search.ok);
+    assert.equal(search.ok && search.response.cards.find((c) => c.id === C(1))?.notes, "Small crease top left");
+    assert.equal(search.ok && search.response.cards.find((c) => c.id === C(1))?.staffNotes, "Owner called: rush this one.");
+    for (const [what, answer] of [["bag", b], ["card", typed], ["search", search]] as const) {
+      assert.ok(!JSON.stringify(answer).includes(COMPLETION), `${what}: the completion notes (admin_notes) aren't in the answer`);
+    }
+    // Other reads (a move's 409 occupants, the ship check) are as before: no note fields
+    const [plain] = await svc.resolve.loadCardSummaries(admin, [C(1)]);
+    assert.equal("notes" in plain, false);
+    assert.equal("customerNotes" in plain, false);
+    assert.equal("staffNotes" in plain, false);
+  } finally {
+    order.admin_notes = null;
+  }
 });
 
 test("live: bag -> its one card picked; empty clamp twice -> in it (assign); press twice -> moved (move with fromCode); a spot with it shows its notes", async () => {
@@ -734,7 +753,7 @@ test("live: bag -> its one card picked; empty clamp twice -> in it (assign); pre
   s = await scanLive(s, "LOC-CLAMP-01", T0 + 3_000);
   const picked = pickedCard(s);
   assert.equal(picked?.location?.code, "LOC-CLAMP-01");
-  assert.deepEqual(cardNoteList(picked!).map((n) => n.title), ["Notes on this card", "Known defects", "Customer's notes"]);
+  assert.deepEqual(cardNoteList(picked!).map((n) => n.title), ["Notes on this card", "Known defects", "Customer's notes", "Staff notes"]);
   // Then the empty heat press twice: a move naming CLAMP 01
   s = await scanLive(s, "LOC-HEAT-PRESS-01", T0 + 4_000);
   assert.equal(s.pending?.kind, "move");

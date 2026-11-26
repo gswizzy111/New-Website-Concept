@@ -178,7 +178,10 @@ export const ScanPanel = forwardRef<HTMLDivElement, {
     cls = "border border-border bg-white text-foreground px-4 py-3";
     body = (
       <div className="flex items-center gap-3">
-        <Thumb card={panel.card} size="sm" />
+        {/* On a phone the card's photo is right under the panel: no second copy here (room for its notes) */}
+        <span className="hidden sm:contents">
+          <Thumb card={panel.card} size="sm" />
+        </span>
         <div className="min-w-0 flex-1">
           <p className="text-xl font-black leading-tight break-words sm:text-2xl">{panel.title}</p>
           <p className="mt-0.5 text-sm font-semibold text-muted-foreground">{panel.sub}</p>
@@ -210,13 +213,19 @@ function PanelButton({ onClick, children, icon = false }: { onClick: () => void;
 // ─── Notes ──────────────────────────────────────────────────────────────
 
 const NOTE_LOOK: Record<CardNote["kind"], string> = {
-  // As the scan landing's boxes: the card's own note grey, known defects red, the order's notes amber
+  // As the scan landing's boxes: the card's own note grey, known defects red, the order's notes amber, the staff's blue
   card: "border-border bg-secondary/50 text-foreground",
   defects: "border-red-200 bg-red-50 text-red-950",
   order: "border-amber-300 bg-amber-50 text-amber-950",
+  staff: "border-sky-300 bg-sky-50 text-sky-950",
 };
 
-/** One note in its labelled box; a long one folds at 6 lines with "Show more". */
+/**
+ * One note in its labelled box; a long one folds (3 lines on a phone, so the
+ * notes fit the first screen with the photo; 6 on a computer) with "Show
+ * more" in its label row. Its own block formatting context (flow-root): next
+ * to the photos' column on a phone it narrows, past it it takes the width.
+ */
 export function NoteBox({ note }: { note: CardNote }) {
   const textRef = useRef<HTMLParagraphElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -224,25 +233,27 @@ export function NoteBox({ note }: { note: CardNote }) {
   useEffect(() => {
     const el = textRef.current;
     if (!el || open || typeof ResizeObserver === "undefined") return;
-    // Measured while folded (and again when the width changes): taller than 6 lines?
+    // Measured while folded (and again when the width changes): taller than its fold?
     const observer = new ResizeObserver(() => setLong(el.scrollHeight > el.clientHeight + 1));
     observer.observe(el);
     return () => observer.disconnect();
   }, [open, note.text]);
   return (
-    <div data-note={note.kind} className={`rounded-xl border-2 px-3 py-2.5 ${NOTE_LOOK[note.kind]}`}>
-      <p className="text-xs font-black uppercase tracking-widest opacity-90">{note.title}</p>
-      <p ref={textRef} className={`mt-1 whitespace-pre-wrap break-words text-base ${open ? "" : "line-clamp-6"}`}>{note.text}</p>
-      {(long || open) && (
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          className="-mx-1 mt-1 inline-flex min-h-11 items-center rounded-lg px-1 text-sm font-bold underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
-        >
-          {open ? SHOW_LESS_LABEL : SHOW_MORE_LABEL}
-        </button>
-      )}
+    <div data-note={note.kind} className={`flow-root rounded-xl border-2 px-2.5 py-1.5 sm:px-3 sm:py-2.5 ${NOTE_LOOK[note.kind]}`}>
+      <div className="flex min-h-3.5 items-center justify-between gap-2 sm:min-h-4">
+        <p className="text-[11px] font-black uppercase leading-[14px] tracking-wider opacity-90 sm:text-xs sm:leading-4 sm:tracking-widest">{note.title}</p>
+        {(long || open) && (
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="relative z-10 -my-[15px] -mr-1.5 inline-flex min-h-11 shrink-0 items-center rounded-lg px-1.5 text-sm font-bold underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+          >
+            {open ? SHOW_LESS_LABEL : SHOW_MORE_LABEL}
+          </button>
+        )}
+      </div>
+      <p ref={textRef} className={`whitespace-pre-wrap break-words text-[15px] leading-snug sm:mt-0.5 sm:text-base sm:leading-normal ${open ? "" : "line-clamp-3 sm:line-clamp-6"}`}>{note.text}</p>
     </div>
   );
 }
@@ -250,9 +261,11 @@ export function NoteBox({ note }: { note: CardNote }) {
 // ─── The picked card ────────────────────────────────────────────────────
 
 /**
- * The picked card: photos and notes first (the notes beside the photos on a
- * computer, under the name on a phone), then whose it is, due, step and
- * where it is; Done (asks first) and Take out in a bar stuck to the bottom.
+ * The picked card. On a phone the first screen holds the photos with the
+ * notes beside them (a narrow photo column; a note past it takes the width),
+ * then the name, details and Card ID, then whose it is, due, step and where.
+ * On a computer the photos on the left, the name and then the notes on the
+ * right. Done (asks first) and Take out in a bar stuck to the bottom.
  */
 export function PickedCard({
   card, from, now, asking, disabled, onBack, onAskDone, onCancelDone, onDone, onTakeOut,
@@ -300,22 +313,24 @@ export function PickedCard({
         </div>
       )}
       <article className="rounded-2xl border border-border bg-white p-3 sm:p-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <CardPhotos photos={card.photos} label={label} size="large" />
-          <div className="flex min-w-0 flex-col gap-3">
-            <div>
-              <p className="text-2xl font-black leading-tight text-foreground break-words sm:text-3xl">{card.name?.trim() || "No card name"}</p>
-              {details && <p className="mt-0.5 text-base text-muted-foreground break-words">{details}</p>}
-              <p className="mt-1.5 flex flex-wrap items-center gap-2">
-                <span className="rounded-lg bg-secondary px-2 py-0.5 font-mono text-lg font-black text-foreground">{card.code ?? "No Card ID"}</span>
-                <Badges card={card} />
-              </p>
+        {/* Phone: a float, so the notes sit beside the photos and a note past them takes the width (flow-root
+            holds the float); computer: a grid, the photos on the left, the name over the notes on the right */}
+        <div className="flow-root sm:grid sm:grid-cols-2 sm:grid-rows-[auto_1fr] sm:gap-x-4 sm:gap-y-3">
+          <div className={`sm:col-start-1 sm:row-span-2 sm:row-start-1 ${notes.length ? "float-left mr-3 mb-2 w-24 sm:float-none sm:m-0 sm:w-auto" : ""}`}>
+            <CardPhotos photos={card.photos} label={label} size={notes.length ? "side" : "large"} />
+          </div>
+          {notes.length > 0 && (
+            <div className="space-y-1 sm:col-start-2 sm:row-start-2 sm:space-y-2">
+              {notes.map((n) => <NoteBox key={n.kind} note={n} />)}
             </div>
-            {notes.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {notes.map((n) => <NoteBox key={n.kind} note={n} />)}
-              </div>
-            )}
+          )}
+          <div className={`clear-both min-w-0 sm:col-start-2 sm:row-start-1 sm:pt-0 ${notes.length ? "pt-2" : "pt-4"}`}>
+            <p className="text-2xl font-black leading-tight text-foreground break-words sm:text-3xl">{card.name?.trim() || "No card name"}</p>
+            {details && <p className="mt-0.5 text-base text-muted-foreground break-words">{details}</p>}
+            <p className="mt-1.5 flex flex-wrap items-center gap-2">
+              <span className="rounded-lg bg-secondary px-2 py-0.5 font-mono text-lg font-black text-foreground">{card.code ?? "No Card ID"}</span>
+              <Badges card={card} />
+            </p>
           </div>
         </div>
         <ul className="mt-3 flex flex-col gap-1 border-t border-border pt-3 text-base text-foreground">
@@ -343,20 +358,21 @@ export function PickedCard({
         <div
           role="group"
           aria-label={`What to do with ${label}`}
-          className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)] backdrop-blur sm:-mx-6 sm:px-6 lg:bottom-4 lg:mx-0 lg:rounded-2xl lg:border lg:px-4 lg:pb-3"
+          className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)] backdrop-blur sm:-mx-6 sm:px-6 sm:pt-3 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:bottom-4 lg:mx-0 lg:rounded-2xl lg:border lg:px-4 lg:pb-3"
         >
-          <div className="flex flex-col gap-2">
+          {/* Slimmer on a phone (48 px buttons), so the photo and its notes fit the first screen above it */}
+          <div className="flex flex-col gap-1.5 sm:gap-2">
             {/* On a phone the card can sit under this bar: say which card the buttons act on */}
             <p className="truncate text-sm text-foreground lg:hidden">{barCardLine(card)}</p>
             {asking ? (
               <div ref={questionRef} tabIndex={-1} role="group" aria-labelledby="scan-done-question" className="flex flex-col gap-2 outline-none">
                 <p id="scan-done-question" className="text-lg font-bold text-foreground">{DONE_QUESTION}</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={onDone} disabled={disabled} className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-green-700 px-3 text-lg font-black text-white hover:bg-green-800 disabled:opacity-50 ${focusRing}`}>
+                  <button type="button" onClick={onDone} disabled={disabled} className={`inline-flex min-h-12 sm:min-h-14 items-center justify-center gap-2 rounded-2xl bg-green-700 px-3 text-lg font-black text-white hover:bg-green-800 disabled:opacity-50 ${focusRing}`}>
                     <PackageCheck className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     {DONE_YES_LABEL}
                   </button>
-                  <button type="button" onClick={onCancelDone} className={`inline-flex min-h-14 items-center justify-center rounded-2xl border border-border bg-white px-3 text-lg font-bold text-foreground ${focusRing}`}>
+                  <button type="button" onClick={onCancelDone} className={`inline-flex min-h-12 sm:min-h-14 items-center justify-center rounded-2xl border border-border bg-white px-3 text-lg font-bold text-foreground ${focusRing}`}>
                     {CANCEL_LABEL}
                   </button>
                 </div>
@@ -364,13 +380,13 @@ export function PickedCard({
             ) : (
               <div className={`grid gap-2 ${actions.done && actions.takeout ? "grid-cols-2" : "grid-cols-1"}`}>
                 {actions.done && (
-                  <button type="button" onClick={onAskDone} disabled={disabled} className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-green-700 px-3 text-lg font-black text-white hover:bg-green-800 disabled:opacity-50 ${focusRing}`}>
+                  <button type="button" onClick={onAskDone} disabled={disabled} className={`inline-flex min-h-12 sm:min-h-14 items-center justify-center gap-2 rounded-2xl bg-green-700 px-3 text-lg font-black text-white hover:bg-green-800 disabled:opacity-50 ${focusRing}`}>
                     <PackageCheck className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     {DONE_LABEL}
                   </button>
                 )}
                 {actions.takeout && (
-                  <button type="button" onClick={onTakeOut} disabled={disabled} className={`inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 border-border bg-white px-3 text-lg font-black text-foreground hover:border-primary/50 disabled:opacity-50 ${focusRing}`}>
+                  <button type="button" onClick={onTakeOut} disabled={disabled} className={`inline-flex min-h-12 sm:min-h-14 items-center justify-center gap-2 rounded-2xl border-2 border-border bg-white px-3 text-lg font-black text-foreground hover:border-primary/50 disabled:opacity-50 ${focusRing}`}>
                     <LogOut className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     {TAKE_OUT_LABEL}
                   </button>

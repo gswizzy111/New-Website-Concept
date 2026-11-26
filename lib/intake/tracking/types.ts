@@ -180,6 +180,8 @@ export type TrackCardSummary = {
   knownDefects?: string | null;
   /** The order's notes from the customer (orders.customer_notes). */
   customerNotes?: string | null;
+  /** The staff's own notes on the order (orders.internal_notes; never orders.admin_notes, the completion notes the customer gets). */
+  staffNotes?: string | null;
 };
 
 /** An image address, with resized copies when there are some (lib/thumbnail.ts productImage). */

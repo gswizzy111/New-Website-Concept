@@ -100,7 +100,7 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
  * GET /api/admin/track/resolve: a slot or place (LOC-...) -> the slot and its
  * cards; a Bag ID -> the bag's cards with their slots; an order code -> its
  * bags and cards; a Card ID -> the card. Every card comes with its notes
- * (variation, notes, knownDefects, customerNotes). 400 when it isn't a code,
+ * (variation, notes, knownDefects, customerNotes, staffNotes). 400 when it isn't a code,
  * 404 when nothing has it.
  */
 export async function resolveTrackCode(admin: SupabaseClient, raw: string): Promise<IntakeResult<{ response: ResolveResponse }>> {

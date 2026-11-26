@@ -203,7 +203,7 @@ export function cardDetails(card: Pick<TrackCardSummary, "year" | "set" | "numbe
 }
 
 /** Which note a box shows. */
-export type NoteKind = "card" | "defects" | "order";
+export type NoteKind = "card" | "defects" | "order" | "staff";
 
 /** A card's notes, each in its labelled box (as the scan landing's boxes). */
 export type CardNote = { kind: NoteKind; title: string; text: string };
@@ -212,15 +212,17 @@ export const NOTE_TITLES: Record<NoteKind, string> = {
   card: "Notes on this card",
   defects: "Known defects",
   order: "Customer's notes",
+  staff: "Staff notes",
 };
 
 /**
  * The notes the picked card shows next to its photos (owner, Nov 26 2026:
  * "I want to be able to see the notes when I scan on the spot along with the
- * photo"): the customer's note on the card, its known defects, then the
- * order's notes from the customer. Only the ones written.
+ * photo"): the customer's note on the card, its known defects, the order's
+ * notes from the customer, then the staff's own notes on the order. Only the
+ * ones written.
  */
-export function cardNoteList(card: Pick<Partial<TrackCardSummary>, "notes" | "knownDefects" | "customerNotes">): CardNote[] {
+export function cardNoteList(card: Pick<Partial<TrackCardSummary>, "notes" | "knownDefects" | "customerNotes" | "staffNotes">): CardNote[] {
   const out: CardNote[] = [];
   const add = (kind: NoteKind, text: string | null | undefined) => {
     const t = text?.trim();
@@ -229,6 +231,7 @@ export function cardNoteList(card: Pick<Partial<TrackCardSummary>, "notes" | "kn
   add("card", card.notes);
   add("defects", card.knownDefects);
   add("order", card.customerNotes);
+  add("staff", card.staffNotes);
   return out;
 }
 
@@ -238,8 +241,9 @@ export function hasCardNotes(card: Pick<Partial<TrackCardSummary>, "notes" | "kn
   return !!(card.notes?.trim() || card.knownDefects?.trim());
 }
 
-/** A long note folds at NOTE_LINES lines. */
+/** A long note folds at NOTE_LINES lines (NOTE_LINES_PHONE on a phone, so the notes fit the first screen with the photo). */
 export const NOTE_LINES = 6;
+export const NOTE_LINES_PHONE = 3;
 export const SHOW_MORE_LABEL = "Show more";
 export const SHOW_LESS_LABEL = "Show less";
 
