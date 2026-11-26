@@ -21,8 +21,10 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
  * URL never carries anything about a customer.
  */
 export default async function ScanPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdminOrWorkshop();
+  const role = await requireAdminOrWorkshop();
   const sp = await searchParams;
   const loc = normalizeCode(first(sp.loc));
-  return <ScanApp initialLoc={loc && isLocationCode(loc) ? loc : null} initialShip={first(sp.mode) === "ship"} />;
+  // Ship check is for full admins (its pages aren't open to workshop logins)
+  const shipCheck = role === "admin";
+  return <ScanApp initialLoc={loc && isLocationCode(loc) ? loc : null} initialShip={shipCheck && first(sp.mode) === "ship"} shipCheck={shipCheck} />;
 }

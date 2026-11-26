@@ -51,6 +51,8 @@ type Props = {
   defaultDeskId: string | null;
   /** Why there is no desk (it couldn't be made or read). */
   deskProblem: string | null;
+  /** false for workshop logins: Places is for full admins (lib/workshop-access.ts) */
+  placesLink?: boolean;
 };
 
 /** What the box at the top says after "Move all" or "Mark all N done". */
@@ -78,7 +80,7 @@ const NONE_PLACED: ReadonlyMap<string, LocationRef> = new Map();
 const NONE: ReadonlySet<string> = new Set();
 const addAll = (s: ReadonlySet<string>, ids: readonly string[]) => new Set([...s, ...ids]);
 
-export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks, defaultDeskId, deskProblem }: Props) {
+export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks, defaultDeskId, deskProblem, placesLink = true }: Props) {
   const router = useRouter();
   const [refreshing, startTransition] = useTransition();
   const stored = useStoredDesk();
@@ -304,10 +306,16 @@ export function OpenBoard({ person, personMore, groups, bags, orderStatus, desks
             state.kind !== "nothing" && (
               <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                 {deskProblem && <p className="mb-1 font-semibold break-words">{deskProblem}</p>}
-                <p>No desk to put cards on. Add a desk or switch one on in Places.</p>
-                <AdminLink href="/admin/receiving/locations" className={`mt-1 inline-flex min-h-11 items-center font-bold text-primary hover:underline ${focusRing}`}>
-                  Places
-                </AdminLink>
+                {placesLink ? (
+                  <>
+                    <p>No desk to put cards on. Add a desk or switch one on in Places.</p>
+                    <AdminLink href="/admin/receiving/locations" className={`mt-1 inline-flex min-h-11 items-center font-bold text-primary hover:underline ${focusRing}`}>
+                      Places
+                    </AdminLink>
+                  </>
+                ) : (
+                  <p>No desk to put cards on. Ask the owner to add a desk or switch one on.</p>
+                )}
               </div>
             )
           ) : (

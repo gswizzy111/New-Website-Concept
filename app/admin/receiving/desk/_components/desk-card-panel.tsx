@@ -124,9 +124,13 @@ export function DeskCardPanel({ card, now, selected, busy, confirmingDone, eager
           <span className="font-semibold">{card.customer ?? <span className="text-muted-foreground">No name</span>}</span>
         </Fact>
         <Fact term="Order">
-          <AdminLink href={card.orderUrl} className={`-my-2 inline-flex min-h-11 items-center rounded font-heading font-black text-primary hover:underline break-all ${focusRing}`}>
-            {card.orderNumber || "Order"}
-          </AdminLink>
+          {card.orderUrl ? (
+            <AdminLink href={card.orderUrl} className={`-my-2 inline-flex min-h-11 items-center rounded font-heading font-black text-primary hover:underline break-all ${focusRing}`}>
+              {card.orderNumber || "Order"}
+            </AdminLink>
+          ) : (
+            <span className="font-heading font-black text-foreground break-all">{card.orderNumber || "Order"}</span>
+          )}
         </Fact>
         <Fact term="Step">
           <span className={`font-semibold ${card.step.done ? "text-green-700" : ""}`}>{card.step.label}</span>
@@ -202,11 +206,14 @@ export function DeskCardPanel({ card, now, selected, busy, confirmingDone, eager
               <PackageCheck className="size-4" strokeWidth={1.75} aria-hidden="true" />
               Done
             </button>
-            <AdminLink href={card.orderUrl} className={deskButtons.secondary}>
-              <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
-              Open order
-            </AdminLink>
-            <button type="button" onClick={onTakeOut} disabled={busy} className={deskButtons.quiet}>
+            {/* Workshop logins have no order page (orderUrl null): Take out takes the row */}
+            {card.orderUrl && (
+              <AdminLink href={card.orderUrl} className={deskButtons.secondary}>
+                <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
+                Open order
+              </AdminLink>
+            )}
+            <button type="button" onClick={onTakeOut} disabled={busy} className={`${deskButtons.quiet}${card.orderUrl ? "" : " col-span-2"}`}>
               <LogOut className="size-4" strokeWidth={1.75} aria-hidden="true" />
               Take out
             </button>

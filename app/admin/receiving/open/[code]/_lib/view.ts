@@ -102,8 +102,8 @@ export type OpenHeader = {
   /** The customer's name, or "No name". */
   customer: string;
   orderNumber: string;
-  /** /admin/orders/<orderId> */
-  orderUrl: string;
+  /** /admin/orders/<orderId>; null for workshop logins (no order page: lib/workshop-access.ts) */
+  orderUrl: string | null;
   /** The photos page: the bag's (?bag=) for a bag code, the whole order's for an order code. */
   photosUrl: string;
   /** The order's notes from the customer (orders.customer_notes). */
@@ -375,6 +375,19 @@ function refundedLast<T extends { state: OpenCardState }>(cards: T[]): T[] {
  * order code (every card, a heading per bag "Platinum · CD-2549-P", then the
  * cards in no bag under "Not here yet" or "Not in a bag"). `today` = nyToday().
  */
+/**
+ * What a workshop login sees (lib/workshop-access.ts): no declared values and
+ * no link to the order page. Stripped here, on the server, so neither reaches
+ * their browser.
+ */
+export function workshopOpenView(view: OpenView): OpenView {
+  return {
+    ...view,
+    header: { ...view.header, orderUrl: null },
+    groups: view.groups.map((g) => ({ ...g, cards: g.cards.map((c) => ({ ...c, declaredValue: null })) })),
+  };
+}
+
 export function buildOpenView(input: OpenInput, today: string): OpenView {
   const { order } = input;
   const all = input.cards.map(openCard);

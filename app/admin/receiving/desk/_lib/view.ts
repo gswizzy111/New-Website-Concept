@@ -25,7 +25,8 @@ export type DeskPanelCard = {
   customer: string | null;
   orderId: string;
   orderNumber: string;
-  orderUrl: string;
+  /** /admin/orders/<orderId>; null for workshop logins (no order page: lib/workshop-access.ts) */
+  orderUrl: string | null;
   cardUrl: string;
   /** Receiving, where a photo can be added: /admin/receiving/<orderId>#card-<id> */
   receivingUrl: string;
@@ -85,6 +86,15 @@ export function deskPhotoGroups(card: Pick<DeskCard, "receivingPhotos" | "custom
     });
   }
   return groups;
+}
+
+/**
+ * What a workshop login sees on the Desk (lib/workshop-access.ts): no
+ * declared value and no link to the order page. Stripped on the server, so
+ * neither reaches their browser.
+ */
+export function workshopDeskCard(card: DeskPanelCard): DeskPanelCard {
+  return { ...card, declaredValue: null, orderUrl: null };
 }
 
 export function deskPanelCard(c: DeskCard): DeskPanelCard {

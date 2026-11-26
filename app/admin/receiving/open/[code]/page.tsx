@@ -9,7 +9,7 @@ import { TierBadge } from "../../bags/_components/bag-bits";
 import { missingTracking } from "../../shelf/_lib/places";
 import { OpenBoard } from "./_components/open-board";
 import { loadDeskChoice, loadOpen } from "./_lib/load";
-import { buildOpenView, type OpenBagLine, type OpenHeader } from "./_lib/view";
+import { buildOpenView, workshopOpenView, type OpenBagLine, type OpenHeader } from "./_lib/view";
 
 /**
  * Where a bag QR (CD-2549-P) or an order QR (CD-2549) opens: /q/<code>
@@ -107,10 +107,12 @@ function PersonMore({ header }: { header: OpenHeader }) {
       )}
 
       <nav aria-label="More about this order" className={`${header.bags.length > 0 || header.customerNotes ? "mt-2" : ""} flex flex-wrap gap-x-4`}>
-        <AdminLink href={header.orderUrl} className={smallLink}>
-          <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
-          Open full order
-        </AdminLink>
+        {header.orderUrl && (
+          <AdminLink href={header.orderUrl} className={smallLink}>
+            <ExternalLink className="size-4" strokeWidth={1.75} aria-hidden="true" />
+            Open full order
+          </AdminLink>
+        )}
         <AdminLink href={header.photosUrl} className={smallLink}>
           <Images className="size-4" strokeWidth={1.75} aria-hidden="true" />
           All photos
@@ -134,7 +136,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export default async function OpenCodePage({ params }: { params: Promise<{ code: string }> }) {
-  await requireAdminOrWorkshop();
+  const role = await requireAdminOrWorkshop();
   const { code } = await params;
   const admin = createAdminClient();
   const loaded = await loadOpen(admin, code);
@@ -152,7 +154,9 @@ export default async function OpenCodePage({ params }: { params: Promise<{ code:
   }
   // The desk only once the code is known: an unknown code makes nothing
   const desks = await loadDeskChoice(admin, await staffName());
-  const view = buildOpenView(loaded.input, nyToday());
+  const built = buildOpenView(loaded.input, nyToday());
+  // Workshop logins: no declared values, no order page link, no Places link
+  const view = role === "workshop" ? workshopOpenView(built) : built;
   return (
     <Shell>
       <OpenBoard
@@ -164,6 +168,7 @@ export default async function OpenCodePage({ params }: { params: Promise<{ code:
         desks={desks.desks}
         defaultDeskId={desks.defaultId}
         deskProblem={desks.problem}
+        placesLink={role === "admin"}
       />
     </Shell>
   );

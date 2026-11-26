@@ -79,7 +79,8 @@ function sameScreen(a: FlowState, b: FlowState): boolean {
   return true;
 }
 
-export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null; initialShip: boolean }) {
+// `shipCheck`: false for workshop logins, who don't get the ship check pages (lib/workshop-access.ts)
+export function ScanApp({ initialLoc, initialShip, shipCheck = true }: { initialLoc: string | null; initialShip: boolean; shipCheck?: boolean }) {
   const router = useRouter();
   const now = useNow();
   const [flow, setFlowState] = useState<FlowState>(startFlow);
@@ -485,7 +486,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       <div className="flex items-center justify-between gap-2">
         <h1 className="font-heading text-2xl font-black text-foreground">Scan</h1>
         <div className="flex items-center gap-2">
-          <button
+          {shipCheck && <button
             type="button"
             onClick={toggleShip}
             aria-pressed={ship}
@@ -495,7 +496,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           >
             <PackageCheck className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
             Ship check
-          </button>
+          </button>}
           <button
             type="button"
             onClick={toggleSound}

@@ -40,13 +40,23 @@ create table if not exists public.workshop_users (
 alter table public.workshop_users enable row level security;
 
 -- A username is an admin's or a worker's, never both (any letter case):
--- the sign-in form takes either, and the logs name people by it
+-- the sign-in form takes either, and the logs name people by it. Checked
+-- both ways: a new worker can't take an admin's name (here), and a new or
+-- renamed admin can't take a worker's (the admin_users trigger below). Only
+-- NEW names are checked: a row whose username doesn't change (a sign-in
+-- stamping last_login_at, a password or email change, on either site) is
+-- never refused. Both triggers take the same per-name lock, so an admin and
+-- a worker added with one name at the same moment can't both get through.
 create or replace function public.workshop_username_free()
 returns trigger
 language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
+  if tg_op = 'UPDATE' and lower(new.username) = lower(old.username) then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('staff-username:' || lower(new.username)));
   if exists (select 1 from public.admin_users a where lower(a.username) = lower(new.username)) then
     raise exception 'workshop username "%" is an admin username', new.username using errcode = '23505';
   end if;
@@ -57,6 +67,31 @@ drop trigger if exists workshop_users_username_free on public.workshop_users;
 create trigger workshop_users_username_free
   before insert or update of username on public.workshop_users
   for each row execute function public.workshop_username_free();
+
+-- The other way: an admin_users row added (or renamed) with a worker's
+-- username is refused. Existing admins are untouched: rows that keep their
+-- username pass straight through, so the other site's sign-ins and updates
+-- work exactly as before.
+create or replace function public.admin_username_free()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_op = 'UPDATE' and lower(new.username) = lower(old.username) then
+    return new;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('staff-username:' || lower(new.username)));
+  if exists (select 1 from public.workshop_users w where lower(w.username) = lower(new.username)) then
+    raise exception 'admin username "%" is a workshop username', new.username using errcode = '23505';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists admin_users_username_free on public.admin_users;
+create trigger admin_users_username_free
+  before insert or update of username on public.admin_users
+  for each row execute function public.admin_username_free();
 
 -- ── 2. Sessions: role 'workshop' with its own owner column ──────────────────
 alter table public.admin_sessions
@@ -125,6 +160,8 @@ create index if not exists cards_received_at_idx on public.cards (received_at de
   where received_at is not null;
 
 -- ── Rollback (run by hand only if this has to be undone) ─────────────────────
+--   drop trigger if exists admin_users_username_free on public.admin_users;   -- first: it reads workshop_users
+--   drop function if exists public.admin_username_free();
 --   drop index if exists public.cards_received_at_idx;
 --   drop index if exists public.order_events_stage_update_created_idx;
 --   drop index if exists public.card_moves_by_idx;

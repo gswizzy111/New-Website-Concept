@@ -8,7 +8,7 @@ import { DESK_CODE, deskPagePath, deskPlaces, ensureDesk, loadDeskCards, pickDes
 import { ShelfSignButton } from "../shelf/_components/print-buttons";
 import { missingTracking } from "../shelf/_lib/places";
 import { DeskBoard } from "./_components/desk-board";
-import { deskPanelCard, type DeskPanelCard } from "./_lib/view";
+import { deskPanelCard, workshopDeskCard, type DeskPanelCard } from "./_lib/view";
 
 /**
  * The Desk (menu "Desk"): every card on a desk, one panel each, so a stack
@@ -81,19 +81,22 @@ function Notice({ tone, children }: { tone: "green" | "amber" | "red"; children:
   return <div role={tone === "red" ? "alert" : "status"} className={`mb-4 rounded-xl border px-4 py-3 text-sm break-words ${cls}`}>{children}</div>;
 }
 
-function SignButtons({ desk }: { desk: DeskPlace }) {
+// `places`: false for workshop logins, who don't get Places (lib/workshop-access.ts)
+function SignButtons({ desk, places }: { desk: DeskPlace; places: boolean }) {
   return (
     <>
       <ShelfSignButton placeId={desk.id} code={desk.code} name={desk.name} />
-      <AdminLink href="/admin/receiving/locations" className={secondaryButton}>
-        <MapPin aria-hidden className="size-4" strokeWidth={1.75} />
-        Places
-      </AdminLink>
+      {places && (
+        <AdminLink href="/admin/receiving/locations" className={secondaryButton}>
+          <MapPin aria-hidden className="size-4" strokeWidth={1.75} />
+          Places
+        </AdminLink>
+      )}
     </>
   );
 }
 
-function EmptyDesk({ desk }: { desk: DeskPlace }) {
+function EmptyDesk({ desk, places }: { desk: DeskPlace; places: boolean }) {
   return (
     <div className="rounded-2xl border border-border bg-white p-5 sm:p-6">
       <p className="font-heading text-xl font-black text-foreground">Nothing on {desk.name}</p>
@@ -101,23 +104,26 @@ function EmptyDesk({ desk }: { desk: DeskPlace }) {
       <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-foreground">
         <li><span className="font-bold">A whole stack:</span> on Scan, scan the holder (say HEAT PRESS 01), tap Move, then scan the {desk.name} sign. Every card in it comes here.</li>
         <li><span className="font-bold">One card:</span> scan the {desk.name} sign, then the card&apos;s bag, and tap the card.</li>
-        <li><span className="font-bold">No sign yet?</span> Print it below, or on Places. Stick it on the desk.</li>
+        <li><span className="font-bold">No sign yet?</span> {places ? "Print it below, or on Places." : "Print it below."} Stick it on the desk.</li>
       </ul>
       <div className="mt-4 flex flex-wrap gap-2">
         <AdminLink href={scanPathForLocation(desk.code)} className={primaryButton}>
           <ScanLine aria-hidden className="size-4" strokeWidth={1.75} />
           Scan cards onto {desk.name}
         </AdminLink>
-        <SignButtons desk={desk} />
+        <SignButtons desk={desk} places={places} />
       </div>
     </div>
   );
 }
 
 export default async function DeskPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdminOrWorkshop();
+  const role = await requireAdminOrWorkshop();
+  const workshop = role === "workshop";
   const requested = normalizeCode(first((await searchParams).desk));
-  const result = await loadDesk(requested);
+  const loaded = await loadDesk(requested);
+  // Workshop logins: no declared values and no order page links (lib/workshop-access.ts)
+  const result = loaded.ok && workshop ? { ...loaded, cards: loaded.cards.map(workshopDeskCard) } : loaded;
   const desk = result.ok ? result.desk : null;
 
   return (
@@ -130,7 +136,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
           <div className="min-w-0 max-w-3xl">
             <h1 className="font-heading text-3xl font-black text-foreground break-words sm:text-4xl">{desk?.name ?? "Desk"}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              The cards on {desk ? "this desk" : "your desk"}, with their photos, their order and the customer&apos;s notes. Put each one in a holder, mark it done, or open its order.
+              The cards on {desk ? "this desk" : "your desk"}, with their photos, their order and the customer&apos;s notes. Put each one in a holder, mark it done{workshop ? "" : ", or open its order"}.
             </p>
           </div>
           <nav className="flex flex-wrap gap-2" aria-label="Desk">
@@ -138,7 +144,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
               <ScanLine aria-hidden className="size-4" strokeWidth={1.75} />
               Scan
             </AdminLink>
-            {desk && <SignButtons desk={desk} />}
+            {desk && <SignButtons desk={desk} places={!workshop} />}
           </nav>
         </div>
 
@@ -193,7 +199,7 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
             desk={{ id: desk.id, code: desk.code, name: desk.name }}
             cards={result.cards}
             serverNow={result.now}
-            empty={<EmptyDesk desk={desk} />}
+            empty={<EmptyDesk desk={desk} places={!workshop} />}
           />
         </div>
       )}
