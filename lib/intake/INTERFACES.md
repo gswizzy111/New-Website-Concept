@@ -400,8 +400,13 @@ also the Scan page's "Move to another holder") lists switched-on work-station
 slots and other places, never the places that hold bags (`LOC-OPEN-BAGS`,
 `LOC-SHIP`, `LOC-DONE`: `isCardDestination` in `desk/_lib/holders.ts`; typed
 or scanned: "OPEN BAGS holds bags, not cards. Pick a holder, like clamp
-7."); it opens with its box focused on a computer and its heading on a
-phone (so the phone's keyboard doesn't cover the list). When no desk exists at all, the page makes `LOC-DESK` "DESK" (`ensureDesk`:
+7."; typed shelf codes too: "DUE MON DEC 7 holds bags, not cards. …"; the
+DONE sign or "done": "To finish it, close this list, then scan DONE or tap
+Done." (`DONE_IN_PICKER_TEXT`: a computer's scanner types into the focused
+box; the picker never does the Done itself)); it opens with its box
+focused on a computer and its heading on a phone (so the phone's keyboard
+doesn't cover the list). When no desk exists at all, the page makes
+`LOC-DESK` "DESK" (`ensureDesk`:
 insert on conflict do nothing; a switched-off desk stays off) and shows the
 place `ensureDesk` answers: a second `deskPlaces()` read in the same render
 would get Next.js's memoized answer to the identical GET from before the
@@ -462,11 +467,14 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `GET locations/labels` | `?station=clamp&from=1&to=20` or `?ids=`; `&stock=`, `&format=json` | slot labels, one 50 x 80 mm page each |
 | `GET locations/[id]/sign` | `&stock=`, `&format=json` | one slot label or shelf sign |
 
-**`fromCode`** (optional on `release` and `done`; the Scan page's holder view
-sends it): only cards still in that place are taken out or marked done; each
-other card comes back refused, "Not in CLAMP 07 any more (now in HEAT PRESS
-01)." ("now on DESK GAVIN", "now in its bag"; `nowAtText`, `notInPlaceText`
-in `moves.ts`), and when none is left in it the whole request is 409
+**`fromCode`** (optional on `release` and `done`; the Scan page sends it from a
+holder or slot: the holder view's Done and Take out, the DONE sign after
+"Move to another holder", the plain slot view's Done and Take out;
+`finishBody` in `holder-format.ts`): only cards still in that place are
+taken out or marked done; each other card comes back refused, "Not in
+CLAMP 07 any more (now in HEAT PRESS 01)." ("now on DESK GAVIN", "now in
+its bag"; `nowAtText`, `notInPlaceText` in `moves.ts`), and when none is
+left in it the whole request is 409
 ("CD-2549-07 isn't in CLAMP 07 any more (now in HEAT PRESS 01)."; several:
 "Those cards aren't in HEAT PRESS 02 any more: CD-2549-01 (now on DESK),
 …"). A card moved after the read is left alone ("Someone moved it just
@@ -555,8 +563,12 @@ images under each card"):
   desk.", Take out: "CD-2549-03 taken out of CLAMP 07, not done. Put it back
   in REYES's bag: …"; a save from the Scan page's own flow about this
   holder shows the same way: cards it put in (a Move then a scan of it), and
-  the DONE sign after "Move to another holder" (`ScanSave.at` = the holder
-  the cards were in: "Done. Put it back in REYES's bag: …"; `scanSaveResult`);
+  the DONE sign after "Move to another holder" (sent with `fromCode` = that
+  holder: a card someone moved meanwhile is refused, "CD-2549-07 isn't in
+  CLAMP 07 any more (now in HEAT PRESS 01).", nothing done, no order
+  auto-complete or email; on a 409 the Scan page stops waiting and shows the
+  holder as it is now; `ScanSave.at` = the holder the cards were in:
+  "Done. Put it back in REYES's bag: …"; `scanSaveResult`);
   the Scan page's older lines above (the desk link, the order's line) go
   after the holder's own save (`onSaved`); each card big (photos "large"; a
   stack's at the list size, so Move all stays on screen; name, year · set ·
@@ -567,14 +579,19 @@ images under each card"):
   Reyes", as the card can be under it): one card "Move to my desk" (primary;
   `POST move` to the desk, no force: a desk with a limit set in Places that
   is full asks "DESK already holds … Add anyway?" with "In it now: … · holds
-  N cards", [Add anyway] [Cancel]), "Move to another holder" ("Another
-  holder" on a phone; the Desk page's `HolderPicker`, and the Scan page
-  waits for the next holder scan at the same time), "Done" (asks "Mark it
-  done? Then put it back in its bag."; `POST done` with `fromCode`), "Take
-  out" (`POST release` with `fromCode`); a stack (2+ cards): tick boxes (none
-  ticked at first), "Move all N to my desk", "Done for selected", "Move
-  selected", "Take out selected"; while the next holder is awaited the tick
-  boxes and Pick all are greyed ("Cancel to change the cards."). On your own
+  N cards", [Add anyway] [Cancel]; Add anyway sends the cards to the desk
+  it named, and the question goes when another desk is chosen), "Move to
+  another holder" ("Another holder" on a phone; the Desk page's
+  `HolderPicker`, and the Scan page waits for the next holder scan at the
+  same time: for 10 minutes at most, `MOVE_WAIT_MS`, and only while that
+  holder is on screen: another holder, a bag, an order or a search shown
+  ends it, so a forgotten move never acts on a later scan), "Done" (asks
+  "Mark it done? Then put it back in its bag."; `POST done` with
+  `fromCode`), "Take out" (`POST release` with `fromCode`); a stack (2+
+  cards): tick boxes (none ticked at first), "Move all N to my desk",
+  "Done for selected", "Move selected", "Take out selected"; while the next
+  holder is awaited the tick boxes and Pick all are greyed ("Cancel to
+  change the cards."). On your own
   desk Move to another holder (Move selected) leads; a refunded card has
   Take out only; a switched-off holder greys both moves ("This holder is
   switched off: use Take out or Done, or switch it on in Places."). "My
@@ -587,7 +604,9 @@ images under each card"):
   out leave the list at once (`withoutGone`: a re-read that fails can't
   leave them listed), the holder is read again and the buttons stay greyed
   until it lands (`holderActionDisabled`); a tap while something still runs
-  says "Still saving the last change. Try again in a moment." The result
+  only flashes "Still saving the last change. Try again in a moment." (and
+  logs it): the result line keeps the last answer (the DONE sign's too), the
+  Scan page's lines stay and the page doesn't scroll. The result
   line takes focus (no typing box keeps it, so the scanner's next scan is
   caught), and any scan clears the result. Exact words: the HOLDER agent's
   holder-text.md and `holder-format.ts`.

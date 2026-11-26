@@ -8288,7 +8288,8 @@ const SCAN_FIX_SCENARIOS = {
         await until(async () => (await openDialogs(p)) === 0, 5_000);
         const saved = p.waitForResponse((x) => /\/done$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
         await scan("LOC-DONE");
-        eq((await saved).status(), 200, "POST done");
+        const r = await saved;
+        eq([r.status(), JSON.parse(r.request().postData() ?? "{}").fromCode], [200, HOLDER.code], "POST done (status, fromCode: the from-holder)");
         const said = await until(async () => { const x = await holderLine(); return UI.doneSentence("A").test(x) ? x : null; }, 20_000);
         await shot("07-done-sign");
         assert(said, `${HOLDER.name}'s line: "${await holderLine()}" (page: "${(await scanMain(p)).slice(0, 200)}")`);
@@ -8349,6 +8350,210 @@ const SCAN_FIX_SCENARIOS = {
     } finally {
       await phone.ctx.close();
     }
+  },
+
+  // Review fixes 2 (Nov 26): the DONE sign after "Move to another holder" names the from-holder
+  // (fromCode), so a card someone moved meanwhile is refused (409), nothing done, no email, and the
+  // move stops waiting; a forgotten move ends (10 minutes); a tap during the page's own re-read only
+  // flashes "Still saving…" (the DONE sign's line stays); "Add anyway?" goes when another desk is
+  // chosen and Add anyway sends to the desk it named; on a computer, DONE scanned into the picker's
+  // box says "To finish it, close this list, then scan DONE or tap Done." and does nothing itself.
+  async "scan-holder-fixes-2"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const GAVIN = "LOC-DESK-GAVIN";
+    const DONE_IN_PICKER = "To finish it, close this list, then scan DONE or tap Done.";
+    const BUSY = "Still saving the last change. Try again in a moment.";
+    let t = null;
+    await s.step(`setup: as scan-holder-card with ${DESK} and ${GAVIN} (2 desks: the "My desk" select)`, async () => {
+      t = await holderSetup(ctx, mockUrl, { desk: true });
+      const r = await api(ctx, "POST", ROUTES.trackLocations(), { name: "Desk Gavin", kind: "other" });
+      assert(r.status < 300, `POST locations: ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      t = await tables();
+      assert(placeOf(t, GAVIN), `no ${GAVIN}`);
+    }, { critical: true, shot: false });
+
+    const phone = await phoneContext(browser, appUrl);
+    const p = phone.page;
+    const scan = scannerOn(p);
+    const m = () => p.locator("main").first();
+    const holderLine = () => p.locator('section[aria-labelledby^="holder-"] div[role="status"]').first().innerText().then(flat).catch(() => "");
+    const posts = [];
+    p.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/api/admin/track/")) posts.push({ path: new URL(r.url()).pathname, body: JSON.parse(r.postData() ?? "{}") }); });
+    const postsTo = (re) => posts.filter((x) => re.test(x.path));
+    const shot = (name, pg = p) => pg.screenshot({ path: path.join(OUT, `scan-holder-fixes-2-${name}.png`) }).catch(() => {});
+    const cue = async () => flat(await p.locator("[data-scanner]").first().innerText().catch(() => ""));
+    /** HOLDER on screen, "Move to another holder", the picker closed with Esc: the page waits for the next holder. */
+    const waitMove = async () => {
+      await holderOpen(p, scan, HOLDER, 1);
+      await UI.holderToHolder(m()).click();
+      await UI.holderPicker(p).waitFor({ timeout: 10_000 });
+      await p.keyboard.press("Escape");
+      await until(async () => (await openDialogs(p)) === 0, 5_000);
+      const c = await until(async () => { const x = await cue(); return UI.holderNext.test(x) ? x : null; }, 5_000);
+      assert(c, `the top panel doesn't wait for the next holder ("${await cue()}")`);
+    };
+    try {
+      await goto(p, ROUTES.scan);
+
+      await s.step(`${HOLDER.card}: "Move to another holder"; another phone moves it to ${HOLDER_TO.name}; the DONE sign: POST done with fromCode ${HOLDER.code} refused (409), not done, still in ${HOLDER_TO.name}, no email, no history row; the move stops waiting (a holder scanned next moves nothing)`, async () => {
+        await waitMove();
+        await assignOk(ctx, HOLDER_TO.code, [cardIdOf(t, HOLDER.card)]);
+        const before = await tables();
+        const mails = await mailCount();
+        const saved = p.waitForResponse((x) => /\/done$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await scan("LOC-DONE");
+        const r = await saved;
+        const sent = JSON.parse(r.request().postData() ?? "{}");
+        eq([r.status(), sent.fromCode], [409, HOLDER.code], "POST done (status, fromCode)");
+        const said = await saidOnPage(p, /isn't in clamp 07 any more \(now in heat press 01\)/i, 10_000);
+        assert(said, `no "${HOLDER.card} isn't in ${HOLDER.name} any more (now in ${HOLDER_TO.name})." ("${(await scanMain(p)).slice(0, 200)}")`);
+        const after = await tables();
+        const c = cardByCode(after, HOLDER.card);
+        eq([c.completed, c.location_id], [false, placeOf(after, HOLDER_TO.code).id], `${HOLDER.card}: completed, place`);
+        eq(movesOf(after, c.id).length, movesOf(before, c.id).length, "card_moves rows for it");
+        eq(await mailCount(), mails, "emails");
+        // Shown as it is now, not waiting any more
+        await until(async () => UI.holderEmptyHead(HOLDER.name).test(await scanMain(p)), 15_000);
+        assert(UI.holderEmptyHead(HOLDER.name).test(await scanMain(p)), `${HOLDER.name} not shown empty ("${(await scanMain(p)).slice(0, 160)}")`);
+        const top = await cue();
+        assert(!UI.holderNext.test(top), `the top panel still waits: "${top}"`);
+        await shot("01-stale-done-refused");
+        const moves = postsTo(/\/move$/).length;
+        await holderOpen(p, scan, HOLDER_EMPTY, 0);
+        await sleep(1_000);
+        eq(postsTo(/\/move$/).length - moves, 0, `POST move after scanning ${HOLDER_EMPTY.name}`);
+        eq(cardsIn(await tables(), HOLDER_TO.code), [HOLDER.card], `cards in ${HOLDER_TO.name}`);
+        return `${said.slice(0, 120)}; top panel: "${top.slice(0, 60)}"`;
+      }, { shot: false });
+
+      await s.step(`a forgotten move ends: "Move to another holder", then 11 minutes later (the phone's clock) the DONE sign marks nothing done and shows the Done place`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await waitMove();
+        // As if the phone was locked for 11 minutes (its timers slept): only the clock moved on
+        await p.evaluate(() => { const real = Date.now.bind(Date); Date.now = () => real() + 11 * 60_000; });
+        const dones = postsTo(/\/done$/).length;
+        await scan("LOC-DONE");
+        await until(async () => /\bdone\b/i.test(await scanMain(p)) && !UI.holderHas(HOLDER.name, 1).test(await scanMain(p)), 15_000);
+        await sleep(1_000);
+        eq(postsTo(/\/done$/).length - dones, 0, "POST done after the move ran out");
+        const c = cardByCode(await tables(), HOLDER.card);
+        eq([c.completed, cardsIn(await tables(), HOLDER.code)], [false, [HOLDER.card]], `${HOLDER.card}: completed, cards in ${HOLDER.name}`);
+        const top = await cue();
+        assert(!UI.holderNext.test(top), `the top panel still waits: "${top}"`);
+        await shot("02-move-ran-out");
+        // Back to the real clock
+        await goto(p, ROUTES.scan);
+        return `top panel: "${top.slice(0, 60)}"`;
+      }, { shot: false });
+
+      await s.step(`the DONE sign while the page reads ${HOLDER.name} again (slow): "Done. Put it back in …" shows; a tap on Take out then only flashes "${BUSY}" (no save; the line stays)`, async () => {
+        await waitMove();
+        let release = () => {};
+        const held = new Promise((r) => { release = r; });
+        const holderRead = new RegExp(`/api/admin/track/resolve\\?code=${esc(encodeURIComponent(HOLDER.code))}`);
+        await p.route(holderRead, async (route) => { await held; await route.continue().catch(() => {}); });
+        try {
+          const saved = p.waitForResponse((x) => /\/done$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+          await scan("LOC-DONE");
+          const r = await saved;
+          eq([r.status(), JSON.parse(r.request().postData() ?? "{}").fromCode], [200, HOLDER.code], "POST done (status, fromCode)");
+          const said = await until(async () => { const x = await holderLine(); return UI.doneSentence("A").test(x) ? x : null; }, 15_000);
+          assert(said, `no "Done. Put it back in …" ("${await holderLine()}")`);
+          const releases = postsTo(/\/release$/).length;
+          const takeOut = UI.holderTakeOut(m());
+          await takeOut.waitFor({ timeout: 5_000 });
+          assert(!(await takeOut.isDisabled()), "Take out is greyed during the page's re-read (nothing to test)");
+          await takeOut.click();
+          const flashed = await until(async () => (await p.getByText(BUSY).first().isVisible().catch(() => false)) || null, 3_000);
+          await shot("03-busy-tap");
+          assert(flashed, `no "${BUSY}" flash`);
+          await sleep(400);
+          const line = await holderLine();
+          assert(UI.doneSentence("A").test(line), `the DONE sign's line went: "${line}"`);
+          assert(!line.includes(BUSY), `the result line says "${line}"`);
+          eq(postsTo(/\/release$/).length - releases, 0, "POST release");
+          return said.slice(0, 120);
+        } finally {
+          release();
+          await p.unroute(holderRead).catch(() => {});
+        }
+      }, { shot: false });
+
+      await s.step(`${DESK} with a limit of 1 holding CD-2549-08: "Move to my desk" asks "Add anyway?"; choosing Desk Gavin in "My desk" drops the question; back to Desk, Add anyway sends toCode ${DESK} with force`, async () => {
+        await until(async () => UI.holderEmptyHead(HOLDER.name).test(await scanMain(p)), 15_000);
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", DESK);
+        await assignOk(ctx, DESK, [cardIdOf(t, "CD-2549-08")], true);
+        await holderOpen(p, scan, HOLDER, 1);
+        const select = m().getByRole("combobox", { name: /my desk/i });
+        await select.selectOption(DESK);
+        const ask = async () => {
+          const first = p.waitForResponse((x) => /\/move$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+          await UI.holderToDesk(m()).click();
+          const r1 = await first;
+          eq([r1.status(), JSON.parse(r1.request().postData() ?? "{}").toCode], [409, DESK], "POST move (status, toCode)");
+          await p.getByText(/already holds .*add anyway\?/i).first().waitFor({ timeout: 10_000 });
+        };
+        await ask();
+        await shot("04-desk-full");
+        await select.selectOption(GAVIN);
+        await until(async () => (await m().getByRole("button", { name: /^add anyway$/i }).count()) === 0, 5_000);
+        eq(await m().getByRole("button", { name: /^add anyway$/i }).count(), 0, '"Add anyway" buttons after choosing Desk Gavin');
+        await select.selectOption(DESK);
+        await ask();
+        const second = p.waitForResponse((x) => /\/move$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await m().getByRole("button", { name: /^add anyway$/i }).click();
+        const r2 = await second;
+        const body = JSON.parse(r2.request().postData() ?? "{}");
+        eq([r2.status(), body.toCode, body.force], [200, DESK, true], "Add anyway: POST move (status, toCode, force)");
+        eq(cardsIn(await tables(), DESK), ["CD-2549-07", "CD-2549-08"], `cards on ${DESK}`);
+        await mockUpdate(mockUrl, "locations", { capacity: null }, "code", DESK);
+      }, { shot: false });
+
+      await s.step("no browser errors on the phone", async () => {
+        assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+
+    // A computer: the picker opens with its box focused, so the scanner types into it
+    const dscan = scannerOn(page);
+    const dm = () => page.locator("main").first();
+    const dposts = [];
+    page.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/api/admin/track/")) dposts.push(new URL(r.url()).pathname); });
+    await s.step(`1440: "Move to another holder" (the picker's box focused); the DONE sign scanned into the box: "${DONE_IN_PICKER}", nothing saved; close the list, scan DONE: done (fromCode ${HOLDER.code})`, async () => {
+      await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+      await goto(page, ROUTES.scan);
+      await holderOpen(page, dscan, HOLDER, 1);
+      await UI.holderToHolder(dm()).click();
+      const picker = UI.holderPicker(page);
+      await picker.waitFor({ timeout: 10_000 });
+      await UI.holderOption(picker, HOLDER_TO.name).waitFor({ timeout: 15_000 });
+      const focus = await focusedEl(page);
+      assert(/^input/.test(focus), `the picker's box isn't focused on a computer (${focus})`);
+      const n = dposts.length;
+      const before = await tables();
+      await dscan("LOC-DONE", { blur: false });
+      const said = await until(async () => { const x = flat(await picker.innerText().catch(() => "")); return x.includes(DONE_IN_PICKER) ? x : null; }, 10_000);
+      await shot("05-picker-done", page);
+      assert(said, `the picker says "${flat(await picker.innerText().catch(() => "")).slice(0, 240)}"`);
+      assert(!/holds bags, not cards/i.test(said), "still the bag-place line");
+      await sleep(800);
+      eq(dposts.slice(n), [], "POSTs after DONE was scanned into the box");
+      eq(await openDialogs(page), 1, "the picker is still open");
+      const mid = await tables();
+      eq(cardsIn(mid, HOLDER.code), [HOLDER.card], `cards in ${HOLDER.name}`);
+      eq(movesOf(mid, cardIdOf(t, HOLDER.card)).length, movesOf(before, cardIdOf(t, HOLDER.card)).length, "card_moves rows for it");
+      await page.keyboard.press("Escape");
+      await until(async () => (await openDialogs(page)) === 0, 5_000);
+      const saved = page.waitForResponse((x) => /\/done$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+      await dscan("LOC-DONE");
+      const r = await saved;
+      eq([r.status(), JSON.parse(r.request().postData() ?? "{}").fromCode], [200, HOLDER.code], "POST done (status, fromCode)");
+      const after = await tables();
+      eq([cardByCode(after, HOLDER.card).completed, cardByCode(after, HOLDER.card).location_id, cardsIn(after, HOLDER.code)], [true, null, []], `${HOLDER.card}: completed, place, cards in ${HOLDER.name}`);
+      return `focus: ${focus}; the picker said: "${DONE_IN_PICKER}"`;
+    }, { shot: false });
   },
 };
 Object.assign(SCENARIOS, SCAN_FIX_SCENARIOS);
