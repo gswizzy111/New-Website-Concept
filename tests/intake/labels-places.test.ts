@@ -184,8 +184,8 @@ test("bag label on 50 x 80 mm: one label, the 1 in QR with its words beside it, 
     }
   }
   assert.equal(planBagLabel(bag(4), BAG_STOCK).fit.more, 0, "a 4-card bag lists every card");
-  // 5 rows above "+N more" since the 3 mm check boxes (6 before them)
-  assert.ok(planBagLabel(bag(16), BAG_STOCK).fit.shown >= 5, "16 cards: at least 5 listed");
+  // 3 rows above "+N more" since the check boxes and the PG field under each name (6 before them)
+  assert.ok(planBagLabel(bag(16), BAG_STOCK).fit.shown >= 3, "16 cards: at least 3 listed");
   // The inch stocks keep their layout: words under the QR at 2 in, beside it at 3.2 in
   const wide = planBagLabel(bag(4), stockPoints("4x6", 3.2)).page;
   assert.equal(texts(wide).filter((t) => t.text === "CD-10482-P" && t.font === "mono600").length, 2);

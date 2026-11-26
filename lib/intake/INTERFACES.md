@@ -342,9 +342,14 @@ found", the /q wording).
   (`lib/intake/labels/layout.ts`).
 - Each card row on the bag label (owner, Nov 26 2026) starts with an empty
   check box to tick by pen (4 mm; 3 mm on 50 x 80 mm), centered on the row's
-  first line, and ends with "PG" and a write-in line; a submitted pre-grade
-  (`cards.pregrade_result` once `pregrade_submitted_at` is set, loaded as
-  `LabelCard.pregrade`) is printed on the line (`ROW_MARKS`, `LabelFit.checkBox`).
+  first line, and has "PG" and a write-in line at a line's right end; a
+  submitted pre-grade (`cards.pregrade_result` once `pregrade_submitted_at` is
+  set, loaded as `LabelCard.pregrade`) is printed on the line, never cut up to
+  10 characters ("PSA 9", "BGS 9.5"). On 50 x 80 mm the PG field is always
+  on the line under the name (beside the set, cut with its number kept, or on
+  a line of its own), so the name has the whole line; on the inch stocks it
+  ends the name's line when the whole name fits before it (`ROW_MARKS`,
+  `LabelFit.checkBox`, `LabelFit.namesCut`).
 
 ## Tracking (slots)
 

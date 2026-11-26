@@ -502,13 +502,16 @@ test("filing tab: the same tab on every bag of a stock; \"Also in this order\" g
     }
   }
   // The owner's labels: on 4x6 at 3.2 in a 28-card bag still lists every card (40 before the check boxes, whose
-  // 4 mm set each row's height); on 50 x 80 mm a 4-card bag lists every card with its set and number in full
-  // ("Also in this order" makes room)
+  // 4 mm set each row's height); on 50 x 80 mm a 4-card bag lists every card with its whole name and its card
+  // number (the set shares its line with the PG field: cut, the number kept; "Also in this order" makes room)
   assert.equal(planBagLabel(bag(28), DEFAULT).fit.more, 0);
   assert.equal(planBagLabel(bag(40), DEFAULT).fit.more, 12);
   const four = planBagLabel(bag(4, { otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] }), MM50);
   assert.equal(four.fit.more, 0);
-  for (const c of bag(4).cards) assert.ok(words(four.page).includes(`${c.year} ${c.set} #${c.number}`), `50 x 80 mm: ${c.code}'s set in full`);
+  for (const c of bag(4).cards) {
+    assert.ok(words(four.page).includes(c.name), `50 x 80 mm: ${c.code}'s name whole`);
+    assert.ok(words(four.page).some((w) => w.endsWith(`#${c.number}`)), `50 x 80 mm: ${c.code}'s card number`);
+  }
 });
 
 test("fitName: up to the max, breaks at spaces and after hyphens, fewer lines on a tie, always fits", () => {
@@ -796,8 +799,13 @@ function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: s
       const mine = words.filter((w) => w.x > id.x && w.y >= id.y - 1e-9 && w.y < next - 1e-9 && w.x + w.width <= right);
       assert.equal(mine.length, 1, `${label}: ${code}: one "PG" in its row`);
       const pg = mine[0];
-      // On the first line on the inch stocks; on 50 x 80 mm it may stand under the set's line
-      if (!narrow) assert.ok(near(pg.y, id.y, 1e-9), `${label}: ${code}: PG on the first line`);
+      // On 50 x 80 mm always under the name; on the inch stocks beside it, or under it when the whole name
+      // doesn't fit beside it. Under the name, the name has the whole line: whole, or cut only at the line's end
+      const nameEl = texts(page).find((t) => t.font === "body700" && near(t.y, id.y, 1e-9) && t.x > id.x && t.x + t.width <= right + 1e-9);
+      assert.ok(nameEl, `${label}: ${code}: its name on its first line`);
+      if (narrow) assert.ok(pg.y > id.y + 1e-6, `${label}: ${code}: PG under the name on 50 x 80 mm`);
+      assert.ok(pg.y - id.y <= 2 * 1.25 * id.size + 0.01, `${label}: ${code}: PG at most two lines under the name`);
+      if (pg.y > id.y + 1e-6) assert.ok(!nameEl.text.endsWith("…") || nameEl.x + nameEl.width > right - 1.2 * id.size, `${label}: ${code}: "${nameEl.text}" cut short of the line's end`);
       const line = lines.filter((l) => l.x1 >= pg.x + pg.width - 1e-9 && l.x1 - (pg.x + pg.width) <= pg.size && l.y1 > pg.y && l.y1 - pg.y < 0.4 * pg.size);
       assert.equal(line.length, 1, `${label}: ${code}: the PG line right after "PG", just under its baseline`);
       const ln = line[0];
@@ -852,26 +860,37 @@ test("check box and PG line on every listed card row, inside the printed width, 
   assert.ok(leftLines.every((l) => l.x2 <= rightBoxX - 4), "the left column's PG lines stop well before the right column's boxes");
 });
 
-test("on 50 x 80 mm a name too long to stand beside the PG field keeps its whole line, the field going under it, while the rows fit", () => {
-  const b = bag(3, { otherBags: [] });
-  b.cards[0] = { ...b.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "" };
+test("on 50 x 80 mm the PG field is always under the name: the name keeps the whole line, the field beside the set (cut, its number kept) or on its own line", () => {
+  // A roomy bag: the field on its own line under a set too long to stand beside it, the set whole
+  const b = bag(2, { otherBags: [] });
+  b.cards[0] = { ...b.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "", pregrade: "9" };
+  b.cards[1] = { ...b.cards[1], pregrade: "BGS 9.5" };
   const page = layoutBagLabel(b, MM50);
-  checkLabel(b, MM50, page, "Pikachu Illustrator");
+  checkLabel(b, MM50, page, "two cards");
   assert.deepEqual(overlaps(page), []);
-  const marks = checkRowMarks(b, MM50, page, "Pikachu Illustrator");
-  const row = marks.get(b.cards[0].code)!;
-  assert.ok(words(page).includes("Pikachu Illustrator"), "the name whole");
-  assert.ok(row.pg.y > row.id.y, "PG under the name's line");
-  // The other names stand beside their PG field, on their first line
-  for (const c of b.cards.slice(1)) assert.ok(near(marks.get(c.code)!.pg.y, marks.get(c.code)!.id.y, 1e-9), `${c.name}: PG beside the name`);
-  // When whole names would hide sets (rows too tall), the names are cut before the field instead
+  const marks = checkRowMarks(b, MM50, page, "two cards");
+  assert.ok(words(page).includes("Pikachu Illustrator") && words(page).includes(b.cards[1].name), "the names whole");
+  assert.equal(marks.get(b.cards[0].code)!.value?.text, "9");
+  assert.equal(marks.get(b.cards[1].code)!.value?.text, "BGS 9.5");
+  // A set too long to stand beside the field: whole on its own line, the field on the line under it
+  const second = marks.get(b.cards[1].code)!;
+  const set2 = texts(page).find((t) => t.text === `${b.cards[1].year} ${b.cards[1].set} #${b.cards[1].number}`)!;
+  assert.ok(set2 && set2.y > second.id.y && second.pg.y > set2.y, "set whole under the name, the field under the set");
+  for (const c of b.cards) assert.ok(marks.get(c.code)!.pg.y > marks.get(c.code)!.id.y, `${c.name}: PG under the name`);
+  // A short set stands beside the field on the line under the name
+  const short = marks.get(b.cards[0].code)!;
+  const promo = texts(page).find((t) => t.text === "1998 Promo")!;
+  assert.ok(promo && near(promo.y, short.pg.y, 1e-9) && promo.x + promo.width <= short.pg.x, "\"1998 Promo\" beside its PG field");
+  // A full bag: every row two lines, the set cut before the field with its card number kept
   const four = bag(4, { otherBags: [] });
   four.cards[0] = { ...four.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "" };
-  four.cards[3] = { ...four.cards[3], name: "Charizard Holo 1st Edition" };
+  four.cards[3] = { ...four.cards[3], name: "Charizard Holo 1st Edition", pregrade: "PSA 8–9" };
   const p4 = planBagLabel(four, MM50);
   assert.equal(p4.fit.more, 0);
-  assert.equal(p4.fit.wrapped, 4, "every set and number still listed under its name");
-  checkRowMarks(four, MM50, p4.page, "four, long names");
+  const m4 = checkRowMarks(four, MM50, p4.page, "four, long names");
+  for (const c of four.cards.slice(1)) assert.ok(words(p4.page).some((w) => w.endsWith(`#${c.number}`)), `${c.code}: its card number`);
+  assert.ok(words(p4.page).includes("Charizard Holo 1st Edition"), "a name of 26 letters whole on its own line");
+  assert.equal(m4.get(four.cards[3].code)!.value?.text, "PSA 8–9");
 });
 
 test("the name, the QR and the banner keep their sizes with the check boxes and PG lines (usual test names, 4x6 and 50 x 80 mm)", () => {
@@ -938,6 +957,49 @@ test("a submitted pre-grade is printed on its PG line; the others are left blank
     // The field grows for it, at most to ROW_MARKS.pgValueShare of the row's text width
     assert.ok(m.line.x2 - m.line.x1 > ROW_MARKS.pgLineMinPt, "the line grew for the value");
     assert.ok(m.value.x + m.value.width <= m.line.x2 + 1e-9 && m.value.x >= m.line.x1 - 1e-9);
+  }
+});
+
+test("short pre-grades are never cut, on any stock or card count; on 50 x 80 mm a one-card bag prints its whole name (QA, Nov 26: \"PSA 9\" printed \"P…\", the name \"Test Car…\")", () => {
+  // The e2e bags (labels-checkbox-pg): CD-2549-P holds one card with "PSA 9"; CD-2549-G four, one "PSA 8–9", one long
+  const LONG = "PSA 8–9, centering 60/40 on the back, light whitening on two corners";
+  const mk = (bagCode: string, tierName: string, rows: [string, string, string | null][], seq0: number): LabelBag => ({
+    bagCode, tierName, orderNumber: "CD-2549", customerName: "Test Customer A", receivedOn: "2026-11-15", dueDate: "2026-12-07",
+    otherBags: [{ bagCode: bagCode.endsWith("P") ? "CD-2549-G" : "CD-2549-P", tierName: "Other", cardCount: 1 }],
+    cards: rows.map(([name, number, pregrade], i) => ({ seq: seq0 + i, code: `CD-2549-${String(seq0 + i).padStart(2, "0")}`, name, year: "1999", set: "Base Set", number, pregrade })),
+  });
+  const plat = mk("CD-2549-P", "Platinum", [["Test Card Platinum One", "1/130", "PSA 9"]], 7);
+  const gold = mk("CD-2549-G", "Gold", [["Test Card Gold One", "4/102", null], ["Test Card Gold Two", "10/102", "PSA 8–9"], ["Test Card Gold Three", "15/102", null], ["Test Card Gold Four", "58/102", LONG]], 1);
+  for (const [where, stock] of [["4x6", DEFAULT], ["50 x 80 mm", MM50]] as const) {
+    const p = layoutBagLabel(plat, stock);
+    checkLabel(plat, stock, p, `${where} CD-2549-P`);
+    assert.deepEqual(overlaps(p), []);
+    assert.equal(checkRowMarks(plat, stock, p, `${where} CD-2549-P`).get("CD-2549-07")!.value?.text, "PSA 9", `${where}: "PSA 9" whole`);
+    assert.ok(words(p).includes("Test Card Platinum One"), `${where}: the one card's whole name`);
+    const g = layoutBagLabel(gold, stock);
+    checkLabel(gold, stock, g, `${where} CD-2549-G`);
+    assert.deepEqual(overlaps(g), []);
+    const gm = checkRowMarks(gold, stock, g, `${where} CD-2549-G`);
+    assert.equal(gm.get("CD-2549-02")!.value?.text, "PSA 8–9");
+    assert.ok(/^PSA 8.*…$/.test(gm.get("CD-2549-04")!.value?.text ?? ""), `${where}: the long one cut (${gm.get("CD-2549-04")!.value?.text})`);
+    for (const c of gold.cards) assert.ok(words(g).includes(c.name), `${where}: "${c.name}" whole`);
+  }
+  // Grades of up to 10 characters, on every stock and width, 1 to 120 cards: printed whole wherever their card is listed
+  const GRADES = ["9", "PSA 9", "PSA 10", "PSA 8–9", "BGS 9.5", "CGC 9.8", "GEM MT 10"];
+  const stocks: [string, LabelStock][] = [["4x6", DEFAULT], ["50 x 80 mm", MM50], ["4x6 at 2 in", stockPoints("4x6", 2)], ["4x6 at 4 in", stockPoints("4x6", 4)], ["3x5", stockPoints("3x5", 2.6)], ["4x3", stockPoints("4x3", 3.2)]];
+  for (const [where, stock] of stocks) {
+    for (const n of [1, 2, 4, 12, 16, 40, 120]) {
+      const b = bag(n);
+      b.cards = b.cards.map((c, i) => ({ ...c, pregrade: GRADES[i % GRADES.length] }));
+      const label = `${where}, ${n} cards`;
+      const page = layoutBagLabel(b, stock);
+      checkLabel(b, stock, page, label);
+      assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+      const marks = checkRowMarks(b, stock, page, label);
+      for (const c of b.cards.filter((x) => page.cardCodes.includes(x.code))) assert.equal(marks.get(c.code)!.value?.text, c.pregrade, `${label}: ${c.code}'s "${c.pregrade}"`);
+      // The owner's stocks: a bag that fits prints every ordinary name whole (the field never takes a name's room)
+      if (n <= 4 && (stock === DEFAULT || stock === MM50)) assert.equal(planBagLabel(b, stock).fit.namesCut, 0, `${label}: names whole`);
+    }
   }
 });
 
