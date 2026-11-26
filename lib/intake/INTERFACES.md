@@ -385,7 +385,13 @@ shows each card on one desk (photos, card and order details, the order's
 customer notes, the card's notes and known defects, time on the desk, the
 holder it came from) with Put in holder (`assign`), Done (`done`), Take out
 (`release`, Undo = `assign` back to the desk with `force`) and Open order.
-When no desk exists at all, the page makes `LOC-DESK` "DESK" (`ensureDesk`:
+The holder picker ("Put in holder", `desk/_components/holder-picker.tsx`,
+also the Scan page's "Move to another holder") lists switched-on work-station
+slots and other places, never the places that hold bags (`LOC-OPEN-BAGS`,
+`LOC-SHIP`, `LOC-DONE`: `isCardDestination` in `desk/_lib/holders.ts`; typed
+or scanned: "OPEN BAGS holds bags, not cards. Pick a holder, like clamp
+7."); it opens with its box focused on a computer and its heading on a
+phone (so the phone's keyboard doesn't cover the list). When no desk exists at all, the page makes `LOC-DESK` "DESK" (`ensureDesk`:
 insert on conflict do nothing; a switched-off desk stays off) and shows the
 place `ensureDesk` answers: a second `deskPlaces()` read in the same render
 would get Next.js's memoized answer to the identical GET from before the
@@ -435,8 +441,8 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 |---|---|---|
 | `POST assign` | `{ locationCode, cardIds, force?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }` |
 | `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed); 409 full / empty |
-| `POST release` | `{ cardIds, sessionId? }` | "Take out": no place, step kept |
-| `POST done` | `{ cardIds, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
+| `POST release` | `{ cardIds, fromCode?, sessionId? }` | "Take out": no place, step kept |
+| `POST done` | `{ cardIds, fromCode?, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
 | `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks for "Move to my desk"; a bag or order with each card's slot) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order |
@@ -445,6 +451,18 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `GET/POST/PATCH locations` | `?all=1&station=`; `{ station, count, startAt? }` or `{ name, kind, dueDate? }`; `{ id, name?, active?, capacity?, sort? }` | list with occupancy; CLAMP 01..N; rename, switch off, capacity |
 | `GET locations/labels` | `?station=clamp&from=1&to=20` or `?ids=`; `&stock=`, `&format=json` | slot labels, one 50 x 80 mm page each |
 | `GET locations/[id]/sign` | `&stock=`, `&format=json` | one slot label or shelf sign |
+
+**`fromCode`** (optional on `release` and `done`; the Scan page's holder view
+sends it): only cards still in that place are taken out or marked done; each
+other card comes back refused, "Not in CLAMP 07 any more (now in HEAT PRESS
+01)." ("now on DESK GAVIN", "now in its bag"; `nowAtText`, `notInPlaceText`
+in `moves.ts`), and when none is left in it the whole request is 409
+("CD-2549-07 isn't in CLAMP 07 any more (now in HEAT PRESS 01)."; several:
+"Those cards aren't in HEAT PRESS 02 any more: CD-2549-01 (now on DESK),
+…"). A card moved after the read is left alone ("Someone moved it just
+now…"). The place may be switched off (Done and Take out still work there);
+unknown: 404. Left out (the Desk, the scan landing, older pages): the cards
+wherever they are, as before.
 
 `POST /api/admin/intake/orders/[orderId]/receive` also answers `shelves` (each
 received bag's due-date shelf slot, made with `ensureShelfSlot` through
@@ -471,7 +489,9 @@ images under each card"):
   `wedge.ts`, by the key events' `timeStamp`: characters at most 300 ms apart
   are one scan; Enter or Tab within 1 s of the last one sends it when it has
   4+ characters; a focused button, link or `<select>` never gets the scan's
-  keys or its Enter, nor a second Enter or Tab right after it). It listens
+  keys or its Enter, nor a second Enter or Tab right after it, nor the
+  Enter or Tab of a broken read (any character within 1 s before it, a lone
+  Space aside: a person's keyboard press)). It listens
   from the moment the page has loaded, after a result shows, and after a
   photo or any other overlay closes; a scan while a photo is open full screen
   closes it (`SCAN_READ_EVENT`) without handing focus back to the thumbnail,
@@ -486,8 +506,14 @@ images under each card"):
   ready…" until the page is listening, `data-scanner="ready"` then) and
   "Point your scanner at a bag, order, holder or desk label and press the
   button." Each scan flashes "Got it: CD-2549-P" over it for 1.6 s, with the
-  usual sound and vibration. Move, Assign, ship check and "Put a card in
-  CLAMP 07" keep their own lines there.
+  usual sound and vibration; a place says its name ("Got it: HEAT PRESS 02":
+  `scanReadLabel` reads it from the code, then the place's own name once
+  found). Move, Assign, ship check and "Put a card in CLAMP 07" keep their
+  own lines there; over a holder with cards in it the panel says "Ready to
+  scan" and "Scan a bag to add a card here." (its buttons are the one
+  prompt; the bag's "Tap a card from …" list shows under an empty holder
+  only). A scan that puts something else on screen scrolls the page to the
+  top, so its name shows.
 - **Typing.** "Type a code instead" (under the panel) opens the code box (a
   code, a slot name such as `clamp 7`, `desk`, or a search by Card ID, name,
   customer or order), focused; Esc or its Close button shuts it.
@@ -517,25 +543,44 @@ images under each card"):
   line, the order's auto-complete line, finished bags' links, "Open desk
   page" after a move to a desk; Move to my desk: "CD-2549-03 is on your
   desk.", Take out: "CD-2549-03 taken out of CLAMP 07, not done. Put it back
-  in REYES's bag: …"; a save from the Scan page's own flow into this holder,
-  e.g. a Move then a scan of it, shows the same way); each card big (photos
-  "large", name, year · set · #, Card ID, "Maria Reyes · Order CD-2549 ·
-  Gold", "Due Mon Dec 7 · 3 days late" / "· 2 days left" / "· today", "Step:
-  Clamp Work", "In CLAMP 07 for 2 days"); then the buttons, sticky at the
-  bottom of a phone: one card "Move to my desk" (primary; `POST move` to the
-  desk, force), "Move to another holder" (the Desk page's `HolderPicker`,
-  and the Scan page waits for the next holder scan at the same time), "Done"
-  (asks "Mark it done? Then put it back in its bag."; `POST done`), "Take
-  out" (`POST release`); a stack (2+ cards): tick boxes (none ticked at
-  first), "Move all N to my desk", "Done for selected", "Move selected",
-  "Take out selected". On your own desk Move to another holder (Move
-  selected) leads; a refunded card has Take out only. "My desk" is the
-  phone's desk choice shared with the scan landing (`desk-choice.ts`, with a
-  "My desk" select when there are 2+ desks); no desk: "No desk yet. Open the
-  Desk page once to make one." Empty: "Empty. Scan a bag or card to put one
-  here." After a save the holder is read again, the result line takes focus
-  (no typing box keeps it, so the scanner's next scan is caught), and any
-  scan clears the result. Exact words: the HOLDER agent's holder-text.md.
+  in REYES's bag: …"; a save from the Scan page's own flow about this
+  holder shows the same way: cards it put in (a Move then a scan of it), and
+  the DONE sign after "Move to another holder" (`ScanSave.at` = the holder
+  the cards were in: "Done. Put it back in REYES's bag: …"; `scanSaveResult`);
+  the Scan page's older lines above (the desk link, the order's line) go
+  after the holder's own save (`onSaved`); each card big (photos "large"; a
+  stack's at the list size, so Move all stays on screen; name, year · set ·
+  #, Card ID, "Maria Reyes · Order CD-2549 · Gold", "Due Mon Dec 7 · 3 days
+  late" / "· 2 days left" / "· today", "Step: Clamp Work", "In CLAMP 07 for 2
+  days"); then the buttons, stuck to the bottom of the screen at every width
+  (a phone's bar starts with the card's line "CD-2549-07 · Charizard · Maria
+  Reyes", as the card can be under it): one card "Move to my desk" (primary;
+  `POST move` to the desk, no force: a desk with a limit set in Places that
+  is full asks "DESK already holds … Add anyway?" with "In it now: … · holds
+  N cards", [Add anyway] [Cancel]), "Move to another holder" ("Another
+  holder" on a phone; the Desk page's `HolderPicker`, and the Scan page
+  waits for the next holder scan at the same time), "Done" (asks "Mark it
+  done? Then put it back in its bag."; `POST done` with `fromCode`), "Take
+  out" (`POST release` with `fromCode`); a stack (2+ cards): tick boxes (none
+  ticked at first), "Move all N to my desk", "Done for selected", "Move
+  selected", "Take out selected"; while the next holder is awaited the tick
+  boxes and Pick all are greyed ("Cancel to change the cards."). On your own
+  desk Move to another holder (Move selected) leads; a refunded card has
+  Take out only; a switched-off holder greys both moves ("This holder is
+  switched off: use Take out or Done, or switch it on in Places."). "My
+  desk" is the phone's desk choice shared with the scan landing
+  (`desk-choice.ts`, with a "My desk" select when there are 2+ desks); no
+  desk: "No desk yet. Open the Desk page once to make one." Empty: "Empty.
+  Scan a bag or card to put one here." No button that saves takes focus by
+  itself: a question ("Mark it done?", "Add anyway?") focuses its own group,
+  so a broken scan's Enter can't answer it. After a save the cards it took
+  out leave the list at once (`withoutGone`: a re-read that fails can't
+  leave them listed), the holder is read again and the buttons stay greyed
+  until it lands (`holderActionDisabled`); a tap while something still runs
+  says "Still saving the last change. Try again in a moment." The result
+  line takes focus (no typing box keeps it, so the scanner's next scan is
+  caught), and any scan clears the result. Exact words: the HOLDER agent's
+  holder-text.md and `holder-format.ts`.
   Data: `TrackSlotSummary.desks?: TrackDeskRef[]` (`{ id, code, name }`,
   the switched-on desks, LOC-DESK first; `deskRefs` / `loadDeskRefs` in
   `tracking/desk.ts`, read with every scanned place; left out when that

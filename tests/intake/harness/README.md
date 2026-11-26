@@ -17,7 +17,7 @@ node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
-node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view
+node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view (and its review fixes)
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
@@ -387,15 +387,22 @@ agent's holder-text.md).
   <name>" sits under its Card ID and name, the tiles in that order (by alt),
   each `<img>` the API's tile (`src` and `srcset`, never the full-size
   image), lazy and loaded; -03 "Reference photo" / "Not the customer's
-  card"; -04 "No photo yet" and no image. A tap opens the full-size image
+  card" (the catalog's host isn't reachable from the sandbox, so the browser
+  context answers `assets.tcgdex.net` with a PNG); -04 "No photo yet" and no
+  image. A tap opens the full-size image
   full screen (90%+), Close closes it. The order's label and a typed Card ID
-  show the same photos. **Thumbnails:** off Netlify `lib/thumbnail.ts` serves
-  the original, so the tile equals the original in a plain harness (the
-  scenario says so in its note). Start the harness with `IMAGE_CDN=netlify`
-  to check the resize path: every tile must then be
-  `/.netlify/images?url=<original>&w=<=480` (the browser context answers
-  those with the original, since `next dev` doesn't serve them) and the
-  viewer's image 1280+ px wide.
+  show the same photos. **Thumbnails:** the server's tile is `productImage(url, [240, 360, 480])`
+  (`lib/intake/tracking/summaries.ts`), which on Netlify is
+  `/.netlify/images?url=<original>&w=480` with a 240w/360w/480w srcset and the
+  viewer's 1280w/2048w; off Netlify it is the original. The harness can't turn
+  that on: `next.config.ts` sets `IMAGE_CDN` from `NETLIFY=true`, which
+  `start.mjs` removes, so here the scenario checks that each `<img>` takes
+  the API's `tile` (`src` and `srcset`), never `full`, and says "CDN off" in
+  its note. When the tiles are `/.netlify/images` (a harness that keeps
+  `NETLIFY=true`), it also checks every tile is a resized copy of its own
+  photo at most 480 px wide (the browser context answers those URLs with the
+  original, since `next dev` doesn't serve them) and the viewer's image 1280+
+  px wide.
 - `scan-holder-card` (390 px, one step at 1440): CD-2549-07 in CLAMP 07 (put
   in 2 h 5 min ago), CD-2549-01..03 in HEAT PRESS 02, CLAMP 06 and HEAT PRESS
   01 empty (`holderSetup()`). With no desk yet "Move to my desk" is greyed with
@@ -418,11 +425,42 @@ agent's holder-text.md).
 - `scan-layout` (390 and 1440 px, LOC-DESK made): no sideways scroll; the
   "Ready to scan" panel and "Type a code instead" on the first screen; bag
   CD-2549-G's photo rows inside the screen and each card's button 44+ px, not
-  covered when scrolled to; CLAMP 07's header and its four buttons on the
+  covered when scrolled to; scrolled to the bottom of that list, a scan of
+  CLAMP 07 lands with its header on screen and not covered (no scrolling by
+  hand); on a fresh page CLAMP 07's header and its four buttons on the
   first screen (unscrolled, not covered, 44+ px); "Move to another holder":
   the picker on the first screen with HEAT PRESS 01 to tap, Esc and Cancel
   leave nothing waiting; HEAT PRESS 02's "Move all 3 to my desk" and CLAMP
   06's "Empty…" on the first screen. Screenshots `scan-layout-{390,1440}-*.png`.
+
+- `scan-wedge-timing` (1440 px; review fixes, Nov 26): a slow scanner (120
+  ms a key) and a 400 ms pause before Enter, with "Type a code instead"
+  focused, still open the code and never open the code box; the same label
+  1 s later is read again, a double read 200 ms apart once (the page's
+  750 ms repeat gate); a scan that closes a photo leaves nothing focused and a
+  stray Enter reopens nothing; a thumbnail whose file is missing says "Photo
+  couldn't load" in its tile; Esc closing a photo or the code box keeps a
+  waiting "Scan the slot for …", Esc on the page drops it.
+
+- `scan-holder-fixes` (390 px; holder view review fixes, Nov 26): Done's
+  question takes focus (never "Mark done"), and a broken scan's Enter (two
+  characters + Enter, a stray key + Enter 600 ms later, and "Mark done"
+  itself focused) saves nothing; bag CD-2549-G then HEAT PRESS 02 (4 cards):
+  "Got it: HEAT PRESS 02", the top panel "Ready to scan" / "Scan a bag to add
+  a card here." and no "Tap a card from …" list, the photos at the list size;
+  "Take out selected" sends `fromCode` and the card leaves the list even when
+  the re-read fails (aborted), and with a slow re-read "Move all 2 to my
+  desk" stays greyed until it lands; "Move selected": the picker starts on
+  its heading (not its box) and offers no OPEN BAGS; Esc: tick boxes and Pick
+  all greyed with "Cancel to change the cards.", Cancel frees them; a card
+  moved to CLAMP 06 meanwhile is refused by "Done for selected" ("Not in HEAT
+  PRESS 02 any more (now in CLAMP 06).") and left alone; CLAMP 07 switched
+  off: both moves greyed with "This holder is switched off: …", Take out
+  works; "Move to another holder", Esc, the DONE sign: CLAMP 07's own line
+  says where the bag is; LOC-DESK with a limit of 1 and a card on it: "Move
+  to my desk" sends no force, asks "Add anyway?" (the question focused), and
+  "Add anyway" sends force; the green "Open the desk page" line above a
+  holder goes when the holder saves. Screenshots `scan-holder-fixes-*.png`.
 
 2x screenshots of the same states (ready, bag, move picker, holder, stack,
 empty) come from a script outside the repo that imports `holderSetup` and

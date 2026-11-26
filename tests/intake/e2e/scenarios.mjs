@@ -6112,9 +6112,12 @@ const DONE_SCENARIOS = {
         const href = new URL(await link.getAttribute("href"), "http://x");
         if (decodeURIComponent(href.pathname).toUpperCase() !== ROUTES.open(DONE_G).toUpperCase()) problems.push(`the link goes to ${href.pathname}`);
       }
-      if (await UI.deskPanel(page, LAST, DONE_CODES).count()) problems.push(`${LAST}'s panel is still there`);
+      // the panel goes when the Desk page's refresh lands (seconds in next dev)
+      const t0 = Date.now();
+      const gone = await until(async () => (await UI.deskPanel(page, LAST, DONE_CODES).count()) === 0, 20_000);
+      if (!gone) problems.push(`${LAST}'s panel is still there after 20 s`);
       assert(!problems.length, `${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
-      return sentence;
+      return `${sentence}; the panel went ${Date.now() - t0} ms after the words showed`;
     });
   },
 
@@ -6540,6 +6543,9 @@ async function serveThumbs(c, widths = []) {
   return widths;
 }
 
+/** The card catalog's host (the reference photos) isn't reachable from the sandbox: the browser context answers it with a PNG. */
+const serveCatalog = (c) => c.route(/^https:\/\/assets\.tcgdex\.net\//, (route) => route.fulfill({ status: 200, contentType: "image/png", body: placeholderPng([230, 190, 70]) }));
+
 const scanMain = (p) => p.locator("main").first().innerText().then(flat);
 const openDialogs = (p) => p.locator("dialog[open]").count();
 const focusedEl = (p) => p.evaluate(() => {
@@ -6630,8 +6636,8 @@ async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false,
     eq(srcset ?? null, tile.srcSet ?? null, `${code} photo ${i + 1}: srcset`);
     eq(loading, "lazy", `${code} photo ${i + 1}: loading`);
     if (want[i].kind === "reference") {
+      // the catalog's host isn't reachable from the sandbox: serveCatalog() answers it in the browser
       eq(src, SCAN_CATALOG.replace("/high.webp", "/low.webp"), `${code}: the reference thumbnail (the catalog's small picture)`);
-      continue; // the catalog's host isn't reachable from the sandbox
     }
     if (cdn) {
       assert(isThumbPath(src, want[i].url), `${code} photo ${i + 1}: not a resized copy of ${want[i].url}: ${src}`);
@@ -6826,7 +6832,8 @@ const SCAN_SCENARIOS = {
 
   // Photos under each card: receiving first, then the customer's, else "Reference photo"; the API's
   // thumbnails (not the originals); a tap opens the full-size photo full screen; "No photo yet".
-  // With IMAGE_CDN=netlify in the harness the thumbnails must be /.netlify/images?url=…&w=<=480 copies.
+  // When the server serves Netlify thumbnails (NETLIFY=true at build: next.config.ts IMAGE_CDN) every tile must be
+  // a /.netlify/images?url=…&w=<=480 copy; the harness drops NETLIFY, so there it checks the <img> takes `tile`.
   async "scan-card-photos"({ page, ctx, s, browser, appUrl, mockUrl }) {
     const G = "CD-2549-G";
     // CD-2549-01: its receiving photo + the seed's 2 customer photos; -02: a customer photo only;
@@ -6866,12 +6873,13 @@ const SCAN_SCENARIOS = {
         return `IMAGE_CDN=netlify: tiles ${own.tile.src.slice(0, 60)}… (srcset ${own.tile.srcSet})`;
       }
       eq(own.tile.src, own.url, "off Netlify the tile is the original");
-      return "IMAGE_CDN off in this harness: tile = original (lib/thumbnail.ts resizes only on Netlify); the <img> must still take the tile";
+      return "CDN off in this harness (next.config.ts sets IMAGE_CDN from NETLIFY, which start.mjs removes): tile = original; the <img> must still take the tile, never full";
     }, { critical: true, shot: false });
 
     const runAt = async (label, p, c, errors) => {
       const scan = scannerOn(p);
       const widths = cdn ? await serveThumbs(c) : [];
+      await serveCatalog(c);
       const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-card-photos-${label}-${name}.png`), fullPage: true }).catch(() => {});
       await s.step(`${label}: scan ${G}: each card's photos under its details, in order, the API's thumbnails (lazy, loaded); -03 "Reference photo" / "Not the customer's card"; -04 "No photo yet"`, async () => {
         await goto(p, ROUTES.scan);
@@ -7257,9 +7265,13 @@ const SCAN_HOLDER_SCENARIOS = {
         await holderOpen(p, scan, HOLDER, 1);
         await sleep(800);
         const head = p.locator("main").first().getByText(UI.holderHas(HOLDER.name, 1)).first();
-        const r = await head.evaluate((el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, y: Math.round(window.scrollY) }; });
+        const r = await head.evaluate((el) => {
+          const b = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + Math.min(40, b.width / 2), b.top + b.height / 2);
+          return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, y: Math.round(window.scrollY), covered: !(hit && (hit === el || el.contains(hit) || hit.contains(el))) };
+        });
         await shot("03a-holder-after-scroll", false);
-        assert(r.top >= 0 && r.bottom <= r.vh, `the header at ${r.top}-${r.bottom}px of ${r.vh}px (page scrolled to ${r.y}px, was ${y0}px)`);
+        assert(r.top >= 0 && r.bottom <= r.vh && !r.covered, `the header at ${r.top}-${r.bottom}px of ${r.vh}px${r.covered ? ", covered" : ""} (page scrolled to ${r.y}px, was ${y0}px)`);
         return `scrolled ${y0}px -> ${r.y}px; header at ${r.top}px`;
       }, { shot: false });
       await s.step(`${label}: ${HOLDER.name} with 1 card, fresh page: its header and the four buttons on the first screen (unscrolled, not covered, 44+ px); no sideways scroll`, async () => {
@@ -7437,6 +7449,257 @@ const SCAN_WEDGE_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, SCAN_WEDGE_SCENARIOS);
+
+// The holder view's review fixes (Nov 26): no button that saves takes focus by itself and a broken
+// scan's Enter presses nothing; Done / Take out name the holder (fromCode) so a card moved meanwhile
+// is refused; the cards a save took out leave the list even when the re-read fails, and the buttons
+// stay greyed until it lands; ticks fixed while the next holder is awaited; a switched-off holder;
+// a full desk asks "Add anyway?" (no force); the DONE sign after "Move to another holder"; the
+// Scan page's older lines go after a holder save; one prompt over a holder with cards; the picker
+// starts on its heading on a phone and never offers the Open bags box; "Got it: HEAT PRESS 02".
+const SCAN_FIX_SCENARIOS = {
+  async "scan-holder-fixes"({ ctx, s, browser, appUrl, mockUrl }) {
+    const STACK = { ...HOLDER_STACK, cards: [...HOLDER_STACK.cards, "CD-2549-04"] };
+    let t = null;
+    await s.step(`setup: as scan-holder-card with ${DESK}; CD-2549-04 also in ${STACK.name} (4 cards)`, async () => {
+      t = await holderSetup(ctx, mockUrl, { desk: true });
+      await assignOk(ctx, STACK.code, [cardIdOf(t, "CD-2549-04")], true);
+      t = await tables();
+      eq(cardsIn(t, STACK.code), STACK.cards, `cards in ${STACK.name}`);
+      assert(placeOf(t, "LOC-OPEN-BAGS"), "no LOC-OPEN-BAGS (a card out of its bag files the bag there)");
+    }, { critical: true, shot: false });
+
+    const phone = await phoneContext(browser, appUrl);
+    const p = phone.page;
+    const scan = scannerOn(p);
+    const m = () => p.locator("main").first();
+    const holderLine = () => p.locator('section[aria-labelledby^="holder-"] div[role="status"]').first().innerText().then(flat).catch(() => "");
+    const posts = [];
+    p.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/api/admin/track/")) posts.push({ path: new URL(r.url()).pathname, body: JSON.parse(r.postData() ?? "{}") }); });
+    const postsTo = (re) => posts.filter((x) => re.test(x.path));
+    const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-holder-fixes-${name}.png`) }).catch(() => {});
+    const boxes = () => m().locator('section[aria-labelledby^="holder-"] input[type="checkbox"]');
+    const stackItem = (code) => m().getByRole("list", { name: new RegExp(`^cards in ${esc(STACK.name)}$`, "i") }).locator(":scope > li").filter({ hasText: code });
+    const tick = async (code) => { await stackItem(code).getByRole("checkbox").first().check(); };
+    try {
+      await goto(p, ROUTES.scan);
+
+      await s.step(`${HOLDER.name}: "Done" asks; the question takes focus, never "Mark done"; a broken scan's Enter (a focused "Mark done" too) saves nothing`, async () => {
+        await holderOpen(p, scan, HOLDER, 1);
+        await UI.holderDone(m()).click();
+        await p.getByText(/mark it done\? then put it back in its bag/i).first().waitFor({ timeout: 10_000 });
+        await sleep(200);
+        const focus = await focusedEl(p);
+        assert(!/^button "mark/i.test(focus), `"Mark done" took focus (${focus})`);
+        assert(/^div /.test(focus), `the question group isn't focused (${focus})`);
+        await shot("01-done-question");
+        const before = postsTo(/\/done$/).length;
+        // What's left of a broken read on the question: 2 characters and the scanner's Enter, then a stray key + Enter
+        await p.keyboard.type("-P", { delay: 8 });
+        await p.keyboard.press("Enter");
+        await sleep(300);
+        await p.keyboard.press("x");
+        await sleep(600);
+        await p.keyboard.press("Enter");
+        // ... and with "Mark done" itself focused (a computer user tabbed to it): the scan's Enter is still kept from it
+        await UI.holderConfirm(m()).focus();
+        await p.keyboard.type("7P", { delay: 8 });
+        await p.keyboard.press("Enter");
+        await sleep(1_500);
+        eq(postsTo(/\/done$/).length - before, 0, "POST /done after the broken scans");
+        const c = cardByCode(await tables(), HOLDER.card);
+        eq([c.completed, c.location_id], [false, placeOf(t, HOLDER.code).id], `${HOLDER.card}: completed, place`);
+        await p.locator("main").first().getByRole("button", { name: /^cancel$/i }).last().click();
+        return `focus on the question: ${focus}`;
+      }, { shot: false });
+
+      await s.step(`bag CD-2549-G, then ${STACK.name}: "Got it: ${STACK.name}"; one prompt (top panel "Ready to scan" / "Scan a bag to add a card here."; no "Tap a card from" list); photos at the list size`, async () => {
+        await scan("CD-2549-G");
+        await scanShows(p, ["CD-2549-01"]);
+        await scan(STACK.code);
+        await gotItSeen(p, STACK.name);
+        const text = (await until(async () => { const x = await scanMain(p); return UI.holderHas(STACK.name, 4).test(x) ? x : null; }, 30_000)) ?? await scanMain(p);
+        assert(UI.holderHas(STACK.name, 4).test(text), `no "${STACK.name} · 4 cards" ("${text.slice(0, 200)}")`);
+        const cue = flat(await UI.scanReady(p).innerText());
+        assert(/ready to scan/i.test(cue) && /scan a bag to add a card here/i.test(cue), `the top panel says "${cue.slice(0, 160)}"`);
+        assert(!/pick its cards below|add a card to/i.test(cue), `the top panel still says "${cue.slice(0, 160)}"`);
+        assert(!/tap a card from/i.test(text), "the bag's \"Tap a card from …\" list shows under a holder with cards");
+        const tall = await m().getByRole("list", { name: /^photos of CD-2549-01/i }).locator("img").first().evaluate((el) => Math.round(el.getBoundingClientRect().height)).catch(() => 0);
+        assert(tall > 0 && tall <= 120, `a stack card's photo is ${tall}px tall (list size: 112)`);
+        await shot("02-stack");
+        return `top panel: "${cue.slice(0, 80)}"; photo ${tall}px`;
+      }, { shot: false });
+
+      await s.step(`"Take out selected" for CD-2549-04 while the re-read fails: it leaves the list anyway (fromCode sent); the header says 3`, async () => {
+        await tick("CD-2549-04");
+        await p.route(/\/api\/admin\/track\/resolve/, (r) => r.abort());
+        const saved = p.waitForResponse((r) => /\/release$/.test(new URL(r.url()).pathname), { timeout: 30_000 });
+        await m().getByRole("button", { name: /^take out selected$/i }).click();
+        const r = await saved;
+        eq(r.status(), 200, "POST release");
+        const sent = JSON.parse(r.request().postData() ?? "{}");
+        eq([sent.fromCode, sent.cardIds?.length], [STACK.code, 1], "release body (fromCode, cards)");
+        await sleep(1_500);
+        await p.unroute(/\/api\/admin\/track\/resolve/);
+        const text = await scanMain(p);
+        eq(await stackItem("CD-2549-04").count(), 0, "CD-2549-04 still listed");
+        eq(await stackItem("CD-2549-03").count(), 1, "CD-2549-03 listed");
+        assert(UI.holderHas(STACK.name, 3).test(text), `no "${STACK.name} · 3 cards" ("${text.slice(0, 160)}")`);
+        eq(cardsIn(await tables(), STACK.code), STACK.cards.slice(0, 3), `cards in ${STACK.name}`);
+      }, { shot: false });
+
+      await s.step(`"Take out selected" for CD-2549-03 with a slow re-read: the buttons stay greyed until it lands`, async () => {
+        await tick("CD-2549-03");
+        let release = () => {};
+        const held = new Promise((r) => { release = r; });
+        await p.route(/\/api\/admin\/track\/resolve/, async (route) => { await held; await route.continue().catch(() => {}); });
+        const saved = p.waitForResponse((r) => /\/release$/.test(new URL(r.url()).pathname), { timeout: 30_000 });
+        await m().getByRole("button", { name: /^take out selected$/i }).click();
+        eq((await saved).status(), 200, "POST release");
+        await sleep(800);
+        const all = UI.holderAllToDesk(m(), 2);
+        const during = await all.isDisabled().catch(() => null);
+        release();
+        await until(async () => !(await all.isDisabled().catch(() => true)), 15_000);
+        await p.unroute(/\/api\/admin\/track\/resolve/);
+        const afterwards = await all.isDisabled().catch(() => null);
+        eq([during, afterwards], [true, false], `"Move all 2 to my desk" greyed during the re-read, then not`);
+      }, { shot: false });
+
+      await s.step(`tick CD-2549-01 and -02, "Move selected": the picker starts on its heading (no keyboard over the list) and offers no OPEN BAGS; Esc: the ticks are fixed ("Cancel to change the cards."); Cancel frees them`, async () => {
+        await tick("CD-2549-01");
+        await tick("CD-2549-02");
+        await m().getByRole("button", { name: /^move selected$/i }).click();
+        const picker = UI.holderPicker(p);
+        await picker.waitFor({ timeout: 10_000 });
+        await UI.holderOption(picker, HOLDER_TO.name).waitFor({ timeout: 15_000 });
+        const focus = await focusedEl(p);
+        assert(!/^input/.test(focus), `the picker's box took focus on a phone (${focus})`);
+        const offered = flat(await picker.innerText());
+        assert(!/open bags/i.test(offered), `the picker offers the Open bags box ("${offered.slice(0, 200)}")`);
+        await shot("03-picker");
+        await p.keyboard.press("Escape");
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        await p.getByText(/cancel to change the cards/i).first().waitFor({ timeout: 5_000 });
+        const disabled = await boxes().evaluateAll((els) => els.map((e) => e.disabled));
+        assert(disabled.length === 2 && disabled.every(Boolean), `tick boxes while waiting: ${JSON.stringify(disabled)}`);
+        assert(await m().getByRole("button", { name: /^pick (all|none)$/i }).isDisabled(), "Pick all/none not greyed");
+        await shot("04-ticks-fixed");
+        await m().getByRole("button", { name: /^cancel$/i }).last().click();
+        await until(async () => (await boxes().evaluateAll((els) => els.every((e) => !e.disabled))), 5_000);
+        const freed = await boxes().evaluateAll((els) => els.map((e) => e.disabled));
+        eq(freed, [false, false], "tick boxes after Cancel");
+        return `picker focus: ${focus}`;
+      }, { shot: false });
+
+      await s.step(`CD-2549-02 moved to ${HOLDER_EMPTY.name} by another phone; "Done for selected" (01, 02): 01 done, 02 refused "Not in ${STACK.name} any more (now in ${HOLDER_EMPTY.name})." and left alone`, async () => {
+        await assignOk(ctx, HOLDER_EMPTY.code, [cardIdOf(t, "CD-2549-02")]);
+        const saved = p.waitForResponse((r) => /\/done$/.test(new URL(r.url()).pathname), { timeout: 30_000 });
+        await m().getByRole("button", { name: /^done for selected$/i }).click();
+        await UI.holderConfirm(m()).click();
+        const r = await saved;
+        eq(r.status(), 200, "POST done");
+        const sent = JSON.parse(r.request().postData() ?? "{}");
+        eq(sent.fromCode, STACK.code, "done body fromCode");
+        const after = await tables();
+        eq([cardByCode(after, "CD-2549-01").completed, cardByCode(after, "CD-2549-02").completed], [true, false], "completed (01, 02)");
+        eq(cardsIn(after, HOLDER_EMPTY.code), ["CD-2549-02"], `cards in ${HOLDER_EMPTY.name}`);
+        const said = await until(async () => { const x = await holderLine(); return /not in heat press 02 any more \(now in clamp 06\)/i.test(x) ? x : null; }, 15_000);
+        await shot("05-refused");
+        assert(said, `no "Not in ${STACK.name} any more (now in ${HOLDER_EMPTY.name})." ("${await holderLine()}")`);
+        return said.slice(0, 160);
+      }, { shot: false });
+
+      await s.step(`${HOLDER.name} switched off in Places: "Move to my desk" and "Move to another holder" greyed with "This holder is switched off: …"; Take out still works (fromCode)`, async () => {
+        const r = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: placeOf(t, HOLDER.code).id, active: false });
+        eq(r.status, 200, `PATCH (${JSON.stringify(r.body).slice(0, 120)})`);
+        await holderOpen(p, scan, HOLDER, 1);
+        await p.getByText(/this holder is switched off: use take out or done, or switch it on in places\./i).first().waitFor({ timeout: 10_000 });
+        const greyed = [await UI.holderToDesk(m()).isDisabled(), await UI.holderToHolder(m()).isDisabled(), await UI.holderDone(m()).isDisabled(), await UI.holderTakeOut(m()).isDisabled()];
+        eq(greyed, [true, true, false, false], "greyed: to my desk, another holder, Done, Take out");
+        await shot("06-switched-off");
+        const saved = p.waitForResponse((x) => /\/release$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await UI.holderTakeOut(m()).click();
+        const res = await saved;
+        eq([res.status(), JSON.parse(res.request().postData() ?? "{}").fromCode], [200, HOLDER.code], "POST release (status, fromCode)");
+        eq(cardsIn(await tables(), HOLDER.code), [], `cards in ${HOLDER.name}`);
+        const on = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: placeOf(t, HOLDER.code).id, active: true });
+        eq(on.status, 200, "switched back on");
+      }, { shot: false });
+
+      await s.step(`${HOLDER.card} back in ${HOLDER.name}; "Move to another holder", Esc, then the DONE sign: ${HOLDER.name}'s own line says where the bag is`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await holderOpen(p, scan, HOLDER, 1);
+        await UI.holderToHolder(m()).click();
+        await UI.holderPicker(p).waitFor({ timeout: 10_000 });
+        await p.keyboard.press("Escape");
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        const saved = p.waitForResponse((x) => /\/done$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await scan("LOC-DONE");
+        eq((await saved).status(), 200, "POST done");
+        const said = await until(async () => { const x = await holderLine(); return UI.doneSentence("A").test(x) ? x : null; }, 20_000);
+        await shot("07-done-sign");
+        assert(said, `${HOLDER.name}'s line: "${await holderLine()}" (page: "${(await scanMain(p)).slice(0, 200)}")`);
+        return said.slice(0, 160);
+      }, { shot: false });
+
+      await s.step(`${DESK} with a limit of 1 (Places) holding CD-2549-08: "Move to my desk" sends no force and asks "Add anyway?" (focus on the question); "Add anyway" puts it there`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await mockUpdate(mockUrl, "locations", { capacity: 1 }, "code", DESK);
+        await assignOk(ctx, DESK, [cardIdOf(t, "CD-2549-08")], true);
+        await holderOpen(p, scan, HOLDER, 1);
+        const first = p.waitForResponse((x) => /\/move$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await UI.holderToDesk(m()).click();
+        const r1 = await first;
+        eq([r1.status(), JSON.parse(r1.request().postData() ?? "{}").force ?? false], [409, false], "first POST move (status, force)");
+        await p.getByText(/already holds .*add anyway\?/i).first().waitFor({ timeout: 10_000 });
+        await sleep(200);
+        const focus = await focusedEl(p);
+        assert(!/^button "add anyway/i.test(focus), `"Add anyway" took focus (${focus})`);
+        await shot("08-desk-full");
+        const second = p.waitForResponse((x) => /\/move$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await m().getByRole("button", { name: /^add anyway$/i }).click();
+        const r2 = await second;
+        eq([r2.status(), JSON.parse(r2.request().postData() ?? "{}").force], [200, true], "second POST move (status, force)");
+        eq(cardsIn(await tables(), DESK), ["CD-2549-07", "CD-2549-08"], `cards on ${DESK}`);
+        await saidOnPage(p, UI.holderOnDesk(HOLDER.card));
+        await mockUpdate(mockUrl, "locations", { capacity: null }, "code", DESK);
+        return `focus: ${focus}`;
+      }, { shot: false });
+
+      await s.step(`the Scan page's older green line ("Open the desk page", after a card put on ${DESK}) goes when a holder saves`, async () => {
+        await scan("CD-2549-G");
+        // The bag on screen (its header's "Bag page" link), not the empty CLAMP 07's own list of the same bag's cards
+        await m().getByRole("link", { name: /^bag page$/i }).first().waitFor({ timeout: 30_000 });
+        // The empty CLAMP 07 on screen before is still the slot cards go in ("Put a card in CLAMP 07"): stop that
+        const stop = UI.scanReady(p).getByRole("button", { name: /^cancel$/i });
+        if (await stop.isVisible().catch(() => false)) await stop.click();
+        const assign = m().locator("li").filter({ hasText: /CD-2549-03(?![0-9-])/ }).getByRole("button", { name: /^assign to a slot$/i }).first();
+        await assign.waitFor({ timeout: 10_000 });
+        await assign.click();
+        const put = p.waitForResponse((x) => /\/assign$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await scan(DESK);
+        eq((await put).status(), 200, "POST assign");
+        const old = m().getByRole("link", { name: /^open the desk page$/i });
+        await old.first().waitFor({ timeout: 10_000 });
+        await holderOpen(p, scan, HOLDER_EMPTY, 1);
+        assert(await old.first().isVisible(), "the green line isn't above the holder (nothing to test)");
+        const saved = p.waitForResponse((x) => /\/release$/.test(new URL(x.url()).pathname), { timeout: 30_000 });
+        await UI.holderTakeOut(m()).click();
+        eq((await saved).status(), 200, "POST release");
+        await until(async () => (await old.count()) === 0, 10_000);
+        eq(await old.count(), 0, '"Open the desk page" lines left');
+      }, { shot: false });
+
+      await s.step("no browser errors on the phone", async () => {
+        assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+  },
+};
+Object.assign(SCENARIOS, SCAN_FIX_SCENARIOS);
 
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
 export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, holderSetup, HOLDER, HOLDER_TO, HOLDER_STACK, HOLDER_EMPTY };
