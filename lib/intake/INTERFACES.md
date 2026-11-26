@@ -455,10 +455,10 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 
 | route | body / query | response |
 |---|---|---|
-| `POST assign` | `{ locationCode, cardIds, force?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }` |
-| `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed); 409 full / empty |
+| `POST assign` | `{ locationCode, cardIds, force?, fromBag?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }`; 409 `{ error }` with `fromBag` and no card left in its bag |
+| `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed; it may be switched off, the to-slot must be on); 409 full / empty |
 | `POST release` | `{ cardIds, fromCode?, sessionId? }` | "Take out": no place, step kept |
-| `POST done` | `{ cardIds, fromCode?, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
+| `POST done` | `{ cardIds, fromCode?, fromBag?, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
 | `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks; a bag or order with each card's slot; every card with its notes: `variation`, `notes`, `knownDefects`, `customerNotes`) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order (with their notes) |
@@ -478,9 +478,21 @@ left in it the whole request is 409
 ("CD-2549-07 isn't in CLAMP 07 any more (now in HEAT PRESS 01)."; several:
 "Those cards aren't in HEAT PRESS 02 any more: CD-2549-01 (now on DESK),
 …"). A card moved after the read is left alone ("Someone moved it just
-now…"). The place may be switched off (Done and Take out still work there);
-unknown: 404. Left out (the Desk, the scan landing, older pages): the cards
-wherever they are, as before.
+now…"). The place may be switched off (Done, Take out and a move out of it
+still work there; only the place cards go to must be on); unknown: 404.
+Left out (the Desk, the scan landing, older pages): the cards wherever they
+are, as before.
+
+**`fromBag`** (optional, `true`, on `assign` and `done`, never with
+`fromCode`; the Scan page sends it for a card picked while in its bag: a
+double scan's move from the bag, DONE twice): only cards still with their
+bag (no place, a shelf, the Open bags box, the Ready to ship bin, the Done
+shelf: `isWithBag`) go in or are marked done; each other card comes back
+refused, "Not in its bag any more (now in CLAMP 03)." (`notInBagText`), and
+when none is left the whole request is 409 ("CD-2549-07 isn't in its bag any
+more (now in CLAMP 03)."; several: "Those cards aren't in their bags any
+more: CD-2549-07 (now in CLAMP 03), …") with nothing written: no move, no
+done, no order auto-complete, no email. Left out: as before.
 
 `POST /api/admin/intake/orders/[orderId]/receive` also answers `shelves` (each
 received bag's due-date shelf slot, made with `ensureShelfSlot` through
@@ -526,19 +538,31 @@ scan on the spot along with the photo"):
     any desk: "Scan CLAMP 07 again to move CD-2549-03 here" (with its
     thumbnail, a "pending" sound, Cancel). The same spot again within 30 s
     (`PENDING_MS`) with no other scan in between saves: from its bag `POST
-    assign`, from a holder or desk `POST move` with `fromCode` = where it is
-    (`saveCall`); then "CD-2549-03 is in CLAMP 07 now" (desk: "is on DESK
+    assign` with `fromBag`, from a holder or desk `POST move` with `fromCode`
+    = where it is (`saveCall`: a card another phone moved meanwhile is
+    refused, never yanked from where it is now; a switched-off holder can
+    be left); then "CD-2549-03 is in CLAMP 07 now" (desk: "is on DESK
     now"; with "Step: Clamp Work.", "Put the bag in the Open bags box, under
     R.", the step email line) for 8 s, then plain. Any other scan cancels it
-    and does its own thing; after 30 s it ends ("Nothing moved"). A spot
-    with another card: that card is picked instead ("CLAMP 07 already has
+    and does its own thing; after 30 s it ends with a soft sound ("Nothing
+    moved"). The same spot again within 750 ms (the scanner's repeat gate)
+    isn't the second scan: the pending sound again and a flash "Scan CLAMP 09
+    again" (`quickRepeat`). A spot with another card: that card is picked
+    instead, with the scan's read beep only ("CLAMP 07 already has
     CD-2549-05", "CD-2549-03 didn't move. CD-2549-05 is picked now."); the
-    spot the picked card is in: it just shows. Refunded and not-arrived cards
-    and switched-off spots are refused before asking (the server's words).
+    spot the picked card is in (the spot's answer lists it; by its place only
+    when the answer was cut short): it just shows. A holder filled meanwhile
+    (the second scan's 409 with what's in it): "CLAMP 09 already has
+    CD-2549-05 · Charizard", "CD-2549-03 didn't move.", no "Add anyway", the
+    card stays picked. A card picked in a switched-off holder or desk says
+    "This holder is switched off: use Take out or Done, or switch it on in
+    Places.". Refunded and not-arrived cards and switched-off spots (as
+    where it goes) are refused before asking (the server's words).
   - **DONE twice** (the `LOC-DONE` sign): "Scan DONE again to mark CD-2549-03
-    done", then `POST done` with `fromCode` when the card is in a place (a
-    card someone moved meanwhile is refused, 409: nothing done, no order
-    auto-complete, no email); the answer: "Done. Put it back in REYES's bag:
+    done", then `POST done` with `fromCode` when the card is in a holder or
+    on a desk, `fromBag` when it is in its bag (a card someone moved
+    meanwhile is refused, 409: nothing done, no order auto-complete, no
+    email); the answer: "Done. Put it back in REYES's bag:
     Open bags box, under R." and the order's line, until the next scan.
   - **Taps** on the picked card (a bar stuck to the bottom): "Done" (asks
     "Mark it done? Then put it back in its bag.", the question takes focus,
@@ -582,7 +606,9 @@ scan on the spot along with the photo"):
   CD-2549-P" over it while it is looked up (at least 0.5 s); a place says
   its name ("Got it: HEAT PRESS 02": `scanReadLabel`, then the place's own
   name once found). Sounds (`feedback.ts`): read, pending (two equal mid
-  beeps), moved (two rising notes), refused (two low buzzes). Hooks for
+  beeps), soft (one quiet low note: a wait ran out), moved (two rising
+  notes), refused (two low buzzes); the big flash is green (saved), red
+  (refused) or blue (what to do next: "Scan CLAMP 09 again"). Hooks for
   tests: `[data-scan-panel]` with `data-panel`, `data-tone`;
   `[data-screen]`, `[data-picked-card]`, `[data-pick-card]`, `[data-note]`.
 - **Scanner only.** No camera, no camera button and no camera permission

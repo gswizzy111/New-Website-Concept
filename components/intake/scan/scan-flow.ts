@@ -7,9 +7,10 @@ import type {
 } from "@/lib/intake/tracking/types";
 import {
   EMAILED_TEXT, EXPIRED_TITLE, NOT_RECEIVED_TEXT, PENDING_SUB, PICKED_SUB, PICK_FIRST_SUB, PICK_FIRST_TITLE, READY_SUB, READY_TITLE,
-  REFUNDED_TEXT, SAVE_BUSY_TEXT, STARTING_TITLE, TAP_TO_PICK, DONE_ALREADY_SUB, addAnywayText, alreadyThereTitle, cardLabel,
-  doneAlreadyTitle, expiredSub, inItNowText, movedTitle, notReceivedRefusal, pendingDoneTitle, pendingMoveTitle, pickedTitle,
-  refundedRefusal, savingTitle, spotTakenSub, spotTakenTitle, stepLine, switchedOffText, takenOutText,
+  REFUNDED_TEXT, SAVE_BUSY_TEXT, STARTING_TITLE, SWITCHED_OFF_TEXT, TAP_TO_PICK, DONE_ALREADY_SUB, addAnywayText, alreadyThereTitle,
+  cardLabel, didntMoveText, doneAlreadyTitle, expiredSub, holderFullTitle, inItNowText, movedTitle, notReceivedRefusal,
+  pendingDoneTitle, pendingMoveTitle, pickedTitle, refundedRefusal, savingTitle, scanAgainText, spotTakenSub, spotTakenTitle,
+  stepLine, switchedOffText, takenOutText,
 } from "./flow-text";
 
 /**
@@ -31,11 +32,15 @@ import {
  *  - With a card picked, an EMPTY spot (no card in it) or any desk (a desk
  *    is never full): "Scan CLAMP 07 again to move CD-2549-03 here". The same
  *    spot again within PENDING_MS (30 s), with no other scan in between:
- *    the card moves (assign from its bag, move from its holder). Any other
- *    scan cancels it and does its own thing.
+ *    the card moves (assign with `fromBag` from its bag, move with
+ *    `fromCode` from its holder: a card someone moved meanwhile is refused).
+ *    Any other scan cancels it and does its own thing; after 30 s it ends
+ *    with a soft sound. The same spot again within 750 ms (the scanner's
+ *    repeat gate) doesn't count: "Scan CLAMP 09 again" (quickRepeat).
  *  - A spot that has another card: that card is picked instead ("CLAMP 07
- *    already has CD-2549-05"); the spot the picked card is in: nothing to
- *    move, it just shows.
+ *    already has CD-2549-05", the scan's read beep only); the spot the
+ *    picked card is in (the spot's answer lists it): nothing to move, it
+ *    just shows. A card picked in a switched-off holder says so.
  *  - The DONE sign twice: Done for the picked card (back in its bag).
  *  - Done (asks first) and Take out are taps on the picked card.
  *  - Nothing changes on a single scan: only the double scan or a tap saves.
@@ -92,13 +97,18 @@ export type CardList = {
   total: number;
   /** A search cut short. */
   truncated?: boolean;
+  /** A desk's or holder's list: the place is switched off (a card picked from it says so). */
+  off?: boolean;
 };
 
 /** What the page shows under the top panel. */
 export type Screen =
   | { kind: "ready" }
-  /** The picked card (`from`: the list it came from, for "Back"). */
-  | { kind: "card"; card: TrackCardSummary; from: CardList | null }
+  /**
+   * The picked card (`from`: the list it came from, for "Back"; `off`: it was
+   * picked in a switched-off holder or desk: SWITCHED_OFF_TEXT).
+   */
+  | { kind: "card"; card: TrackCardSummary; from: CardList | null; off?: boolean }
   | { kind: "list"; list: CardList }
   /** An empty holder or desk, or a place that holds bags (its bags). */
   | { kind: "place"; place: TrackSlotSummary };
@@ -125,7 +135,7 @@ export type Message = {
   links?: { href: string; label: string }[];
   /** The card it is about (its thumbnail shows with it). */
   card?: TrackCardSummary;
-  /** "Add anyway": a desk with a limit set in Places is full (tap: the same desk, with force). */
+  /** "Add anyway": a desk with a limit set in Places is full (tap: the same desk, with force; never a one-card holder). */
   retry?: Save;
   /** Gone at this time (a move's result: the page is plain again). */
   until?: number;
@@ -138,7 +148,8 @@ export type FlowState = {
   message: Message | null;
 };
 
-export type FlowSound = "pending" | "moved" | "refused" | null;
+/** pending: a move or Done waits for its second scan; moved: saved; refused; expired: the wait ran out (soft). */
+export type FlowSound = "pending" | "moved" | "refused" | "expired" | null;
 /** A transition: the next state and the sound it makes. */
 export type Step = { state: FlowState; sound: FlowSound };
 
@@ -212,6 +223,7 @@ export function listOfPlace(place: TrackSlotSummary): CardList {
     out: [],
     doneInBag: 0,
     total: place.cards.length,
+    ...(place.active === false ? { off: true } : {}),
   };
 }
 
@@ -257,7 +269,12 @@ const quiet = (state: FlowState): Step => ({ state, sound: null });
 
 /** A list to show: one card is picked at once (a bag's last card in it, a desk's one card, a search's one hit). */
 function showList(base: FlowState, list: CardList): FlowState {
-  return list.cards.length === 1 ? { ...base, screen: { kind: "card", card: list.cards[0], from: list } } : { ...base, screen: { kind: "list", list } };
+  return list.cards.length === 1 ? { ...base, screen: pickedScreen(list.cards[0], list, !!list.off) } : { ...base, screen: { kind: "list", list } };
+}
+
+/** The card screen for a picked card (`off`: picked in a switched-off holder or desk). */
+function pickedScreen(card: TrackCardSummary, from: CardList | null, off: boolean): Screen {
+  return off ? { kind: "card", card, from, off: true } : { kind: "card", card, from };
 }
 
 /** The card can't go in a spot: why, as the server would say it. */
@@ -299,8 +316,11 @@ export function afterLookup(state: FlowState, found: Found, now: number): Step {
   }
 
   const cards = spot.cards;
-  const here = !!picked && (picked.location?.code === spot.code || cards.some((c) => c.id === picked.id));
+  // The picked card is in this spot when the spot's answer lists it (its own place may be stale: someone
+  // moved it meanwhile); by its place only when the answer was cut short (a place with 200+ cards)
+  const here = !!picked && (cards.some((c) => c.id === picked.id) || (spot.cardCount > cards.length && picked.location?.code === spot.code));
   const fresh = picked ? cards.find((c) => c.id === picked.id) ?? picked : null;
+  const off = spot.active === false;
 
   if (role === "desk") {
     // A desk is never full: a card picked elsewhere waits to go on it
@@ -311,7 +331,9 @@ export function afterLookup(state: FlowState, found: Found, now: number): Step {
       return wait("move", picked);
     }
     // No card picked, or the picked card is on this desk: the desk shows (one card: picked)
-    const info: Message | null = picked && here ? { tone: "info", title: alreadyThereTitle(picked, spot), sub: cards.length > 1 ? TAP_TO_PICK : PICKED_SUB } : null;
+    const info: Message | null = picked && here
+      ? { tone: "info", title: alreadyThereTitle(picked, spot), sub: cards.length > 1 ? TAP_TO_PICK : off ? SWITCHED_OFF_TEXT : PICKED_SUB }
+      : null;
     if (!cards.length) return quiet({ ...base, screen: { kind: "place", place: spot }, message: info });
     return quiet({ ...showList(base, listOfPlace(spot)), message: info });
   }
@@ -326,16 +348,27 @@ export function afterLookup(state: FlowState, found: Found, now: number): Step {
   }
   if (picked && here && fresh) {
     // The spot the picked card is in: nothing to move, it just shows
-    return quiet({ ...base, screen: { kind: "card", card: fresh, from: null }, message: { tone: "info", title: alreadyThereTitle(fresh, spot), sub: PICKED_SUB } });
+    return quiet({ ...base, screen: pickedScreen(fresh, null, off), message: { tone: "info", title: alreadyThereTitle(fresh, spot), sub: off ? SWITCHED_OFF_TEXT : PICKED_SUB } });
   }
-  // A spot with a card: that card is picked (another card was picked: it didn't move)
+  // A spot with a card: that card is picked (another card was picked: it didn't move). Browsing
+  // full holders is normal: the scan's own read beep only, and a line that says what happened
   const next = cards.length === 1 ? cards[0] : null;
-  const shown: FlowState = next ? { ...base, screen: { kind: "card", card: next, from: null } } : { ...base, screen: { kind: "list", list: listOfPlace(spot) } };
+  const shown: FlowState = next ? { ...base, screen: pickedScreen(next, null, off) } : { ...base, screen: { kind: "list", list: listOfPlace(spot) } };
   if (!picked) return quiet(shown);
-  return {
-    state: { ...shown, message: { tone: "warn", title: spotTakenTitle(spot.name, cards), sub: spotTakenSub(picked, next) } },
-    sound: "refused",
-  };
+  return quiet({ ...shown, message: { tone: "warn", title: spotTakenTitle(spot.name, cards), sub: spotTakenSub(picked, next) } });
+}
+
+/**
+ * The scanner's repeat gate dropped `code` (the same label again within
+ * SCAN_REPEAT_MS, 750 ms): when it is the spot the picked card waits to go
+ * to, the page says to scan it again (the pending sound again, and
+ * "Scan CLAMP 09 again"); it doesn't count as the second scan. Null: say
+ * nothing (a plain double read).
+ */
+export function quickRepeat(state: FlowState, code: string): string | null {
+  const p = state.pending;
+  if (!p || state.saving || p.to.code !== code) return null;
+  return scanAgainText(p.kind === "done" ? "DONE" : p.to.name);
 }
 
 /**
@@ -357,23 +390,23 @@ export type SaveCall =
   | { route: "release"; body: ReleaseRequest };
 
 /**
- * A move from its bag (no place, a shelf, the Open bags box) is an assign;
- * from a holder or desk it is a move naming that place (`fromCode`: a card
- * someone moved meanwhile is refused, not taken from wherever it is now).
- * Done and Take out name the place the card is in, when it is in one.
+ * Every save names where the card was when it was picked, so a card someone
+ * moved meanwhile is refused (nothing written, no email), never taken or
+ * finished from wherever it is now. From its bag (no place, a shelf, the Open
+ * bags box, the Ready to ship bin): a move is an assign and Done is a done,
+ * both with `fromBag`. From a holder or desk: a move, Done or Take out with
+ * `fromCode` = that place.
  */
 export function saveCall(save: Save): SaveCall {
   const { card } = save;
   const force = save.kind === "move" && save.force ? { force: true } : {};
+  const out = !!card.location && !inItsBag(card);
   if (save.kind === "move") {
-    if (card.location && !inItsBag(card)) {
-      return { route: "move", body: { fromCode: card.location.code, toCode: save.to.code, cardIds: [card.id], ...force } };
-    }
-    return { route: "assign", body: { locationCode: save.to.code, cardIds: [card.id], ...force } };
+    if (out) return { route: "move", body: { fromCode: card.location!.code, toCode: save.to.code, cardIds: [card.id], ...force } };
+    return { route: "assign", body: { locationCode: save.to.code, cardIds: [card.id], fromBag: true, ...force } };
   }
-  const from = card.location ? { fromCode: card.location.code } : {};
-  if (save.kind === "done") return { route: "done", body: { cardIds: [card.id], ...from } };
-  return { route: "release", body: { cardIds: [card.id], ...from } };
+  if (save.kind === "done") return { route: "done", body: { cardIds: [card.id], ...(out ? { fromCode: card.location!.code } : { fromBag: true }) } };
+  return { route: "release", body: { cardIds: [card.id], ...(card.location ? { fromCode: card.location.code } : {}) } };
 }
 
 /** A save's answer: the tracking API's (api.ts ApiResult). */
@@ -394,9 +427,16 @@ export function afterSave(state: FlowState, outcome: SaveOutcome, now: number): 
   const base: FlowState = { ...state, saving: null, pending: null };
   const { card } = save;
   if (!outcome.ok) {
-    if (outcome.conflict && save.kind === "move" && save.to.desk) {
+    if (outcome.conflict && save.kind === "move") {
+      if (save.to.desk) {
+        return {
+          state: { ...base, message: { tone: "warn", title: addAnywayText(save.to.name, outcome.conflict), sub: inItNowText(outcome.conflict), card, retry: { ...save, force: true } } },
+          sound: "refused",
+        };
+      }
+      // A holder filled meanwhile: no "Add anyway" (one card per holder); what's in it, and the card stays picked
       return {
-        state: { ...base, message: { tone: "warn", title: addAnywayText(save.to.name, outcome.conflict), sub: inItNowText(outcome.conflict), card, retry: { ...save, force: true } } },
+        state: { ...base, message: { tone: "warn", title: holderFullTitle(save.to.name, outcome.conflict.occupants), sub: didntMoveText(card), card } },
         sound: "refused",
       };
     }
@@ -441,8 +481,11 @@ export function afterSave(state: FlowState, outcome: SaveOutcome, now: number): 
 
 /** The picked card read again after a refusal (where it really is now): shown if it is still the one picked. */
 export function refreshCard(state: FlowState, card: TrackCardSummary): FlowState {
-  if (state.screen.kind !== "card" || state.screen.card.id !== card.id) return state;
-  return { ...state, screen: { ...state.screen, card } };
+  const screen = state.screen;
+  if (screen.kind !== "card" || screen.card.id !== card.id) return state;
+  // Somewhere else now: the switched-off note was about the old place
+  const off = !!screen.off && card.location?.code === screen.card.location?.code;
+  return { ...state, screen: pickedScreen(card, screen.from, off) };
 }
 
 // ─── Taps ───────────────────────────────────────────────────────────────
@@ -450,7 +493,7 @@ export function refreshCard(state: FlowState, card: TrackCardSummary): FlowState
 /** A card tapped in a list: picked (the list stays for "Back"). */
 export function pickCard(state: FlowState, card: TrackCardSummary): FlowState {
   const from = state.screen.kind === "list" ? state.screen.list : state.screen.kind === "card" ? state.screen.from : null;
-  return { ...state, pending: null, message: null, screen: { kind: "card", card, from } };
+  return { ...state, pending: null, message: null, screen: pickedScreen(card, from, !!from?.off) };
 }
 
 /** "Back to bag CD-2549-P": the list again, nothing picked. */
@@ -464,11 +507,11 @@ export function cancelPending(state: FlowState): FlowState {
   return state.pending ? { ...state, pending: null } : state;
 }
 
-/** The waiting move or Done timed out (PENDING_MS): it goes, and the panel says nothing moved. Null: nothing to do. */
-export function expirePending(state: FlowState, now: number): FlowState | null {
+/** The waiting move or Done timed out (PENDING_MS): it goes, the panel says nothing moved, with a soft sound. Null: nothing to do. */
+export function expirePending(state: FlowState, now: number): Step | null {
   const p = state.pending;
-  if (!p || now - p.at <= PENDING_MS) return null;
-  return { ...state, pending: null, message: { tone: "warn", title: EXPIRED_TITLE, sub: expiredSub(p.kind, p.to.name, p.card) } };
+  if (!p || state.saving || now - p.at <= PENDING_MS) return null;
+  return { state: { ...state, pending: null, message: { tone: "warn", title: EXPIRED_TITLE, sub: expiredSub(p.kind, p.to.name, p.card) } }, sound: "expired" };
 }
 
 /** A move's result has shown long enough (MOVED_SHOW_MS): the page is plain. Null: nothing to do. */
@@ -522,7 +565,8 @@ export function panelOf(state: FlowState, listening = true): Panel {
   if (state.message) return { kind: "message", message: state.message };
   const card = pickedCard(state);
   if (card) {
-    const sub = card.refunded ? REFUNDED_TEXT : !canMove(card) ? NOT_RECEIVED_TEXT : PICKED_SUB;
+    const off = state.screen.kind === "card" && !!state.screen.off;
+    const sub = card.refunded ? REFUNDED_TEXT : !canMove(card) ? NOT_RECEIVED_TEXT : off ? SWITCHED_OFF_TEXT : PICKED_SUB;
     return { kind: "picked", title: pickedTitle(card), sub, card };
   }
   return { kind: "ready", title: listening ? READY_TITLE : STARTING_TITLE, sub: READY_SUB };

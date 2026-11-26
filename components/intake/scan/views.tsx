@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, CircleCheck, CircleAlert, TriangleAlert } from "lucide-react";
+import { Check, CircleCheck, CircleAlert, ScanLine, TriangleAlert } from "lucide-react";
 import { recentScansLabel } from "./flow-text";
 
 // Shared pieces of the Scan page (scan-app.tsx holds the flow; flow-views.tsx the panel, the card and the lists).
@@ -22,7 +22,8 @@ export function useNow(): number {
   return now;
 }
 
-export type FlashState = { key: number; tone: "ok" | "error"; text: string };
+/** ok: saved; error: refused or a problem; info: what to do next ("Scan CLAMP 09 again"). */
+export type FlashState = { key: number; tone: "ok" | "error" | "info"; text: string };
 
 /** The huge ✓ / ⚠ after a save or a failed scan; gone after a moment. Screen readers get the text from the page's status line. */
 export function Flash({ flash }: { flash: FlashState | null }) {
@@ -41,14 +42,15 @@ export function Flash({ flash }: { flash: FlashState | null }) {
   }, [flash]);
   if (!flash) return null;
   const ok = flash.tone === "ok";
+  const info = flash.tone === "info";
   return (
     <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6">
       <div
         ref={ref}
         key={flash.key}
-        className={`flex max-w-sm flex-col items-center gap-3 rounded-3xl px-8 py-7 text-center text-white shadow-2xl ${ok ? "bg-green-600/95" : "bg-red-600/95"}`}
+        className={`flex max-w-sm flex-col items-center gap-3 rounded-3xl px-8 py-7 text-center text-white shadow-2xl ${ok ? "bg-green-600/95" : info ? "bg-primary/95" : "bg-red-600/95"}`}
       >
-        {ok ? <Check className="h-24 w-24" strokeWidth={3} /> : <TriangleAlert className="h-24 w-24" strokeWidth={2.25} />}
+        {ok ? <Check className="h-24 w-24" strokeWidth={3} /> : info ? <ScanLine className="h-24 w-24" strokeWidth={2} /> : <TriangleAlert className="h-24 w-24" strokeWidth={2.25} />}
         <p className="text-xl font-black leading-snug break-words">{flash.text}</p>
       </div>
     </div>

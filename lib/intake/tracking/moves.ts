@@ -7,7 +7,7 @@ import { completeOrdersIfAllDone, type OrderAutoComplete } from "@/lib/intake/or
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
 import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
 import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
-import { withBagSentences } from "@/lib/intake/tracking/bag-home";
+import { isWithBag, withBagSentences } from "@/lib/intake/tracking/bag-home";
 import { settleBags } from "@/lib/intake/tracking/bag-places";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { isSlot, locationRef } from "@/lib/intake/tracking/places";
@@ -143,18 +143,20 @@ async function capacityCheck(admin: SupabaseClient, loc: LocationRow, plan: Card
  */
 export async function assignCards(
   admin: SupabaseClient,
-  input: Common & { locationCode: string; cardIds: readonly string[]; force?: boolean; action?: MoveAction },
+  input: Common & { locationCode: string; cardIds: readonly string[]; force?: boolean; action?: MoveAction; fromBag?: boolean },
 ): Promise<TrackResult> {
   const bad = cardIdsProblem(input.cardIds);
   if (bad) return { ok: false, status: 400, error: bad };
   const place = await placeByCode(admin, input.locationCode);
   if (!("loc" in place)) return place;
-  return planAndRun(admin, "assign", place.loc, input.cardIds, input, [], input.force);
+  return planAndRun(admin, "assign", place.loc, input.cardIds, input, [], input.force, input.fromBag ? BAG : null);
 }
 
 /**
  * POST /api/admin/track/move: move the cards in the slot `fromCode` (all, or
- * only `cardIds`) to the slot `toCode`. Their step follows the new slot.
+ * only `cardIds`) to the slot `toCode`. Their step follows the new slot. The
+ * from-slot may be switched off (its cards can still leave it); the slot
+ * they go to must be on.
  */
 export async function moveSlot(
   admin: SupabaseClient,
@@ -164,7 +166,8 @@ export async function moveSlot(
     const bad = cardIdsProblem(input.cardIds);
     if (bad) return { ok: false, status: 400, error: bad };
   }
-  const from = await placeByCode(admin, input.fromCode);
+  // The from-place may be switched off: its cards can still leave it (only the place they go to must be on)
+  const from = await fromPlace(admin, input.fromCode);
   if (!("loc" in from)) return from;
   const to = await placeByCode(admin, input.toCode);
   if (!("loc" in to)) return to;
@@ -186,9 +189,10 @@ export async function moveSlot(
 }
 
 /**
- * The place a Done or Take out names (`fromCode`: the holder the cards were
- * shown in). Unlike a move's places it may be switched off: its cards can
- * still be finished or taken out.
+ * The place a Done, Take out or move names as where the cards are
+ * (`fromCode`: the holder the cards were shown in). Unlike the place cards
+ * go to, it may be switched off: its cards can still be finished, taken out
+ * or moved on.
  */
 async function fromPlace(admin: SupabaseClient, raw: string): Promise<{ loc: LocationRow } | { ok: false; status: number; error: string }> {
   let loc: LocationRow | null;
@@ -244,12 +248,17 @@ export async function releaseCards(admin: SupabaseClient, input: Common & { card
  * cards were shown in, e.g. the Scan page's holder view) only cards still in
  * it are marked done; the others are refused, each with "Not in CLAMP 07 any
  * more (now in HEAT PRESS 01)." (none left in it: 409), so a card someone
- * moved meanwhile is never finished from a stale screen.
+ * moved meanwhile is never finished from a stale screen. `fromBag` (the Scan
+ * page, a card picked while in its bag) does the same for cards that must
+ * still be with their bag ("Not in its bag any more (now in CLAMP 03).").
  */
-export async function markCardsDone(admin: SupabaseClient, input: Common & { cardIds: readonly string[]; fromCode?: string | null }): Promise<TrackResult> {
+export async function markCardsDone(
+  admin: SupabaseClient,
+  input: Common & { cardIds: readonly string[]; fromCode?: string | null; fromBag?: boolean },
+): Promise<TrackResult> {
   const bad = cardIdsProblem(input.cardIds);
   if (bad) return { ok: false, status: 400, error: bad };
-  let only: LocationRow | null = null;
+  let only: Only = input.fromBag ? BAG : null;
   if (input.fromCode != null) {
     const from = await fromPlace(admin, input.fromCode);
     if (!("loc" in from)) return from;
@@ -279,6 +288,10 @@ export async function placeCards(
   return planAndRun(admin, "assign", loc, input.cardIds, input, [], input.force ?? true);
 }
 
+/** Where the cards of a request must still be: that place (`fromCode`), or with their bag (`fromBag`). */
+type Only = LocationRow | typeof BAG | null;
+const BAG = "bag" as const;
+
 async function planAndRun(
   admin: SupabaseClient,
   action: PlanAction,
@@ -287,7 +300,7 @@ async function planAndRun(
   input: Common & { action?: MoveAction },
   extraResults: TrackCardResult[],
   force?: boolean,
-  only?: LocationRow | null,
+  only?: Only,
 ): Promise<TrackResult> {
   let ctx: OrdersContext;
   try {
@@ -295,11 +308,12 @@ async function planAndRun(
   } catch (e) {
     return { ok: false, status: 500, error: `Couldn't read the cards. Nothing was changed. (${errText(e)})` };
   }
-  // `only`: the holder the cards must still be in (Done / Take out from a holder's screen). A card
-  // read elsewhere is refused; one moved after this read is left alone by writePlan (lost)
+  // `only`: the holder the cards must still be in (Done / Take out from a holder's screen), or their
+  // bag (`fromBag`: a card picked while in its bag). A card read elsewhere is refused (nothing is
+  // written for it); one moved after this read is left alone by writePlan (lost)
   if (only) {
-    const split = splitByPlace(ctx, cardIds, only);
-    if (!split.keep.length) return { ok: false, status: 409, error: split.error ?? `Those cards aren't in ${only.name} any more.` };
+    const split = only === BAG ? splitByBag(ctx, cardIds) : splitByPlace(ctx, cardIds, only);
+    if (!split.keep.length) return { ok: false, status: 409, error: split.error ?? "Those cards were moved meanwhile." };
     cardIds = split.keep;
     extraResults = [...extraResults, ...split.refused];
   }
@@ -346,6 +360,39 @@ async function planAndRun(
 }
 
 const MOVED_MEANWHILE = "Someone moved it just now. Scan the slot again.";
+
+/** A card refused because it isn't with its bag any more (`fromBag`). */
+export function notInBagText(now: Pick<LocationRef, "code" | "name" | "kind"> | null | undefined): string {
+  return `Not in its bag any more (${nowAtText(now)}).`;
+}
+
+/**
+ * `fromBag`: the requested cards still with their bag (no place, a shelf, the
+ * Open bags box, the Ready to ship bin, the Done shelf: isWithBag; or
+ * unknown: the planner says "Card not found."), and the others refused with
+ * where each is now. `error`: the whole request's sentence when none is
+ * left ("CD-2549-07 isn't in its bag any more (now in CLAMP 03).").
+ */
+function splitByBag(ctx: Pick<OrdersContext, "cards" | "locations">, cardIds: readonly string[]): { keep: string[]; refused: TrackCardResult[]; error: string | null } {
+  const byId = new Map(ctx.cards.map((c) => [c.id, c]));
+  const keep: string[] = [];
+  const refused: TrackCardResult[] = [];
+  const away: { label: string; now: string }[] = [];
+  for (const id of [...new Set(cardIds)]) {
+    const c = byId.get(id);
+    const at = c?.location_id ? ctx.locations.get(c.location_id) ?? null : null;
+    if (!c || !c.location_id || isWithBag(at)) {
+      keep.push(id);
+      continue;
+    }
+    refused.push({ cardId: id, code: c.card_code, name: c.card_name, ok: false, changed: false, message: notInBagText(at) });
+    away.push({ label: c.card_code ?? c.card_name ?? "A card", now: nowAtText(at) });
+  }
+  const error = keep.length ? null
+    : away.length === 1 ? `${away[0].label} isn't in its bag any more (${away[0].now}).`
+    : `Those cards aren't in their bags any more: ${away.map((a) => `${a.label} (${a.now})`).join(", ")}.`;
+  return { keep, refused, error };
+}
 
 /**
  * The requested cards still in `place` (or unknown: the planner says "Card

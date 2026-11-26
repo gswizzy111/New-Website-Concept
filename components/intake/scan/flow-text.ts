@@ -96,8 +96,38 @@ export function spotTakenTitle(spotName: string, cards: readonly Card[]): string
  * didn't move. CD-2549-05 is picked now." (2+ cards: "… Tap a card to pick it.").
  */
 export function spotTakenSub(was: Card, now: Card | null): string {
-  return `${cardLabel(was)} didn't move. ${now ? `${cardLabel(now)} is picked now.` : TAP_TO_PICK}`;
+  return `${didntMoveText(was)} ${now ? `${cardLabel(now)} is picked now.` : TAP_TO_PICK}`;
 }
+
+/** "CD-2549-03 didn't move." */
+export function didntMoveText(card: Card): string {
+  return `${cardLabel(card)} didn't move.`;
+}
+
+/** A card in a sentence with its name: "CD-2549-05 · Charizard". */
+function cardWithName(card: Card): string {
+  return [card.code, card.name?.trim() || null].filter(Boolean).join(" · ") || "a card";
+}
+
+/**
+ * The second scan's move found the holder filled meanwhile (another phone):
+ * "CLAMP 09 already has CD-2549-05 · Charizard" (2+: "CLAMP 09 already has 2
+ * cards (CD-2549-05, CD-2549-06)"; none named: "CLAMP 09 already has a card").
+ * No "Add anyway": a holder holds one card.
+ */
+export function holderFullTitle(spotName: string, occupants: readonly Card[]): string {
+  if (!occupants.length) return `${spotName} already has a card`;
+  if (occupants.length === 1) return `${spotName} already has ${cardWithName(occupants[0])}`;
+  return `${spotName} already has ${cardsWord(occupants.length)} (${occupants.map((c) => cardLabel(c)).join(", ")})`;
+}
+
+/** The waiting spot scanned again too soon after the first (the scanner's repeat gate): "Scan CLAMP 09 again". */
+export function scanAgainText(spotName: string): string {
+  return `Scan ${spotName} again`;
+}
+
+/** A card picked in a switched-off holder or desk (it can still be moved out, taken out or done). */
+export const SWITCHED_OFF_TEXT = "This holder is switched off: use Take out or Done, or switch it on in Places.";
 
 /** The spot the picked card is in already: "CD-2549-03 is already in CLAMP 07" ("on DESK"). */
 export function alreadyThereTitle(card: Card, place: Place): string {

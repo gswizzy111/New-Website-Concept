@@ -18,11 +18,11 @@ import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   MOVED_SHOW_MS, PENDING_MS, afterLookup, afterSave, afterScanProblem, backToList, bagCardList, cancelPending, canMove, cardActions,
-  clearShownMessage, expirePending, hideMessage, listOfOrder, panelOf, pickCard, pickedCard, planScan, refreshCard, saveCall,
+  clearShownMessage, expirePending, hideMessage, listOfOrder, panelOf, pickCard, pickedCard, planScan, quickRepeat, refreshCard, saveCall,
   spotRole, startFlow, startSave, tapSave, type FlowState, type Found, type Panel, type SaveCall, type SaveOutcome, type Step,
 } from "@/components/intake/scan/scan-flow";
 import {
-  NOTE_TITLES, PENDING_SUB, PICKED_SUB, READY_SUB, SAVE_BUSY_TEXT, backLabel, cardDetails, cardNoteList, doneInBagLine, dueLine,
+  NOTE_TITLES, PENDING_SUB, PICKED_SUB, READY_SUB, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, backLabel, holderFullTitle, cardDetails, cardNoteList, doneInBagLine, dueLine,
   emptySpotText, hasCardNotes, inItNowText, movedTitle, outLine, searchHeading, takenOutText, whereText,
 } from "@/components/intake/scan/flow-text";
 import { cardNotes } from "@/lib/intake/tracking/summaries";
@@ -209,8 +209,10 @@ test("an empty spot scanned twice moves the picked card: from its bag an assign,
   assert.equal(panelOf(clearShownMessage(saved.state, T0 + 6_000 + MOVED_SHOW_MS)!).kind, "ready", "then plain");
 
   // From its bag (no place, or a shelf): an assign
-  assert.deepEqual(saveCall({ kind: "move", card: card(1), to: first.state.pending!.to }), { route: "assign", body: { locationCode: CLAMP7.code, cardIds: ["card-1"] } });
-  assert.deepEqual(saveCall({ kind: "move", card: card(1, { location: SHELF }), to: first.state.pending!.to }).route, "assign");
+  // From its bag (no place, a shelf, the Open bags box): an assign that names the bag (fromBag)
+  assert.deepEqual(saveCall({ kind: "move", card: card(1), to: first.state.pending!.to }), { route: "assign", body: { locationCode: CLAMP7.code, cardIds: ["card-1"], fromBag: true } });
+  assert.deepEqual(saveCall({ kind: "move", card: card(1, { location: SHELF }), to: first.state.pending!.to }), { route: "assign", body: { locationCode: CLAMP7.code, cardIds: ["card-1"], fromBag: true } });
+  assert.deepEqual(saveCall({ kind: "move", card: card(1, { location: OPEN_BAGS }), to: first.state.pending!.to }).body, { locationCode: CLAMP7.code, cardIds: ["card-1"], fromBag: true });
   // A card out of its bag: the move files the bag in the Open bags box, and says so
   const opened = afterSave(startSave(picking(card(1)), { kind: "move", card: card(1), to: first.state.pending!.to }), {
     ok: true,
@@ -253,20 +255,23 @@ test("the 30 s timeout: the second scan after 30 s only waits again; the panel s
   assert.equal(late.step?.sound, "pending");
 
   assert.equal(expirePending(waiting, T0 + PENDING_MS), null);
-  const expired = expirePending(waiting, T0 + PENDING_MS + 1)!;
+  const step = expirePending(waiting, T0 + PENDING_MS + 1)!;
+  assert.equal(step.sound, "expired", "a soft sound");
+  const expired = step.state;
   assert.equal(expired.pending, null);
   assert.equal(pickedCard(expired)?.id, c.id, "the card stays picked");
   assert.deepEqual([expired.message?.tone, expired.message?.title, expired.message?.sub],
     ["warn", "Nothing moved", "That took over 30 seconds. Scan CLAMP 07 twice to move CD-2549-01 there."]);
   const doneWait = scan(picking(c), DONE.code, spotFound(spot(DONE)), T0).state;
-  assert.equal(expirePending(doneWait, T0 + PENDING_MS + 1)?.message?.sub, "That took over 30 seconds. Scan DONE twice to mark CD-2549-01 done.");
+  assert.equal(expirePending(doneWait, T0 + PENDING_MS + 1)?.state.message?.sub, "That took over 30 seconds. Scan DONE twice to mark CD-2549-01 done.");
+  assert.equal(expirePending(startSave(waiting, { kind: "done", card: c }), T0 + PENDING_MS + 1), null, "not while a save runs");
   assert.equal(expirePending(startFlow(), T0), null);
 });
 
 test("a full spot with another card picked: its card is picked instead, and the panel says the first didn't move", () => {
   const was = card(3, at(PRESS2));
   const s = scan(picking(was), CLAMP7.code, spotFound(spot(CLAMP7, [card(5)])), T0);
-  assert.equal(s.step?.sound, "refused");
+  assert.equal(s.step?.sound, null, "browsing full holders is normal: the scan's read beep only, no error buzz");
   assert.equal(s.state.pending, null);
   assert.equal(pickedCard(s.state)?.id, "card-5");
   assert.deepEqual([s.state.message?.tone, s.state.message?.title, s.state.message?.sub],
@@ -334,8 +339,9 @@ test("DONE scanned twice marks the picked card done; the answer says where its b
   assert.equal(done.state.message?.title, "Done. Put it back in REYES's bag: Open bags box, under R.");
   assert.deepEqual(done.state.message?.lines, [{ tone: "ok", text: "Order completed. Maria Reyes emailed." }]);
   assert.equal(done.state.message?.until, undefined, "stays until the next scan");
-  // In its bag (no place): no fromCode
-  assert.deepEqual(saveCall({ kind: "done", card: card(1) }), { route: "done", body: { cardIds: ["card-1"] } });
+  // In its bag (no place, a shelf): it must still be with its bag (fromBag)
+  assert.deepEqual(saveCall({ kind: "done", card: card(1) }), { route: "done", body: { cardIds: ["card-1"], fromBag: true } });
+  assert.deepEqual(saveCall({ kind: "done", card: card(1, { location: SHELF }) }), { route: "done", body: { cardIds: ["card-1"], fromBag: true } });
 
   // DONE with nothing picked, or for a card done and back in its bag
   const none = scan(startFlow(), DONE.code, spotFound(spot(DONE)), T0);
@@ -418,9 +424,23 @@ test("a desk with a limit set that is full: 'Add anyway?' sends the card again t
   assert.ok(retry.ok);
   assert.deepEqual(retry.ok && saveCall(retry.save), { route: "move", body: { fromCode: CLAMP7.code, toCode: "LOC-DESK-GAVIN", cardIds: [c.id], force: true } });
   assert.deepEqual(tapSave(asked.state, "retry", true), { ok: false, text: SAVE_BUSY_TEXT }, "busy: nothing starts");
-  // A one-card holder's conflict never offers it (the server's hard limit): only its sentence
-  const holder = afterSave(startSave(picking(c), { kind: "move", card: c, to: { code: CLAMP8.code, name: "CLAMP 08", kind: "station", desk: false } }), { ok: false, status: 409, error: "CLAMP 08 holds 1 card and has 1 in it. Add anyway?", conflict }, T0);
-  assert.equal(holder.state.message?.retry, undefined);
+});
+
+test("a holder filled meanwhile (409 with what's in it): no 'Add anyway?', the line names its card, the picked card stays", () => {
+  const c = card(3, at(PRESS2));
+  const saving = startSave(picking(c), { kind: "move", card: c, to: { code: "LOC-CLAMP-09", name: "CLAMP 09", kind: "station", desk: false } });
+  const conflict = { error: "CLAMP 09 holds 1 card and has 1 in it. Add anyway?", overCapacity: true as const, capacity: 1, occupants: [card(5)] };
+  const full = afterSave(saving, { ok: false, status: 409, error: conflict.error, conflict }, T0);
+  assert.equal(full.sound, "refused");
+  assert.deepEqual([full.state.message?.tone, full.state.message?.title, full.state.message?.sub, full.state.message?.retry],
+    ["warn", "CLAMP 09 already has CD-2549-05 · Charizard 5", "CD-2549-03 didn't move.", undefined]);
+  assert.equal(pickedCard(full.state)?.id, c.id, "still picked");
+  assert.equal(panelOf(full.state).kind, "message");
+  assert.ok(!/add anyway/i.test(`${full.state.message?.title} ${full.state.message?.sub}`), "never asks Add anyway for a holder");
+  assert.deepEqual(tapSave(full.state, "retry", false), { ok: false, text: SAVE_BUSY_TEXT }, "nothing to send again");
+  assert.equal(holderFullTitle("CLAMP 09", [card(5), card(6)]), "CLAMP 09 already has 2 cards (CD-2549-05, CD-2549-06)");
+  assert.equal(holderFullTitle("CLAMP 09", []), "CLAMP 09 already has a card");
+  assert.equal(holderFullTitle("CLAMP 09", [card(5, { name: null })]), "CLAMP 09 already has CD-2549-05");
 });
 
 test("the picked card's buttons: Done (asks first) and Take out (out of its bag only); taps", () => {
@@ -488,6 +508,67 @@ test("notes: the card's note, its known defects and the order's notes, each in i
     { variation: "Holo", notes: null, knownDefects: "Whitening", customerNotes: "Gentle" });
   assert.deepEqual(cardNotes({}, {}), {}, "read without them: no note fields (not 'no notes')");
   assert.deepEqual(cardNotes({ notes: null }, null), { notes: null });
+});
+
+test("'already in this spot' trusts the spot's answer, not the picked card's old place: swapped, now empty, left a desk", () => {
+  // Picked in CLAMP 07 a while ago; someone swapped it for CD-2549-05 meanwhile: CLAMP 07's card is picked instead
+  const stale = card(3, at(CLAMP7));
+  const swapped = scan(picking(stale), CLAMP7.code, spotFound(spot(CLAMP7, [card(5)])), T0);
+  assert.deepEqual([pickedCard(swapped.state)?.id, swapped.state.message?.title, swapped.state.pending], ["card-5", "CLAMP 07 already has CD-2549-05", null]);
+  // CLAMP 07 is empty now (someone took it out): it is an empty spot, so the card waits to go there (the save names CLAMP 07 and the server says where it really is)
+  const emptied = scan(picking(stale), CLAMP7.code, spotFound(spot(CLAMP7)), T0);
+  assert.deepEqual([emptied.state.pending?.to.code, emptied.step?.sound, emptied.state.message], [CLAMP7.code, "pending", null]);
+  // It was on DESK; someone took it off: the desk is a place to move it, not "already on DESK"
+  const leftDesk = scan(picking(card(3, at(DESK))), DESK.code, spotFound(spot(DESK, [card(5), card(6)])), T0);
+  assert.deepEqual([leftDesk.state.pending?.to.code, leftDesk.state.message], [DESK.code, null]);
+  // Still listed: it shows (fresh)
+  const still = scan(picking(card(3, at(DESK))), DESK.code, spotFound(spot(DESK, [card(5), card(3)])), T0);
+  assert.deepEqual([still.state.pending, still.state.message?.title], [null, "CD-2549-03 is already on DESK"]);
+  // An answer cut short (a place with 200+ cards): its place is trusted, as the list can't tell
+  const big = spot(DESK, [card(5), card(6)], { cardCount: 250 });
+  assert.deepEqual([scan(picking(card(3, at(DESK))), DESK.code, spotFound(big), T0).state.pending, scan(picking(card(3, at(DESK))), DESK.code, spotFound(big), T0).state.message?.title],
+    [null, "CD-2549-03 is already on DESK"]);
+  assert.equal(scan(picking(card(3, at(CLAMP8))), DESK.code, spotFound(big), T0).state.pending?.to.code, DESK.code, "cut short, but it was elsewhere: it waits to go there");
+});
+
+test("the waiting spot scanned again within 750 ms (the repeat gate): 'Scan CLAMP 09 again', not the second scan", () => {
+  const c = card(3, at(PRESS2));
+  const nine = place("LOC-CLAMP-09", "CLAMP 09", "station", "Clamp Work");
+  const waiting = scan(picking(c), nine.code, spotFound(spot(nine)), T0).state;
+  assert.equal(quickRepeat(waiting, nine.code), "Scan CLAMP 09 again");
+  assert.equal(quickRepeat(waiting, CLAMP7.code), null, "another code: a plain double read, nothing said");
+  assert.equal(quickRepeat(picking(c), nine.code), null, "nothing waiting");
+  assert.equal(quickRepeat(startSave(waiting, { kind: "done", card: c }), nine.code), null, "a save runs");
+  assert.equal(waiting.pending?.at, T0, "the dropped read changes nothing: the next scan of CLAMP 09 is the second");
+  const doneWait = scan(picking(c), DONE.code, spotFound(spot(DONE)), T0).state;
+  assert.equal(quickRepeat(doneWait, DONE.code), "Scan DONE again");
+});
+
+test("a card picked in a switched-off holder or desk says so (panel and 'already here' line); somewhere else after a refresh, it doesn't", () => {
+  const off = { active: false };
+  const s = scan(startFlow(), CLAMP7.code, spotFound(spot(CLAMP7, [card(3)], off)), T0).state;
+  assert.equal(s.screen.kind === "card" && s.screen.off, true);
+  assert.deepEqual(panelOf(s).kind === "picked" && [panelOf(s).kind, (panelOf(s) as { sub: string }).sub], ["picked", SWITCHED_OFF_TEXT]);
+  assert.equal(SWITCHED_OFF_TEXT, "This holder is switched off: use Take out or Done, or switch it on in Places.");
+  // Scanned again: "already in CLAMP 07" with the same line
+  const again = scan(s, CLAMP7.code, spotFound(spot(CLAMP7, [card(3)], off)), T0 + 1_000).state;
+  assert.equal(again.message?.sub, SWITCHED_OFF_TEXT);
+  // A switched-off desk's list: the card tapped there says so too
+  const desk = scan(startFlow(), DESK.code, spotFound(spot(DESK, [card(5), card(6)], off)), T0).state;
+  const tapped = pickCard(desk, card(6, at(DESK)));
+  assert.equal(tapped.screen.kind === "card" && tapped.screen.off, true);
+  // A refused save, then read again: now in CLAMP 08 (on), the line goes; still there, it stays
+  const moved = refreshCard(s, card(3, at(CLAMP8)));
+  assert.equal(moved.screen.kind === "card" && !!moved.screen.off, false);
+  assert.equal(panelOf(moved).kind === "picked" && (panelOf(moved) as { sub: string }).sub, PICKED_SUB);
+  const same = refreshCard(s, card(3, at(CLAMP7, { stageLabel: "Clamp Work" })));
+  assert.equal(same.screen.kind === "card" && same.screen.off, true);
+  // A switched-on holder: no line
+  const on = scan(startFlow(), CLAMP7.code, spotFound(spot(CLAMP7, [card(3)])), T0).state;
+  assert.equal(on.screen.kind === "card" && "off" in on.screen, false);
+  // Refunded and not-arrived lines come first
+  const refunded = scan(startFlow(), CLAMP7.code, spotFound(spot(CLAMP7, [card(3, { refunded: true })], off)), T0).state;
+  assert.equal((panelOf(refunded) as { sub: string }).sub, "Refunded cards aren't worked on. Take it out and set it aside.");
 });
 
 // ─── Against the in-memory database ─────────────────────────────────────
@@ -735,27 +816,40 @@ test("live: Take out from a spot names it; the last cards done complete the orde
   assert.deepEqual([list?.cards.length, list?.out.length, list?.doneInBag], [0, 0, 4]);
 });
 
-test("live: a switched-off holder is refused before asking; moving out of one is refused by the server, Done there still works", async () => {
-  // A fresh card in CLAMP 02; CLAMP 01 switched off
-  mock.store.table("cards").push(row(5));
-  const into = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-02", cardIds: [C(5)], by: "gavin" });
-  assert.ok(into.ok, into.ok ? "" : into.error);
-  const off = await svc.locations.updateLocation(admin, { id: loc("LOC-CLAMP-01")!.id as string, active: false });
-  assert.ok(off.ok);
+test("live: a card in a switched-off holder says so when picked and can still leave it (desk twice, DONE twice); a switched-off spot isn't a target", async () => {
+  mock.store.table("cards").push(row(5), row(6));
+  for (const [n, code] of [[5, "LOC-CLAMP-02"], [6, "LOC-CLAMP-01"]] as const) {
+    const into = await svc.moves.assignCards(admin, { locationCode: code, cardIds: [C(n)], by: "gavin" });
+    assert.ok(into.ok, into.ok ? "" : into.error);
+  }
+  for (const code of ["LOC-CLAMP-01", "LOC-CLAMP-02", "LOC-HEAT-PRESS-02"]) {
+    const off = await svc.locations.updateLocation(admin, { id: loc(code)!.id as string, active: false });
+    assert.ok(off.ok);
+  }
   await tick();
   let s = await scanLive(startFlow(), "LOC-CLAMP-02", T0);
   assert.equal(pickedCard(s)?.id, C(5));
-  s = await scanLive(s, "LOC-CLAMP-01", T0 + 1_000);
-  assert.deepEqual([s.pending, s.message?.title], [null, "CLAMP 01 is switched off. Turn it back on in Places first."]);
-  const offTwo = await svc.locations.updateLocation(admin, { id: loc("LOC-CLAMP-02")!.id as string, active: false });
-  assert.ok(offTwo.ok);
-  const moveOut = await send(saveCall({ kind: "move", card: pickedCard(s)!, to: { code: "LOC-DESK", name: "Desk", kind: "other", desk: true } }));
-  assert.deepEqual(moveOut.ok ? null : [moveOut.status, moveOut.error], [409, "CLAMP 02 is switched off. Turn it back on in Places first."]);
-  s = await scanLive(s, "LOC-DONE", T0 + 2_000);
-  s = await scanLive(s, "LOC-DONE", T0 + 3_000);
+  assert.deepEqual(panelOf(s).kind === "picked" ? panelOf(s) : null, { kind: "picked", title: "Picked: CD-6101-05", sub: SWITCHED_OFF_TEXT, card: pickedCard(s) });
+  // A switched-off spot isn't a place to put it: refused before asking
+  s = await scanLive(s, "LOC-HEAT-PRESS-02", T0 + 1_000);
+  assert.deepEqual([s.pending, s.message?.title], [null, "HEAT PRESS 02 is switched off. Turn it back on in Places first."]);
+  // The desk twice: it leaves the switched-off holder (moveSlot reads the from-place like Done and Take out)
+  s = await scanLive(s, "LOC-DESK", T0 + 2_000);
+  s = await scanLive(s, "LOC-DESK", T0 + 3_000);
+  assert.equal(s.message?.title, "CD-6101-05 is on Desk now");
+  assert.equal(dbCard(5).location_id, loc("LOC-DESK")!.id);
+  await tick();
+  // DONE twice for the card in switched-off CLAMP 01 (fromCode)
+  s = await scanLive(startFlow(), "LOC-CLAMP-01", T0 + 4_000);
+  assert.equal(pickedCard(s)?.id, C(6));
+  s = await scanLive(s, "LOC-DONE", T0 + 5_000);
+  s = await scanLive(s, "LOC-DONE", T0 + 6_000);
   assert.match(s.message?.title ?? "", /^Done\./);
-  assert.equal(dbCard(5).location_id, null);
-  for (const code of ["LOC-CLAMP-01", "LOC-CLAMP-02"]) await svc.locations.updateLocation(admin, { id: loc(code)!.id as string, active: true });
+  assert.deepEqual([dbCard(6).completed, dbCard(6).location_id], [true, null]);
+  // Into a switched-off holder is still refused by the server
+  const into = await svc.moves.moveSlot(admin, { fromCode: "LOC-DESK", toCode: "LOC-CLAMP-02", cardIds: [C(5)], by: "gavin" });
+  assert.deepEqual(into.ok ? null : [into.status, into.error], [409, "CLAMP 02 is switched off. Turn it back on in Places first."]);
+  for (const code of ["LOC-CLAMP-01", "LOC-CLAMP-02", "LOC-HEAT-PRESS-02"]) await svc.locations.updateLocation(admin, { id: loc(code)!.id as string, active: true });
 });
 
 test("live: DONE twice for an order's last card after someone moved it: refused (409), nothing changes, no order completion, no email", async () => {
@@ -797,4 +891,72 @@ test("live: DONE twice for an order's last card after someone moved it: refused 
   await tick();
   assert.deepEqual(snapshot(), before, "nothing changed: the card, its history, the order, its events, the bag, no email");
   assert.equal(pickedCard(s)?.id, id, "still picked (the page reads it again)");
+});
+
+test("live: a card picked in its bag that another phone put in a holder: the double scan and DONE are refused (fromBag), nothing written, no email", async () => {
+  // An order whose only card is this one: finishing it would complete the order and email the customer
+  const order3 = "00000000-0000-4000-8000-00000ac00003";
+  const bag3 = "00000000-0000-4000-8000-00000ac0b003";
+  const id = C(30);
+  const base = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  mock.store.table("orders").push({ ...base, id: order3, order_number: "CD-6103", customer_name: "Lee Park", customer_email: "lee@example.com",
+    status: "in_progress", payment_status: "paid", updated_at: "2026-11-23T19:00:00+00:00" });
+  mock.store.table("tier_bags").push({ ...mock.store.table("tier_bags").find((b) => b.id === BAG)!, id: bag3, order_id: order3, bag_code: "CD-6103-G", location_id: null });
+  mock.store.table("cards").push(row(30, { order_id: order3, bag_id: bag3, card_code: "CD-6103-01", card_seq: 1 }));
+  const three = await svc.locations.createSlots(admin, { station: "clamp", count: 2, startAt: 3, by: "gavin" });
+  assert.ok(three.ok, three.ok ? "" : three.error);
+
+  // This phone: the bag scanned, its one card picked (in its bag)
+  let s = await scanLive(startFlow(), "CD-6103-G", T0);
+  assert.equal(pickedCard(s)?.id, id);
+  assert.equal(pickedCard(s)?.location, null);
+  // Another phone puts it in CLAMP 03
+  const away = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-03", cardIds: [id], by: "gavin" });
+  assert.ok(away.ok, away.ok ? "" : away.error);
+  await tick();
+  const card30 = () => mock.store.table("cards").find((c) => c.id === id)!;
+  const snapshot = () => ({
+    card: { ...card30() },
+    moves: mock.store.table("card_moves").length,
+    order: mock.store.table("orders").find((o) => o.id === order3)!.status,
+    events: mock.store.table("order_events").filter((e) => e.order_id === order3).length,
+    bag: { ...mock.store.table("tier_bags").find((b) => b.id === bag3)! },
+    emails,
+  });
+  const before = snapshot();
+
+  // The empty CLAMP 04 twice: an assign with fromBag, refused; it is not yanked out of CLAMP 03
+  s = await scanLive(s, "LOC-CLAMP-04", T0 + 1_000);
+  assert.equal(s.pending?.to.code, "LOC-CLAMP-04");
+  s = await scanLive(s, "LOC-CLAMP-04", T0 + 2_000);
+  assert.deepEqual([s.message?.tone, s.message?.title], ["error", "CD-6103-01 isn't in its bag any more (now in CLAMP 03)."]);
+  assert.equal(pickedCard(s)?.id, id, "still picked (the page reads it again)");
+  // DONE twice: a done with fromBag, refused; no order completion, no email
+  s = await scanLive(s, "LOC-DONE", T0 + 3_000);
+  s = await scanLive(s, "LOC-DONE", T0 + 4_000);
+  assert.deepEqual([s.message?.tone, s.message?.title], ["error", "CD-6103-01 isn't in its bag any more (now in CLAMP 03)."]);
+  await tick();
+  assert.deepEqual(snapshot(), before, "nothing changed: the card, its history, the order, its events, the bag, no email");
+  assert.deepEqual([card30().completed, card30().location_id], [false, loc("LOC-CLAMP-03")!.id]);
+
+  // Several at once: the one still in its bag goes, the other is refused with where it is
+  mock.store.table("cards").push(row(31, { order_id: order3, bag_id: bag3, card_code: "CD-6103-02", card_seq: 2 }));
+  const mixed = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-04", cardIds: [id, C(31)], fromBag: true, by: "gavin" });
+  assert.ok(mixed.ok, mixed.ok ? "" : mixed.error);
+  assert.deepEqual(mixed.ok && mixed.results.map((r) => [r.code, r.ok, r.ok ? "" : r.message]).sort(), [
+    ["CD-6103-01", false, "Not in its bag any more (now in CLAMP 03)."],
+    ["CD-6103-02", true, ""],
+  ]);
+  assert.equal(card30().location_id, loc("LOC-CLAMP-03")!.id, "left where it is");
+  await tick();
+  const both = await svc.moves.markCardsDone(admin, { cardIds: [id, C(31)], fromBag: true, by: "gavin" });
+  assert.deepEqual(both.ok ? null : [both.status, both.error],
+    [409, "Those cards aren't in their bags any more: CD-6103-01 (now in CLAMP 03), CD-6103-02 (now in CLAMP 04)."]);
+  // Without fromBag (older pages, the Desk): as before, wherever the card is
+  const anywhere = await svc.moves.markCardsDone(admin, { cardIds: [id], by: "gavin" });
+  assert.ok(anywhere.ok && anywhere.results[0].ok, anywhere.ok ? anywhere.results[0].message : anywhere.error);
+  // With fromBag, a card still in its bag (on its shelf, or none) is done
+  mock.store.table("cards").push(row(32, { order_id: order3, bag_id: bag3, card_code: "CD-6103-03", card_seq: 3 }));
+  const inBag = await svc.moves.markCardsDone(admin, { cardIds: [C(32)], fromBag: true, by: "gavin" });
+  assert.ok(inBag.ok && inBag.results[0].ok, inBag.ok ? inBag.results[0].message : inBag.error);
 });

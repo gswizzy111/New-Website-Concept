@@ -260,6 +260,12 @@ export type AssignRequest = {
   cardIds: string[];               // 1 to 200 card ids
   /** Add even when the slot is full ("add anyway"). */
   force?: boolean;
+  /**
+   * Only cards still with their bag go in (the Scan page, a card picked while
+   * in its bag): one someone put in a holder or on a desk meanwhile is
+   * refused, "Not in its bag any more (now in CLAMP 03)." (none left: 409).
+   */
+  fromBag?: boolean;
   sessionId?: string;
 };
 
@@ -291,6 +297,8 @@ export type DoneRequest = {
   cardIds: string[];
   /** As ReleaseRequest.fromCode: only cards still in this holder are marked done. */
   fromCode?: string;
+  /** As AssignRequest.fromBag: only cards still with their bag are marked done (not with fromCode). */
+  fromBag?: boolean;
   sessionId?: string;
 };
 

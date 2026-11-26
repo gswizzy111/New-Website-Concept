@@ -13,7 +13,7 @@ import { createScanGate, parseScan, scanReadLabel, typedSlotGuess } from "./pars
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import {
   afterLookup, afterSave, afterScanProblem, backToList, cancelPending, clearShownMessage, expirePending, hideMessage, panelOf,
-  pickCard, planScan, refreshCard, saveCall, startFlow, startSave, tapSave, type FlowSound, type FlowState, type Found, type Panel,
+  pickCard, planScan, quickRepeat, refreshCard, saveCall, startFlow, startSave, tapSave, type FlowSound, type FlowState, type Found, type Panel,
   type Save, type SaveOutcome, type Step, PENDING_MS,
 } from "./scan-flow";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
@@ -132,17 +132,6 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     if (readTimer.current) clearTimeout(readTimer.current);
   }, []);
 
-  // The waiting move or Done ends after 30 s (planScan checks the time too: a phone's timers sleep while it is locked)
-  const pending = flow.pending;
-  useEffect(() => {
-    if (!pending) return;
-    const t = setTimeout(() => {
-      const next = expirePending(flowRef.current, Date.now());
-      if (next) setFlow(next);
-    }, Math.max(0, pending.at + PENDING_MS + 50 - Date.now()));
-    return () => clearTimeout(t);
-  }, [pending, setFlow]);
-
   // "CD-2549-03 is in CLAMP 07 now" shows for a few seconds, then the page is plain
   const until = flow.message?.until;
   useEffect(() => {
@@ -176,16 +165,33 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(null, "", next);
   }, [ship]);
 
-  const showFlash = useCallback((tone: "ok" | "error", text: string) => {
+  const showFlash = useCallback((tone: FlashState["tone"], text: string) => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
     setFlash({ key: Date.now(), tone, text });
-    flashTimer.current = setTimeout(() => setFlash(null), tone === "ok" ? 900 : 1800);
+    flashTimer.current = setTimeout(() => setFlash(null), tone === "error" ? 1800 : tone === "info" ? 1200 : 900);
   }, []);
+
+  /**
+   * The scanner's repeat gate dropped a code. The waiting spot scanned again
+   * within 750 ms doesn't count as the second scan (it may be a double read):
+   * the pending sound again and "Scan CLAMP 09 again".
+   */
+  const repeatDropped = useCallback(
+    (code: string) => {
+      const again = quickRepeat(flowRef.current, code);
+      if (!again) return;
+      beep("pending", soundStore.get());
+      showFlash("info", again);
+      setBusyNote(again);
+    },
+    [showFlash],
+  );
 
   const play = useCallback((s: FlowSound) => {
     if (s === "pending") beep("pending", soundStore.get());
     else if (s === "moved") beep("ok", soundStore.get());
     else if (s === "refused") beep("error", soundStore.get());
+    else if (s === "expired") beep("soft", soundStore.get());
   }, []);
 
   const apply = useCallback(
@@ -195,6 +201,17 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     },
     [play, setFlow],
   );
+
+  // The waiting move or Done ends after 30 s, softly (planScan checks the time too: a phone's timers sleep while it is locked)
+  const pending = flow.pending;
+  useEffect(() => {
+    if (!pending) return;
+    const t = setTimeout(() => {
+      const step = expirePending(flowRef.current, Date.now());
+      if (step) apply(step);
+    }, Math.max(0, pending.at + PENDING_MS + 50 - Date.now()));
+    return () => clearTimeout(t);
+  }, [pending, apply]);
 
   /** "Got it: …" for a scan just taken; returns its key (its answer hides it). */
   const gotIt = useCallback((code: string) => {
@@ -357,11 +374,18 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       const slotGuess = source === "typed" || source === "paste" ? typedSlotGuess(text) : null;
       if (source === "wedge") {
         // A scanner that reads the same label twice in a row sends it once
-        if (!gate.current(parsed?.code ?? text.toUpperCase().slice(0, 200), Date.now())) return;
+        const key = parsed?.code ?? text.toUpperCase().slice(0, 200);
+        if (!gate.current(key, Date.now())) {
+          repeatDropped(key);
+          return;
+        }
       }
       if ((source === "typed" || source === "paste") && !slotGuess) {
         // A repeat of the same code right after (a scanner typing into the box) is ignored too
-        if (parsed && !gate.current(parsed.code, Date.now())) return;
+        if (parsed && !gate.current(parsed.code, Date.now())) {
+          repeatDropped(parsed.code);
+          return;
+        }
       }
       // Taken: an open photo closes and the Done question goes, so the answer shows
       if (source !== "link") window.dispatchEvent(new Event(SCAN_READ_EVENT));
@@ -397,7 +421,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         await runSearch(text);
       });
     },
-    [enqueue, found, gotIt, handleCode, runSave, runSearch, scanProblem],
+    [enqueue, found, gotIt, handleCode, repeatDropped, runSave, runSearch, scanProblem],
   );
 
   // The scanner: caught anywhere on the page, nothing needs focus (true once it is listening)
