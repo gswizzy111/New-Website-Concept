@@ -35,22 +35,31 @@ export function scanKindLabel(kind: ScanKind | string | null | undefined): strin
   return "Code";
 }
 
+/** A label read again this soon after it was taken is a scanner's double read, not a new scan. */
+export const SCAN_REPEAT_MS = 750;
+
 /**
- * Ignores a repeat: the same code seen again within `windowMs` (2 s) of the
- * last time it was seen. Every sighting renews the time, so a label the
- * scanner reads twice in a row (or a code typed into the box by a scanner
- * right after) fires once, and again only after 2 s without it. Several
- * codes are remembered at once, so two labels scanned turn about each
- * fire.
+ * Ignores a repeat: the same code again within `windowMs` (750 ms) of the
+ * last time it was ACCEPTED: a scanner's double read, or a scanner typing
+ * into the code box right after. An ignored repeat doesn't renew the time,
+ * so the same label scanned again a moment later (the next card into the
+ * same shelf, a retry) always counts. `forget(code)` lets a code straight
+ * back in (its lookup failed: scanning it again must work). Several codes
+ * are remembered at once.
  */
-export function createScanGate(windowMs = 2000) {
-  const seen = new Map<string, number>();
-  return function accept(key: string, now: number): boolean {
-    for (const [k, at] of seen) if (now - at >= windowMs) seen.delete(k);
-    const repeat = seen.has(key);
-    seen.set(key, now);
-    return !repeat;
-  };
+export function createScanGate(windowMs = SCAN_REPEAT_MS) {
+  const accepted = new Map<string, number>();
+  function accept(key: string, now: number): boolean {
+    for (const [k, at] of accepted) if (now - at >= windowMs) accepted.delete(k);
+    if (accepted.has(key)) return false;
+    accepted.set(key, now);
+    return true;
+  }
+  return Object.assign(accept, {
+    forget(key: string) {
+      accepted.delete(key);
+    },
+  });
 }
 
 /** The key the gate compares: the code when it parses, else the text itself. */

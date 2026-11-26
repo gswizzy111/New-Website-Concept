@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ImageOff } from "lucide-react";
 import { PhotoViewer, usePhotoViewer, type GridPhoto } from "@/app/admin/receiving/[orderId]/photos/photo-grid";
 import type { TrackCardPhoto, TrackCardSummary } from "@/lib/intake/tracking/types";
@@ -70,14 +70,20 @@ export function CardPhotos({
   className?: string;
 }) {
   const viewer = usePhotoViewer();
-  const { setIndex } = viewer;
+  const { setIndex, openerRef } = viewer;
+  /** Thumbnails that failed to load (by address): "Photo couldn't load" in their tile. */
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
 
-  // A scan while a photo is open: close it, so the answer to the scan is what shows
+  // A scan while a photo is open: close it, so the answer to the scan is what shows. Focus
+  // doesn't go back to the thumbnail (a stray Enter from the scanner would open it again).
   useEffect(() => {
-    const close = () => setIndex(null);
+    const close = () => {
+      openerRef.current = null;
+      setIndex(null);
+    };
     window.addEventListener(SCAN_READ_EVENT, close);
     return () => window.removeEventListener(SCAN_READ_EVENT, close);
-  }, [setIndex]);
+  }, [openerRef, setIndex]);
 
   if (!photos?.length) {
     return (
@@ -109,16 +115,25 @@ export function CardPhotos({
                   p.kind === "reference" ? "border-2 border-dashed border-amber-400" : "border border-border hover:border-primary/60"
                 } focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={p.tile.src}
-                  srcSet={p.tile.srcSet}
-                  sizes={p.tile.srcSet ? look.sizes : undefined}
-                  alt={p.alt}
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full rounded-[5px] bg-secondary/40 object-contain"
-                />
+                {broken.has(p.url) ? (
+                  <span className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-[5px] bg-secondary/40 px-1 text-center text-[11px] font-semibold leading-tight text-muted-foreground">
+                    <ImageOff className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                    Photo couldn&apos;t load
+                    <span className="sr-only">: {p.alt}</span>
+                  </span>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={p.tile.src}
+                    srcSet={p.tile.srcSet}
+                    sizes={p.tile.srcSet ? look.sizes : undefined}
+                    alt={p.alt}
+                    loading="lazy"
+                    decoding="async"
+                    onError={() => setBroken((b) => new Set(b).add(p.url))}
+                    className="h-full w-full rounded-[5px] bg-secondary/40 object-contain"
+                  />
+                )}
                 {last && (
                   <span aria-hidden="true" className="absolute inset-x-1 bottom-1 rounded-b-[5px] bg-black/70 py-0.5 text-center text-xs font-bold text-white">
                     +{more}

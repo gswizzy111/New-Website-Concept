@@ -176,7 +176,14 @@ export function PhotoViewer({ photos, cardLabel, viewer }: { photos: GridPhoto[]
     touch.current = null;
     const back = openerRef.current;
     openerRef.current = null;
-    if (back?.isConnected) back.focus({ preventScroll: true });
+    if (back?.isConnected) {
+      back.focus({ preventScroll: true });
+    } else if (!back) {
+      // Closed without a tile to go back to (the Scan page closes it on a scan): the browser
+      // hands focus back to the tile anyway, where a stray Enter would open it again
+      const now = document.activeElement;
+      if (now instanceof HTMLElement && now !== document.body) now.blur();
+    }
   }
 
   // A one-finger sideways swipe steps through the photos; pinch zoom (or a zoomed-in page) is left alone

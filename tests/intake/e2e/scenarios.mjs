@@ -6558,8 +6558,9 @@ async function gotItSeen(p, code, ms = 1_500) {
   await p.getByText(UI.gotIt(code)).first().waitFor({ state: "visible", timeout: ms });
 }
 /** A card's block in a list (bag, order, search, a holder's stack): the innermost <li>/<article> naming it. */
-const scanCardBlock = (p, code) => p.locator("main").first().locator("li, article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9A-Z-])`) })
-  .filter({ hasNot: p.locator("main li li, main article article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9A-Z-])`) }) }).last();
+// (textContent runs a Card ID into the next word, "CD-2549-01Test Card…", so only a digit or "-" may not follow)
+const scanCardBlock = (p, code) => p.locator("main").first().locator("li, article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9-])`) })
+  .filter({ hasNot: p.locator("main li li, main article article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9-])`) }) }).last();
 
 /** The photos a card must show, from the database: receiving first, then the customer's, else the catalog's. */
 function photosWanted(t, code) {
@@ -6648,7 +6649,7 @@ async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false,
     assert(UI.scanReference.test(txt), `${code}: the catalog picture isn't labelled "Reference photo" ("${txt.slice(0, 160)}")`);
     assert(/not the customer.s card/i.test(txt), `${code}: no "Not the customer's card"`);
   }
-  return `${code}: ${want.map((w) => w.kind[0]).join("")}${want.length > 3 ? ` (3 shown, +${want.length - 3})` : ""}`;
+  return `${code}: ${want.map((w) => ({ receiving: "receiving", customer: "customer", reference: "reference" })[w.kind]).join(" + ")}${want.length > 3 ? ` (3 shown, +${want.length - 3})` : ""}`;
 }
 
 /** A tap on a card's first photo: the full-screen viewer (90%+ of the screen), the API's full-size image, loaded; Close closes it. */
@@ -6911,7 +6912,9 @@ const SCAN_SCENARIOS = {
       }, { shot: false });
       await s.step(`${label}: a typed Card ID (CD-2549-01) shows that card with its 3 photos`, async () => {
         await typeCode(p, "CD-2549-01");
-        await p.getByText("Test Card Gold One").first().waitFor({ timeout: 30_000 });
+        // the card alone (the order's other cards gone), then its photos
+        const one = await until(async () => { const x = await scanMain(p); return x.includes("CD-2549-01") && !x.includes("CD-2549-02") ? x : null; }, 30_000);
+        assert(one, `CD-2549-01 not shown on its own ("${(await scanMain(p)).slice(0, 200)}")`);
         await until(async () => (await UI.scanCardPhotos(p, "CD-2549-01").count()) > 0, 15_000);
         return checkCardPhotos(p, t, "CD-2549-01", api0["CD-2549-01"], { cdn });
       }, { shot: false });
@@ -7310,6 +7313,108 @@ const SCAN_HOLDER_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, SCAN_SCENARIOS, SCAN_HOLDER_SCENARIOS);
+
+// The scanner over Bluetooth: slow or stalled keys, repeats, Esc and a stray Enter (review fixes, Nov 26)
+const SCAN_WEDGE_SCENARIOS = {
+  async "scan-wedge-timing"({ page, ctx, s, mockUrl }) {
+    const G = "CD-2549-G";
+    const P = "CD-2549-P";
+    const p = page;
+    const resolves = [];
+    p.on("response", (r) => { if (r.url().includes("/api/admin/track/resolve")) resolves.push(decodeURIComponent(new URL(r.url()).searchParams.get("code") ?? "")); });
+    const focusTypeLink = async () => {
+      await UI.typeCodeLink(p).focus();
+      assert((await focusedEl(p)).startsWith("button"), `focus: ${await focusedEl(p)}`);
+    };
+    await s.step("setup: CD-2549 (bags G, P) received with receiving photos; CD-2549-08's photo points at a missing file", async () => {
+      await deskReceive(ctx, mockUrl);
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [`${mockUrl}/storage/v1/object/public/card-photos/harness-missing-photo.png`], photo_urls: [] }, "card_code", "CD-2549-08");
+      await goto(p, ROUTES.scan);
+      await UI.scanReady(p).waitFor({ timeout: 60_000 });
+    }, { critical: true, shot: false });
+
+    await s.step(`a slow scanner (120 ms a key) with "Type a code instead" focused: ${G} opens, and its Enter doesn't open the code box`, async () => {
+      await focusTypeLink();
+      await scanType(p, SCAN_LINK(G), { blur: false, delay: 120 });
+      await scanShows(p, BO_GOLD);
+      eq(await UI.scanInput(p).count(), 0, "code boxes (the scan's Enter pressed the focused link)");
+    }, { shot: false });
+
+    await s.step(`a 400 ms pause before Enter, the same link focused: ${P} opens, the code box stays closed`, async () => {
+      await focusTypeLink();
+      await p.keyboard.type(SCAN_LINK(P), { delay: 5 });
+      await sleep(400);
+      await p.keyboard.press("Enter");
+      await scanShows(p, ["CD-2549-07", "CD-2549-08"]);
+      eq(await UI.scanInput(p).count(), 0, "code boxes (the scan's Enter pressed the focused link)");
+    }, { shot: false });
+
+    await s.step(`the same label again 1 s later counts (a second card for the same place, a retry); a double read 200 ms apart counts once`, async () => {
+      const before = resolves.filter((c) => c === G).length;
+      await scanType(p, SCAN_LINK(G), { delay: 5 });
+      await sleep(1_000);
+      await scanType(p, SCAN_LINK(G), { delay: 5 });
+      await until(() => resolves.filter((c) => c === G).length >= before + 2, 15_000);
+      eq(resolves.filter((c) => c === G).length - before, 2, "lookups of a label scanned twice, 1 s apart");
+      await sleep(1_000);
+      const mid = resolves.filter((c) => c === G).length;
+      await scanType(p, SCAN_LINK(G), { delay: 2 });
+      await sleep(200);
+      await scanType(p, SCAN_LINK(G), { delay: 2 });
+      await sleep(2_000);
+      eq(resolves.filter((c) => c === G).length - mid, 1, "lookups of a double read 200 ms apart");
+      await scanShows(p, BO_GOLD);
+    }, { shot: false });
+
+    await s.step(`a scan that closes a photo, then a stray Enter: the photo doesn't open again and nothing is focused`, async () => {
+      await sleep(800);
+      await scanType(p, SCAN_LINK(P), { delay: 5 });
+      await scanShows(p, ["CD-2549-07"]);
+      const tile = UI.scanCardPhotos(p, "CD-2549-07").first().getByRole("button").first();
+      await tile.click();
+      await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+      await sleep(800);
+      await scanType(p, SCAN_LINK(P), { blur: false, delay: 5 });
+      await until(async () => (await openDialogs(p)) === 0, 10_000);
+      await sleep(300);
+      await p.keyboard.press("Enter");
+      await sleep(500);
+      eq(await openDialogs(p), 0, "open dialogs after a stray Enter");
+      eq(await focusedEl(p), "nothing", "focus after the scan closed the photo");
+    }, { shot: false });
+
+    await s.step(`a thumbnail that can't load says "Photo couldn't load" in its tile`, async () => {
+      const list = UI.scanCardPhotos(p, "CD-2549-08").first();
+      await list.scrollIntoViewIfNeeded();
+      await list.getByText(/photo couldn.t load/i).first().waitFor({ timeout: 15_000 });
+      eq(await list.locator("img").count(), 0, "a broken <img> left in the tile");
+    }, { shot: false });
+
+    await s.step(`Esc closing a photo or the code box keeps a pending "Scan the slot for …"; Esc on the page drops it`, async () => {
+      const waitingCue = () => p.getByText(/scan the slot for/i).first();
+      const assign = p.getByRole("button", { name: /^assign to a slot$/i }).first();
+      await assign.click();
+      await waitingCue().waitFor({ timeout: 10_000 });
+      const tile = UI.scanCardPhotos(p, "CD-2549-07").first().getByRole("button").first();
+      await tile.click();
+      await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+      await p.keyboard.press("Escape");
+      await until(async () => (await openDialogs(p)) === 0, 5_000);
+      assert(await waitingCue().isVisible(), "Esc on the photo dropped the waiting Assign");
+      await UI.typeCodeLink(p).click();
+      await UI.scanInput(p).waitFor({ timeout: 10_000 });
+      await p.keyboard.press("Escape");
+      await until(async () => (await UI.scanInput(p).count()) === 0, 5_000);
+      eq(await UI.scanInput(p).count(), 0, "code boxes after Esc");
+      assert(await waitingCue().isVisible(), "Esc in the code box dropped the waiting Assign");
+      await p.evaluate(() => { const a = document.activeElement; if (a && a !== document.body && typeof a.blur === "function") a.blur(); });
+      await p.keyboard.press("Escape");
+      await until(async () => !(await waitingCue().isVisible().catch(() => false)), 5_000);
+      assert(!(await waitingCue().isVisible().catch(() => false)), "Esc on the page kept the waiting Assign");
+    }, { shot: false });
+  },
+};
+Object.assign(SCENARIOS, SCAN_WEDGE_SCENARIOS);
 
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
 export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, holderSetup, HOLDER, HOLDER_TO, HOLDER_STACK, HOLDER_EMPTY };

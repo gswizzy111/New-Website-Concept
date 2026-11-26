@@ -223,7 +223,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [lastSave, setLastSave] = useState<{ key: number; res: TrackActionResponse } | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = useRef(0);
-  const gate = useRef(createScanGate(2000));
+  const gate = useRef(createScanGate());
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -246,10 +246,12 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     if (readTimer.current) clearTimeout(readTimer.current);
   }, []);
 
-  // Escape (a computer's keyboard) drops what the next scan was going to do
+  // Escape (a computer's keyboard) drops what the next scan was going to do; not the Esc that
+  // closes a photo, a sheet or the code box (handled there, or pressed inside a dialog)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest("dialog")) return;
       setWaiting(null);
       setConflict(null);
       setConfirmDone(false);
@@ -546,6 +548,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       const res = await api.resolve(code);
       setBusy(null);
       if (!res.ok) {
+        // Scanning it again right away must work (a dropped connection, a retry)
+        gate.current.forget(code);
         fail(res.status === 404 ? `${code}: not found. The label may be from a deleted slot or bag.` : res.error);
         return;
       }
@@ -584,10 +588,6 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     (raw: string, source: Source) => {
       const text = raw.trim();
       if (!text) return;
-      // A scan while a photo is open full screen: it closes, so the answer shows
-      if (source !== "link") window.dispatchEvent(new Event(SCAN_READ_EVENT));
-      // The last save's line belongs to the view before this scan
-      setLastSave(null);
       const parsed = parseScan(text);
       // Typed "clamp 7" is the slot CLAMP 07 (it also has an order code's shape, CLAMP-7)
       const slotGuess = source === "typed" || source === "paste" ? typedSlotGuess(text) : null;
@@ -599,6 +599,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         // A repeat of the same code right after (a scanner typing into the box) is ignored too
         if (parsed && !gate.current(parsed.code, Date.now())) return;
       }
+      // Taken: a photo open full screen closes, so the answer shows; the last save's line
+      // belongs to the view before this scan (an ignored double read changes nothing)
+      if (source !== "link") window.dispatchEvent(new Event(SCAN_READ_EVENT));
+      setLastSave(null);
       if (parsed && !slotGuess) {
         if (source !== "link") {
           beep("read", soundStore.get());

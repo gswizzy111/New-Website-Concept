@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CornerDownLeft, X } from "lucide-react";
+import { newWedge, wedgeKey } from "./wedge";
 
 /**
  * Handheld scanners (Bluetooth or USB, "keyboard" mode: the Eyoyo paired
@@ -9,25 +10,27 @@ import { CornerDownLeft, X } from "lucide-react";
  * both to `onScan`:
  *  - anywhere on the page: fast keystrokes ending in Enter (or Tab) are
  *    caught even when no box has focus (a scanner paired with a phone types
- *    into the page; the page's buttons never see the Enter). This is how
- *    the Scan page is used: there is no camera;
+ *    into the page; the page's buttons and a focused <select> never see the
+ *    keys or the Enter; the rules are in wedge.ts). This is how the Scan
+ *    page is used: there is no camera;
  *  - the "Scan or type a code" box, behind "Type a code instead": a person
  *    typing a code and pressing Go, a scanner typing into it, or a pasted
  *    link (sent at once).
  * Typing into any other box on the page is left alone.
  */
 
-/** A scanner types a character every few milliseconds; a person far slower. */
-const KEY_GAP_MS = 100;
-const MIN_LENGTH = 4;
-
 /** Input types that take no typing (a scanner's keys on a focused checkbox are still a scan). */
 const NOT_TEXT = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file", "image"]);
 
+/**
+ * A box someone types in: its keys are theirs, not a scan. A <select> isn't
+ * one (a focused desk picker must not swallow scans; the wedge keeps the
+ * scan's letters from changing its choice).
+ */
 function isEditable(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   if (el instanceof HTMLInputElement) return !NOT_TEXT.has(el.type);
-  return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
+  return el.isContentEditable || el.tagName === "TEXTAREA";
 }
 
 /** How many pages are catching scans now (the Scan page: one), for "Ready to scan". */
@@ -57,30 +60,16 @@ export function useKeyboardWedge(onScan: (text: string, source: "wedge" | "paste
   }, [onScan]);
 
   useEffect(() => {
-    let buffer = "";
-    let last = 0;
+    const wedge = newWedge();
     function onKeyDown(e: KeyboardEvent) {
       if (isEditable(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      const now = performance.now();
-      if (now - last > KEY_GAP_MS) buffer = "";
-      last = now;
-      if (e.key === "Enter" || e.key === "Tab") {
-        if (buffer.length >= MIN_LENGTH) {
-          // The scan's Enter must not also press whatever button has focus
-          e.preventDefault();
-          e.stopPropagation();
-          const text = buffer;
-          buffer = "";
-          onScanRef.current(text, "wedge");
-        }
-        buffer = "";
-        return;
-      }
-      if (e.key.length === 1) {
-        buffer = (buffer + e.key).slice(-300);
-        // Mid-scan, keep a focused button or link from reacting to the characters
-        if (buffer.length > 1) e.preventDefault();
-      }
+      const at = e.timeStamp || performance.now();
+      const { scan, block } = wedgeKey(wedge, e.key, at, { select: e.target instanceof HTMLSelectElement });
+      // Mid-scan, keep a focused button, link or select from reacting to the characters
+      if (block) e.preventDefault();
+      // The scan's Enter (and a second one right after) must not also press whatever has focus
+      if (scan !== null || (block && (e.key === "Enter" || e.key === "Tab"))) e.stopPropagation();
+      if (scan !== null) onScanRef.current(scan, "wedge");
     }
     function onPaste(e: ClipboardEvent) {
       if (isEditable(e.target)) return;
