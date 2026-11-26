@@ -5,7 +5,7 @@ import type { StageEventRow } from "@/lib/intake/types";
 import { DESK_CODE, DESK_NAME, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { LOCATION_COLUMNS, LOCATION_REF_COLUMNS, locationRef, locationView } from "@/lib/intake/tracking/places";
 import {
-  TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS, cardSummary,
+  TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS, cardSummary, webUrls,
   type SummaryContext, type TrackBagRow, type TrackCardRow, type TrackOrderRow,
 } from "@/lib/intake/tracking/summaries";
 import type { LocationRef, LocationRow, MoveAction, TrackCardSummary, TrackLocation } from "@/lib/intake/tracking/types";
@@ -143,8 +143,6 @@ function chunks<T>(xs: readonly T[], n = CHUNK): T[][] {
 }
 
 const text = (v: string | null | undefined): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
-const webUrls = (urls: readonly (string | null)[] | null | undefined): string[] =>
-  (urls ?? []).filter((u): u is string => typeof u === "string" && /^https?:\/\//i.test(u));
 const time = (iso: string | null | undefined) => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? -Infinity : t;

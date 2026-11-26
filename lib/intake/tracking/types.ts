@@ -145,8 +145,31 @@ export type TrackCardSummary = {
   /** Where the card's bag is (Open bags box, its due-date shelf, Ready to ship); null when not recorded. */
   bagLocation?: LocationRef | null;
   photoUrl: string | null;         // first receiving photo, else customer photo, else catalog image
+  /**
+   * The card's photos as the Scan page shows them under each card: its
+   * receiving photos, then the customer's (web addresses only, at most
+   * MAX_CARD_PHOTOS); the card catalog's picture ("reference") only when it
+   * has neither. Empty: no photo yet. Optional: answers from before it was
+   * added have none (lib/intake/tracking/summaries.ts cardPhotos).
+   */
+  photos?: TrackCardPhoto[];
   photosUrl: string;               // /admin/receiving/<orderId>/photos[?bag=<bagId>]
   cardUrl: string;                 // /admin/receiving/card/<cardId>
+};
+
+/** An image address, with resized copies when there are some (lib/thumbnail.ts productImage). */
+export type TrackImage = { src: string; srcSet?: string };
+
+/** One of a card's photos, image addresses made on the server (lib/thumbnail.ts reads a server-only setting). */
+export type TrackCardPhoto = {
+  /** The photo as stored (the viewer's "Original" link). */
+  url: string;
+  /** receiving: taken at Receiving; customer: the customer's own; reference: the catalog's picture, not the customer's card. */
+  kind: "receiving" | "customer" | "reference";
+  /** The thumbnail under the card (a small resized copy on Netlify, the original elsewhere). */
+  tile: TrackImage;
+  /** The full-screen viewer's image. */
+  full: TrackImage;
 };
 
 /** One tier bag with its cards and their slots. */

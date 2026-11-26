@@ -1,9 +1,9 @@
 import { codeKind, isLocationCode, normalizeCode, type CodeKind } from "@/lib/intake/codes";
 
 /**
- * What the Scan page (/admin/scan) reads from a scan: the camera's QR text, a
- * handheld scanner's keystrokes, a pasted link or a typed code all go through
- * parseScan(). Pure (safe in client components and tests).
+ * What the Scan page (/admin/scan) reads from a scan: a handheld scanner's
+ * keystrokes (the label's QR text), a pasted link or a typed code all go
+ * through parseScan(). Pure (safe in client components and tests).
  *
  *   "HTTPS://THECARDDOC1.COM/Q/CD-2549-03"  -> card      CD-2549-03 (any host, any case)
  *   "cd-2549-p"                             -> bag       CD-2549-P
@@ -37,10 +37,11 @@ export function scanKindLabel(kind: ScanKind | string | null | undefined): strin
 
 /**
  * Ignores a repeat: the same code seen again within `windowMs` (2 s) of the
- * last time it was seen. Every sighting renews the time, so a code held in
- * front of the camera fires once, and again only after it has been out of
- * view for 2 s. Several codes are remembered at once, so two labels in the
- * same frame don't fire turn about.
+ * last time it was seen. Every sighting renews the time, so a label the
+ * scanner reads twice in a row (or a code typed into the box by a scanner
+ * right after) fires once, and again only after 2 s without it. Several
+ * codes are remembered at once, so two labels scanned turn about each
+ * fire.
  */
 export function createScanGate(windowMs = 2000) {
   const seen = new Map<string, number>();

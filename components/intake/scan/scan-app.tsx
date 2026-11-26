@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, CircleCheckBig, LayoutGrid, LoaderCircle, LogOut, PackageCheck, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowRightLeft, Check, CircleCheckBig, Keyboard, LayoutGrid, LoaderCircle, LogOut, PackageCheck, ScanLine, Volume2, VolumeX, X } from "lucide-react";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { filingLetter } from "@/lib/intake/filing-letter";
 import { bagPlaceText, orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
@@ -17,7 +17,7 @@ import type {
   TrackSlotSummary,
 } from "@/lib/intake/tracking/types";
 import * as api from "./api";
-import { ScanCamera } from "./camera";
+import { SCAN_READ_EVENT } from "./card-photos";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
 import { cardsLabel, roomLeft } from "./format";
 import { createScanGate, parseScan, typedSlotGuess } from "./parse";
@@ -56,11 +56,17 @@ import {
  *                           (a holder's cards are all picked for Move by default)
  *   Ship check (on)      -> a bag or order scan opens /admin/receiving/ship/<orderId>
  *
- * Input: the camera (camera.tsx), a handheld scanner anywhere on the page or
- * in the code box (scan-input.tsx), or typing (a code, a slot name such as
- * "clamp 7", or a search). Scans are handled one at a time, in order, so a
- * fast scanner never trips over itself. The URL holds only ?loc=<slot code>
- * and ?mode=ship, never anything about a customer.
+ * Input: a handheld scanner only (owner, Nov 26 2026: "remove the camera,
+ * make it so you can only use the scanner"): the Eyoyo paired with the
+ * phone as a Bluetooth keyboard types each label's text and presses Enter,
+ * caught anywhere on the page with nothing focused (scan-input.tsx
+ * useKeyboardWedge); "Ready to scan" shows once it is listening and "Got it:
+ * CD-2549-P" flashes on each scan. Some days a code is typed: "Type a code
+ * instead" opens the code box (a code, a slot name such as "clamp 7", or a
+ * search). Scans are handled one at a time, in order, so a fast scanner never
+ * trips over itself. Every card listed shows its photos under it
+ * (card-photos.tsx). The URL holds only ?loc=<slot code> and ?mode=ship,
+ * never anything about a customer.
  */
 
 type View =
@@ -85,7 +91,7 @@ type Retry =
 /** Cards offered to tap into an empty slot: the last bag, order or search (`mixed`: from several orders). */
 type Picks = { label: string; cards: TrackCardSummary[]; mixed: boolean } | null;
 
-type Source = "camera" | "wedge" | "typed" | "paste" | "link";
+type Source = "wedge" | "typed" | "paste" | "link";
 
 /** The full slot's three buttons: icon over word, so all three fit a phone's width. */
 const actionButton =
@@ -93,6 +99,9 @@ const actionButton =
 
 /** "Put a card in CLAMP 07" stops applying when this long has passed since the slot was scanned. */
 const TARGET_TTL_MS = 10 * 60_000;
+
+/** How long "Got it: CD-2549-P" shows after a scan. */
+const READ_FLASH_MS = 1600;
 
 /** State the queued scan handlers read: kept in a ref (always current) and mirrored to React state for drawing. */
 function useMirror<T>(initial: T) {
@@ -195,6 +204,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [conflict, setConflict] = useState<{ text: string; conflict: CapacityConflict; retry: Retry } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<FlashState | null>(null);
+  /** "Got it: CD-2549-P" over the top panel for a moment after each scan. */
+  const [read, setRead] = useState<{ key: number; code: string } | null>(null);
+  /** The code box ("Type a code instead"), closed until tapped. */
+  const [typing, setTyping] = useState(false);
   const [status, setStatus] = useState("");
   const log = useScanLog();
   const sound = useSound();
@@ -208,6 +221,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const pending = useRef(0);
   const gate = useRef(createScanGate(2000));
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sounds may only start after a tap or key press on the page. A touch's
   // pointerdown doesn't count on an iPhone (the tap's end does), so every tap
@@ -225,6 +239,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   useEffect(() => () => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
+    if (readTimer.current) clearTimeout(readTimer.current);
   }, []);
 
   // Escape (a computer's keyboard) drops what the next scan was going to do
@@ -262,6 +277,14 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     setFlash({ key: Date.now(), tone, text });
     setStatus(text);
     flashTimer.current = setTimeout(() => setFlash(null), tone === "ok" ? 900 : 1800);
+  }, []);
+
+  /** A code came in: "Got it: CD-2549-P" for a moment, and an open photo closes so the answer shows. */
+  const gotIt = useCallback((code: string) => {
+    if (readTimer.current) clearTimeout(readTimer.current);
+    setRead({ key: Date.now(), code });
+    setStatus(`Got it: ${code}`);
+    readTimer.current = setTimeout(() => setRead(null), READ_FLASH_MS);
   }, []);
 
   const fail = useCallback(
@@ -556,10 +579,13 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     (raw: string, source: Source) => {
       const text = raw.trim();
       if (!text) return;
+      // A scan while a photo is open full screen: it closes, so the answer shows
+      if (source !== "link") window.dispatchEvent(new Event(SCAN_READ_EVENT));
       const parsed = parseScan(text);
       // Typed "clamp 7" is the slot CLAMP 07 (it also has an order code's shape, CLAMP-7)
       const slotGuess = source === "typed" || source === "paste" ? typedSlotGuess(text) : null;
-      if (source === "camera" || source === "wedge") {
+      if (source === "wedge") {
+        // A scanner that reads the same label twice in a row sends it once
         if (!gate.current(parsed?.code ?? text.toUpperCase().slice(0, 200), Date.now())) return;
       }
       if ((source === "typed" || source === "paste") && !slotGuess) {
@@ -567,11 +593,14 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         if (parsed && !gate.current(parsed.code, Date.now())) return;
       }
       if (parsed && !slotGuess) {
-        if (source !== "link") beep("read", soundStore.get());
+        if (source !== "link") {
+          beep("read", soundStore.get());
+          gotIt(parsed.code);
+        }
         enqueue(() => handleCode(parsed.code, source));
         return;
       }
-      if (source === "camera" || source === "wedge") {
+      if (source === "wedge") {
         fail("Not a Card Doc code. Scan a slot or a bag label.");
         return;
       }
@@ -587,11 +616,11 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         await runSearch(text);
       });
     },
-    [enqueue, fail, handleCode, onSlot, runSearch],
+    [enqueue, fail, gotIt, handleCode, onSlot, runSearch],
   );
 
-  useKeyboardWedge(onInput);
-  const onCamera = useCallback((text: string) => onInput(text, "camera"), [onInput]);
+  // The scanner: caught anywhere on the page, nothing needs focus (true once it is listening)
+  const scannerReady = useKeyboardWedge(onInput);
 
   // Opened from a slot's QR (/q/LOC-CLAMP-07 -> /admin/scan?loc=LOC-CLAMP-07): show that slot
   const started = useRef(false);
@@ -678,8 +707,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   };
   const onCardAction = (card: TrackCardSummary) => startAssign([card]);
 
-  // The line that says what the next scan does
-  let cue: { title: string; sub?: string; tone: string; cancel?: () => void; cancelLabel?: string; link?: { href: string; label: string } };
+  // The line that says what the next scan does ("Ready to scan" when nothing is waiting for one)
+  let cue: { title: string; sub?: string; tone: string; ready?: boolean; cancel?: () => void; cancelLabel?: string; link?: { href: string; label: string } };
   if (waiting?.type === "move") {
     cue = { title: `Scan the next slot for ${cardsLabel(waiting.cards)}`, sub: `Moving from ${waiting.from.name}. Or type its name (desk, clamp 7) below.`, tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (waiting?.type === "assign") {
@@ -698,10 +727,18 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       cancel: () => setTarget(null),
     };
   } else {
-    cue = { title: "Scan a slot or a bag", sub: "Or type a code, a slot (clamp 7), desk, a name or an order.", tone: "bg-white text-foreground border border-border" };
+    cue = {
+      // Until the page is listening for the scanner (it has loaded in the browser), it says so
+      title: scannerReady ? "Ready to scan" : "Getting ready…",
+      sub: "Point your scanner at a bag, order, holder or desk label and press the button.",
+      tone: "bg-white text-foreground border border-border",
+      ready: true,
+    };
   }
+  // The big panel on an empty page; a slim bar once something is on screen
+  const bigCue = !!cue.ready && view.type === "start";
   // A desk on screen: on a phone its page is one tap away in the cue, which stays in view (the
-  // "Open desk page" button under the desk's name sits below the camera and the action bar there)
+  // "Open desk page" button under the desk's name can sit below the action bar there)
   if (slotView && slotIsDesk && !waiting && !ship && (!activeTarget || activeTarget.code === slotView.code)) cue.link = { href: deskPagePath(slotView.code), label: "Open desk page" };
 
   const pickList = activeTarget && slotView && activeTarget.code === slotView.code && picks
@@ -709,7 +746,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     : [];
 
   return (
-    <div className={`mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-4 sm:px-6 lg:py-8 ${showActions ? "pb-44 lg:pb-8" : "pb-10"}`}>
+    <div className={`mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 sm:px-6 lg:py-8 ${showActions ? "pb-44 lg:pb-8" : "pb-10"}`}>
       <Flash flash={flash} />
       <p role="status" aria-live="polite" className="sr-only">{status}</p>
 
@@ -739,12 +776,23 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         </div>
       </div>
 
-      {/* What the next scan does */}
-      <div className={`sticky top-14 z-20 lg:top-0 rounded-2xl px-4 py-3 shadow-sm ${cue.tone}`}>
+      {/* What the next scan does; "Got it: CD-2549-P" flashes over it on each scan */}
+      <div
+        data-scanner={scannerReady ? "ready" : "starting"}
+        className={`sticky top-14 z-20 overflow-hidden rounded-2xl shadow-sm lg:top-0 ${cue.tone} ${bigCue ? "px-5 py-6 sm:px-7 sm:py-8" : "px-4 py-3"}`}
+      >
         <div className="flex items-start gap-3">
+          {cue.ready && !busy && (
+            <span
+              aria-hidden="true"
+              className={`grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary ${bigCue ? "h-14 w-14 sm:h-16 sm:w-16" : "h-9 w-9"}`}
+            >
+              <ScanLine className={bigCue ? "h-7 w-7 sm:h-8 sm:w-8" : "h-5 w-5"} strokeWidth={1.75} />
+            </span>
+          )}
           <div className="min-w-0 flex-1">
-            <p className="text-xl font-black leading-tight break-words sm:text-2xl">{busy ?? cue.title}</p>
-            {!busy && cue.sub && <p className="mt-0.5 text-sm font-semibold opacity-80">{cue.sub}</p>}
+            <p className={`font-black leading-tight break-words ${bigCue ? "text-3xl sm:text-4xl" : "text-xl sm:text-2xl"}`}>{busy ?? cue.title}</p>
+            {!busy && cue.sub && <p className={`font-semibold opacity-80 ${bigCue ? "mt-2 text-base sm:text-lg" : "mt-0.5 text-sm"}`}>{cue.sub}</p>}
             {!busy && cue.link && (
               <AdminLink
                 href={cue.link.href}
@@ -768,302 +816,332 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             </button>
           ) : null}
         </div>
+        <ReadFlash read={read} />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start lg:gap-6">
-        {/* Camera and code box */}
-        <div className="flex flex-col gap-3 lg:sticky lg:top-28">
-          <ScanCamera onRead={onCamera} compact={view.type !== "start"} />
-          <ScanInput onScan={onInput} placeholder="Code, slot (clamp 7), desk, name or order" />
-        </div>
+      {/* Some days a code is typed: the box stays closed until asked for */}
+      {typing ? (
+        <ScanInput onScan={onInput} onClose={() => setTyping(false)} placeholder="Code, slot (clamp 7), desk, name or order" />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setTyping(true)}
+          className="-my-1 inline-flex min-h-11 items-center gap-1.5 self-start rounded-full px-2 text-sm font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <Keyboard className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+          Type a code instead
+        </button>
+      )}
 
-        {/* The flow */}
-        <div className="flex min-w-0 flex-col gap-3">
-          {deskNote && slotView?.code !== deskNote.code && (
-            <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-950">
-              <div className="min-w-0 flex-1">
-                <p className="text-base font-bold break-words">{deskNote.text}</p>
-                <AdminLink href={deskPagePath(deskNote.code)} className={`${smallButton.replace("border-border", "border-green-300")} mt-2`}>
-                  <LayoutGrid className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
-                  Open the desk page
-                </AdminLink>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDeskNote(null)}
-                aria-label="Hide"
-                className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-700"
-              >
-                <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+      {/* The flow */}
+      <div className="flex min-w-0 flex-col gap-3">
+        {deskNote && slotView?.code !== deskNote.code && (
+          <div className="flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-green-950">
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold break-words">{deskNote.text}</p>
+              <AdminLink href={deskPagePath(deskNote.code)} className={`${smallButton.replace("border-border", "border-green-300")} mt-2`}>
+                <LayoutGrid className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
+                Open the desk page
+              </AdminLink>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeskNote(null)}
+              aria-label="Hide"
+              className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-green-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-700"
+            >
+              <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {orderNotes.length > 0 && (
+          <div role="status" className="flex items-start gap-3 rounded-2xl border border-border bg-white px-4 py-3">
+            <div className="min-w-0 flex-1 flex flex-col gap-1">
+              {orderNotes.map((n) => (
+                <p key={n.text} className={`text-base font-bold break-words ${n.tone === "ok" ? "text-green-800" : "text-amber-900"}`}>{n.text}</p>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setOrderNotes([])}
+              aria-label="Hide"
+              className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {conflict && (
+          <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <p className="text-lg font-black">{conflict.text}</p>
+            {conflict.conflict.occupants.length > 0 && (
+              <p className="mt-1 text-sm">
+                In it now: <span className="font-mono font-bold">{conflict.conflict.occupants.map((c) => c.code ?? c.name).join(", ")}</span>
+                {` · holds ${conflict.conflict.capacity === 1 ? "1 card" : `${conflict.conflict.capacity} cards`}`}
+              </p>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" onClick={addAnyway} disabled={!!busy} className={`${bigButton} bg-amber-500 text-gray-950 hover:bg-amber-400`}>
+                Add anyway
+              </button>
+              <button type="button" onClick={() => { setConflict(null); cancelWaiting(); }} className={`${bigButton} border border-amber-300 bg-white text-amber-950`}>
+                Cancel
               </button>
             </div>
-          )}
-          {orderNotes.length > 0 && (
-            <div role="status" className="flex items-start gap-3 rounded-2xl border border-border bg-white px-4 py-3">
-              <div className="min-w-0 flex-1 flex flex-col gap-1">
-                {orderNotes.map((n) => (
-                  <p key={n.text} className={`text-base font-bold break-words ${n.tone === "ok" ? "text-green-800" : "text-amber-900"}`}>{n.text}</p>
+          </div>
+        )}
+
+        {view.type === "start" && (
+          <div className={`${panel} p-4 text-sm text-muted-foreground`}>
+            <p className="font-semibold text-foreground">How it works</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              <li>Scan an <span className="font-semibold text-foreground">empty slot</span>, then scan the bag and tap the card to put in it.</li>
+              <li>Scan a <span className="font-semibold text-foreground">full slot</span> to see its card: Move it (then scan the next slot), Done, or Take out.</li>
+              <li>Scan a <span className="font-semibold text-foreground">bag</span> to see where each of its cards is.</li>
+              <li>A stack coming out (a heat press of 8): scan the holder, tap Move, then scan the <span className="font-semibold text-foreground">desk</span>. All its cards go.</li>
+            </ul>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <AdminLink href="/admin/receiving/locations" className={smallButton}>Slots and labels</AdminLink>
+              <AdminLink href="/admin/receiving/shelf" className={smallButton}>Shelf by due date</AdminLink>
+              <AdminLink href="/admin/receiving/desk" className={smallButton}>Desk</AdminLink>
+            </div>
+          </div>
+        )}
+
+        {slotView && (
+          <div className="flex flex-col gap-3">
+            <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
+            {slotIsDesk && (
+              <AdminLink href={deskPagePath(slotView.code)} className={`${bigButton} w-full border border-border bg-white text-foreground hover:border-primary/40`}>
+                <LayoutGrid className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                Open desk page
+              </AdminLink>
+            )}
+            {slotCards.length > 1 && (
+              <p className="px-1 text-sm text-muted-foreground">
+                Move, Done and Take out act on the ticked cards. Untick any that stay in {slotView.name}.
+              </p>
+            )}
+            {slotCards.length > 0 && (
+              <ul className={panel}>
+                {slotCards.map((card) => (
+                  <SlotCard
+                    key={card.id}
+                    card={card}
+                    now={now}
+                    dense={slotCards.length > 3}
+                    selectable={slotCards.length > 1}
+                    selected={selected.has(card.id)}
+                    onToggle={() => {
+                      setConfirmDone(false);
+                      setSelected((s) => {
+                        const next = new Set(s);
+                        if (next.has(card.id)) next.delete(card.id);
+                        else next.add(card.id);
+                        return next;
+                      });
+                    }}
+                  />
                 ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setOrderNotes([])}
-                aria-label="Hide"
-                className="-mr-2 -mt-1 h-11 w-11 shrink-0 rounded-full inline-flex items-center justify-center hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-              </button>
-            </div>
-          )}
-          {conflict && (
-            <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-              <p className="text-lg font-black">{conflict.text}</p>
-              {conflict.conflict.occupants.length > 0 && (
-                <p className="mt-1 text-sm">
-                  In it now: <span className="font-mono font-bold">{conflict.conflict.occupants.map((c) => c.code ?? c.name).join(", ")}</span>
-                  {` · holds ${conflict.conflict.capacity === 1 ? "1 card" : `${conflict.conflict.capacity} cards`}`}
-                </p>
-              )}
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={addAnyway} disabled={!!busy} className={`${bigButton} bg-amber-500 text-gray-950 hover:bg-amber-400`}>
-                  Add anyway
-                </button>
-                <button type="button" onClick={() => { setConflict(null); cancelWaiting(); }} className={`${bigButton} border border-amber-300 bg-white text-amber-950`}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {view.type === "start" && (
-            <div className={`${panel} p-4 text-sm text-muted-foreground`}>
-              <p className="font-semibold text-foreground">How it works</p>
-              <ul className="mt-1 list-disc space-y-1 pl-5">
-                <li>Scan an <span className="font-semibold text-foreground">empty slot</span>, then scan the bag and tap the card to put in it.</li>
-                <li>Scan a <span className="font-semibold text-foreground">full slot</span> to see its card: Move it (then scan the next slot), Done, or Take out.</li>
-                <li>Scan a <span className="font-semibold text-foreground">bag</span> to see where each of its cards is.</li>
-                <li>A stack coming out (a heat press of 8): scan the holder, tap Move, then scan the <span className="font-semibold text-foreground">desk</span>. All its cards go.</li>
               </ul>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <AdminLink href="/admin/receiving/locations" className={smallButton}>Slots and labels</AdminLink>
-                <AdminLink href="/admin/receiving/shelf" className={smallButton}>Shelf by due date</AdminLink>
-                <AdminLink href="/admin/receiving/desk" className={smallButton}>Desk</AdminLink>
-              </div>
-            </div>
-          )}
-
-          {slotView && (
-            <div className="flex flex-col gap-3">
-              <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
-              {slotIsDesk && (
-                <AdminLink href={deskPagePath(slotView.code)} className={`${bigButton} w-full border border-border bg-white text-foreground hover:border-primary/40`}>
-                  <LayoutGrid className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                  Open desk page
-                </AdminLink>
-              )}
-              {slotCards.length > 1 && (
-                <p className="px-1 text-sm text-muted-foreground">
-                  Move, Done and Take out act on the ticked cards. Untick any that stay in {slotView.name}.
-                </p>
-              )}
-              {slotCards.length > 0 && (
-                <ul className={panel}>
-                  {slotCards.map((card) => (
-                    <SlotCard
-                      key={card.id}
-                      card={card}
-                      now={now}
-                      dense={slotCards.length > 3}
-                      selectable={slotCards.length > 1}
-                      selected={selected.has(card.id)}
-                      onToggle={() => {
+            )}
+            {/* A full slot's actions, in thumb reach on a phone */}
+            {showActions && (
+              <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none">
+                {slotCards.length > 1 && (
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-foreground">
+                      {allChosen ? `All ${slotCards.length} cards picked` : chosen.length === 0 ? "No cards picked" : `${chosen.length} of ${slotCards.length} cards picked`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
                         setConfirmDone(false);
-                        setSelected((s) => {
-                          const next = new Set(s);
-                          if (next.has(card.id)) next.delete(card.id);
-                          else next.add(card.id);
-                          return next;
-                        });
+                        setSelected(allChosen ? new Set() : new Set(slotCards.map((c) => c.id)));
                       }}
-                    />
+                      className="min-h-11 shrink-0 rounded-full px-3 text-sm font-bold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    >
+                      {allChosen ? "Pick none" : "Pick all"}
+                    </button>
+                  </div>
+                )}
+                {/* On a phone the card can sit below the fold, under this bar: say which card the buttons act on */}
+                {slotCards.length === 1 && (
+                  <p className="mb-2 truncate text-sm text-foreground lg:hidden">
+                    <span className="font-mono font-black">{slotCards[0].code ?? "No Card ID"}</span>
+                    {slotCards[0].name ? <span className="font-semibold"> · {slotCards[0].name}</span> : null}
+                    {slotCards[0].customer ? <span className="text-muted-foreground"> · {slotCards[0].customer}</span> : null}
+                  </p>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={!!busy || chosen.length === 0}
+                    onClick={() => {
+                      setConflict(null);
+                      setConfirmDone(false);
+                      setWaiting({ type: "move", from: slotView, cards: chosen });
+                      setStatus(`Scan the next slot for ${cardsLabel(chosen)}.`);
+                      scrollToTop();
+                    }}
+                    className={`${actionButton} bg-primary text-primary-foreground hover:bg-primary/90`}
+                  >
+                    <ArrowRightLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                    {chosen.length > 1 ? (allChosen ? `Move all ${chosen.length}` : `Move ${chosen.length}`) : "Move"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!busy || chosen.length === 0}
+                    onClick={() => {
+                      if (!confirmDone) {
+                        setConfirmDone(true);
+                        setStatus("Tap Done again to mark it finished.");
+                        return;
+                      }
+                      const cards = chosen;
+                      tapSave(() => doFinish("done", slotView, cards));
+                    }}
+                    className={`${actionButton} ${confirmDone ? "bg-green-800 text-white ring-4 ring-green-300" : "bg-green-700 text-white hover:bg-green-800"}`}
+                  >
+                    <CircleCheckBig className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                    {confirmDone ? "Tap again" : "Done"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!!busy || chosen.length === 0}
+                    onClick={() => {
+                      const cards = chosen;
+                      tapSave(() => doFinish("release", slotView, cards));
+                    }}
+                    className={`${actionButton} border border-border bg-white text-foreground hover:border-primary/40`}
+                  >
+                    <LogOut className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                    Take out
+                  </button>
+                </div>
+              </div>
+            )}
+            {slotView.kind === "shipping" && !ship && (
+              <button type="button" onClick={toggleShip} className={`${bigButton} bg-cyan-700 text-white hover:bg-cyan-800`}>
+                <PackageCheck className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                Start ship check
+              </button>
+            )}
+            {activeTarget?.code === slotView.code && (
+              pickList.length > 0 && picks ? (
+                <div className={panel}>
+                  <p className="px-4 pt-3 text-sm font-bold text-foreground">Tap a card from {picks.label}</p>
+                  <ul>
+                    {pickList.map((card) => (
+                      <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} showOrder={picks.mixed} />
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <Note>Scan the bag’s QR label. Or tap Type a code instead to search by Card ID, customer or order.</Note>
+              )
+            )}
+            {slotView.cards.length === 0 && slotView.kind !== "station" && slotView.bags.length === 0 && !activeTarget && (
+              <Note>Nothing here.</Note>
+            )}
+          </div>
+        )}
+
+        {view.type === "bag" && (
+          <div className={panel}>
+            <BagHeader bag={view.bag} shipHref={shipPath(view.bag.orderId, view.bag.id)} />
+            <BulkPut cards={view.bag.cards} target={activeTarget} busy={!!busy} onPut={(cards) => startAssign(cards)} />
+            <ul className="border-t border-border">
+              {view.bag.cards.map((card) => (
+                <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {view.type === "order" && (
+          <div className={panel}>
+            <OrderHeader order={view.order} shipHref={shipPath(view.order.id)} />
+            {view.order.bags.map((bag) => (
+              <div key={bag.id} className="border-t border-border">
+                <p className="px-4 pt-3 text-sm font-bold text-foreground">
+                  <span className="font-mono">{bag.code}</span> · {bag.tierName} · {bag.doneCount} of {bag.cardCount} done
+                  {bag.location ? ` · Bag: ${bagPlaceText(bag.location, filingLetter(bag.customer))}` : ""}
+                </p>
+                <ul>
+                  {bag.cards.map((card) => (
+                    <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
                   ))}
                 </ul>
-              )}
-              {/* A full slot's actions, in thumb reach on a phone */}
-              {showActions && (
-                <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur lg:static lg:z-auto lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:backdrop-blur-none">
-                  {slotCards.length > 1 && (
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-sm font-bold text-foreground">
-                        {allChosen ? `All ${slotCards.length} cards picked` : chosen.length === 0 ? "No cards picked" : `${chosen.length} of ${slotCards.length} cards picked`}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfirmDone(false);
-                          setSelected(allChosen ? new Set() : new Set(slotCards.map((c) => c.id)));
-                        }}
-                        className="min-h-11 shrink-0 rounded-full px-3 text-sm font-bold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        {allChosen ? "Pick none" : "Pick all"}
-                      </button>
-                    </div>
-                  )}
-                  {/* On a phone the card can sit below the fold, under this bar: say which card the buttons act on */}
-                  {slotCards.length === 1 && (
-                    <p className="mb-2 truncate text-sm text-foreground lg:hidden">
-                      <span className="font-mono font-black">{slotCards[0].code ?? "No Card ID"}</span>
-                      {slotCards[0].name ? <span className="font-semibold"> · {slotCards[0].name}</span> : null}
-                      {slotCards[0].customer ? <span className="text-muted-foreground"> · {slotCards[0].customer}</span> : null}
-                    </p>
-                  )}
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      disabled={!!busy || chosen.length === 0}
-                      onClick={() => {
-                        setConflict(null);
-                        setConfirmDone(false);
-                        setWaiting({ type: "move", from: slotView, cards: chosen });
-                        setStatus(`Scan the next slot for ${cardsLabel(chosen)}.`);
-                        scrollToTop();
-                      }}
-                      className={`${actionButton} bg-primary text-primary-foreground hover:bg-primary/90`}
-                    >
-                      <ArrowRightLeft className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                      {chosen.length > 1 ? (allChosen ? `Move all ${chosen.length}` : `Move ${chosen.length}`) : "Move"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!busy || chosen.length === 0}
-                      onClick={() => {
-                        if (!confirmDone) {
-                          setConfirmDone(true);
-                          setStatus("Tap Done again to mark it finished.");
-                          return;
-                        }
-                        const cards = chosen;
-                        tapSave(() => doFinish("done", slotView, cards));
-                      }}
-                      className={`${actionButton} ${confirmDone ? "bg-green-800 text-white ring-4 ring-green-300" : "bg-green-700 text-white hover:bg-green-800"}`}
-                    >
-                      <CircleCheckBig className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                      {confirmDone ? "Tap again" : "Done"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!busy || chosen.length === 0}
-                      onClick={() => {
-                        const cards = chosen;
-                        tapSave(() => doFinish("release", slotView, cards));
-                      }}
-                      className={`${actionButton} border border-border bg-white text-foreground hover:border-primary/40`}
-                    >
-                      <LogOut className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                      Take out
-                    </button>
-                  </div>
-                </div>
-              )}
-              {slotView.kind === "shipping" && !ship && (
-                <button type="button" onClick={toggleShip} className={`${bigButton} bg-cyan-700 text-white hover:bg-cyan-800`}>
-                  <PackageCheck className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
-                  Start ship check
-                </button>
-              )}
-              {activeTarget?.code === slotView.code && (
-                pickList.length > 0 && picks ? (
-                  <div className={panel}>
-                    <p className="px-4 pt-3 text-sm font-bold text-foreground">Tap a card from {picks.label}</p>
-                    <ul>
-                      {pickList.map((card) => (
-                        <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} showOrder={picks.mixed} />
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <Note>Scan the bag’s QR label, or search by Card ID, customer or order in the code box.</Note>
-                )
-              )}
-              {slotView.cards.length === 0 && slotView.kind !== "station" && slotView.bags.length === 0 && !activeTarget && (
-                <Note>Nothing here.</Note>
-              )}
-            </div>
-          )}
-
-          {view.type === "bag" && (
-            <div className={panel}>
-              <BagHeader bag={view.bag} shipHref={shipPath(view.bag.orderId, view.bag.id)} />
-              <BulkPut cards={view.bag.cards} target={activeTarget} busy={!!busy} onPut={(cards) => startAssign(cards)} />
-              <ul className="border-t border-border">
-                {view.bag.cards.map((card) => (
-                  <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {view.type === "order" && (
-            <div className={panel}>
-              <OrderHeader order={view.order} shipHref={shipPath(view.order.id)} />
-              {view.order.bags.map((bag) => (
-                <div key={bag.id} className="border-t border-border">
-                  <p className="px-4 pt-3 text-sm font-bold text-foreground">
-                    <span className="font-mono">{bag.code}</span> · {bag.tierName} · {bag.doneCount} of {bag.cardCount} done
-                    {bag.location ? ` · Bag: ${bagPlaceText(bag.location, filingLetter(bag.customer))}` : ""}
-                  </p>
-                  <ul>
-                    {bag.cards.map((card) => (
-                      <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
-                    ))}
-                  </ul>
-                </div>
-              ))}
-              {view.order.looseCards.length > 0 && (
-                <div className="border-t border-border">
-                  <p className="px-4 pt-3 text-sm font-bold text-foreground">Not in a bag yet</p>
-                  <ul>
-                    {view.order.looseCards.map((card) => (
-                      <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {view.order.bags.length === 0 && view.order.looseCards.length === 0 && (
-                <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">No cards on this order.</p>
-              )}
-            </div>
-          )}
-
-          {view.type === "card" && (
-            <div className={panel}>
-              <ul>
-                <CardRow card={view.card} now={now} action={putAction(view.card)} onAction={onCardAction} onOpenSlot={openSlot} showOrder />
-              </ul>
-              <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
-                <AdminLink href={view.card.cardUrl} className={smallButton}>Card page</AdminLink>
-                <AdminLink href={view.card.photosUrl} className={smallButton}>Photos</AdminLink>
               </div>
-            </div>
-          )}
+            ))}
+            {view.order.looseCards.length > 0 && (
+              <div className="border-t border-border">
+                <p className="px-4 pt-3 text-sm font-bold text-foreground">Not in a bag yet</p>
+                <ul>
+                  {view.order.looseCards.map((card) => (
+                    <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} />
+                  ))}
+                </ul>
+              </div>
+            )}
+            {view.order.bags.length === 0 && view.order.looseCards.length === 0 && (
+              <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">No cards on this order.</p>
+            )}
+          </div>
+        )}
 
-          {view.type === "search" && (
-            <div className={panel}>
-              <p className="px-4 pt-3 pb-1 text-sm font-bold text-foreground">
-                {view.cards.length ? `${view.cards.length}${view.truncated ? "+" : ""} card${view.cards.length === 1 ? "" : "s"} for “${view.query}”` : `Nothing found for “${view.query}”.`}
-              </p>
-              {view.truncated && <p className="px-4 text-xs text-muted-foreground">Only the first ones are shown: type more to narrow it down.</p>}
-              <ul>
-                {view.cards.map((card) => (
-                  <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} showOrder />
-                ))}
-              </ul>
+        {view.type === "card" && (
+          <div className={panel}>
+            <ul>
+              <CardRow card={view.card} now={now} action={putAction(view.card)} onAction={onCardAction} onOpenSlot={openSlot} showOrder />
+            </ul>
+            <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
+              <AdminLink href={view.card.cardUrl} className={smallButton}>Card page</AdminLink>
+              <AdminLink href={view.card.photosUrl} className={smallButton}>Photos</AdminLink>
             </div>
-          )}
+          </div>
+        )}
 
-          <SessionLog items={log} onClear={() => logStore.set([])} />
-        </div>
+        {view.type === "search" && (
+          <div className={panel}>
+            <p className="px-4 pt-3 pb-1 text-sm font-bold text-foreground">
+              {view.cards.length ? `${view.cards.length}${view.truncated ? "+" : ""} card${view.cards.length === 1 ? "" : "s"} for “${view.query}”` : `Nothing found for “${view.query}”.`}
+            </p>
+            {view.truncated && <p className="px-4 text-xs text-muted-foreground">Only the first ones are shown: type more to narrow it down.</p>}
+            <ul>
+              {view.cards.map((card) => (
+                <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} onOpenSlot={openSlot} showOrder />
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <SessionLog items={log} onClear={() => logStore.set([])} />
       </div>
+    </div>
+  );
+}
+
+/** "Got it: CD-2549-P" over the top panel for a moment (READ_FLASH_MS); screen readers hear it from the status line. */
+function ReadFlash({ read }: { read: { key: number; code: string } | null }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !read) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+  }, [read]);
+  if (!read) return null;
+  return (
+    <div
+      ref={ref}
+      key={read.key}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 flex items-center gap-3 bg-green-600 px-4 text-white sm:px-6"
+    >
+      <Check className="h-8 w-8 shrink-0" strokeWidth={3} />
+      <p className="min-w-0 truncate text-2xl font-black sm:text-3xl">Got it: {read.code}</p>
     </div>
   );
 }

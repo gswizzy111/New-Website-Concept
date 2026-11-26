@@ -6,6 +6,7 @@
 //   node tests/intake/e2e/scenarios.mjs                 start harness, run all, stop
 //   node tests/intake/e2e/scenarios.mjs --only qr,labels,photos-page,print-step
 //   node tests/intake/e2e/scenarios.mjs --only 'track-*'  card tracking with serial-numbered slots
+//   node tests/intake/e2e/scenarios.mjs --only 'scan-*'   the Scan page: the handheld scanner only (no camera), photos under each card
 //   node tests/intake/e2e/scenarios.mjs --only 'desk-*'   the Desk: a heat press stack to the desk, the Desk page
 //   node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   what a bag / order QR opens: the person, "Move all N cards to my desk"
 //   node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   "Print labels" for any order (prepare-labels)
@@ -196,8 +197,21 @@ export const UI = {
   boardRow: (page, bagCode) => page.locator("tr, li, article, [role='row']").filter({ has: page.getByRole("link", { name: `Open bag ${bagCode}`, exact: true }) }),
 
   // ── Card tracking (from the brief; the pages were being built while these were written) ──
-  // The Scan page's text box for a Bluetooth/USB handheld scanner (it types the code or link, then Enter)
+  // The Scan page's code box, behind "Type a code instead" (owner, Nov 26: the scanner only, no
+  // camera; some days a code is typed)
   scanInput: (page) => page.getByRole("textbox", { name: /scan|code/i }).or(page.locator("input[data-scan-input], input[name='code']")).first(),
+  typeCodeLink: (page) => page.getByRole("button", { name: /^type a code instead$/i }).first(),
+  // The top panel once the page listens for the handheld scanner ("Ready to scan"; data-scanner="ready")
+  scanReady: (page) => page.locator('[data-scanner="ready"]').first(),
+  readyToScan: /\bready to scan\b/i,
+  readyToScanSub: "Point your scanner at a bag, order, holder or desk label and press the button.",
+  // Flashed over the top panel on each scan: "Got it: CD-2549-P"
+  gotIt: (code) => new RegExp(`got it:\\s*${esc(code)}(?![A-Z0-9-])`, "i"),
+  // A card's photos under it on the Scan page: a list named "Photos of CD-2549-01 Test Card Gold One"
+  scanCardPhotos: (page, code) => page.getByRole("list", { name: new RegExp(`^photos of ${esc(code)}(?![0-9A-Z-])`, "i") }),
+  // (no \b: Playwright's hasText reads textContent, where "Not in a slot" and "No photo yet" touch)
+  scanNoPhoto: /no photo yet/i,
+  scanReference: /reference photo/i,
   // Scanning an EMPTY slot: "Put a card in CLAMP 01"
   putCardIn: (slotName) => new RegExp(`put a card in\\s+${esc(slotName)}(?!\\d)`, "i"),
   // A FULL slot shows its card(s) with these buttons
@@ -898,9 +912,23 @@ async function phoneContext(browser, appUrl) {
   return { ctx, page, errors };
 }
 const sidewaysScroll = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-/** Type a code (or a scanned link) into the Scan page's handheld-scanner box and press Enter, as a scanner does. */
-async function scanType(page, text) {
+/**
+ * The handheld scanner on the Scan page (a Bluetooth keyboard): it types the label's text fast and
+ * presses Enter, with nothing focused (the page catches it anywhere: the keyboard wedge). Waits
+ * until the page listens ("Ready to scan"). `blur: false` leaves the focus where it is (a scan
+ * with a button or a photo focused must not press it).
+ */
+async function scanType(page, text, { blur = true } = {}) {
+  await UI.scanReady(page).waitFor({ timeout: 60_000 });
+  if (blur) await page.evaluate(() => { const a = document.activeElement; if (a && a !== document.body && typeof a.blur === "function") a.blur(); });
+  await page.keyboard.type(text);
+  await page.keyboard.press("Enter");
+}
+/** Typing on the Scan page: "Type a code instead" opens the code box; the text + Enter (a code, "clamp 7", "desk", a name). */
+async function typeCode(page, text) {
+  await UI.scanReady(page).waitFor({ timeout: 60_000 });
   const box = UI.scanInput(page);
+  if (!(await box.isVisible().catch(() => false))) await UI.typeCodeLink(page).click();
   await box.waitFor({ timeout: 30_000 });
   await box.fill(text);
   await box.press("Enter");
@@ -3115,7 +3143,7 @@ const SCENARIOS = {
     await s.step("Shelf view at 390 px has no sideways scroll", () => phoneShot(browser, appUrl, ROUTES.shelf, "track-shelf").then((w) => { assert(!w, w); }));
   },
 
-  // The Scan page on a phone (390 px): handheld-scanner box, an empty slot asks for a card, a full slot shows it
+  // The Scan page on a phone (390 px): the handheld scanner, an empty slot asks for a card, a full slot shows it
   async "track-scan-page"({ page, ctx, s, browser, appUrl }) {
     await s.step("setup: receive; make CLAMP 01..03; CD-2549-01 in CLAMP 02", async () => {
       await trackSetup(ctx, { clamp: 3 });
@@ -3125,9 +3153,12 @@ const SCENARIOS = {
     const p = phone.page;
     const shot = (name) => p.screenshot({ path: path.join(OUT, `track-scan-page-${name}.png`), fullPage: true }).catch(() => {});
     try {
-      await s.step("/admin/scan at 390 px: loads signed in, a scanner box, no sideways scroll", async () => {
+      await s.step('/admin/scan at 390 px: loads signed in, "Ready to scan", "Type a code instead" (the box closed), no sideways scroll', async () => {
         await goto(p, ROUTES.scan);
-        await UI.scanInput(p).waitFor({ timeout: 30_000 });
+        await UI.scanReady(p).waitFor({ timeout: 30_000 });
+        await p.getByText(UI.readyToScan).first().waitFor({ timeout: 15_000 });
+        await UI.typeCodeLink(p).waitFor({ timeout: 15_000 });
+        eq(await UI.scanInput(p).count(), 0, "code boxes shown before Type a code instead");
         const w = await sidewaysScroll(p);
         await shot("01-open");
         assert(w <= 1, `scrolls sideways by ${w}px`);
@@ -3175,7 +3206,7 @@ const SCENARIOS = {
         await p.getByText(UI.putCardIn("CLAMP 03")).first().waitFor({ timeout: 30_000 });
         await shot("06-from-label");
       }, { shot: false });
-      await s.step("no browser errors on the phone (headless: no camera)", async () => {
+      await s.step("no browser errors on the phone", async () => {
         assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
       }, { shot: false });
     } finally {
@@ -3185,6 +3216,207 @@ const SCENARIOS = {
       await goto(page, ROUTES.receiving);
       eq(new URL(await UI.scanNavLink(page).getAttribute("href"), appUrl).pathname, ROUTES.scan, "Scan link");
     });
+  },
+
+  // The Scan page, scanner only (owner, Nov 26: "remove the camera, make it so you can only use the
+  // scanner, and also add the images under each card"). The Eyoyo scanner is paired with the iPhone as
+  // a Bluetooth keyboard: it types the label's text and presses Enter, with nothing focused.
+  async "scan-scanner-only"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const BAG = "CD-2549-G";
+    const OTHER = "CD-2549-P";
+    const CARDS = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"];
+    // CD-2549-01: its receiving photo + the seed's 2 customer photos; -02: a receiving photo;
+    // -03: only a catalog picture (reference); -04: nothing
+    const WANT = { "CD-2549-01": ["receiving", "customer", "customer"], "CD-2549-02": ["receiving"], "CD-2549-03": ["reference"], "CD-2549-04": [] };
+    const CATALOG = "https://assets.tcgdex.net/en/base/base1/15/high.webp";
+    const link = (code) => `HTTPS://THECARDDOC1.COM/Q/${code}`;
+    await s.step("setup: CD-2549 and CD-2600 received with receiving photos; CD-2549-03 only a catalog picture, CD-2549-04 no photo", async () => {
+      await deskReceive(ctx, mockUrl);
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: CATALOG }, "card_code", "CD-2549-03");
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: null }, "card_code", "CD-2549-04");
+    }, { critical: true, shot: false });
+    await s.step(`resolve ${BAG}: each card's photos (receiving, then customer; the catalog picture only without them); photoUrl kept`, async () => {
+      const r = await api(ctx, "GET", ROUTES.trackResolve(BAG));
+      eq(r.status, 200, "HTTP");
+      const cards = r.body?.bag?.cards ?? [];
+      eq(cards.map((c) => c.code), CARDS, "cards");
+      for (const c of cards) {
+        eq((c.photos ?? []).map((p) => p.kind), WANT[c.code], `${c.code} photo kinds`);
+        for (const p of c.photos ?? []) assert(p.tile?.src && p.full?.src && p.url, `${c.code}: photo without tile/full/url`);
+      }
+      eq(cards.find((c) => c.code === "CD-2549-03").photos[0].tile.src, CATALOG.replace("/high.webp", "/low.webp"), "reference thumbnail (the catalog's small picture)");
+      assert(cards.find((c) => c.code === "CD-2549-01").photoUrl, "photoUrl is still in the answer");
+      return cards.map((c) => `${c.code}: ${(c.photos ?? []).length}`).join(", ");
+    }, { critical: true, shot: false });
+
+    // Every getUserMedia call (the camera) the page makes
+    const countCamera = (c) => c.addInitScript(() => {
+      window.__cameraCalls = 0;
+      const md = navigator.mediaDevices;
+      if (md?.getUserMedia) {
+        const real = md.getUserMedia.bind(md);
+        md.getUserMedia = (...a) => { window.__cameraCalls += 1; return real(...a); };
+      }
+    });
+    const mainText = (p) => p.locator("main").first().innerText().then(flat);
+    const showsCards = async (p, codes) => {
+      const text = (await until(async () => { const x = await mainText(p); return codes.every((c) => x.includes(c)) ? x : null; }, 30_000)) ?? await mainText(p);
+      const missing = codes.filter((c) => !text.includes(c));
+      assert(!missing.length, `not shown: ${missing.join(", ")} (the page says: "${text.slice(0, 200)}")`);
+    };
+    const openDialogs = (p) => p.locator("dialog[open]").count();
+    const firstPhoto = (p, code) => UI.scanCardPhotos(p, code).first().getByRole("button").first();
+    const focused = (p) => p.evaluate(() => { const a = document.activeElement; return !a || a === document.body ? "nothing" : `${a.tagName.toLowerCase()} "${(a.getAttribute("aria-label") ?? a.textContent ?? "").trim().slice(0, 40)}"`; });
+
+    const runAt = async (label, p, errors) => {
+      const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-scanner-only-${label}-${name}.png`), fullPage: true }).catch(() => {});
+      await s.step(`${label}: /admin/scan: "Ready to scan", no camera anywhere (no video, no camera button or word), the code box closed, no sideways scroll`, async () => {
+        await goto(p, ROUTES.scan);
+        await UI.scanReady(p).waitFor({ timeout: 60_000 });
+        const text = await mainText(p);
+        assert(UI.readyToScan.test(text), `no "Ready to scan" ("${text.slice(0, 160)}")`);
+        assert(text.includes(UI.readyToScanSub), `no "${UI.readyToScanSub}"`);
+        assert(!/camera/i.test(text), `the page mentions a camera: "${text.slice(0, 200)}"`);
+        eq(await p.locator("video, canvas").count(), 0, "video/canvas elements");
+        eq(await p.getByRole("button", { name: /camera|torch|flash ?light/i }).count(), 0, "camera buttons");
+        eq(await UI.scanInput(p).count(), 0, "code boxes before Type a code instead");
+        await UI.typeCodeLink(p).waitFor({ timeout: 15_000 });
+        eq(await focused(p), "nothing", "focused on load");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        await shot("01-ready");
+      }, { critical: true, shot: false });
+
+      await s.step(`${label}: the scanner reads ${BAG}'s label (fast keys + Enter, nothing focused): "Got it: ${BAG}", its 4 cards, no navigation`, async () => {
+        const looked = p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 120_000 });
+        await scanType(p, link(BAG));
+        await p.getByText(UI.gotIt(BAG)).first().waitFor({ state: "visible", timeout: 3_000 });
+        await looked;
+        await showsCards(p, CARDS);
+        eq(new URL(p.url()).pathname, ROUTES.scan, "still on the Scan page");
+        await shot("02-bag");
+      }, { critical: true, shot: false });
+
+      await s.step(`${label}: each card's photos under its name: CD-2549-01 3, -02 1, -03 the catalog picture labelled "Reference photo", -04 "No photo yet"; thumbnails lazy and loaded`, async () => {
+        const notes = [];
+        for (const code of CARDS) {
+          const want = WANT[code];
+          const list = UI.scanCardPhotos(p, code);
+          if (!want.length) {
+            eq(await list.count(), 0, `${code}: photo lists`);
+            const row = p.locator("li").filter({ hasText: code }).filter({ hasText: UI.scanNoPhoto });
+            assert(await row.count() > 0, `${code}: no "No photo yet"`);
+            notes.push(`${code}: no photo yet`);
+            continue;
+          }
+          await list.first().waitFor({ timeout: 15_000 });
+          const imgs = list.first().locator("img");
+          eq(await imgs.count(), Math.min(3, want.length), `${code}: thumbnails`);
+          // under the card's name: the list starts below the Card ID line
+          const row = p.locator("li").filter({ hasText: code }).filter({ has: list.first() }).last();
+          const codeBox = await row.getByText(code, { exact: true }).first().boundingBox();
+          const listBox = await list.first().boundingBox();
+          assert(codeBox && listBox && listBox.y >= codeBox.y + codeBox.height - 1, `${code}: the photos are not under the card's name`);
+          assert(listBox.height >= 90 && listBox.height <= 130, `${code}: thumbnails ${listBox.height}px tall (want about 96-120)`);
+          for (let i = 0; i < await imgs.count(); i++) {
+            const img = imgs.nth(i);
+            eq(await img.getAttribute("loading"), "lazy", `${code} photo ${i + 1} loading`);
+            if (want[i] === "reference") continue; // the catalog's host isn't reachable from the sandbox
+            await img.scrollIntoViewIfNeeded();
+            const ok = await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000);
+            assert(ok, `${code} photo ${i + 1} did not load (${await img.getAttribute("src")})`);
+          }
+          if (want[0] === "reference") {
+            const text = flat(await row.innerText());
+            assert(UI.scanReference.test(text), `${code}: the catalog picture isn't labelled "Reference photo" ("${text.slice(0, 160)}")`);
+            assert(/not the customer.s card/i.test(text), `${code}: no "Not the customer's card"`);
+          }
+          notes.push(`${code}: ${want.length}`);
+        }
+        await p.evaluate(() => window.scrollTo(0, 0));
+        return notes.join(", ");
+      }, { shot: false });
+
+      await s.step(`${label}: a tap on a photo opens it full screen (90%+ of the screen); Close closes it, focus back on the photo`, async () => {
+        const tile = firstPhoto(p, "CD-2549-01");
+        await tile.scrollIntoViewIfNeeded();
+        await tile.click();
+        const viewer = UI.photoViewer(p);
+        await viewer.waitFor({ timeout: 15_000 });
+        const box = await viewer.boundingBox();
+        const vp = p.viewportSize();
+        assert(box && box.width * box.height >= 0.9 * vp.width * vp.height, `the viewer covers ${box ? Math.round((100 * box.width * box.height) / (vp.width * vp.height)) : 0}% of the screen`);
+        const img = viewer.locator("img").first();
+        assert(await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000), "the full-screen photo did not load");
+        const text = flat(await viewer.innerText());
+        assert(/receiving photo/i.test(text) && /1 of 3/.test(text), `viewer title/counter: "${text.slice(0, 120)}"`);
+        await p.screenshot({ path: path.join(OUT, `scan-scanner-only-${label}-03-viewer.png`) }).catch(() => {});
+        await UI.viewerClose(viewer).click();
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        eq(await openDialogs(p), 0, "open dialogs after Close");
+        const f = await focused(p);
+        assert(f.startsWith("button"), `focus after Close: ${f}`);
+        return `focus after Close: ${f}`;
+      }, { shot: false });
+
+      await s.step(`${label}: right after (the photo still focused) the scanner reads ${OTHER}: it opens, and its Enter presses nothing`, async () => {
+        await scanType(p, link(OTHER), { blur: false });
+        await showsCards(p, ["CD-2549-07", "CD-2549-08"]);
+        await sleep(300);
+        eq(await openDialogs(p), 0, "a photo opened by the scan's Enter");
+      }, { shot: false });
+
+      await s.step(`${label}: with a card's "Assign to a slot" focused, the scanner reads ${BAG}: it opens, the button isn't pressed`, async () => {
+        const btn = p.getByRole("button", { name: /^assign to a slot$/i }).first();
+        await btn.focus();
+        eq((await focused(p)).startsWith("button"), true, "a button has focus");
+        // the page ignores the same label read again within 2 s (a scanner's double read)
+        await sleep(2_100);
+        await scanType(p, link(BAG), { blur: false });
+        await showsCards(p, CARDS);
+        const text = await mainText(p);
+        assert(!/scan the slot for/i.test(text), `the scan pressed "Assign to a slot" ("${text.slice(0, 120)}")`);
+      }, { shot: false });
+
+      await s.step(`${label}: a scan while a photo is open full screen closes it and shows ${OTHER}`, async () => {
+        const tile = firstPhoto(p, "CD-2549-02");
+        await tile.scrollIntoViewIfNeeded();
+        await tile.click();
+        await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+        // the page ignores the same label read again within 2 s (a scanner's double read)
+        await sleep(2_100);
+        await scanType(p, link(OTHER), { blur: false });
+        await until(async () => (await openDialogs(p)) === 0, 10_000);
+        eq(await openDialogs(p), 0, "open dialogs after the scan");
+        await showsCards(p, ["CD-2549-07", "CD-2549-08"]);
+        assert(await UI.scanCardPhotos(p, "CD-2549-07").count() > 0, "CD-2549-07 has no photos under it");
+      }, { shot: false });
+
+      await s.step(`${label}: "Type a code instead" opens the code box; CD-2549-02 + Enter shows that card with its photo`, async () => {
+        await typeCode(p, "CD-2549-02");
+        await p.getByText("Test Card Gold Two").first().waitFor({ timeout: 30_000 });
+        await UI.scanCardPhotos(p, "CD-2549-02").first().waitFor({ timeout: 15_000 });
+        await shot("04-typed");
+      }, { shot: false });
+
+      await s.step(`${label}: no camera asked for (getUserMedia), no sideways scroll, no browser errors`, async () => {
+        eq(await p.evaluate(() => window.__cameraCalls ?? 0), 0, "getUserMedia calls");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        if (errors) assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    };
+
+    const phone = await phoneContext(browser, appUrl);
+    try {
+      await countCamera(phone.ctx);
+      await runAt("390", phone.page, phone.errors);
+    } finally {
+      await phone.ctx.close();
+    }
+    // 1440: the runner's desktop page (its browser errors are checked by the runner)
+    await countCamera(ctx);
+    await runAt("1440", page, null);
   },
 
   // ── Desk (owner, Nov 24): "if I have a heatpress stack of 8 cards and they come out I can scan
@@ -3599,9 +3831,9 @@ const SCENARIOS = {
           await trackOk(ctx, ROUTES.trackMove, { fromCode: "LOC-HEAT-PRESS-01", toCode: DESK, cardIds: DESK_CARDS.map((c) => cardIdOf(t, c)) });
         }, { critical: true, shot: false });
       }
-      await s.step('a fresh Scan page, typing "desk" + Enter: the desk\'s 8 cards and "Open desk page"', async () => {
+      await s.step('a fresh Scan page, "Type a code instead", typing "desk" + Enter: the desk\'s 8 cards and "Open desk page"', async () => {
         await goto(p, ROUTES.scan);
-        await scanType(p, "desk");
+        await typeCode(p, "desk");
         const r = await showsDesk();
         await shot("03-typed-desk");
         return r;
@@ -6302,14 +6534,14 @@ const DONE_SCENARIOS = {
       }
       assert(!problems.length, `${where}: ${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
     };
-    await s.step(`Scan page, type "${BO_CUSTOMER}" + Enter: ${BO_BAG} "Open bags box · ${BO_LETTER}", CD-2549-G "Ready to ship", ${SILVER} "Shelf DUE …"`, async () => {
+    await s.step(`Scan page, Type a code instead, "${BO_CUSTOMER}" + Enter: ${BO_BAG} "Open bags box · ${BO_LETTER}", CD-2549-G "Ready to ship", ${SILVER} "Shelf DUE …"`, async () => {
       await goto(page, ROUTES.scan);
-      await scanType(page, BO_CUSTOMER);
+      await typeCode(page, BO_CUSTOMER);
       await checkPlaces("search by name");
     });
-    await s.step(`Scan page, type "${BO_ORDER}" + Enter (the order): the same places`, async () => {
+    await s.step(`Scan page, Type a code instead, "${BO_ORDER}" + Enter (the order): the same places`, async () => {
       await goto(page, ROUTES.scan);
-      await scanType(page, BO_ORDER);
+      await typeCode(page, BO_ORDER);
       await checkPlaces("the order");
     });
     await s.step("the search API: each card's bagLocation is its bag's place", async () => {
@@ -6405,6 +6637,9 @@ const DONE_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, DONE_SCENARIOS);
+
+// Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
+export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode };
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export async function runScenarios({ only = null } = {}) {

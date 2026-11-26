@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { CornerDownLeft } from "lucide-react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { CornerDownLeft, X } from "lucide-react";
 
 /**
- * Handheld scanners (Bluetooth or USB, "keyboard" mode) type what they read
- * and press Enter. Two ways in, both to `onScan`:
+ * Handheld scanners (Bluetooth or USB, "keyboard" mode: the Eyoyo paired
+ * with the shop's iPhone) type what they read and press Enter. Two ways in,
+ * both to `onScan`:
  *  - anywhere on the page: fast keystrokes ending in Enter (or Tab) are
  *    caught even when no box has focus (a scanner paired with a phone types
- *    into the page; the page's buttons never see the Enter);
- *  - the "Scan or type a code" box: a scanner typing into it, a person
- *    typing a code and pressing Go, or a pasted link (sent at once).
+ *    into the page; the page's buttons never see the Enter). This is how
+ *    the Scan page is used: there is no camera;
+ *  - the "Scan or type a code" box, behind "Type a code instead": a person
+ *    typing a code and pressing Go, a scanner typing into it, or a pasted
+ *    link (sent at once).
  * Typing into any other box on the page is left alone.
  */
 
@@ -27,8 +30,27 @@ function isEditable(el: EventTarget | null): boolean {
   return el.isContentEditable || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
 }
 
-/** Catches a handheld scanner's keystrokes and pastes when no box has focus. */
-export function useKeyboardWedge(onScan: (text: string, source: "wedge" | "paste") => void) {
+/** How many pages are catching scans now (the Scan page: one), for "Ready to scan". */
+let listening = 0;
+const readyListeners = new Set<() => void>();
+function setListening(delta: number) {
+  listening += delta;
+  for (const l of readyListeners) l();
+}
+function subscribeReady(listener: () => void) {
+  readyListeners.add(listener);
+  return () => {
+    readyListeners.delete(listener);
+  };
+}
+
+/**
+ * Catches a handheld scanner's keystrokes and pastes when no box has focus.
+ * Returns true once it is listening (after the page has loaded in the
+ * browser; on the server and before that, false), so the page says "Ready to
+ * scan" only when a scan would be caught.
+ */
+export function useKeyboardWedge(onScan: (text: string, source: "wedge" | "paste") => void): boolean {
   const onScanRef = useRef(onScan);
   useEffect(() => {
     onScanRef.current = onScan;
@@ -70,26 +92,39 @@ export function useKeyboardWedge(onScan: (text: string, source: "wedge" | "paste
     }
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("paste", onPaste);
+    setListening(1);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("paste", onPaste);
+      setListening(-1);
     };
   }, []);
+
+  return useSyncExternalStore(subscribeReady, () => listening > 0, () => false);
 }
 
 /**
- * The code box. On a computer it takes focus when the page opens (and after
- * each scan), so a desk scanner's code lands here; on a phone it doesn't, so
- * the keyboard stays down until someone taps it.
+ * The code box, shown when "Type a code instead" is tapped (some days a code
+ * is typed). It takes focus when it opens; after a code on a phone it lets
+ * go, so the keyboard goes down and the answer shows, and on a computer it
+ * stays ready. Esc or Close (onClose) hides it again.
  */
-export function ScanInput({ onScan, placeholder }: { onScan: (text: string, source: "typed" | "paste") => void; placeholder?: string }) {
+export function ScanInput({
+  onScan,
+  onClose,
+  placeholder,
+}: {
+  onScan: (text: string, source: "typed" | "paste") => void;
+  onClose?: () => void;
+  placeholder?: string;
+}) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fineRef = useRef(false);
 
   useEffect(() => {
     fineRef.current = window.matchMedia("(pointer: fine)").matches;
-    if (fineRef.current) inputRef.current?.focus({ preventScroll: true });
+    inputRef.current?.focus({ preventScroll: true });
   }, []);
 
   function submit(text: string, source: "typed" | "paste") {
@@ -115,6 +150,12 @@ export function ScanInput({ onScan, placeholder }: { onScan: (text: string, sour
         name="code"
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && onClose) {
+            e.preventDefault();
+            onClose();
+          }
+        }}
         onPaste={(e) => {
           const text = e.clipboardData.getData("text");
           if (text.trim()) {
@@ -138,6 +179,16 @@ export function ScanInput({ onScan, placeholder }: { onScan: (text: string, sour
         Go
         <CornerDownLeft className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
       </button>
+      {onClose && (
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close the code box"
+          className="h-12 w-12 shrink-0 rounded-xl border border-border bg-white inline-flex items-center justify-center text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        >
+          <X className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+        </button>
+      )}
     </form>
   );
 }

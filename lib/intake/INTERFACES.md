@@ -346,7 +346,7 @@ found", the /q wording).
 Owner's model (Nov 24 2026): cards carry no sticker and are never scanned.
 Every physical holder is a numbered **slot** with a QR label: each clamp, heat
 press spot, humidor spot and so on. Staff scan a slot on the Scan page
-(`/admin/scan`, phone camera or a handheld scanner), then pick the card(s) from
+(`/admin/scan`, with a handheld scanner: the page has no camera), then pick the card(s) from
 a bag's QR or a search; the card is now in that slot and at its step. Bags wait
 on due-date shelf slots until a card comes out, then in the Open bags box
 (`LOC-OPEN-BAGS`); a finished bag goes in the Ready to ship bin (`LOC-SHIP`).
@@ -456,6 +456,47 @@ print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).
+
+**Scan page** (`/admin/scan`, `components/intake/scan/`; owner, Nov 26 2026:
+"remove the camera, make it so you can only use the scanner, and also add the
+images under each card"):
+
+- **Scanner only.** No camera, no camera button and no camera permission
+  prompt (`camera.tsx` and its jsQR reader are gone; the `jsqr` package is
+  unused now). The scanner (an Eyoyo EY-015P paired with the iPhone as a
+  Bluetooth keyboard: it types the label's text, e.g.
+  `HTTPS://THECARDDOC1.COM/Q/CD-2549-P`, and presses Enter; the phone's
+  on-screen keyboard stays hidden while it's connected) is caught anywhere on
+  the page with nothing focused (`scan-input.tsx` `useKeyboardWedge`: fast
+  keystrokes ending in Enter or Tab; a focused button or link never gets the
+  scan's keys or its Enter). It listens from the moment the page has loaded,
+  after a result shows, and after a photo or any other overlay closes; a scan
+  while a photo is open full screen closes it (`SCAN_READ_EVENT`) so the
+  answer shows.
+- **Top panel.** While nothing is waiting for a scan: "Ready to scan" (big on
+  the empty page, a slim sticky bar once something is on screen; "Getting
+  ready…" until the page is listening, `data-scanner="ready"` then) and
+  "Point your scanner at a bag, order, holder or desk label and press the
+  button." Each scan flashes "Got it: CD-2549-P" over it for 1.6 s, with the
+  usual sound and vibration. Move, Assign, ship check and "Put a card in
+  CLAMP 07" keep their own lines there.
+- **Typing.** "Type a code instead" (under the panel) opens the code box (a
+  code, a slot name such as `clamp 7`, `desk`, or a search by Card ID, name,
+  customer or order), focused; Esc or its Close button shuts it.
+- **Photos under each card.** Every card the page lists (bag, order, search,
+  a typed Card ID, a holder's or desk's cards, the cards offered for an empty
+  slot) shows up to 3 white-framed thumbnails (112 px tall, 96 px in a stack
+  of 4+) under its name and details: its receiving photos, then the
+  customer's; the catalog picture only when it has neither, dashed amber and
+  labelled "Reference photo / Not the customer's card"; none: "No photo yet".
+  More than 3: "+N" on the third. A tap opens the photos page's full-screen
+  viewer (`PhotoViewer` in `photo-grid.tsx`, shared with `PhotoGrid`), which
+  steps through all of them. Thumbnails are lazy and resized on the server:
+  `TrackCardSummary.photos` (optional; `TrackCardPhoto { url, kind, tile,
+  full }`, at most `MAX_CARD_PHOTOS` = 6, web addresses only) is built by
+  `cardPhotos()` in `tracking/summaries.ts` with `productImage` (tile 240 /
+  360 px wide, full 1280 / 2048) on Netlify; `photoUrl` stays as it was.
+  Component: `components/intake/scan/card-photos.tsx`.
 
 ## Finished cards and bags (done flow)
 

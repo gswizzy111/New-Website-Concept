@@ -1,9 +1,11 @@
+import { catalogThumb, isCatalogImageUrl } from "@/lib/card-catalog";
 import { effectiveTier, orderPhotosPath, tierDisplayName, tierRank } from "@/lib/intake/codes";
 import { cardStageState, isBagComplete } from "@/lib/intake/stage-plan";
 import type { StageEventRow } from "@/lib/intake/types";
 import type {
-  LocationRef, ShipCheckCard, ShipCheckResponse, ShipCheckStatus, TrackBagSummary, TrackCardSummary,
+  LocationRef, ShipCheckCard, ShipCheckResponse, ShipCheckStatus, TrackBagSummary, TrackCardPhoto, TrackCardSummary,
 } from "@/lib/intake/tracking/types";
+import { productImage } from "@/lib/thumbnail";
 
 /**
  * Builders for what the Scan page and ship checks show, from rows already
@@ -91,6 +93,36 @@ export type SummaryContext = {
   tierNames?: Readonly<Record<string, string>>;
 };
 
+/** At most this many photos per card in a summary (a search answers up to 30 cards). */
+export const MAX_CARD_PHOTOS = 6;
+/**
+ * Thumbnail widths in real pixels: the Scan page shows a tile about 112 px
+ * tall (84 px wide), so 240 serves a 2x screen and 360 a 3x one. The viewer
+ * gets the desk's sizes.
+ */
+const TILE_WIDTHS = [240, 360];
+const FULL_WIDTHS = [1280, 2048];
+
+/** Web addresses only (a photo list can hold anything typed into it). */
+export const webUrls = (urls: readonly (string | null)[] | null | undefined): string[] =>
+  (urls ?? []).filter((u): u is string => typeof u === "string" && /^https?:\/\//i.test(u));
+
+/**
+ * A card's photos for the Scan page: receiving photos first, then the
+ * customer's (web addresses only, at most MAX_CARD_PHOTOS); the catalog's
+ * reference picture only when there are neither. Resized copies on Netlify
+ * (lib/thumbnail.ts), so a bag of 20 cards never pulls 20 originals.
+ */
+export function cardPhotos(card: Pick<TrackCardRow, "receiving_photo_urls" | "photo_urls" | "catalog_image_url">): TrackCardPhoto[] {
+  const own = (urls: string[], kind: "receiving" | "customer"): TrackCardPhoto[] =>
+    urls.map((url) => ({ url, kind, tile: productImage(url, TILE_WIDTHS), full: productImage(url, FULL_WIDTHS) }));
+  const photos = [...own(webUrls(card.receiving_photo_urls), "receiving"), ...own(webUrls(card.photo_urls), "customer")].slice(0, MAX_CARD_PHOTOS);
+  if (photos.length) return photos;
+  const catalog = card.catalog_image_url;
+  if (!isCatalogImageUrl(catalog)) return [];
+  return [{ url: catalog, kind: "reference", tile: { src: catalogThumb(catalog) }, full: { src: catalog } }];
+}
+
 export function cardSummary(card: TrackCardRow, ctx: SummaryContext): TrackCardSummary {
   const order = ctx.orders.get(card.order_id);
   const bag = card.bag_id ? ctx.bags.get(card.bag_id) ?? null : null;
@@ -125,6 +157,7 @@ export function cardSummary(card: TrackCardRow, ctx: SummaryContext): TrackCardS
     locatedAt: card.located_at,
     bagLocation: bag?.location_id ? ctx.locations.get(bag.location_id) ?? null : null,
     photoUrl: card.receiving_photo_urls?.[0] ?? card.photo_urls?.[0] ?? card.catalog_image_url ?? null,
+    photos: cardPhotos(card),
     photosUrl: orderPhotosPath(card.order_id, card.bag_id),
     cardUrl: `/admin/receiving/card/${encodeURIComponent(card.id)}`,
   };
