@@ -461,6 +461,24 @@ agent's holder-text.md).
   to my desk" sends no force, asks "Add anyway?" (the question focused), and
   "Add anyway" sends force; the green "Open the desk page" line above a
   holder goes when the holder saves. Screenshots `scan-holder-fixes-*.png`.
+  The DONE sign sends `fromCode` (the from-holder).
+
+- `scan-holder-fixes-2` (390 px, then 1440; review fixes 2, Nov 26): CLAMP
+  07, "Move to another holder", Esc, then another phone moves the card to
+  HEAT PRESS 01 and the DONE sign is scanned: `POST done` with `fromCode`
+  LOC-CLAMP-07 answers 409 ("… isn't in CLAMP 07 any more (now in HEAT PRESS
+  01)."), the card isn't done and stays put, no history row, no email, the
+  top panel stops waiting and CLAMP 07 shows empty, and CLAMP 06 scanned next
+  moves nothing; a move forgotten 11 minutes (the phone's clock moved on)
+  marks nothing done on the DONE sign; the DONE sign while the page reads
+  CLAMP 07 again (held): "Done. Put it back in …" shows and a tap on Take
+  out only flashes "Still saving the last change. …" (no save, the line
+  stays); two desks, LOC-DESK full (limit 1): "Add anyway?" goes when "My
+  desk" changes to Desk Gavin, and Add anyway sends `toCode` LOC-DESK with
+  force; at 1440 the picker's box is focused, so the DONE sign scanned into
+  it says "To finish it, close this list, then scan DONE or tap Done." and
+  saves nothing; Esc, then DONE: done with `fromCode`. Screenshots
+  `scan-holder-fixes-2-*.png`.
 
 2x screenshots of the same states (ready, bag, move picker, holder, stack,
 empty) come from a script outside the repo that imports `holderSetup` and
