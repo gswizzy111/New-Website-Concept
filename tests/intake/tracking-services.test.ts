@@ -135,11 +135,15 @@ test("slots are made in numbered runs: CLAMP 01..03, then 04..05; numbers in use
   if (c.ok) assert.deepEqual([c.created.map((l) => l.code), c.skipped], [["LOC-CLAMP-06"], ["LOC-CLAMP-05"]]);
   const h = await svc.locations.createSlots(admin, { station: "heat-press", count: 2, by: "gavin" });
   assert.ok(h.ok && h.created.map((l) => l.name).join() === "HEAT PRESS 01,HEAT PRESS 02");
-  // A heat press takes a stack (no limit); a clamp holds one
-  assert.ok(h.ok && h.created.every((l) => l.capacity === null), "new heat press slots have no limit");
-  // HEAT PRESS 01 holds one card, as the owner's slots made before that change do (Places: "Set for all")
+  // Every slot holds one card (owner, Nov 26 2026), a heat press too: stored as 1
+  assert.ok(h.ok && h.created.every((l) => l.capacity === 1), "new heat press slots hold one card");
+  assert.ok(["LOC-HEAT-PRESS-01", "LOC-CLAMP-01"].every((c) => loc(c).capacity === 1));
+  // Its limit can't change: 1 is accepted (tidying), anything else is refused
   const one = await svc.locations.updateLocation(admin, { id: loc("LOC-HEAT-PRESS-01").id as string, capacity: 1 });
   assert.ok(one.ok && one.location.capacity === 1);
+  const stack = await svc.locations.updateLocation(admin, { id: loc("LOC-HEAT-PRESS-01").id as string, capacity: null });
+  assert.ok(!stack.ok && stack.status === 400 && stack.error === "HEAT PRESS 01 holds one card (the owner's rule), so its limit can't change.");
+  assert.equal(loc("LOC-HEAT-PRESS-01").capacity, 1);
   const bad = await svc.locations.createSlots(admin, { station: "toaster", count: 2, by: "gavin" });
   assert.ok(!bad.ok && bad.status === 400);
   const tooMany = await svc.locations.createSlots(admin, { station: "clamp", count: 201, by: "gavin" });
@@ -148,9 +152,12 @@ test("slots are made in numbered runs: CLAMP 01..03, then 04..05; numbers in use
   const t1 = await svc.locations.createLocation(admin, { name: "Back table", kind: "other", by: "gavin" });
   const t2 = await svc.locations.createLocation(admin, { name: "Back  table", kind: "other", by: "gavin" });
   assert.ok(t1.ok && t2.ok && t1.location.code === "LOC-BACK-TABLE" && t2.location.code === "LOC-BACK-TABLE-2");
+  // An other place that isn't a desk holds one card too (stored as 1)
+  assert.deepEqual([t1.ok && t1.location.capacity, loc("LOC-BACK-TABLE").capacity], [1, 1]);
   // A desk (Places: "Add a desk" sends { name: "DESK <NAME>", kind: "other" })
   const d1 = await svc.locations.createLocation(admin, { name: "DESK GAVIN", kind: "other", by: "gavin" });
   assert.ok(d1.ok && d1.location.code === "LOC-DESK-GAVIN" && d1.location.kind === "other" && d1.location.capacity === null);
+  assert.equal(loc("LOC-DESK-GAVIN").capacity, null, "a desk has no limit");
   const st = await svc.locations.createLocation(admin, { name: "x", kind: "station", by: "gavin" });
   assert.ok(!st.ok && st.status === 400);
 });
@@ -161,34 +168,46 @@ test("a LOC code resolves to its place (for /q and the Scan page)", async () => 
   assert.equal(await svc.data.resolveCode(admin, "LOC-CLAMP-99"), null);
 });
 
-test("assign: over capacity is a 409 with what's inside; force adds anyway; steps set, one email per order", async () => {
-  const full = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(1), C(2)], by: "gavin" });
-  assert.ok(!full.ok && full.status === 409 && full.conflict?.overCapacity && full.conflict.capacity === 1);
+test("assign: a holder takes one card; several at once, or force, are refused; the step is set and the customer emailed", async () => {
+  const several = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(1), C(2)], by: "gavin" });
+  assert.ok(!several.ok && several.status === 409 && several.full?.holderFull && !several.conflict);
+  if (several.ok) return;
+  assert.equal(several.error, "HEAT PRESS 01 holds one card. Pick one card to put here.");
+  assert.deepEqual([several.full?.holder, several.full?.occupants], [{ code: "LOC-HEAT-PRESS-01", name: "HEAT PRESS 01" }, []]);
+  const forced = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(1), C(2)], force: true, by: "gavin" });
+  assert.ok(!forced.ok && forced.status === 409 && forced.error === several.error, "force can't bypass it");
   assert.equal(moves().length, 0, "nothing written");
 
-  const r = await svc.moves.assignCards(admin, { locationCode: "HTTPS://THECARDDOC1.COM/Q/LOC-HEAT-PRESS-01", cardIds: [C(1), C(2)], force: true, by: "gavin" });
+  const r = await svc.moves.assignCards(admin, { locationCode: "HTTPS://THECARDDOC1.COM/Q/LOC-HEAT-PRESS-01", cardIds: [C(1)], by: "gavin" });
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (!r.ok) return;
   assert.equal(r.location?.code, "LOC-HEAT-PRESS-01");
-  // The first cards out of the bag file it in the Open bags box (made on first use), under C for Collector
-  assert.equal(r.message, "2 cards in HEAT PRESS 01. Step: Heat Press. Put the bag in the Open bags box, under C.");
-  assert.equal(r.changed, 2);
+  // The first card out of the bag files it in the Open bags box (made on first use), under C for Collector
+  assert.equal(r.message, "In HEAT PRESS 01. Step: Heat Press. Put the bag in the Open bags box, under C.");
+  assert.equal(r.changed, 1);
   assert.deepEqual([loc("LOC-OPEN-BAGS").name, loc("LOC-OPEN-BAGS").kind], ["OPEN BAGS", "other"]);
   assert.equal(mock.store.table("tier_bags").find((b) => b.id === BAG)!.location_id, loc("LOC-OPEN-BAGS").id);
   assert.deepEqual(r.bags?.map((b) => [b.code, b.letter, b.location?.code, b.opened, b.doneCount, b.cardCount]), [["CD-4001-G", "C", "LOC-OPEN-BAGS", true, 0, 4]]);
   assert.deepEqual(r.emailedOrders, [ORDER]);
   assert.deepEqual(stageEvents(ORDER).filter((e) => (e.metadata as Row).stage === "Heat Press").map((e) => [e.description, (e.metadata as Row).bulk, (e.metadata as Row).by, e.is_customer_visible]), [
-    [`Stage: Heat Press [card:${C(1)}]`, true, "gavin", true],
-    [`Stage: Heat Press [card:${C(2)}]`, true, "gavin", true],
+    [`Stage: Heat Press [card:${C(1)}]`, false, "gavin", true],
   ]);
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].subject, "Update on your cards — Heat press (Order #CD-4001)");
+  assert.equal(sent[0].subject, "Update on your card — Heat press (Order #CD-4001)");
   assert.equal(cardRow(C(1)).location_id, loc("LOC-HEAT-PRESS-01").id);
   assert.ok(cardRow(C(1)).located_at);
   assert.deepEqual(moves().map((m) => [m.card_id, m.action, m.from_location_id, m.to_location_id, m.stage_before, m.stage_after, m.by]), [
     [C(1), "assign", null, loc("LOC-HEAT-PRESS-01").id, null, "Heat Press", "gavin"],
-    [C(2), "assign", null, loc("LOC-HEAT-PRESS-01").id, null, "Heat Press", "gavin"],
   ]);
+
+  // A second card: refused, force or not, with the card that's in it
+  const second = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(2)], force: true, by: "gavin" });
+  assert.ok(!second.ok && second.status === 409);
+  if (second.ok) return;
+  assert.equal(second.error, "HEAT PRESS 01 already has a card (CD-4001-01 · Charizard 1). Take it out first, or pick another holder.");
+  assert.deepEqual(second.full?.occupants.map((c) => c.code), ["CD-4001-01"]);
+  assert.equal(cardRow(C(2)).location_id, null);
+  assert.equal(moves().length, 1);
 });
 
 test("assigning again changes nothing: no event, no email, no move row", async () => {
@@ -198,50 +217,64 @@ test("assigning again changes nothing: no event, no email, no move row", async (
   assert.deepEqual({ events: stageEvents().length, moves: moves().length, emails: sent.length }, before);
 });
 
-test("a full slot shows what's in it", async () => {
+test("a holder with a card shows what's in it; no \"Add anyway\"", async () => {
   const r = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(3)], by: "gavin" });
-  assert.ok(!r.ok && r.status === 409 && r.conflict);
-  if (r.ok || !r.conflict) return;
-  assert.deepEqual(r.conflict.occupants.map((c) => c.code).sort(), ["CD-4001-01", "CD-4001-02"]);
-  assert.match(r.conflict.error, /HEAT PRESS 01 holds 1 card and has 2 in it/);
+  assert.ok(!r.ok && r.status === 409 && r.full && !r.conflict);
+  if (r.ok || !r.full) return;
+  assert.deepEqual(r.full.occupants.map((c) => c.code), ["CD-4001-01"]);
+  assert.equal(r.error, "HEAT PRESS 01 already has a card (CD-4001-01 · Charizard 1). Take it out first, or pick another holder.");
 });
 
-test("cards of two orders at different steps: one email per order", async () => {
+test("cards of two orders, one per holder: each step is set and each customer emailed", async () => {
   await tick();
   const emails = sent.length;
-  const r = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [C(3), C(4), D(1), D(2)], force: true, by: "gavin" });
-  assert.ok(r.ok, r.ok ? "" : r.error);
-  if (!r.ok) return;
-  assert.deepEqual(r.emailedOrders.sort(), [ORDER, ORDER2].sort());
-  assert.equal(sent.length - emails, 2);
-  const pat = sent.slice(emails).find((e) => JSON.stringify(e.to).includes("pat@example.com"))!;
-  assert.equal(pat.subject, "Update on your cards — Clamp work (Order #CD-4001)");
-  assert.match(pat.html, /Charizard 3/);
-  assert.match(pat.html, /Charizard 4/);
-  // Card 4 went Humidor -> Clamp Work; card 3 not started -> Clamp Work
-  assert.deepEqual(moves().filter((m) => m.to_location_id === loc("LOC-CLAMP-01").id).map((m) => [m.card_id, m.stage_before, m.stage_after]).sort(), [
-    [C(3), null, "Clamp Work"], [C(4), "Humidor", "Clamp Work"], [D(1), null, "Clamp Work"], [D(2), null, "Clamp Work"],
+  const d1 = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [D(1)], by: "gavin" });
+  assert.ok(d1.ok && d1.emailedOrders.join() === ORDER2, d1.ok ? d1.message : d1.error);
+  await tick();
+  // Card 4 goes Humidor -> Clamp Work; card 2 not started -> Clamp Work
+  const c4 = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-05", cardIds: [C(4)], by: "gavin" });
+  assert.ok(c4.ok && c4.emailedOrders.join() === ORDER, c4.ok ? c4.message : c4.error);
+  await tick();
+  const c2 = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-04", cardIds: [C(2)], by: "gavin" });
+  assert.ok(c2.ok && c2.emailedOrders.join() === ORDER, c2.ok ? c2.message : c2.error);
+  assert.equal(sent.length - emails, 3);
+  const sam = sent.slice(emails).find((e) => JSON.stringify(e.to).includes("sam@example.com"))!;
+  assert.equal(sam.subject, "Update on your card — Clamp work (Order #CD-4002)");
+  assert.match(sam.html, /Blastoise 1/);
+  const clamps = ["LOC-CLAMP-01", "LOC-CLAMP-04", "LOC-CLAMP-05"].map((c) => loc(c).id);
+  assert.deepEqual(moves().filter((m) => clamps.includes(m.to_location_id)).map((m) => [m.card_id, m.stage_before, m.stage_after]).sort(), [
+    [C(2), null, "Clamp Work"], [C(4), "Humidor", "Clamp Work"], [D(1), null, "Clamp Work"],
   ].sort());
+  // CLAMP 01 has order 2's card: the other one is refused
+  const d2 = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [D(2)], force: true, by: "gavin" });
+  assert.ok(!d2.ok && d2.error === "CLAMP 01 already has a card (CD-4002-01 · Blastoise 1). Take it out first, or pick another holder.");
 });
 
-test("move: a slot's cards go to the next slot, the old slot frees up, the step follows", async () => {
+test("move: a slot's card goes to the next slot, the old slot frees up, the step follows; a holder with a card refuses it", async () => {
   await tick();
   const emails = sent.length;
-  const r = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-01", toCode: "LOC-CLAMP-02", force: true, by: "gavin" });
+  const r = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-01", toCode: "LOC-CLAMP-02", by: "gavin" });
   assert.ok(r.ok, r.ok ? "" : r.error);
   if (!r.ok) return;
-  assert.equal(r.changed, 2);
+  assert.equal(r.changed, 1);
   assert.deepEqual(r.freed.map((l) => l.code), ["LOC-HEAT-PRESS-01"]);
   assert.equal(cardRow(C(1)).location_id, loc("LOC-CLAMP-02").id);
   assert.equal(sent.length - emails, 1, "one email for the order");
-  assert.deepEqual(moves().slice(-2).map((m) => [m.action, m.from_location_id, m.stage_before, m.stage_after]), [
-    ["move", loc("LOC-HEAT-PRESS-01").id, "Heat Press", "Clamp Work"],
+  assert.deepEqual(moves().slice(-1).map((m) => [m.action, m.from_location_id, m.stage_before, m.stage_after]), [
     ["move", loc("LOC-HEAT-PRESS-01").id, "Heat Press", "Clamp Work"],
   ]);
   const empty = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-01", toCode: "LOC-CLAMP-03", by: "gavin" });
   assert.ok(!empty.ok && empty.status === 409 && /HEAT PRESS 01 is empty/.test(empty.error));
   const same = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-02", toCode: "loc-clamp-02", by: "gavin" });
   assert.ok(!same.ok && same.status === 400);
+  // Into a holder that has a card: refused, force or not; nothing moves
+  const before = moves().length;
+  for (const force of [false, true]) {
+    const full = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-04", toCode: "LOC-CLAMP-02", force, by: "gavin" });
+    assert.ok(!full.ok && full.status === 409 && full.full);
+    if (!full.ok) assert.equal(full.error, "CLAMP 02 already has a card (CD-4001-01 · Charizard 1). Take it out first, or pick another holder.");
+  }
+  assert.deepEqual([moves().length, cardRow(C(2)).location_id], [before, loc("LOC-CLAMP-04").id]);
 });
 
 test("backwards: into a heat press (an earlier step) the step is Heat Press; a staff-only event, no email", async () => {
@@ -258,8 +291,10 @@ test("backwards: into a heat press (an earlier step) the step is Heat Press; a s
   const loaded = await svc.data.loadCard(admin, C(1));
   assert.ok(loaded.ok && loaded.card.stage.current === "Heat Press" && loaded.card.stage.furthestIndex === 5);
   assert.equal(cardRow(C(1)).location_id, loc("LOC-HEAT-PRESS-02").id);
-  assert.equal(cardRow(C(2)).location_id, loc("LOC-CLAMP-02").id, "only the card asked for");
-  assert.deepEqual(r.freed, [], "card 2 is still in CLAMP 02");
+  assert.deepEqual(r.freed.map((l) => l.code), ["LOC-CLAMP-02"]);
+  // CLAMP 02 is free now: card 2 goes in it
+  const c2 = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-04", toCode: "LOC-CLAMP-02", by: "gavin" });
+  assert.ok(c2.ok && c2.changed === 1, c2.ok ? c2.message : c2.error);
   const notInside = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-02", toCode: "LOC-CLAMP-03", cardIds: [C(2), C(1)], by: "gavin" });
   assert.ok(notInside.ok);
   if (!notInside.ok) return;
@@ -330,7 +365,7 @@ test("done: cards marked done go back in their bag (no place), their slots free 
   if (!r.ok) return;
   assert.equal(r.location, null, "in the bag, not on the Done shelf");
   assert.deepEqual(r.bagsCompleted, [BAG], "card 5 is refunded, card 6 is in no bag");
-  assert.deepEqual(r.freed.map((l) => l.code), ["LOC-CLAMP-02"], "CLAMP 01 still holds order 2's cards");
+  assert.deepEqual(r.freed.map((l) => l.code).sort(), ["LOC-CLAMP-02", "LOC-CLAMP-05"], "card 1 was taken out and card 3 never went in");
   for (const n of [1, 2, 3, 4]) {
     assert.equal(cardRow(C(n)).completed, true);
     assert.equal(cardRow(C(n)).location_id, null);
@@ -347,13 +382,16 @@ test("done: cards marked done go back in their bag (no place), their slots free 
 });
 
 test("resolve: a slot with its cards and capacity; a bag and an order with their cards' slots", async () => {
+  // A slot holding 2 cards from before the one-card rule (written straight in the table): over what it holds
+  cardRow(D(2)).location_id = loc("LOC-CLAMP-01").id;
+  cardRow(D(2)).located_at = "2026-11-24T12:00:00+00:00";
   const s = await svc.resolve.resolveTrackCode(admin, "https://thecarddoc1.com/q/loc-clamp-01");
   assert.ok(s.ok, s.ok ? "" : s.error);
   if (!s.ok || s.response.kind !== "location") return;
   const slot = s.response.location;
   assert.deepEqual([slot.code, slot.name, slot.stageLabel, slot.capacity, slot.cardCount, slot.free, slot.overCapacity], ["LOC-CLAMP-01", "CLAMP 01", "Clamp Work", 1, 2, false, true]);
   assert.deepEqual(slot.cards.map((c) => [c.code, c.customer, c.stageLabel, c.dueDate]).sort(), [
-    ["CD-4002-01", "Sam Collector", "Clamp Work", null], ["CD-4002-02", "Sam Collector", "Clamp Work", null],
+    ["CD-4002-01", "Sam Collector", "Clamp Work", null], ["CD-4002-02", "Sam Collector", "Not started", null],
   ]);
   const empty = await svc.resolve.resolveTrackCode(admin, "LOC-HEAT-PRESS-01");
   assert.ok(empty.ok && empty.response.kind === "location" && empty.response.location.free && empty.response.location.cards.length === 0);
@@ -438,9 +476,9 @@ test("history: a card's moves newest first, with places and step labels; a slot'
   ]);
   assert.equal(h.response.moves[0].cardCode, "CD-4001-01");
   const slot = await svc.history.loadHistory(admin, "LOC-HEAT-PRESS-01");
-  assert.ok(slot.ok && slot.response.moves.length === 4, "2 in, 2 out");
+  assert.ok(slot.ok && slot.response.moves.length === 2, "1 in, 1 out");
   const bag = await svc.history.loadHistory(admin, "CD-4002-G");
-  assert.ok(bag.ok && bag.response.moves.length === 2);
+  assert.ok(bag.ok && bag.response.moves.length === 1, "card 1 into CLAMP 01 (card 2 was written straight in the table)");
 });
 
 test("shelf slots: one per due date, made once; bags go on their due date's slot", async () => {
@@ -471,9 +509,15 @@ test("places list with occupancy; rename and switch off; a switched-off slot ref
   const clamps = await svc.locations.listLocations(admin, { station: "clamp" });
   assert.ok(clamps.ok && clamps.locations.map((l) => l.serial).join() === "1,2,3,4,5,6");
 
+  // A one-card holder with a card lists its Card IDs (the picker's "Has CD-4002-01"); others don't
+  assert.deepEqual(by.get("LOC-CLAMP-01")!.cardCodes?.sort(), ["CD-4002-01", "CD-4002-02"]);
+  assert.equal(by.get("LOC-HEAT-PRESS-01")!.cardCodes, undefined);
+
   const id = loc("LOC-CLAMP-06").id as string;
-  const renamed = await svc.locations.updateLocation(admin, { id, name: "CLAMP 06 (big)", capacity: 3 });
-  assert.ok(renamed.ok && renamed.location.name === "CLAMP 06 (big)" && renamed.location.code === "LOC-CLAMP-06" && renamed.location.capacity === 3);
+  const big = await svc.locations.updateLocation(admin, { id, name: "CLAMP 06 (big)", capacity: 3 });
+  assert.ok(!big.ok && big.status === 400 && /holds one card/.test(big.error), "a slot's limit can't change");
+  const renamed = await svc.locations.updateLocation(admin, { id, name: "CLAMP 06 (big)" });
+  assert.ok(renamed.ok && renamed.location.name === "CLAMP 06 (big)" && renamed.location.code === "LOC-CLAMP-06" && renamed.location.capacity === 1);
   const off = await svc.locations.updateLocation(admin, { id, active: false });
   assert.ok(off.ok && off.location.active === false);
   const refused = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-06", cardIds: [D(1)], by: "gavin" });

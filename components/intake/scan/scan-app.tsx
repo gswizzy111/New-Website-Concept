@@ -82,12 +82,14 @@ type View =
 /**
  * What the next slot scan does. A move waits at most MOVE_WAIT_MS from `at`
  * (when Move was tapped) and ends when another place or a bag is shown, so a
- * forgotten "Move to another holder" never acts on a later scan.
+ * forgotten "Move to another holder" never acts on a later scan. `refused`:
+ * the last holder scanned for them can't take them (it has a card: one card
+ * per holder), the server's sentence.
  */
 type Waiting =
   | null
-  | { type: "move"; from: TrackSlotSummary; cards: TrackCardSummary[]; at: number }
-  | { type: "assign"; cards: TrackCardSummary[] };
+  | { type: "move"; from: TrackSlotSummary; cards: TrackCardSummary[]; at: number; refused?: string }
+  | { type: "assign"; cards: TrackCardSummary[]; refused?: string };
 
 /** What "Add anyway" sends again when a slot is full. */
 type Retry =
@@ -433,6 +435,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           return;
         }
         fail(res.error);
+        // A holder that has a card (one card per holder): the cards still wait for one, the top panel says why
+        const w = waitingRef.current;
+        if (res.full && w?.type === "assign") setWaiting({ ...w, refused: res.error });
+        else if (res.full && targetRef.current?.slot.code === slot.code) setTarget(null);
         return;
       }
       setWaiting(null);
@@ -457,7 +463,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         }
       }
     },
-    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setTarget, setView, setWaiting, targetRef, viewRef],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setTarget, setView, setWaiting, targetRef, viewRef, waitingRef],
   );
 
   const doMove = useCallback(
@@ -475,6 +481,12 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           return;
         }
         fail(res.error);
+        if (res.full) {
+          // That holder has a card (one card per holder): keep waiting for another holder, the top panel says why
+          const w = waitingRef.current;
+          setWaiting(w?.type === "move" && w.from.code === from.code ? { ...w, refused: res.error } : { type: "move", from, cards, at: Date.now(), refused: res.error });
+          return;
+        }
         if (res.status === 409) {
           // The cards aren't in the from-slot any more (or a slot is switched off): stop waiting, show it as it is now
           setWaiting(null);
@@ -488,7 +500,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (picksRef.current) setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location) });
       await refreshSlot(to.code);
     },
-    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setWaiting],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setWaiting, waitingRef],
   );
 
   /**
@@ -779,7 +791,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   // The line that says what the next scan does ("Ready to scan" when nothing is waiting for one)
   let cue: { title: string; sub?: string; tone: string; ready?: boolean; cancel?: () => void; cancelLabel?: string; link?: { href: string; label: string } };
-  if (waiting?.type === "move") {
+  if (waiting?.refused) {
+    // The last holder scanned has a card already: say so until the next scan (a holder, or Cancel)
+    cue = { title: `Scan another holder for ${cardsLabel(waiting.cards)}`, sub: waiting.refused, tone: "border border-red-300 bg-red-50 text-red-950", cancel: cancelWaiting };
+  } else if (waiting?.type === "move") {
     cue = { title: `Scan the next slot for ${cardsLabel(waiting.cards)}`, sub: `Moving from ${waiting.from.name}. Or type its name (desk, clamp 7) below.`, tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (waiting?.type === "assign") {
     cue = { title: `Scan the slot for ${cardsLabel(waiting.cards)}`, sub: "Or type its name (desk, clamp 7) below.", tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
@@ -978,7 +993,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
               <li>Scan an <span className="font-semibold text-foreground">empty holder</span>, then scan the bag and tap the card to put in it.</li>
               <li>Scan a <span className="font-semibold text-foreground">holder with a card</span> to see it big: Move to my desk, Move to another holder (scan it, or pick it from the list), Done, or Take out.</li>
               <li>Scan a <span className="font-semibold text-foreground">bag</span> to see where each of its cards is.</li>
-              <li>A stack coming out (a heat press of 8): scan the holder and tap <span className="font-semibold text-foreground">Move all 8 to my desk</span>. Or tick some and use Done, Move or Take out for those.</li>
+              <li>Each holder takes <span className="font-semibold text-foreground">one card</span>; only a desk holds more. Scan a desk to tick some of its cards and use Done, Move or Take out for those.</li>
             </ul>
             <div className="mt-3 flex flex-wrap gap-2">
               <AdminLink href="/admin/receiving/locations" className={smallButton}>Slots and labels</AdminLink>

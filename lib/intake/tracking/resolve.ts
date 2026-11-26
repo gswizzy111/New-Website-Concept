@@ -76,13 +76,15 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
     const cards = ids.map((id) => byId.get(id)).filter((c): c is TrackCardRow => !!c).map((c) => cardSummary(c, ctx));
     const cardCount = count ?? cards.length;
     const bags = bagRows.sort(byBag).map((b) => withoutCards(bagSummary(b, ctx.cards, ctx)));
+    // The one-card rule applied (locationView's capacity): a slot holds 1 whatever is stored
+    const view = locationView(row);
     return {
       ok: true,
       location: {
-        ...locationView(row),
+        ...view,
         cardCount,
-        free: hasRoom(row.capacity, cardCount),
-        overCapacity: row.capacity != null && cardCount > row.capacity,
+        free: hasRoom(view.capacity, cardCount),
+        overCapacity: view.capacity != null && cardCount > view.capacity,
         cards,
         bags,
         ...(desks ? { desks } : {}),

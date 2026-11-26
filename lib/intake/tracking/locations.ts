@@ -5,7 +5,7 @@ import { isDay } from "@/lib/intake/business-days";
 import { isLocationCode, normalizeCode } from "@/lib/intake/codes";
 import type { IntakeResult } from "@/lib/intake/types";
 import {
-  LOCATION_COLUMNS, compareLocations, hasRoom, isLocationKind, locationCodeCandidates, locationView,
+  LOCATION_COLUMNS, ONE_CARD, compareLocations, hasRoom, holdsOneCard, isLocationKind, locationCodeCandidates, locationView,
 } from "@/lib/intake/tracking/places";
 import { ensureShelfSlotRow } from "@/lib/intake/tracking/shelf";
 import { slotCode, slotName, stationType } from "@/lib/intake/tracking/stations";
@@ -15,7 +15,9 @@ import type { LocationKind, LocationRow, TrackLocation, TrackLocationWithCount }
  * Slots and places (the `locations` table), server only. Admin access is
  * checked by the calling route. Codes are made here and never change, so
  * printed QR labels keep working; places are switched off (active = false),
- * never deleted.
+ * never deleted. Every slot, and every other place but a desk or the Open
+ * bags box, holds one card (places.ts holdsOneCard; owner, Nov 26 2026): new
+ * ones store capacity 1, and their capacity can't be changed.
  */
 
 const MAX_NAME = 60;
@@ -48,11 +50,28 @@ async function countBy(admin: SupabaseClient, table: "cards" | "tier_bags"): Pro
   return out;
 }
 
+/** The cards in each place: how many, and the first few Card IDs (a one-card holder shows its card as "Has CD-2549-03"). */
+async function cardsByPlace(admin: SupabaseClient): Promise<Map<string, { count: number; codes: string[] }>> {
+  const rows = await fetchAll<{ id: string; location_id: string | null; card_code: string | null }>((from, to) =>
+    admin.from("cards").select("id, location_id, card_code").not("location_id", "is", null).order("id").range(from, to));
+  const out = new Map<string, { count: number; codes: string[] }>();
+  for (const r of rows) {
+    if (!r.location_id) continue;
+    const at = out.get(r.location_id) ?? { count: 0, codes: [] };
+    at.count += 1;
+    if (r.card_code && at.codes.length < 5) at.codes.push(r.card_code);
+    out.set(r.location_id, at);
+  }
+  return out;
+}
+
 /**
  * Every slot and place in list order (slots by station type and number,
- * shelf slots by due date, Done, Shipping, others) with what's in it.
- * Switched-off places only with `includeInactive`; `station` limits it to
- * one station type's slots.
+ * shelf slots by due date, Done, Shipping, others) with what's in it
+ * (`capacity` and `free` with the one-card rule applied; a one-card holder
+ * with a card in it lists its Card IDs, `cardCodes`). Switched-off places
+ * only with `includeInactive`; `station` limits it to one station type's
+ * slots.
  */
 export async function listLocations(
   admin: SupabaseClient,
@@ -66,12 +85,20 @@ export async function listLocations(
         if (opts.station) q = q.eq("station", opts.station);
         return q.order("id").range(from, to);
       }),
-      countBy(admin, "cards"),
+      cardsByPlace(admin),
       countBy(admin, "tier_bags"),
     ]);
-    const locations = rows.sort(compareLocations).map((r) => {
-      const cardCount = cards.get(r.id) ?? 0;
-      return { ...locationView(r), cardCount, bagCount: bags.get(r.id) ?? 0, free: hasRoom(r.capacity, cardCount) };
+    const locations = rows.sort(compareLocations).map((r): TrackLocationWithCount => {
+      const view = locationView(r);
+      const inIt = cards.get(r.id);
+      const cardCount = inIt?.count ?? 0;
+      return {
+        ...view,
+        cardCount,
+        bagCount: bags.get(r.id) ?? 0,
+        free: hasRoom(view.capacity, cardCount),
+        ...(cardCount && holdsOneCard(r) ? { cardCodes: inIt?.codes ?? [] } : {}),
+      };
     });
     return { ok: true, locations };
   } catch (e) {
@@ -82,7 +109,7 @@ export async function listLocations(
 /**
  * Add `count` numbered slots of a station type: { station: "clamp", count: 20 }
  * makes CLAMP 01..20 (LOC-CLAMP-01..20), each with the type's step and
- * default capacity. Numbers start at `startAt`, else after the highest
+ * capacity 1 (every slot holds one card). Numbers start at `startAt`, else after the highest
  * number the type has. Numbers already used are skipped (listed), never
  * changed. Race-safe (insert ... on conflict do nothing).
  */
@@ -113,7 +140,8 @@ export async function createSlots(
       kind: "station",
       station: type.key,
       serial,
-      capacity: type.defaultCapacity,
+      // One card per slot (owner, Nov 26 2026), whatever the type
+      capacity: ONE_CARD,
       stage: type.stage,
       sort: serial,
       active: true,
@@ -135,6 +163,8 @@ export async function createSlots(
  * Add one place that isn't a numbered slot (Done, Shipping, other). The code
  * is made from the name (LOC-BACK-TABLE; -2, -3 ... if taken). A shelf needs
  * `dueDate` and is that day's slot (ensureShelfSlot: never two for one day).
+ * An other place that isn't a desk stores capacity 1 (it holds one card); a
+ * desk, Done and Shipping store no limit.
  */
 export async function createLocation(
   admin: SupabaseClient,
@@ -161,7 +191,7 @@ export async function createLocation(
   const used = new Set((taken ?? []).map((r) => r.code as string));
   for (const code of candidates.filter((c) => !used.has(c))) {
     const { data, error } = await admin.from("locations")
-      .insert({ code, name, kind: input.kind, sort: 0, active: true, created_by: input.by })
+      .insert({ code, name, kind: input.kind, capacity: holdsOneCard({ kind: input.kind, code }) ? ONE_CARD : null, sort: 0, active: true, created_by: input.by })
       .select(LOCATION_COLUMNS).single();
     if (!error && data) return { ok: true, location: locationView(data as LocationRow), created: true };
     // Taken in the meantime: try the next code
@@ -170,7 +200,13 @@ export async function createLocation(
   return { ok: false, status: 409, error: "Too many places have that name. Pick another name." };
 }
 
-/** Rename a place, switch it off or on, change its capacity (null = no limit) or sort. The code and number never change. */
+/**
+ * Rename a place, switch it off or on, change its capacity (null = no limit)
+ * or sort. The code and number never change. Only a place that isn't a
+ * one-card holder (a desk, a shelf, Done, Shipping, the Open bags box) can
+ * change its capacity: a slot or other place stays at one card (400 for any
+ * other value; 1 is accepted, so a stored "no limit" can be tidied).
+ */
 export async function updateLocation(
   admin: SupabaseClient,
   input: { id: string; name?: string; active?: boolean; capacity?: number | null; sort?: number },
@@ -188,6 +224,16 @@ export async function updateLocation(
       return { ok: false, status: 400, error: "Capacity is a whole number of cards (or no limit)." };
     }
     patch.capacity = input.capacity;
+  }
+  if (input.capacity !== undefined && input.capacity !== ONE_CARD) {
+    let row: LocationRow | null;
+    try {
+      row = await getLocationById(admin, input.id);
+    } catch (e) {
+      return { ok: false, status: 500, error: `Couldn't read the place. (${errText(e)})` };
+    }
+    if (!row) return { ok: false, status: 404, error: "Place not found" };
+    if (holdsOneCard(row)) return { ok: false, status: 400, error: `${row.name} holds one card (the owner's rule), so its limit can't change.` };
   }
   if (input.sort !== undefined) {
     if (!Number.isInteger(input.sort) || Math.abs(input.sort) > 1e9) return { ok: false, status: 400, error: "Invalid sort." };

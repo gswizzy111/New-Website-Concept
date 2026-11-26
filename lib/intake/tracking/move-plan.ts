@@ -23,6 +23,10 @@ import type { LocationKind, MoveAction, TrackCardResult } from "@/lib/intake/tra
  *   staff-only step event and no email.
  * - Into a Done place (kind 'done'), or `done`: the card is marked done.
  * - Shelves, Shipping and other places only change where the card is.
+ * - A one-card holder (every slot, every other place but a desk or the Open
+ *   bags box: holdsOneCard in places.ts) takes one card: moves.ts refuses a
+ *   second card, or several at once, before anything is written
+ *   (oneCardRefusal below; force never bypasses it).
  * - `release` takes the card out of its slot (no place); its step stays.
  * - A card is in one place at a time, so going anywhere frees its old slot.
  * - Idempotent: a card already there, at that step, is left alone (no move
@@ -229,4 +233,42 @@ function summary(
 export function overCapacity(capacity: number | null | undefined, occupantIds: readonly string[], movingIds: readonly string[]): boolean {
   if (capacity == null) return false;
   return new Set([...occupantIds, ...movingIds]).size > capacity;
+}
+
+/** A card in a sentence: "CD-2549-03 · Charizard" (what's known of it). */
+function cardRef(c: { code: string | null; name: string | null }): string {
+  return [c.code, c.name?.trim() || null].filter(Boolean).join(" · ") || "a card";
+}
+
+/** "CLAMP 07 holds one card. Pick one card to put here." (several cards at once into a one-card holder). */
+export function oneCardOnlyText(holderName: string): string {
+  return `${holderName} holds one card. Pick one card to put here.`;
+}
+
+/**
+ * A one-card holder that has a card in it already: "CLAMP 07 already has a
+ * card (CD-2549-03 · Charizard). Take it out first, or pick another holder."
+ * (2+ from before the rule: "already has 2 cards (…, …). Take them out first,
+ * …"; not known: "already has a card. Take it out first, …").
+ */
+export function holderTakenText(holderName: string, occupants: readonly { code: string | null; name: string | null }[]): string {
+  const tail = occupants.length > 1 ? "Take them out first, or pick another holder." : "Take it out first, or pick another holder.";
+  if (!occupants.length) return `${holderName} already has a card. ${tail}`;
+  if (occupants.length === 1) return `${holderName} already has a card (${cardRef(occupants[0])}). ${tail}`;
+  return `${holderName} already has ${occupants.length} cards (${occupants.map(cardRef).join(", ")}). ${tail}`;
+}
+
+/**
+ * The owner's one-card rule for a request into a one-card holder (places.ts
+ * holdsOneCard), whatever its stored capacity and whatever `force` says:
+ * `going` = the cards that would go in (a card already in it isn't going:
+ * putting it there again is no change), `others` = the cards in it now that
+ * aren't going. "taken" when it has another card (whatever is going),
+ * "several" when 2+ would go in at once, else null (allowed).
+ */
+export function oneCardRefusal(going: readonly string[], others: readonly string[]): "taken" | "several" | null {
+  const g = new Set(going);
+  if (!g.size) return null;
+  if (others.some((id) => !g.has(id))) return "taken";
+  return g.size > 1 ? "several" : null;
 }

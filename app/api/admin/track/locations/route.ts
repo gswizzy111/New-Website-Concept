@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET [?all=1] [?station=clamp]
- *   → 200 LocationsResponse { locations: TrackLocationWithCount[] (cardCount, bagCount, free),
- *     stations: StationType[] }
+ *   → 200 LocationsResponse { locations: TrackLocationWithCount[] (cardCount, bagCount, free, capacity
+ *     with the one-card rule applied, cardCodes for a one-card holder with a card), stations: StationType[] }
  */
 export async function GET(request: Request) {
   const admin = await trackAdmin();
@@ -55,6 +55,7 @@ export async function POST(request: Request) {
 /**
  * PATCH { id, name?, active?, capacity?: number | null, sort? } → 200 { location }; 400 / 404 { error }
  * Rename, switch off/on, change capacity. The code and number never change (labels are printed).
+ * A slot or an other place that isn't a desk holds one card: its capacity can't change (400).
  */
 export async function PATCH(request: Request) {
   const admin = await trackAdmin();

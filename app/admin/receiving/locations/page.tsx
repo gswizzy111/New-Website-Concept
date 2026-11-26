@@ -5,24 +5,31 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { nyToday } from "@/lib/intake/business-days";
-import { stationName } from "@/lib/intake/tracking/stations";
+import { ONE_CARD, OPEN_BAGS_CODE, holdsOneCard, placeCapacity } from "@/lib/intake/tracking/places";
+import { capacityText, stationName } from "@/lib/intake/tracking/stations";
 import { shortDay } from "../bags/_components/bag-bits";
 import { STATION_TYPES, stageRank, stepText, type StationType } from "../shelf/_lib/places";
 import { loadPlaces, type PlaceWithCards } from "./load-places";
 import {
-  AddDeskForm, AddPlaceForm, AddSlotsForm, NextShelfSignsPrint, PlaceItem, SlotTile, StationCapacity, StationRangePrint,
+  AddDeskForm, AddPlaceForm, AddSlotsForm, NextShelfSignsPrint, PlaceItem, SlotTile, StationRangePrint,
   type PlaceItemData, type SlotTileData,
 } from "./places-client";
 
 /**
  * Places: every serial-numbered slot (CLAMP 07, HEAT PRESS 03...) grouped by
  * station type with who's in it, the desks, the due-date shelf slots, the
- * Done shelf, Shipping and anything else. Add slots in bulk, set a station
- * type's capacity for all its slots, add a desk, print their QR labels (one,
- * or a serial range), rename and turn off. On the Scan page, scanning a slot
- * then a bag's label puts a card in it (the card's step follows the slot); a
- * desk (LOC-DESK, LOC-DESK-<NAME>) only changes where cards are, and the Desk
- * page shows them.
+ * Done shelf, Shipping and anything else. Add slots in bulk, add a desk,
+ * print their QR labels (one, or a serial range), rename and turn off. On
+ * the Scan page, scanning a slot then a bag's label puts a card in it (the
+ * card's step follows the slot); a desk (LOC-DESK, LOC-DESK-<NAME>) only
+ * changes where cards are, and the Desk page shows them.
+ *
+ * Every slot, and every other place but a desk or the Open bags box, holds
+ * ONE card (owner, Nov 26 2026: "I want every single sticker station thingy
+ * to only be able to hold one card other than my desk"): each station says
+ * "Holds 1 card", with no capacity setting; slots whose stored capacity says
+ * otherwise (made before the rule) are named, "now 1 card (owner's rule)".
+ * The server enforces it whatever is stored; this page writes no capacity.
  */
 
 export const dynamic = "force-dynamic";
@@ -49,6 +56,42 @@ function shelfNote(day: string | null, today: string): string | null {
 /** A desk: a place whose code is LOC-DESK or LOC-DESK-<NAME>. */
 const isDesk = (p: PlaceWithCards) => p.kind === "other" && isDeskCode(p.code);
 
+const RULE_NOTE = "now 1 card (owner's rule)";
+
+/**
+ * A station's slots whose stored capacity isn't 1 (made before the one-card
+ * rule): "All 30 slots were set to no limit: now 1 card (owner's rule).",
+ * "10 slots were set to no limit, 2 to 3 cards: now 1 card (owner's
+ * rule)."; null when every slot stores 1.
+ */
+function storedCapacityNote(slots: readonly PlaceWithCards[]): string | null {
+  const odd = slots.filter((p) => p.capacity !== ONE_CARD);
+  if (!odd.length) return null;
+  const counts = new Map<number | null, number>();
+  for (const p of odd) counts.set(p.capacity, (counts.get(p.capacity) ?? 0) + 1);
+  const parts = [...counts].sort(([a], [b]) => (a ?? Infinity) - (b ?? Infinity)).map(([c, n], i) => {
+    const what = c == null ? "no limit" : `${c} cards`;
+    if (i > 0) return `${n} to ${what}`;
+    const who = n === slots.length && n > 1 ? `All ${n} slots were` : `${n} slot${n === 1 ? " was" : "s were"}`;
+    return `${who} set to ${what}`;
+  });
+  return `${parts.join(", ")}: ${RULE_NOTE}.`;
+}
+
+/** What a place row says it holds: a desk "No limit" (or its limit), any other place but the Open bags box "Holds 1 card". */
+function holdsText(p: PlaceWithCards): string | null {
+  if (isDesk(p)) return capacityText(p.capacity);
+  if (!holdsOneCard(p)) return null;
+  return p.capacity === ONE_CARD ? capacityText(ONE_CARD) : `${capacityText(p.capacity)} before · ${RULE_NOTE}`;
+}
+
+/** An other place named like a desk whose code isn't a desk's ("Gavins Desk", LOC-GAVINS-DESK): it holds one card. */
+function notADeskNote(p: PlaceWithCards): string | null {
+  return p.kind === "other" && !isDesk(p) && p.code !== OPEN_BAGS_CODE && /\bdesk\b/i.test(p.name)
+    ? "Not a desk: it holds one card. Add desks under Desks"
+    : null;
+}
+
 function toItem(p: PlaceWithCards, today: string): PlaceItemData {
   return {
     id: p.id,
@@ -59,7 +102,8 @@ function toItem(p: PlaceWithCards, today: string): PlaceItemData {
     active: p.active,
     cardCount: p.cards.length,
     bagCount: p.bagCount,
-    note: p.kind === "shelf" ? shelfNote(p.due_date, today) : null,
+    note: p.kind === "shelf" ? shelfNote(p.due_date, today) : notADeskNote(p),
+    holds: holdsText(p),
     shelfHref: p.kind === "shelf" && p.due_date ? `/admin/receiving/shelf#due-${p.due_date}` : null,
     deskHref: isDesk(p) ? deskPagePath(p.code) : null,
   };
@@ -71,7 +115,8 @@ function toTile(p: PlaceWithCards, today: string): SlotTileData {
     code: p.code,
     name: p.name,
     active: p.active,
-    capacity: p.capacity,
+    // One card per slot, whatever is stored (the owner's rule)
+    capacity: placeCapacity(p),
     cards: p.cards.map((c) => ({
       id: c.id,
       code: c.code,
@@ -126,7 +171,7 @@ export default async function PlacesPage() {
   for (const p of slots) {
     const key = typeKey(p);
     if (!types.some((t) => t.key === key)) {
-      types.push({ key, name: stationName(p.station) ?? (stepText(p.stage) || "Station"), stage: p.stage ?? "", defaultCapacity: p.capacity });
+      types.push({ key, name: stationName(p.station) ?? (stepText(p.stage) || "Station"), stage: p.stage ?? "", defaultCapacity: ONE_CARD });
     }
   }
   types.sort((a, b) => stageRank(a.stage) - stageRank(b.stage));
@@ -207,7 +252,7 @@ export default async function PlacesPage() {
                 <h2 id="slots-h" className="font-heading font-black text-xl text-foreground">
                   Station slots <span className="text-muted-foreground font-medium text-sm">({slotCount} · {inUse} in use)</span>
                 </h2>
-                <p className="text-xs text-muted-foreground">By station, in step order. Print each slot&apos;s label once and stick it on the slot.</p>
+                <p className="text-xs text-muted-foreground">By station, in step order. Each slot holds one card; only a desk holds more. Print each slot&apos;s label once and stick it on the slot.</p>
               </div>
               {withSlots.length === 0 && (
                 <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">No slots yet. Add them above, for example 20 clamps.</p>
@@ -215,9 +260,8 @@ export default async function PlacesPage() {
               {withSlots.map(({ type, slots: list }) => {
                 const used = list.filter((p) => p.cards.length).length;
                 const serials = list.map((p) => p.serial).filter((s): s is number => s != null);
-                // Capacity is set for every slot of the type, turned-off ones too
-                const ofType = all.filter((p) => p.kind === "station" && typeKey(p) === type.key);
-                const known = STATION_TYPES.find((t) => t.key === type.key);
+                // Slots of the type (turned-off ones too) that stored another capacity before the one-card rule
+                const stored = storedCapacityNote(all.filter((p) => p.kind === "station" && typeKey(p) === type.key));
                 return (
                   <section key={type.key} aria-labelledby={`type-${type.key}`} className="rounded-xl bg-white/60 border border-border p-3 sm:p-4">
                     <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
@@ -226,11 +270,10 @@ export default async function PlacesPage() {
                         <p className="text-xs text-muted-foreground">
                           {[stepText(type.stage), `${list.length} slot${list.length === 1 ? "" : "s"}`, `${used} in use`, `${list.length - used} empty`].filter(Boolean).join(" · ")}
                         </p>
-                        <StationCapacity
-                          typeName={type.name}
-                          defaultCapacity={known ? known.defaultCapacity : undefined}
-                          slots={ofType.map((p) => ({ id: p.id, name: p.name, capacity: p.capacity, cardCount: p.cards.length, active: p.active }))}
-                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          <span className="font-bold text-foreground">{capacityText(ONE_CARD)}</span>
+                          {stored && <span className="font-semibold text-amber-800"> · {stored}</span>}
+                        </p>
                       </div>
                       <StationRangePrint
                         station={type.key}

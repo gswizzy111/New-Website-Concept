@@ -1,7 +1,7 @@
 import { parseScan, scanKindLabel, typedSlotGuess } from "@/components/intake/scan/parse";
 import { roomLeft } from "@/components/intake/scan/format";
 import { OPEN_BAGS_CODE } from "@/lib/intake/tracking/bag-home";
-import { DONE_LOCATION_CODE, SHIP_LOCATION_CODE } from "@/lib/intake/tracking/places";
+import { DONE_LOCATION_CODE, SHIP_LOCATION_CODE, holdsOneCard, placeCapacity } from "@/lib/intake/tracking/places";
 import type { StationType, TrackLocationWithCount } from "@/lib/intake/tracking/types";
 
 /**
@@ -19,7 +19,11 @@ export type HolderGroup = {
   step: string | null;
   /** Holders with room for the cards being put away, in list order. */
   free: TrackLocationWithCount[];
-  /** Holders without room (they can still be picked: "Add anyway?"). */
+  /**
+   * Holders without room: a one-card holder with a card in it (shown greyed
+   * with its Card ID, never offered: isTakenHolder), or a desk at the limit
+   * set on it (it can still be picked: "Add anyway?").
+   */
   full: TrackLocationWithCount[];
 };
 
@@ -73,7 +77,9 @@ export function matchesHolder(l: Pick<TrackLocationWithCount, "code" | "name">, 
 /**
  * The holders to offer for `need` cards, grouped by station type in step
  * order (the server's list order within a type), then other places; groups
- * with a free holder first. `query` narrows the list (matchesHolder).
+ * with a free holder first. `query` narrows the list (matchesHolder). A
+ * one-card holder (every slot, every other place but a desk) takes one card:
+ * for 2+ cards only desks are listed (oneEachText says why).
  */
 export function holderGroups(
   locations: readonly TrackLocationWithCount[],
@@ -82,7 +88,7 @@ export function holderGroups(
 ): HolderGroup[] {
   const need = Math.max(1, opts.need ?? 1);
   const query = opts.query ?? "";
-  const shown = locations.filter((l) => listable(l, opts.excludeId) && matchesHolder(l, query));
+  const shown = locations.filter((l) => listable(l, opts.excludeId) && matchesHolder(l, query) && (need === 1 || !holdsOneCard(l)));
   const groups = new Map<string, HolderGroup>();
   const order: string[] = [...stations.map((s) => `station:${s.key}`)];
   for (const l of shown) {
@@ -100,7 +106,7 @@ export function holderGroups(
       groups.set(key, g);
       if (!order.includes(key) && key !== "other") order.push(key);
     }
-    (roomLeft(l.capacity, l.cardCount) >= need ? g.free : g.full).push(l);
+    (roomLeft(placeCapacity(l), l.cardCount) >= need ? g.free : g.full).push(l);
   }
   order.push("other");
   const list = order.map((k) => groups.get(k)).filter((g): g is HolderGroup => !!g);
@@ -146,4 +152,20 @@ export function holderFromText(
     return { ok: false, error: `No holder is called "${t.slice(0, 40)}". Try clamp 7, or tap one below.` };
   }
   return { ok: false, error: `${named.length} holders match. Tap one below.` };
+}
+
+/** A one-card holder with a card in it already: listed as full, greyed, never offered (the server refuses a second card). */
+export function isTakenHolder(l: Pick<TrackLocationWithCount, "kind" | "code" | "cardCount">): boolean {
+  return holdsOneCard(l) && l.cardCount > 0;
+}
+
+/** What a full one-card holder says in the picker: "Has CD-2549-03" (its card's ID), "Has 2 cards" (from before the rule), "Has a card". */
+export function takenText(l: Pick<TrackLocationWithCount, "cardCount" | "cardCodes">): string {
+  if (l.cardCount > 1) return `Has ${l.cardCount} cards`;
+  return l.cardCodes?.[0] ? `Has ${l.cardCodes[0]}` : "Has a card";
+}
+
+/** Over the list when 2+ cards are being put away: holders take one card each, so only desks are listed. */
+export function oneEachText(n: number): string {
+  return `Each holder takes one card: put these ${n} cards in one at a time, or on another desk.`;
 }

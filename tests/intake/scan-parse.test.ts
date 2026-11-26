@@ -205,7 +205,8 @@ test("desks: typed \"desk\" is LOC-DESK; a named desk by its name; the Desk page
   assert.equal(isDeskCode("LOC-DESK"), true);
   assert.equal(isDeskCode("LOC-DESK-GAVIN"), true);
   assert.equal(isDeskCode("LOC-DESK-2"), true);
-  for (const code of ["LOC-DESKS", "LOC-DESKTOP", "LOC-PHOTO-DESK", "LOC-DONE", "", null, undefined]) assert.equal(isDeskCode(code), false, String(code));
+  assert.equal(isDeskCode("LOC-PHOTO-DESK"), true); // a code ending in -DESK is a desk ("Gavins Desk" -> LOC-GAVINS-DESK)
+  for (const code of ["LOC-DESKS", "LOC-DESKTOP", "LOC-DONE", "", null, undefined]) assert.equal(isDeskCode(code), false, String(code));
   assert.equal(deskPagePath("LOC-DESK-GAVIN"), "/admin/receiving/desk?desk=LOC-DESK-GAVIN");
   // The Scan page, Places and the Desk page share one rule (desk-codes.ts): a code read from a QR link or typed in lower case too
   assert.equal(isDeskCode("https://thecarddoc1.com/q/loc-desk-gavin"), true);
