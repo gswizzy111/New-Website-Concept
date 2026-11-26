@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { startMock } from "./mock-supabase.mjs";
-import { buildSeed, ADMIN_TOKEN, IDS, ORDER_NUMBERS } from "./seed.mjs";
+import { buildSeed, ADMIN_TOKEN, IDS, ORDER_NUMBERS, WORKSHOP_TOKEN, WORKSHOP_OFF_TOKEN, WORKSHOP_USERNAME } from "./seed.mjs";
 
 const mock = await startMock({ port: 0, seedFn: (base) => buildSeed({ baseUrl: base }), quiet: true });
 const db = createClient(mock.url, "placeholder-service", { auth: { persistSession: false } });
@@ -162,6 +162,42 @@ await check("/__reset restores the seed", async () => {
   const dump = await (await fetch(`${mock.url}/__dump`)).json();
   assert.equal(dump.tables.tier_bags.length, 0);
   assert.equal(dump.tables.cards.find((c) => c.id === IDS.mailCards[0]).card_code, null);
+});
+
+// ─── Workshop logins (team-*): the session lookup lib/admin-session.ts makes for role 'workshop' ───
+await check("workshop session lookup: admin_sessions.workshop_id embeds workshop_users; the turned-off worker's row says active false", async () => {
+  const look = (token) => db.from("admin_sessions")
+    .select("workshop_id, workshop_users(id, username, name, active, password_hash)")
+    .eq("token_hash", crypto.createHash("sha256").update(token).digest("hex")).eq("role", "workshop")
+    .gt("expires_at", new Date().toISOString()).maybeSingle();
+  const on = await look(WORKSHOP_TOKEN);
+  assert.equal(on.error, null);
+  assert.equal(on.data.workshop_users.username, WORKSHOP_USERNAME);
+  assert.equal(on.data.workshop_users.active, true);
+  assert.ok(on.data.workshop_users.password_hash.includes(":"));
+  const off = await look(WORKSHOP_OFF_TOKEN);
+  assert.equal(off.data.workshop_users.active, false);
+  // the admin's own session has no worker
+  const admin = await db.from("admin_sessions").select("role, workshop_id, workshop_users(username)").eq("role", "admin").single();
+  assert.equal(admin.data.workshop_users, null);
+});
+
+await check("workshop_users: an admin's username (any case) is refused like the trigger does; usernames are unique and lower case; card_photo_events are insert-only", async () => {
+  const taken = await db.from("workshop_users").insert({ username: "harness-admin" }).select("id");
+  assert.equal(taken.error?.code, "23505");
+  assert.match(taken.error.message, /admin username/);
+  const dup = await db.from("workshop_users").insert({ username: WORKSHOP_USERNAME }).select("id");
+  assert.equal(dup.error?.code, "23505");
+  const upper = await db.from("workshop_users").insert({ username: "Sam" }).select("id");
+  assert.equal(upper.error?.code, "23514");
+  const ok = await db.from("workshop_users").insert({ username: "sam" }).select("id, active, password_hash").single();
+  assert.equal(ok.error, null);
+  assert.deepEqual([ok.data.active, ok.data.password_hash ?? null], [true, null]);
+  const ev = await db.from("card_photo_events").insert({ card_id: IDS.mailCards[0], action: "add", photo_url: "x", by: "sam" }).select("id").single();
+  assert.equal(ev.error, null);
+  const change = await db.from("card_photo_events").update({ by: "someone" }).eq("id", ev.data.id);
+  assert.equal(change.error?.code, "P0001");
+  await fetch(`${mock.url}/__reset`, { method: "POST" });
 });
 
 console.log(`${passed} checks passed${process.exitCode ? ", some FAILED" : ""}`);

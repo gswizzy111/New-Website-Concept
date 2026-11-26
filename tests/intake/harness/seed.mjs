@@ -311,13 +311,16 @@ export function buildSeed({ baseUrl }) {
   });
 
   const created = "2026-11-01T12:00:00.000Z";
+  const workshop = workshopSeedTables(created);
   return {
     tables: {
       admin_users: [{ id: IDS.admin, username: ADMIN_USERNAME, password_hash: "pbkdf2$harness$not-a-real-hash", active: true, created_at: created, last_login_at: null, email: "harness-admin@example.com" }],
       admin_sessions: [{
         token_hash: sha256(ADMIN_TOKEN), role: "admin", admin_user_id: IDS.admin, accountant_id: null, support_id: null,
         created_at: created, expires_at: "2099-01-01T00:00:00.000Z", user_agent: "harness",
-      }],
+      }, ...workshop.sessions],
+      // Workshop logins (team-*): their own table, never admin_users (see the end of this file)
+      workshop_users: workshop.workshop_users,
       accountant_access: [],
       support_access: [],
       restoration_settings: TIER_SETTINGS.map((t) => ({ is_open: true, description: `${t.display_name} test tier`, includes_notes: true, includes_video: false, display_slots_remaining: null, ...t })),
@@ -642,4 +645,50 @@ export function buildDoneSeed() {
       "Restoration notes saved. They go to the customer by email when the order is Completed.", null, false),
   ];
   return { tables: { orders, cards, order_events: events } };
+}
+
+// ─── Workshop logins (team-*, owner Nov 26 2026: "Workshop only") ───────────────────────────────
+// People hired for the workshop sign in on the normal admin sign-in with a username and password
+// (PBKDF2, lib/crypto.ts) and get Scan, Receiving, Bags and Desk only. They are NOT admin_users rows:
+// the old site shares that table and treats every row as a full admin. Each one's sessions are
+// admin_sessions rows with role 'workshop' (the cookie holds the token, the database its SHA-256).
+// In the default seed: two active workers, each with a live session, and one turned off with a
+// session left over (which must not sign anyone in).
+export const WORKSHOP_TOKEN = "b5c6d7e8".repeat(8);
+export const WORKSHOP2_TOKEN = "c7d8e9f0".repeat(8);
+export const WORKSHOP_OFF_TOKEN = "d9e0f1a2".repeat(8);
+export const WORKSHOP_USERNAME = "harness-worker";
+export const WORKSHOP2_USERNAME = "harness-worker-2";
+export const WORKSHOP_OFF_USERNAME = "harness-worker-off";
+/** Each seeded worker's password (sign-in tests); the seed stores a real PBKDF2 hash of it. */
+export const WORKSHOP_PASSWORD = "Harness-worker-pass-1";
+export const WORKSHOP_IDS = { worker: id("ab000000", 1), worker2: id("ab000000", 2), off: id("ab000000", 3) };
+
+/** lib/crypto.ts's hashPassword format ("<salt b64>:<hash b64>", PBKDF2-SHA256, 100000 rounds), with a fixed salt. */
+export function pbkdf2Hash(password, saltSeed) {
+  const salt = crypto.createHash("sha256").update(`harness-salt:${saltSeed}`).digest().subarray(0, 16);
+  const bits = crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256");
+  return `${salt.toString("base64")}:${bits.toString("base64")}`;
+}
+let workshopHash = null;
+const workshopPasswordHash = () => (workshopHash ??= pbkdf2Hash(WORKSHOP_PASSWORD, "worker"));
+
+/** The workshop rows buildSeed() adds: workshop_users and their admin_sessions. */
+function workshopSeedTables(created) {
+  const user = (wid, username, active) => ({
+    id: wid, username, name: null, password_hash: workshopPasswordHash(), active, created_at: created, created_by: ADMIN_USERNAME,
+    updated_at: created, last_login_at: null, setup_token_hash: null, setup_token_expires_at: null, deactivated_at: active ? null : created,
+  });
+  const session = (token, wid) => ({
+    token_hash: sha256(token), role: "workshop", admin_user_id: null, accountant_id: null, support_id: null, workshop_id: wid,
+    created_at: created, expires_at: "2099-01-01T00:00:00.000Z", user_agent: "harness",
+  });
+  return {
+    workshop_users: [
+      user(WORKSHOP_IDS.worker, WORKSHOP_USERNAME, true),
+      user(WORKSHOP_IDS.worker2, WORKSHOP2_USERNAME, true),
+      user(WORKSHOP_IDS.off, WORKSHOP_OFF_USERNAME, false),
+    ],
+    sessions: [session(WORKSHOP_TOKEN, WORKSHOP_IDS.worker), session(WORKSHOP2_TOKEN, WORKSHOP_IDS.worker2), session(WORKSHOP_OFF_TOKEN, WORKSHOP_IDS.off)],
+  };
 }

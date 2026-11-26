@@ -26,13 +26,13 @@ import httpLib from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { startMock } from "./mock-supabase.mjs";
-import { buildSeed, ADMIN_TOKEN } from "./seed.mjs";
+import { buildSeed, ADMIN_TOKEN, WORKSHOP_TOKEN, WORKSHOP2_TOKEN } from "./seed.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, "../../..");
 export const RUN_DIR = path.join(HERE, ".run"); // certs and logs (gitignored)
 
-export { ADMIN_TOKEN };
+export { ADMIN_TOKEN, WORKSHOP_TOKEN, WORKSHOP2_TOKEN };
 
 /** A self-signed certificate for localhost (made once with openssl), so the mock can serve https. */
 export function ensureCert() {
@@ -88,7 +88,25 @@ export function loadPlaywright() {
  * A browser context signed in as the harness admin (cookie admin_session).
  * phone: true = devices['iPhone 13'], else 1440x900. deviceScaleFactor 1.
  */
-export async function newAdminContext(browser, { phone = false, appUrl = process.env.HARNESS_APP_URL, ...extra } = {}) {
+export async function newAdminContext(browser, opts = {}) {
+  return newSessionContext(browser, ADMIN_TOKEN, opts);
+}
+
+/**
+ * A browser context signed in as a workshop login (role 'workshop': Scan, Receiving, Bags, Desk
+ * only), as newAdminContext: `token` WORKSHOP_TOKEN (harness-worker, the default) or
+ * WORKSHOP2_TOKEN (harness-worker-2); the seed stores each one's SHA-256 in admin_sessions.
+ */
+export async function newWorkshopContext(browser, { token = WORKSHOP_TOKEN, ...opts } = {}) {
+  return newSessionContext(browser, token, opts);
+}
+
+/** A browser context with no session at all (the sign-in page, a setup link), sized like the others. */
+export async function newSignedOutContext(browser, opts = {}) {
+  return newSessionContext(browser, null, opts);
+}
+
+async function newSessionContext(browser, token, { phone = false, appUrl = process.env.HARNESS_APP_URL, ...extra } = {}) {
   const { devices } = loadPlaywright();
   const base = phone ? { ...devices["iPhone 13"] } : { viewport: { width: 1440, height: 900 } };
   const ctx = await browser.newContext({
@@ -100,7 +118,7 @@ export async function newAdminContext(browser, { phone = false, appUrl = process
     ...extra,
   });
   const host = new URL(appUrl ?? "http://localhost").hostname;
-  await ctx.addCookies([{ name: "admin_session", value: ADMIN_TOKEN, domain: host, path: "/", httpOnly: true, sameSite: "Lax" }]);
+  if (token) await ctx.addCookies([{ name: "admin_session", value: token, domain: host, path: "/", httpOnly: true, sameSite: "Lax" }]);
   // No QZ Tray here, as on a computer without it: its websockets are refused. (The sandbox's outbound
   // proxy otherwise accepts ws://localhost.qz.io:8182, so qz.websocket.isActive() turns true with no
   // QZ Tray behind it and label prints take the QZ path, fail, and never stamp label_printed_at.)

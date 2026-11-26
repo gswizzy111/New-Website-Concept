@@ -23,6 +23,7 @@ node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press 
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
 node tests/intake/e2e/scenarios.mjs --only 'done-*'   # a finished card: back in its bag, Open bags box A-Z, Ready to ship, order auto-complete
+node tests/intake/e2e/scenarios.mjs --only 'team-*'   # workshop logins: what a worker may open, who did what, the Team and Activity pages
 node tests/intake/harness/start.mjs         # just start mock + app and keep them up (Ctrl+C stops both)
 ```
 
@@ -56,7 +57,7 @@ Screenshots (deviceScaleFactor 1) and `results.json` go to
 | `seed.mjs` | Fake data with fixed ids (`IDS`, `ORDER_NUMBERS`, `ADMIN_TOKEN`). |
 | `start.mjs` | Starts mock + `next dev`; Playwright helpers. |
 | `smoke.mjs` | Existing admin pages render with no server or browser errors. |
-| `selftest.mjs` | 16 checks of the mock through `@supabase/supabase-js`. |
+| `selftest.mjs` | 18 checks of the mock through `@supabase/supabase-js`. |
 | `../e2e/scenarios.mjs` | Intake scenarios, one place for UI wording (`UI`) and routes (`ROUTES`). |
 
 ## What the app runs with
@@ -82,16 +83,21 @@ with: `RESEND_API_KEY=re_placeholder`, `STRIPE_SECRET_KEY=sk_test_placeholder`,
   accepted by the receiving routes. `HARNESS_HTTP=1` runs it over http instead.
 - **Signed in** as `harness-admin` (full admin): `newAdminContext()` sets the
   `admin_session` cookie to `ADMIN_TOKEN`; the seed stores its SHA-256 in
-  `admin_sessions`, as the real sign-in does.
+  `admin_sessions`, as the real sign-in does. `newWorkshopContext()` does the
+  same for a workshop login (`harness-worker`, `WORKSHOP_TOKEN`; `{ token:
+  WORKSHOP2_TOKEN }` for `harness-worker-2`), `newSignedOutContext()` gives a
+  browser with no session (the sign-in page, a setup link).
 
 ## Playwright helpers (`start.mjs`)
 
 ```js
-import { startHarness, loadPlaywright, newAdminContext, dump, reset, emails, insertRows } from "../harness/start.mjs";
+import { startHarness, loadPlaywright, newAdminContext, newWorkshopContext, newSignedOutContext, dump, reset, emails, insertRows } from "../harness/start.mjs";
 const h = await startHarness();                  // or reuse via HARNESS_APP_URL/HARNESS_MOCK_URL
 const { chromium } = loadPlaywright();
 const browser = await chromium.launch();         // no options
 const ctx = await newAdminContext(browser, { phone: false, appUrl: h.appUrl }); // 1440x900, or iPhone 13 with phone: true
+const worker = await newWorkshopContext(browser, { appUrl: h.appUrl });          // harness-worker (role 'workshop')
+const anon = await newSignedOutContext(browser, { appUrl: h.appUrl });           // no session
 const page = await ctx.newPage();
 await page.goto("/admin/receiving");
 const { tables, emails: mails, storage, unknown, rpcCalls } = await dump();
@@ -158,6 +164,19 @@ Constraints (from the live schema and `20261123_intake_tracking.sql`):
   DELETE SET NULL. Two FKs from `card_moves` to `locations`: an embed of
   `locations` from `card_moves` needs a hint (`locations!to_location_id`), or
   the mock answers 300 `PGRST201` as PostgREST does.
+- workshop logins (`20261126_workshop_users.sql`): `workshop_users` (unique
+  `username`, the username check `^[a-z0-9][a-z0-9._-]{1,31}$` → 400 `23514`,
+  and the `workshop_users_username_free` trigger: an admin's username in any
+  letter case → 409 `23505` "… is an admin username", on insert and on a
+  username change); `admin_sessions.role` may be 'workshop', with
+  `workshop_id` → `workshop_users` ON DELETE CASCADE (so
+  `admin_sessions.select("workshop_id, workshop_users(...)")` embeds the
+  worker); `card_photo_events` insert-only (update → 400 `P0001`), action
+  add/replace/remove, `card_id` → cards ON DELETE CASCADE.
+  `tier_bags.label_printed_by` is a plain column. Not simulated: the trigger
+  that deletes a worker's sessions when they are turned off or their password
+  changes (`workshop_users_end_sessions`), so the scenarios check the code's
+  own deletes; production has both.
 - defaults: ids, `created_at`, card `status 'active'`, `completed false`,
   `current_round 1`, `photo_urls []`, `receiving_photo_urls []`,
   `awaiting_arrival false`, bag `batch 1`, `due_status 'pending'`,
@@ -200,6 +219,14 @@ Also: all 6 tiers in `restoration_settings` (live values: Bronze 45-60, Silver
 `store_config` keys (no prep turnaround key, so prep bags should read
 `needs_review`), the migration's holidays 2026-2028 (incl. 2026-11-26 and
 2026-12-25), a 'new' show drop-off form #1002, and the harness admin + session.
+
+Workshop logins (`workshop_users`, never `admin_users`): `harness-worker`
+(`WORKSHOP_IDS.worker`) and `harness-worker-2` (`.worker2`), both on, each with
+a live `admin_sessions` row (role 'workshop', `WORKSHOP_TOKEN` /
+`WORKSHOP2_TOKEN`), and `harness-worker-off` (`.off`), turned off, with a
+session left over (`WORKSHOP_OFF_TOKEN`) that must sign nobody in. All three
+have a real PBKDF2 hash (`pbkdf2Hash()`, lib/crypto.ts's format) of
+`WORKSHOP_PASSWORD`, so the sign-in form works for them.
 No `tier_bags`: the seed is the database as it is before receiving or
 Historical Order Setup runs.
 
@@ -951,6 +978,78 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
 The older scenarios that expect Done to put a card at `LOC-DONE` (`track-move`'s
 Done step, `desk-actions`' CD-2549-02, `bag-open-states`' setup check) describe
 the behaviour before Nov 25: a done card now has no place.
+
+### Workshop logins (`team-*`, the owner's request of Nov 26)
+
+"am I able to do something where the system can track who is scanning what
+cards like I want to hire and be able to see who scanned what cards": hired
+help get "Workshop only" (Scan, Desk, Receiving & labels; no money, refunds,
+reports, settings, customer emails or order editing), and the log is "Only
+actions". A worker (`workshop_users`, role 'workshop') signs in on the normal
+admin sign-in; any admin page they may not use shows "Not available for
+workshop logins" (the middleware rewrites to `/admin/not-available`), any
+admin API answers 403 `{ error: "Not available for workshop logins" }`
+(`lib/workshop-access.ts`, default deny). The test lists what a worker may open
+on its own (`TEAM_PAGES_OK`, `TEAM_APIS_OK`, from the brief and the contract),
+so a page or route opened in the code without being agreed fails here.
+
+- `team-workshop-access`: as `harness-worker` (1440): Scan, Receiving (list,
+  search, workspace, photos), the scan landing (bag, order), card and bag
+  pages, Bags, Desk open, and `/q/<bag>`, `/Q/<bag>`, `/q/<order>`,
+  `/q/<Card ID>`, `/q/LOC-CLAMP-01` lead to them; through the API: receive,
+  a receiving photo (`/api/upload` + add), labels (order JSON and PDF, bag
+  JSON, printed), prepare-labels, resolve, search, the places list, label
+  stock, assign / move / release / done, a step (stages), a tier for the
+  no-tier card (changing a tier: 403): every row records `harness-worker`
+  (`card_moves.by`, `received_by`, stage events, `tier_changed`,
+  `label_printed_by`, `card_photo_events`). The menu is Scan, Receiving, Bags,
+  Desk (1440 and 390). Every other page of `app/admin/**/page.tsx` (walked from
+  the files, dynamic segments filled with seeded ids) shows the not-available
+  text, no customer name or money; `/admin` goes to the Scan page. 50 dangerous
+  calls with real bodies (refunds, order status, customer and order edits,
+  return labels, email blast, settings, product costs, affiliates, the Team
+  API, profile, view as support, reports, places, Historical Order Setup …)
+  and then every method of every `app/api/admin/**/route.ts` not allowlisted:
+  403 JSON, and nothing in the mock changed (orders, cards, bags, places,
+  refunds, workers, admins, settings, emails). Allowlisted routes with another
+  method (GET assign, DELETE receive …): 403. `harness-worker-off`'s session:
+  pages to sign in, APIs 401, `/q` to sign in.
+- `team-actions-recorded`: the worker receives 6 CD-2549 cards on the
+  workspace (1440), then on the phone's Scan page picks CD-2549-01 from its bag
+  and scans CLAMP 07 twice, CD-2549-02 into CLAMP 06 the same way, the DONE
+  sign twice for CD-2549-01, Take out for CD-2549-02, and on the card page
+  Humidor for CD-2549-03. Every `card_moves` row, stage event, `received_by`,
+  the `cards_received` event and the bags' `created_by` hold
+  `harness-worker`. The Activity page: their counts today are Received 6,
+  Moved 2, Done 1, Taken out 1, Step changes 1 (a move into a holder sets the
+  step too and counts once, as the move); their lines name the cards, CLAMP
+  07 / CLAMP 06 and Humidor; `?person=` the same; the card page says "by
+  harness-worker".
+- `team-manage`: the Team page lists the seeded workers (Active / Turned
+  off); "Add a worker" (`team-newhire`) shows the setup link
+  (`/workshop/setup?token=<64 hex>`, only its SHA-256 stored, no `admin_users`
+  row); taken usernames (a worker's, an admin's in any case) 409, bad ones
+  400. The link sets the password once ("Password set!", signed in, Scan page),
+  a second use is refused in the page and the API; signing in makes a new
+  session (a planted `admin_session` cookie is replaced, never stored) and
+  lands on the Scan page; `?next=/q/CD-2549` comes back to the scan landing,
+  `?next=/admin/orders/…` goes to the Scan page. The worker can't open
+  `/admin/team` or `/admin/team/activity` or call `/api/admin/team/**` (403).
+  10 wrong passwords lock that name (the 11th, right, try: 429), not others.
+  Turn off ends the session at once and refuses sign-in; Turn on lets them
+  back; Sign out everywhere ends both browsers' sessions; New setup link
+  clears the password, ends the session, the first link stays refused and the
+  new one works once. 390 px: no sideways scroll.
+- `team-activity-filters`: actions by `harness-worker`, `harness-worker-2` and
+  `harness-admin` today, plus rows written 3 and 10 days ago (`insertRows`).
+  The default (last 7 days) shows today's and 3 days ago's, not 10 days ago's;
+  the form's Person, From / To and Action, the Today quick range and
+  person + action together each list exactly their lines; "Download actions
+  (CSV)" (lib/csv.ts: BOM, CRLF) has the header `Date, Time (New York), Person,
+  Action, Card ID, …` and one row per listed action; "Download daily counts
+  (CSV)" adds up; the CSV route answers a worker 403 and signed out 401; 390 px.
+
+Screenshots: `team-*.png`.
 
 ## Known limits
 

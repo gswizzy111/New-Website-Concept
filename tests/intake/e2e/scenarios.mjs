@@ -19,6 +19,7 @@
 // FAIL / SKIP per step. Screenshots (deviceScaleFactor 1) go to
 // tests/intake/e2e/out/. The UI wording the scenarios rely on is in UI and
 // ROUTES below: adjust it there once, if the real pages word things differently.
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
@@ -34,6 +35,11 @@ import {
   UNKNOWN_TIER_RECEIVED_ON, AWAITING_ORDER_TIER, AWAITING_CARD_TIERS,
 } from "../harness/seed.mjs";
 import { DONE_IDS, DONE_ORDER_NUMBER, DONE_CUSTOMER, DONE_CARD_NAMES, buildDoneSeed } from "../harness/seed.mjs";
+import {
+  ADMIN_USERNAME, WORKSHOP_USERNAME, WORKSHOP2_USERNAME, WORKSHOP_OFF_USERNAME, WORKSHOP_PASSWORD, WORKSHOP_IDS,
+  WORKSHOP_TOKEN, WORKSHOP2_TOKEN, WORKSHOP_OFF_TOKEN,
+} from "../harness/seed.mjs";
+import { newWorkshopContext, newSignedOutContext, ROOT } from "../harness/start.mjs";
 import { placeholderPng } from "../harness/mock-supabase.mjs";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "out");
@@ -9333,6 +9339,1216 @@ const ONE_CARD_SCENARIOS = {
   },
 };
 Object.assign(SCENARIOS, ONE_CARD_SCENARIOS);
+
+// ─── Workshop logins (team-*, owner Nov 26 2026) ────────────────────────────────────────────────
+// "am I able to do something where the system can track who is scanning what cards like I want to
+// hire and be able to see who scanned what cards": hire access is "Workshop only" (Scan, Desk,
+// Receiving & labels; no money, refunds, reports, settings, customer emails, order editing), the
+// log is "Only actions". Workshop logins (role 'workshop', workshop_users: never admin_users, which
+// the old site treats as full admins) sign in on the normal admin sign-in; every admin page they
+// may not use shows "Not available for workshop logins" (middleware rewrite to
+// /admin/not-available) and every admin API answers 403 JSON (lib/workshop-access.ts, default
+// deny). The Team page (/admin/team, full admins only) adds a worker with a one-time 7-day setup
+// link (/workshop/setup?token=…), turns them off and on, resets, signs them out everywhere; the
+// Activity page (/admin/team/activity) lists who did what (lib/team-activity.ts).
+// Seed: harness-worker (WORKSHOP_TOKEN) and harness-worker-2 (WORKSHOP2_TOKEN), both on with a
+// live session; harness-worker-off, turned off, with a session left over (WORKSHOP_OFF_TOKEN).
+// Screenshots: team-*.png
+const TEAM = {
+  worker: WORKSHOP_USERNAME, worker2: WORKSHOP2_USERNAME, off: WORKSHOP_OFF_USERNAME, admin: ADMIN_USERNAME,
+  password: WORKSHOP_PASSWORD,
+  team: "/admin/team", activity: "/admin/team/activity", notAvailable: "/admin/not-available", home: "/admin/scan",
+  api: "/api/admin/team",
+  apiOne: (id) => `/api/admin/team/${id}`,
+  setupLinkApi: (id) => `/api/admin/team/${id}/setup-link`,
+  signOutApi: (id) => `/api/admin/team/${id}/sign-out`,
+  activityApi: "/api/admin/team/activity",
+  setupPage: "/workshop/setup", setupApi: "/api/workshop/setup",
+  denied: "Not available for workshop logins",
+  deniedRe: /not available for workshop logins/i,
+  nav: ["Scan", "Receiving", "Bags", "Desk"],
+  setupLinkRe: /https?:\/\/[^\s"'<>]+\/workshop\/setup\?token=[a-f0-9]{64}/,
+  // what a worker never sees on a page that isn't theirs: the seed's customers, money
+  secretRe: /Test Customer [A-Z]|\$\s?\d/,
+};
+
+// What a worker may open (the brief; mirrors WORKSHOP_PAGES / WORKSHOP_APIS in lib/workshop-access.ts,
+// written out here on their own so the test says what was agreed, not what the code happens to do).
+const TEAM_U = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const TEAM_PAGES_OK = [
+  "/admin/scan", "/admin/receiving", `/admin/receiving/${TEAM_U}`, `/admin/receiving/${TEAM_U}/photos`,
+  "/admin/receiving/open/[A-Za-z0-9-]+", `/admin/receiving/card/${TEAM_U}`, `/admin/receiving/bag/${TEAM_U}`,
+  "/admin/receiving/bags", "/admin/receiving/desk",
+  // the label printer's static how-to, linked from Receiving (added by the contract)
+  "/admin/receiving/printing",
+  "/admin/not-available",
+].map((p) => new RegExp(`^${p}$`));
+const TEAM_APIS_OK = [
+  ["GET", "/api/admin/track/resolve"], ["GET", "/api/admin/track/search"],
+  ["POST", "/api/admin/track/assign"], ["POST", "/api/admin/track/move"], ["POST", "/api/admin/track/done"],
+  ["POST", "/api/admin/track/release"], ["POST", "/api/admin/track/bag-ready"],
+  ["GET", "/api/admin/track/locations"], ["GET", "/api/admin/track/locations/labels"],
+  ["POST", `/api/admin/intake/orders/${TEAM_U}/receive`], ["POST", `/api/admin/intake/orders/${TEAM_U}/unreceive`],
+  ["POST", `/api/admin/intake/orders/${TEAM_U}/add-card`],
+  ["GET", `/api/admin/intake/orders/${TEAM_U}/prepare-labels`], ["POST", `/api/admin/intake/orders/${TEAM_U}/prepare-labels`],
+  ["POST", `/api/admin/intake/cards/${TEAM_U}/photos`],
+  ["GET", `/api/admin/intake/labels/order/${TEAM_U}`], ["GET", `/api/admin/intake/labels/bag/${TEAM_U}`],
+  ["POST", "/api/admin/intake/labels/printed"], ["POST", "/api/admin/intake/stages"],
+  // a tier for a card that has none ("Missing tier" at Receiving); the route refuses changing one
+  ["PATCH", `/api/admin/cards/${TEAM_U}/tier`],
+  ["GET", "/api/admin/intake/settings"], ["GET", "/api/admin/qz-cert"], ["POST", "/api/admin/qz-sign"],
+].map(([m, p]) => ({ method: m, re: new RegExp(`^${p}$`) }));
+const TEAM_AUTH_APIS = ["/api/admin/login", "/api/admin/logout", "/api/admin/forgot-password", "/api/admin/reset-password"];
+const TEAM_AUTH_PAGES = ["/admin/login", "/admin/forgot-password", "/admin/reset-password"];
+const teamPageOk = (p) => TEAM_PAGES_OK.some((re) => re.test(p));
+const teamApiOk = (method, p) => TEAM_APIS_OK.some((r) => r.method === method && r.re.test(p));
+
+/** Every page.tsx under app/admin as its route's segments ("(group)" folders left out, "_private" skipped). */
+function teamFileRoutes(base, file) {
+  const out = [];
+  const walk = (dir, segs) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) {
+        if (e.name.startsWith("_")) continue;
+        walk(path.join(dir, e.name), /^\(.*\)$/.test(e.name) ? segs : [...segs, e.name]);
+      } else if (e.name === file) out.push({ segs, file: path.join(dir, e.name) });
+    }
+  };
+  walk(path.join(ROOT, base), base.split("/").slice(1));
+  return out;
+}
+/** A route's dynamic segments filled with seeded ids, by the segment's name and the folder before it. */
+function teamFill(segs, ids) {
+  const out = [];
+  for (const [i, s] of segs.entries()) {
+    const m = /^\[\.{0,3}(\w+)\]$/.exec(s);
+    if (!m) { out.push(s); continue; }
+    const name = m[1];
+    const parent = segs[i - 1];
+    const v = name === "orderId" ? ids.order
+      : name === "cardId" ? ids.card
+      : name === "bagId" ? ids.bag
+      : name === "code" ? ids.bagCode
+      : ({ orders: ids.order, cards: ids.card, bags: ids.bag, team: WORKSHOP_IDS.worker2, "show-dropoffs": IDS.dropoffForm, locations: IDS.places[0] })[parent]
+        ?? "00000000-0000-4000-8000-00000000dead";
+    out.push(v);
+  }
+  return `/${out.join("/")}`;
+}
+const TEAM_METHODS = ["GET", "POST", "PATCH", "PUT", "DELETE"];
+/** The HTTP methods a route.ts exports. */
+function teamRouteMethods(file) {
+  const src = fs.readFileSync(file, "utf8");
+  return TEAM_METHODS.filter((m) => new RegExp(`export\\s+(async\\s+)?function\\s+${m}\\b|export\\s+const\\s+${m}\\b|export\\s*\\{[^}]*\\b${m}\\b`).test(src));
+}
+
+/** Seeded ids for filling routes, after teamSetup. */
+function teamIds(t) {
+  const card = cardByCode(t, "CD-2549-01");
+  const bag = bagByCode(t, "CD-2549-G");
+  return { order: IDS.mailOrder, card: card?.id ?? mailCard(0), bag: bag?.id ?? "00000000-0000-4000-8000-00000000beef", bagCode: "CD-2549-G" };
+}
+
+/** Admin setup the team scenarios share: CD-2549 Gold 01-04 + Platinum 07-08 received today (bags G and P), CLAMP 01..07, the DESK. */
+async function teamSetup(ctx, { receive = true, slots = { clamp: 7 } } = {}) {
+  if (receive) await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6, 7].map(mailCard), todayNy());
+  for (const [station, count] of Object.entries(slots)) await bulkSlots(ctx, station, count);
+  await ensureDesk(ctx);
+  return tables();
+}
+
+/** A worker's browser (1440 px, or the iPhone 13), recording browser errors; `token`: which seeded worker. */
+async function teamWorker(browser, appUrl, { phone = false, token = WORKSHOP_TOKEN, name = "team" } = {}) {
+  const c = await newWorkshopContext(browser, { phone, appUrl, token });
+  c.setDefaultTimeout(30_000);
+  c.setDefaultNavigationTimeout(240_000);
+  const p = await c.newPage();
+  const errors = [];
+  p.on("pageerror", (e) => errors.push(e.message));
+  p.on("dialog", (d) => d.accept().catch(() => {}));
+  return {
+    ctx: c, p, errors,
+    scan: scannerOn(p), posts: watchTrackPosts(p),
+    shot: (n, full = true) => p.screenshot({ path: path.join(OUT, `${name}-${n}.png`), fullPage: full }).catch(() => {}),
+    noErrors: () => assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300)),
+  };
+}
+
+/** Open a page and say what came back: { status, path (where it ended), text (body), denied }. */
+async function teamOpen(p, url) {
+  const res = await p.goto(url, { waitUntil: "load", timeout: 240_000 });
+  await p.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  const text = flat(await p.locator("body").innerText().catch(() => ""));
+  const at = new URL(p.url());
+  return { status: res?.status() ?? 0, path: at.pathname, search: at.search, text, denied: TEAM.deniedRe.test(text) };
+}
+
+/** The links of the admin menu that are showing (desktop sidebar, or the phone's menu once opened). */
+async function teamNavLinks(p, { phone = false } = {}) {
+  if (phone) {
+    const toggle = p.getByRole("button", { name: /toggle menu|menu/i }).first();
+    if (await toggle.isVisible().catch(() => false)) await toggle.click();
+    await sleep(400);
+  }
+  const links = await p.locator("nav a, aside a").evaluateAll((els) => els
+    .filter((e) => e.checkVisibility())
+    .map((e) => ({ text: (e.textContent || "").replace(/[^\p{L}\p{N}&' -]+/gu, " ").replace(/\s+/g, " ").trim(), href: e.getAttribute("href") || "" })));
+  const seen = new Map();
+  for (const l of links) if (l.text) seen.set(`${l.text}|${l.href}`, l);
+  return [...seen.values()];
+}
+
+/** The parts of the mock a worker's refused request must never change. */
+function teamGuarded(d) {
+  const t = d.tables;
+  const pick = (rows, cols) => (rows ?? []).map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null])));
+  return {
+    orders: pick(t.orders, ["id", "status", "payment_status", "customer_name", "customer_email", "total_cents", "refunded_cents", "internal_notes", "admin_notes", "restoration_tier"]),
+    cards: pick(t.cards, ["id", "card_name", "tier", "status", "refunded_cents", "completed", "bag_id", "location_id", "service_price_cents"]),
+    bags: pick(t.tier_bags, ["id", "due_date", "received_on", "completed_at"]),
+    places: pick(t.locations, ["id", "code", "active", "capacity"]),
+    refunds: (t.refunds ?? []).length,
+    affiliates: (t.affiliates ?? []).length,
+    workers: pick(t.workshop_users, ["id", "username", "name", "active", "password_hash", "setup_token_hash"]),
+    admins: pick(t.admin_users, ["id", "username", "password_hash", "email", "active"]),
+    sessions: pick(t.admin_sessions, ["token_hash", "role"]).length,
+    store: pick(t.store_config, ["key", "value"]),
+    tiers: pick(t.restoration_settings, ["tier", "price_cents", "is_open"]),
+    emails: d.emails.length,
+  };
+}
+function teamDiff(a, b) {
+  return Object.keys(a).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+
+/** A worker's refused API answer: 403 and { error: "Not available for workshop logins" }. */
+function teamRefused(r) {
+  return r.status === 403 && r.body && typeof r.body.error === "string" && TEAM.deniedRe.test(r.body.error);
+}
+
+/** Sign in on /admin/login's Admin tab with a username and password; returns where the browser lands. */
+async function teamSignIn(p, username, password, { next = null } = {}) {
+  await p.goto(`/admin/login${next ? `?next=${encodeURIComponent(next)}` : ""}`, { waitUntil: "load", timeout: 240_000 });
+  await p.getByRole("button", { name: /^admin$/i }).first().click().catch(() => {});
+  const user = p.getByLabel(/username/i).or(p.locator('input[autocomplete="username"], input[name="username"]')).first();
+  await user.fill(username);
+  await p.locator('input[type="password"]').first().fill(password);
+  const [res] = await Promise.all([
+    p.waitForResponse((r) => r.url().includes("/api/admin/login") && r.request().method() === "POST", { timeout: 60_000 }),
+    p.getByRole("button", { name: /^sign in|^log in|^continue/i }).first().click(),
+  ]);
+  let body = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  if (res.ok()) await p.waitForURL((u) => !u.pathname.startsWith("/admin/login"), { timeout: 60_000 }).catch(() => {});
+  await p.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  return { status: res.status(), body, path: new URL(p.url()).pathname, search: new URL(p.url()).search };
+}
+
+/** The admin_session cookie a context holds now. */
+async function teamCookie(c) {
+  return (await c.cookies()).find((k) => k.name === "admin_session")?.value ?? null;
+}
+const teamSha = (s) => crypto.createHash("sha256").update(s).digest("hex");
+/** A worker's live sessions in the mock. */
+const teamSessionsOf = (t, workerId) => (t.admin_sessions ?? []).filter((x) => x.role === "workshop" && x.workshop_id === workerId && Date.parse(x.expires_at) > Date.now());
+const teamWorkerRow = (t, username) => (t.workshop_users ?? []).find((w) => w.username === username) ?? null;
+
+const TEAM_SCENARIOS = {
+  // A workshop session: Scan, Receiving (list, workspace, receive, photos, print labels), Bags,
+  // Desk, the scan landing and /q links work; every other admin page is "Not available for
+  // workshop logins", every other admin API 403 JSON (walked from the files); the menu is Scan,
+  // Receiving, Bags, Desk; a turned-off worker's session opens nothing.
+  async "team-workshop-access"({ ctx, s, browser, appUrl }) {
+    let t = null;
+    let ids = null;
+    await s.step("setup (admin): CD-2549 Gold 01-04 + Platinum 07-08 received today (bags CD-2549-G, -P), CLAMP 01..07, DESK; harness-worker isn't in admin_users", async () => {
+      t = await teamSetup(ctx);
+      ids = teamIds(t);
+      assert(bagByCode(t, "CD-2549-G") && cardByCode(t, "CD-2549-01"), "bag CD-2549-G / card CD-2549-01 missing");
+      const inAdmins = t.admin_users.filter((a) => [TEAM.worker, TEAM.worker2, TEAM.off].includes(String(a.username).toLowerCase()));
+      eq(inAdmins.length, 0, "workers in admin_users");
+      eq(teamWorkerRow(t, TEAM.worker)?.active, true, `${TEAM.worker} active`);
+    }, { critical: true, shot: false });
+
+    const w = await teamWorker(browser, appUrl, { name: "team-workshop-access" });
+    try {
+      const pages = () => [
+        { url: ROUTES.scan, want: "/admin/scan" },
+        { url: ROUTES.receiving, want: "/admin/receiving" },
+        { url: `${ROUTES.receiving}?q=${encodeURIComponent("Test Customer A")}`, want: "/admin/receiving" },
+        { url: ROUTES.receivingOrder(IDS.mailOrder), want: ROUTES.receivingOrder(IDS.mailOrder), text: "Test Customer A" },
+        { url: ROUTES.photos(IDS.mailOrder), want: `/admin/receiving/${IDS.mailOrder}/photos`, text: "CD-2549-01" },
+        { url: ROUTES.open("CD-2549-G"), want: "/admin/receiving/open/CD-2549-G", text: "Test Customer A" },
+        { url: ROUTES.open("CD-2549"), want: "/admin/receiving/open/CD-2549", text: "Test Customer A" },
+        { url: ROUTES.card(ids.card), want: ROUTES.card(ids.card), text: "CD-2549-01" },
+        { url: ROUTES.bag(ids.bag), want: ROUTES.bag(ids.bag), text: "CD-2549-G" },
+        { url: ROUTES.bags, want: "/admin/receiving/bags", text: "CD-2549-G" },
+        { url: ROUTES.desk, want: "/admin/receiving/desk" },
+        { url: ROUTES.qr("CD-2549-G"), want: "/admin/receiving/open/CD-2549-G", text: "Test Customer A" },
+        { url: ROUTES.qrUpper("CD-2549-P"), want: "/admin/receiving/open/CD-2549-P", text: "Test Customer A" },
+        { url: ROUTES.qr("cd-2549"), want: "/admin/receiving/open/CD-2549", text: "Test Customer A" },
+        { url: ROUTES.qr("CD-2549-01"), want: ROUTES.card(ids.card), text: "CD-2549-01" },
+        { url: ROUTES.qr("LOC-CLAMP-01"), want: "/admin/scan" },
+      ];
+      await s.step("the worker's pages open: Scan, Receiving (list, search, workspace, photos), the scan landing (bag, order), card page, bag page, Bags, Desk, and /q (bag, order, Card ID, holder) lead there", async () => {
+        const bad = [];
+        const notes = [];
+        for (const pg of pages()) {
+          const r = await teamOpen(w.p, pg.url);
+          const problems = [];
+          if (r.path.startsWith("/admin/login")) problems.push("sent to sign in");
+          if (r.denied) problems.push(`"${TEAM.denied}"`);
+          if (r.status >= 400) problems.push(`HTTP ${r.status}`);
+          if (r.path !== pg.want) problems.push(`landed on ${r.path}${r.search}`);
+          if (pg.text && !r.text.includes(pg.text)) problems.push(`no "${pg.text}"`);
+          if (problems.length) bad.push(`${pg.url}: ${problems.join(", ")} ("${r.text.slice(0, 100)}")`);
+          else notes.push(pg.url);
+        }
+        await w.shot("01-last-page");
+        assert(!bad.length, bad.join(" | "));
+        return `${notes.length} pages`;
+      }, { critical: true, shot: false });
+
+      await s.step("the worker's actions through the API: receive (CD-2549-05/-06), a receiving photo (upload + add), labels (order JSON, PDF, bag JSON, printed), prepare-labels, resolve, search, places list, assign/move/release/done, a step (stages), a tier for the no-tier card (a change refused 403); each records harness-worker", async () => {
+        const fails = [];
+        const call = async (what, method, url, data, want = (r) => r.status < 300) => {
+          const r = await api(w.ctx, method, url, data);
+          if (!want(r)) fails.push(`${what}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 140)}`);
+          return r;
+        };
+        await call("receive", "POST", ROUTES.receiveApi(IDS.mailOrder), { cardIds: [mailCard(4), mailCard(5)], receivedOn: todayNy() });
+        const up = await w.ctx.request.post("/api/upload", { multipart: { file: pngFile("team-access.png", [40, 120, 200]) }, failOnStatusCode: false });
+        const url = up.ok() ? (await up.json()).url : null;
+        if (!url) fails.push(`upload: HTTP ${up.status()}`);
+        else await call("photo add", "POST", `/api/admin/intake/cards/${ids.card}/photos`, { action: "add", urls: [url] });
+        await call("labels JSON", "GET", ROUTES.orderLabel(IDS.mailOrder, "?format=json"));
+        const pdf = await w.ctx.request.get(ROUTES.orderLabel(IDS.mailOrder), { failOnStatusCode: false });
+        if (!pdf.ok() || !/pdf/i.test(pdf.headers()["content-type"] ?? "")) fails.push(`labels PDF: HTTP ${pdf.status()} ${pdf.headers()["content-type"]}`);
+        await call("bag label JSON", "GET", ROUTES.bagLabel(ids.bag, "?format=json"));
+        await call("labels printed", "POST", "/api/admin/intake/labels/printed", { bagIds: [ids.bag] });
+        await call("prepare-labels plan", "GET", ROUTES.prepareLabelsApi(IDS.mailOrder));
+        await call("resolve", "GET", ROUTES.trackResolve("CD-2549-G"));
+        await call("search", "GET", ROUTES.trackSearch("CD-2549"));
+        await call("places", "GET", ROUTES.trackLocations("?station=clamp"));
+        await call("label stock", "GET", "/api/admin/intake/settings");
+        await call("assign", "POST", ROUTES.trackAssign, { locationCode: "LOC-CLAMP-01", cardIds: [ids.card] });
+        await call("move", "POST", ROUTES.trackMove, { fromCode: "LOC-CLAMP-01", toCode: "LOC-CLAMP-02", cardIds: [ids.card] });
+        await call("release", "POST", ROUTES.trackRelease, { cardIds: [ids.card] });
+        const c2 = cardIdOf(await tables(), "CD-2549-02");
+        await call("done", "POST", ROUTES.trackDone, { cardIds: [c2] });
+        const c3 = cardIdOf(await tables(), "CD-2549-03");
+        await call("step (stages)", "POST", ROUTES.stagesApi, { orderId: IDS.mailOrder, cardIds: [c3], fromStages: { [c3]: null }, toStage: "Humidor" });
+        // A tier: only for the card that has none (CD-2549's "Test Card No Tier"); never a change
+        await call("tier for the no-tier card", "PATCH", ROUTES.cardTierApi(mailCard(9)), { tier: "regular" });
+        await call("tier change refused", "PATCH", ROUTES.cardTierApi(ids.card), { tier: "elite" }, (r) => r.status === 403);
+        assert(!fails.length, fails.join(" | "));
+        const after = await tables();
+        const mine = after.card_moves.filter((m) => m.by !== TEAM.worker);
+        eq(mine.map((m) => `${m.action} by ${m.by}`), [], "card_moves not by harness-worker");
+        eq(after.cards.filter((c) => [mailCard(4), mailCard(5)].includes(c.id)).map((c) => c.received_by), [TEAM.worker, TEAM.worker], "received_by");
+        const steps = after.order_events.filter((e) => e.event_type === "stage_update" && Date.parse(e.created_at) > Date.now() - 3_600_000);
+        assert(steps.length && steps.every((e) => e.metadata?.by === TEAM.worker), `stage events' by: ${steps.map((e) => e.metadata?.by).join(", ")}`);
+        eq([after.cards.find((c) => c.id === mailCard(9))?.tier, after.cards.find((c) => c.id === ids.card)?.tier], ["regular", "premium"], "tiers (no-tier card filled, Gold card kept)");
+        const tierEv = after.order_events.filter((e) => e.event_type === "tier_changed");
+        eq(tierEv.map((e) => e.metadata?.by ?? null), [TEAM.worker], "tier_changed events' by");
+        const bag = after.tier_bags.find((b) => b.id === ids.bag);
+        eq(bag?.label_printed_by ?? null, TEAM.worker, "tier_bags.label_printed_by");
+        const photoEvents = (after.card_photo_events ?? []).filter((e) => e.card_id === ids.card);
+        eq(photoEvents.map((e) => `${e.action} ${e.photo_url === url ? "url" : e.photo_url} by ${e.by}`), [`add url by ${TEAM.worker}`], "card_photo_events");
+        return `card_moves ${after.card_moves.length} by ${TEAM.worker}; label_printed_by ${bag.label_printed_by}; card_photo_events ${photoEvents.length}`;
+      }, { shot: false });
+
+      await s.step("the menu shows only Scan, Receiving, Bags, Desk (no Orders, Analytics, Profile, Team); signed in as harness-worker; Sign out", async () => {
+        await teamOpen(w.p, ROUTES.scan);
+        const links = await teamNavLinks(w.p);
+        const labels = links.map((l) => l.text);
+        eq(sorted(labels), sorted(TEAM.nav), "menu links");
+        const body = flat(await w.p.locator("body").innerText());
+        assert(body.includes(TEAM.worker), `"${TEAM.worker}" not shown as signed in`);
+        assert(await w.p.getByRole("button", { name: /sign out/i }).count(), "no Sign out");
+        await w.shot("02-menu-1440", false);
+        return links.map((l) => `${l.text} ${l.href}`).join(", ");
+      }, { shot: false });
+
+      await s.step("phone (390): the menu shows only Scan, Receiving, Bags, Desk", async () => {
+        const ph = await teamWorker(browser, appUrl, { phone: true, name: "team-workshop-access" });
+        try {
+          await teamOpen(ph.p, ROUTES.scan);
+          const links = await teamNavLinks(ph.p, { phone: true });
+          await ph.shot("03-menu-390", false);
+          eq(sorted(links.map((l) => l.text)), sorted(TEAM.nav), "phone menu links");
+          const w2 = await sidewaysScroll(ph.p);
+          assert(w2 <= 1, `scrolls sideways by ${w2}px`);
+          ph.noErrors();
+        } finally {
+          await ph.ctx.close();
+        }
+      }, { shot: false });
+
+      await s.step("every other admin page (walked from app/admin/**/page.tsx): \"Not available for workshop logins\", no customer or money shown, the worker's menu; /admin itself goes to the Scan page", async () => {
+        const files = teamFileRoutes("app/admin", "page.tsx");
+        const bad = [];
+        const denied = [];
+        const statuses = new Map();
+        for (const f of files) {
+          const url = teamFill(f.segs, ids);
+          if (TEAM_AUTH_PAGES.some((a) => url === a || url.startsWith(`${a}/`))) continue;
+          if (url === "/admin") {
+            const r = await teamOpen(w.p, url);
+            if (r.path !== TEAM.home) bad.push(`/admin: landed on ${r.path}`);
+            continue;
+          }
+          if (teamPageOk(url)) continue;
+          const r = await teamOpen(w.p, url);
+          statuses.set(r.status, (statuses.get(r.status) ?? 0) + 1);
+          const problems = [];
+          if (!r.denied) problems.push(`no "${TEAM.denied}"`);
+          if (TEAM.secretRe.test(r.text)) problems.push(`shows "${TEAM.secretRe.exec(r.text)[0]}"`);
+          if (r.path.startsWith("/admin/login")) problems.push("sent to sign in");
+          if (problems.length) bad.push(`${url}: ${problems.join(", ")} (HTTP ${r.status}, at ${r.path}: "${r.text.slice(0, 90)}")`);
+          else denied.push(url);
+        }
+        await w.shot("04-not-available");
+        const links = await teamNavLinks(w.p);
+        if (JSON.stringify(sorted(links.map((l) => l.text))) !== JSON.stringify(sorted(TEAM.nav))) bad.push(`menu on the not-available page: ${links.map((l) => l.text).join(", ")}`);
+        assert(!bad.length, `${bad.length} of ${denied.length + bad.length}: ${bad.join(" | ")}`);
+        return `${denied.length} pages refused (HTTP ${[...statuses].map(([k, v]) => `${k} x${v}`).join(", ")}), incl. ${denied.filter((u) => /team|tax|orders|profile|customers/.test(u)).join(", ")}`;
+      }, { shot: false });
+
+      await s.step("dangerous APIs with real bodies (refund, card refund, order status, customer edit, order edit/delete, return label, email blast, tier/kit/label settings, restorations switch, product costs, affiliates, Team API, profile password, view as support, tax/statement exports, card name/tier, due date, places, Historical Order Setup, syncs): each 403 \"Not available for workshop logins\"; nothing changed, no email", async () => {
+        const before = teamGuarded(await dump());
+        const rid = () => crypto.randomUUID();
+        const DANGER = [
+          ["POST", `/api/admin/orders/${ids.order}/refund`, { amount_cents: 1000, reason: "worker test", requestId: rid() }],
+          ["POST", `/api/admin/cards/${ids.card}/refund`, { requestId: rid() }],
+          ["POST", `/api/admin/orders/${ids.order}/status`, { status: "completed" }],
+          ["POST", `/api/admin/orders/${ids.order}/stage`, { stage: "Final Dry", card_id: ids.card }],
+          ["PATCH", `/api/admin/orders/${ids.order}/customer`, { customer_name: "Changed By Worker", customer_email: "worker-change@example.com" }],
+          ["PATCH", `/api/admin/orders/${ids.order}/edit`, { total_cents: 1 }],
+          ["PATCH", `/api/admin/orders/${ids.order}/tier`, { tier: "elite" }],
+          ["POST", `/api/admin/orders/${ids.order}/notes`, { notes: "worker" }],
+          ["DELETE", `/api/admin/orders/${ids.order}`, {}],
+          ["POST", `/api/admin/orders/${ids.order}/return-label`, {}],
+          ["POST", `/api/admin/orders/${ids.order}/regenerate-label`, {}],
+          ["POST", `/api/admin/orders/${ids.order}/account-invite`, {}],
+          ["POST", "/api/admin/orders/resend-confirmations", { orderIds: [ids.order] }],
+          ["POST", "/api/admin/email-blast", { subject: "Worker test", html: "<p>x</p>", audience: "all" }],
+          ["POST", "/api/admin/notify-restoration-waitlist", {}],
+          ["PATCH", "/api/admin/settings/tiers", { tiers: [{ tier: "premium", price_cents: 1 }] }],
+          ["PATCH", "/api/admin/settings/kits", { price_cents: 1 }],
+          ["PATCH", "/api/admin/intake/settings", { labelStock: "4x6" }],
+          ["PATCH", "/api/admin/toggle-restorations", { open: false }],
+          ["PATCH", "/api/admin/product-costs", { key: "kit", cents: 1 }],
+          ["PATCH", "/api/admin/subscription-price", { price_cents: 1 }],
+          ["POST", "/api/admin/affiliates", { name: "Worker", code: "WORKER10", discount_percent: 50 }],
+          ["GET", TEAM.api, null],
+          ["POST", TEAM.api, { username: "sneaky-worker" }],
+          ["PATCH", TEAM.apiOne(WORKSHOP_IDS.worker), { name: "Boss" }],
+          ["PATCH", TEAM.apiOne(WORKSHOP_IDS.off), { active: true }],
+          ["POST", TEAM.setupLinkApi(WORKSHOP_IDS.worker2), {}],
+          ["POST", TEAM.signOutApi(WORKSHOP_IDS.worker2), {}],
+          ["GET", `${TEAM.activityApi}?format=csv`, null],
+          ["POST", "/api/admin/profile/password", { current_password: TEAM.password, new_password: "Another-pass-123" }],
+          ["POST", "/api/admin/profile/email", { current_password: TEAM.password, email: "worker@example.com" }],
+          ["POST", "/api/admin/support/view-as", { to: "support" }],
+          ["POST", "/api/admin/accountant", { email: "worker-acct@example.com" }],
+          ["POST", "/api/admin/support-team", { name: "Worker", email: "worker-support@example.com" }],
+          ["GET", "/api/admin/tax/export?year=2026", null],
+          ["GET", "/api/admin/sales-statement", null],
+          ["GET", "/api/admin/checkout-errors", null],
+          ["GET", "/api/admin/diagnostics", null],
+          ["PATCH", `/api/admin/cards/${ids.card}`, { card_name: "Renamed by worker" }],
+          ["POST", `/api/admin/cards/${ids.card}/complete`, null],
+          ["PATCH", `/api/admin/intake/bags/${ids.bag}`, { dueDate: "2027-01-01", reason: "worker" }],
+          ["POST", `/api/admin/intake/orders/${ids.order}/received-date`, { receivedOn: "2026-11-01" }],
+          ["POST", ROUTES.trackLocations(), { station: "clamp", count: 3 }],
+          ["PATCH", ROUTES.trackLocations(), { id: IDS.places[0], active: false }],
+          ["GET", ROUTES.shipCheck("CD-2549-G"), null],
+          ["GET", ROUTES.trackHistory("CD-2549-01"), null],
+          ["POST", ROUTES.setupRunApi, {}],
+          ["POST", "/api/admin/sync-delivered", {}],
+          ["GET", `/api/admin/proxy-label?url=${encodeURIComponent("https://example.com/label.pdf")}`, null],
+        ];
+        const bad = [];
+        for (const [method, url, data] of DANGER) {
+          const r = await api(w.ctx, method, url, data ?? undefined);
+          if (!teamRefused(r)) bad.push(`${method} ${url}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 120)}`);
+        }
+        const after = teamGuarded(await dump());
+        const changed = teamDiff(before, after);
+        assert(!bad.length && !changed.length, [...bad, changed.length ? `changed: ${changed.join(", ")}` : ""].filter(Boolean).join(" | "));
+        return `${DANGER.length} refused`;
+      }, { shot: false });
+
+      await s.step("every admin API route (walked from app/api/admin/**/route.ts) with each method it exports: 403 JSON unless allowlisted; nothing changed, no email", async () => {
+        const before = teamGuarded(await dump());
+        const routes = teamFileRoutes("app/api/admin", "route.ts");
+        const bad = [];
+        let refused = 0;
+        let open = 0;
+        for (const r of routes) {
+          const url = teamFill(r.segs, ids);
+          if (TEAM_AUTH_APIS.includes(url)) continue;
+          for (const method of teamRouteMethods(r.file)) {
+            if (teamApiOk(method, url)) { open++; continue; }
+            const res = await api(w.ctx, method, url, method === "GET" ? undefined : {});
+            if (teamRefused(res)) refused++;
+            else bad.push(`${method} ${url}: HTTP ${res.status} ${JSON.stringify(res.body).slice(0, 100)}`);
+          }
+        }
+        const after = teamGuarded(await dump());
+        const changed = teamDiff(before, after);
+        assert(!bad.length && !changed.length, [...bad, changed.length ? `changed: ${changed.join(", ")}` : ""].filter(Boolean).join(" | "));
+        return `${refused} refused, ${open} allowlisted (not called here), ${routes.length} route files`;
+      }, { shot: false });
+
+      await s.step("an allowlisted API with a method it doesn't allow (GET assign, DELETE receive, POST resolve, PATCH stages): 403, not passed to the route", async () => {
+        const bad = [];
+        for (const [method, url] of [["GET", ROUTES.trackAssign], ["DELETE", ROUTES.receiveApi(IDS.mailOrder)], ["POST", ROUTES.trackResolve("CD-2549-G")], ["PATCH", ROUTES.stagesApi], ["PUT", ROUTES.trackDone]]) {
+          const r = await api(w.ctx, method, url, method === "GET" ? undefined : {});
+          if (!teamRefused(r)) bad.push(`${method} ${url}: HTTP ${r.status}`);
+        }
+        assert(!bad.length, bad.join(" | "));
+      }, { shot: false });
+
+      await s.step("no browser errors for the worker", async () => w.noErrors(), { shot: false });
+    } finally {
+      await w.ctx.close();
+    }
+
+    await s.step("a turned-off worker's session left over (harness-worker-off): pages send it to sign in, APIs answer 401, /q asks to sign in", async () => {
+      const off = await teamWorker(browser, appUrl, { token: WORKSHOP_OFF_TOKEN, name: "team-workshop-access-off" });
+      try {
+        const bad = [];
+        for (const url of [ROUTES.scan, ROUTES.receiving, ROUTES.desk, ROUTES.bags]) {
+          const r = await teamOpen(off.p, url);
+          if (!r.path.startsWith("/admin/login")) bad.push(`${url}: at ${r.path} (HTTP ${r.status})`);
+        }
+        for (const [method, url] of [["GET", ROUTES.trackSearch("CD-2549")], ["POST", ROUTES.trackAssign], ["GET", ROUTES.orderLabel(IDS.mailOrder, "?format=json")]]) {
+          const r = await api(off.ctx, method, url, method === "GET" ? undefined : {});
+          if (r.status !== 401) bad.push(`${method} ${url}: HTTP ${r.status}`);
+        }
+        const q = await api(off.ctx, "GET", ROUTES.qr("CD-2549-G"));
+        if (!/\/admin\/login/.test(q.headers.location ?? "")) bad.push(`/q: HTTP ${q.status} to ${q.headers.location}`);
+        assert(!bad.length, bad.join(" | "));
+      } finally {
+        await off.ctx.close();
+      }
+    }, { shot: false });
+  },
+};
+
+/** The Activity page's per-person counts for one person on one day, read from its text (labels as lib/team-activity.ts COUNT_LABEL). */
+const TEAM_COUNT_LABELS = { received: "Received", moved: "Moved", done: "Done", taken_out: "Taken out", step: "Step changes" };
+/**
+ * The row (tr / li / article) of the per-day counts that names `person` (and `day`, as the page shows
+ * it, when given), with its cells by the table's headings when it is a table: { received, moved, … }.
+ */
+async function teamCountsRow(p, person, { day = null } = {}) {
+  return p.locator("main").first().evaluate((main, [who, dayRe, labels]) => {
+    const rx = dayRe ? new RegExp(dayRe, "i") : null;
+    const out = [];
+    for (const table of main.querySelectorAll("table")) {
+      const heads = [...table.querySelectorAll("thead th")].map((th) => th.textContent.replace(/\s+/g, " ").trim());
+      if (!Object.values(labels).every((l) => heads.some((h) => h.toLowerCase().startsWith(l.toLowerCase())))) continue;
+      let lastDay = null;
+      for (const tr of table.querySelectorAll("tbody tr")) {
+        const cells = [...tr.querySelectorAll("th, td")].map((td) => td.textContent.replace(/\s+/g, " ").trim());
+        const line = cells.join(" | ");
+        const dayCell = cells.find((c) => /\b(mon|tue|wed|thu|fri|sat|sun)\w*\b|\d{4}-\d{2}-\d{2}|today|yesterday/i.test(c));
+        if (dayCell) lastDay = dayCell;
+        if (!cells.some((c) => c === who || c.startsWith(`${who} `) || c.endsWith(` ${who}`) || c.includes(who))) continue;
+        if (rx && !(rx.test(line) || (lastDay && rx.test(lastDay)) || rx.test(table.closest("section, details, div")?.querySelector("h2, h3, summary, caption")?.textContent ?? ""))) continue;
+        const counts = {};
+        for (const [k, l] of Object.entries(labels)) {
+          const i = heads.findIndex((h) => h.toLowerCase().startsWith(l.toLowerCase()));
+          const n = Number((cells[i] ?? "").replace(/[^0-9]/g, ""));
+          counts[k] = Number.isFinite(n) ? n : null;
+        }
+        out.push({ line, counts });
+      }
+    }
+    return out;
+  }, [person, day, TEAM_COUNT_LABELS]);
+}
+
+/** The Activity list's rows (its table of actions: Time, Person, Action, Card, Order, From → to), each as { person, action, card, fromTo, line }. */
+async function teamActionRows(p) {
+  return p.locator("main").first().evaluate((main) => {
+    const rows = [];
+    for (const table of main.querySelectorAll("table")) {
+      const heads = [...table.querySelectorAll("thead th")].map((th) => th.textContent.replace(/\s+/g, " ").trim().toLowerCase());
+      if (!heads.includes("action") || !heads.includes("person")) continue;
+      if (!table.checkVisibility()) continue;
+      for (const tr of table.querySelectorAll("tbody tr")) {
+        const cells = [...tr.querySelectorAll("th, td")].map((td) => td.textContent.replace(/\s+/g, " ").trim());
+        const at = (h) => cells[heads.findIndex((x) => x.startsWith(h))] ?? "";
+        rows.push({ time: at("time"), person: at("person"), action: at("action"), card: at("card"), order: at("order"), fromTo: at("from"), line: cells.join(" | ") });
+      }
+    }
+    return rows;
+  });
+}
+/** A person cell names exactly this username (a worker with no display name shows just it). */
+const teamIsPerson = (cell, username) => cell === username || cell.endsWith(` ${username}`);
+
+Object.assign(TEAM_SCENARIOS, {
+  // A worker receives cards (the workspace), moves one (scan its bag, pick it, scan an empty holder
+  // twice), moves a second, marks the first done (the DONE sign twice), takes the second out (Take
+  // out), and changes a third one's step (card page): card_moves.by, the stage events' by and
+  // received_by hold their username; the Activity page lists those actions under them, counted.
+  async "team-actions-recorded"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const RECV = [0, 1, 2, 3, 6, 7];
+    let t0 = null;
+    await s.step("setup (admin): CLAMP 01..07 and the DESK; nothing received yet", async () => {
+      t0 = await teamSetup(ctx, { receive: false });
+      eq(t0.card_moves.length, 0, "card_moves");
+    }, { critical: true, shot: false });
+
+    const w = await teamWorker(browser, appUrl, { name: "team-actions-recorded" });
+    try {
+      let viaUi = false;
+      await s.step(`the worker (1440) receives Gold One-Four + Platinum One-Two on the workspace, today`, async () => {
+        await goto(w.p, ROUTES.receivingOrder(IDS.mailOrder));
+        for (const i of RECV) await UI.arrived(w.p, MAIL_NAMES[i]).check();
+        await UI.receivedOn(w.p).fill(todayNy());
+        const res = await clickForApi(w.p, UI.receiveButton(w.p), "/receive");
+        assert(res.status() < 300, `receive answered ${res.status()}: ${(await res.text()).slice(0, 200)}`);
+        viaUi = true;
+        await w.shot("01-received", true);
+      }, { shot: false });
+      if (!viaUi) await s.step("(fallback) the worker receives through the API", () => receiveViaApi(w.ctx, IDS.mailOrder, RECV.map(mailCard), todayNy()), { critical: true, shot: false });
+      await s.step("received_by and the 'Cards Received' event's by: harness-worker", async () => {
+        const t = await tables();
+        eq(RECV.map((i) => t.cards.find((c) => c.id === mailCard(i))?.received_by ?? null), RECV.map(() => TEAM.worker), "cards.received_by");
+        const ev = t.order_events.filter((e) => e.order_id === IDS.mailOrder && e.event_type === "cards_received");
+        assert(ev.length, "no cards_received event");
+        eq(ev.map((e) => e.metadata?.by ?? null), ev.map(() => TEAM.worker), "cards_received metadata.by");
+        const bags = t.tier_bags.filter((b) => b.order_id === IDS.mailOrder);
+        eq(bags.map((b) => b.created_by ?? null), bags.map(() => TEAM.worker), "tier_bags.created_by");
+        // a receiving photo each (set in the mock, as plainSetup does), so the Scan page lists every card with its photos
+        await setReceivingPhotos(mockUrl, RECV.map(mailCard));
+      }, { shot: false });
+    } finally {
+      await w.ctx.close();
+    }
+
+    const ph = await teamWorker(browser, appUrl, { phone: true, name: "team-actions-recorded" });
+    const { p, scan } = ph;
+    try {
+      await goto(p, ROUTES.scan);
+      const pickFromBag = async (code) => {
+        await scan("CD-2549-G");
+        await plainShows(p, [code]);
+        await UI.plainCardTap(p, code).click();
+        await pickedCheck(p, code);
+      };
+      const moveTwice = async (code, spot, name) => {
+        await scan(spot);
+        await plainSays(p, UI.plainAgain(name, code), "move question");
+        const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
+        await scan(spot);
+        const res = await saved;
+        assert(res.status() < 300, `${new URL(res.url()).pathname}: HTTP ${res.status()} ${(await res.text()).slice(0, 160)}`);
+        await plainSays(p, UI.plainMoved(code, name), "moved line");
+      };
+      await s.step("390, the worker's Scan page: bag CD-2549-G, pick CD-2549-01, CLAMP 07 scanned twice: it's there", async () => {
+        await pickFromBag("CD-2549-01");
+        await moveTwice("CD-2549-01", "LOC-CLAMP-07", "CLAMP 07");
+        eq(cardsIn(await tables(), "LOC-CLAMP-07"), ["CD-2549-01"], "CLAMP 07");
+        await ph.shot("02-moved", false);
+      }, { critical: true, shot: false });
+      await s.step("bag CD-2549-G again, pick CD-2549-02, CLAMP 06 twice: it's there", async () => {
+        await backToPlain(p).catch(() => {});
+        await pickFromBag("CD-2549-02");
+        await moveTwice("CD-2549-02", "LOC-CLAMP-06", "CLAMP 06");
+        eq(cardsIn(await tables(), "LOC-CLAMP-06"), ["CD-2549-02"], "CLAMP 06");
+      }, { critical: true, shot: false });
+      await s.step("CLAMP 07 (picks CD-2549-01), the DONE sign twice: CD-2549-01 done", async () => {
+        await backToPlain(p).catch(() => {});
+        await scan("LOC-CLAMP-07");
+        await pickedCheck(p, "CD-2549-01");
+        await scan("LOC-DONE");
+        await plainSays(p, UI.plainDoneAgain("CD-2549-01"), "Done question");
+        const saved = saveAwaited(p, /\/api\/admin\/track\/done$/);
+        await scan("LOC-DONE");
+        const res = await saved;
+        assert(res.status() < 300, `POST done: HTTP ${res.status()}`);
+        assert((await until(cardDone("CD-2549-01"), 10_000)), "CD-2549-01 not done");
+        await ph.shot("03-done", false);
+      }, { critical: true, shot: false });
+      await s.step("CLAMP 06 (picks CD-2549-02), Take out: no place, a release row", async () => {
+        await backToPlain(p).catch(() => {});
+        await scan("LOC-CLAMP-06");
+        await pickedCheck(p, "CD-2549-02");
+        const saved = saveAwaited(p, /\/api\/admin\/track\/release$/);
+        await UI.holderTakeOut(p.locator("main").first()).click();
+        const yes = UI.holderConfirm(p);
+        if (await yes.isVisible().catch(() => false)) await yes.click().catch(() => {});
+        const res = await saved;
+        assert(res.status() < 300, `POST release: HTTP ${res.status()}`);
+        eq(cardsIn(await tables(), "LOC-CLAMP-06"), [], "CLAMP 06");
+        await ph.shot("04-taken-out", false);
+      }, { critical: true, shot: false });
+      await s.step("no browser errors on the worker's phone", async () => ph.noErrors(), { shot: false });
+    } finally {
+      await ph.ctx.close();
+    }
+
+    const w2 = await teamWorker(browser, appUrl, { name: "team-actions-recorded" });
+    try {
+      await s.step("the worker's card page for CD-2549-03: tap Humidor (a step change through /api/admin/intake/stages)", async () => {
+        const c3 = cardIdOf(await tables(), "CD-2549-03");
+        await goto(w2.p, ROUTES.card(c3));
+        const res = await clickForApi(w2.p, UI.advanceTo(w2.p, "Humidor"), "/api/admin/intake/stages");
+        assert(res.status() < 300, `stages: HTTP ${res.status()} ${(await res.text()).slice(0, 160)}`);
+        eq(latestStage(await tables(), c3), "Humidor", "CD-2549-03 step");
+      }, { shot: false });
+    } finally {
+      await w2.ctx.close();
+    }
+
+    let counts = null;
+    await s.step("the database: every card_moves row's by, every stage event's by and received_by hold harness-worker; the moves are assign x2, done, release", async () => {
+      const t = await tables();
+      const moves = t.card_moves;
+      eq(moves.filter((m) => m.by !== TEAM.worker).map((m) => `${m.action} ${m.by}`), [], "card_moves not by the worker");
+      const at = (id) => t.locations.find((l) => l.id === id)?.code ?? null;
+      const mine = moves.map((m) => `${cardByCode(t, "CD-2549-01").id === m.card_id ? "01" : cardByCode(t, "CD-2549-02").id === m.card_id ? "02" : m.card_id.slice(-4)} ${m.action} ${at(m.from_location_id) ?? "-"}>${at(m.to_location_id) ?? "-"}`);
+      const want = ["01 assign ->LOC-CLAMP-07", "02 assign ->LOC-CLAMP-06", "01 done LOC-CLAMP-07>-", "02 release LOC-CLAMP-06>-"];
+      for (const x of want) assert(mine.includes(x), `no card_moves "${x}" (have: ${mine.join(", ")})`);
+      const steps = t.order_events.filter((e) => e.event_type === "stage_update" && e.order_id === IDS.mailOrder);
+      assert(steps.length >= 3, `${steps.length} stage events`);
+      eq(steps.filter((e) => e.metadata?.by !== TEAM.worker).map((e) => `${e.metadata?.stage} by ${e.metadata?.by}`), [], "stage events not by the worker");
+      eq(RECV.map((i) => t.cards.find((c) => c.id === mailCard(i))?.received_by), RECV.map(() => TEAM.worker), "received_by");
+      counts = {
+        received: RECV.length,
+        moved: moves.filter((m) => ["assign", "move", "receive", "ship_check"].includes(m.action)).length,
+        done: moves.filter((m) => m.action === "done").length,
+        taken_out: moves.filter((m) => m.action === "release").length,
+        step: 1,
+      };
+      return `${moves.length} card_moves (${mine.join(", ")}); ${steps.length} stage events (${steps.map((e) => e.metadata?.stage).join(", ")})`;
+    }, { critical: true, shot: false });
+
+    await s.step("the Activity page (admin, 1440): harness-worker's counts today: Received 6, Moved 2, Done 1, Taken out 1, Step changes 1; their actions listed (CD-2549-01 moved CLAMP 07, done; CD-2549-02 taken out; CD-2549-03 Humidor)", async () => {
+      await goto(page, TEAM.activity);
+      const rows = (await until(async () => { const r = await teamCountsRow(page, TEAM.worker); return r.length ? r : null; }, 30_000)) ?? [];
+      await page.screenshot({ path: path.join(OUT, "team-actions-recorded-05-activity.png"), fullPage: true }).catch(() => {});
+      assert(rows.length, `no counts row names ${TEAM.worker} ("${flat(await page.locator("main").innerText()).slice(0, 300)}")`);
+      const want = { received: 6, moved: 2, done: 1, taken_out: 1, step: 1 };
+      const today = rows.find((r) => JSON.stringify(r.counts) === JSON.stringify(want)) ?? rows[0];
+      eq(today.counts, want, `counts (${today.line}); the database says ${JSON.stringify(counts)}`);
+      const rows2 = await teamActionRows(page);
+      const mine = rows2.filter((r) => teamIsPerson(r.person, TEAM.worker));
+      const problems = [];
+      for (const [code, re, place] of [["CD-2549-01", /^moved$/i, /CLAMP 07/], ["CD-2549-02", /^moved$/i, /CLAMP 06/], ["CD-2549-01", /^done$/i, null], ["CD-2549-02", /^taken out$/i, /CLAMP 06/], ["CD-2549-03", /^step change$/i, /Humidor/]]) {
+        if (!mine.some((r) => r.card.includes(code) && re.test(r.action) && (!place || place.test(r.fromTo)))) problems.push(`${code} ${re.source}${place ? ` ${place.source}` : ""}`);
+      }
+      const received = mine.filter((r) => /^received$/i.test(r.action)).length;
+      if (received !== 6) problems.push(`${received} Received lines`);
+      const others = rows2.filter((r) => !teamIsPerson(r.person, TEAM.worker));
+      if (others.length) problems.push(`lines by someone else: ${others.slice(0, 3).map((r) => r.line).join(" / ")}`);
+      assert(!problems.length, `${problems.join(", ")} (${rows2.length} lines: ${rows2.slice(0, 8).map((r) => r.line).join(" / ")})`);
+      return `${today.line}; ${rows2.length} lines`;
+    }, { shot: false });
+
+    await s.step("?person=harness-worker: the same counts; the card page of CD-2549-01 shows \"by harness-worker\"", async () => {
+      await goto(page, `${TEAM.activity}?person=${encodeURIComponent(TEAM.worker)}`);
+      const rows = await teamCountsRow(page, TEAM.worker);
+      assert(rows.length, "no counts row");
+      eq(rows[0].counts, { received: 6, moved: 2, done: 1, taken_out: 1, step: 1 }, `counts (${rows[0].line})`);
+      await goto(page, ROUTES.card(mailCard(0)));
+      const text = flat(await page.locator("main").innerText());
+      assert(new RegExp(`by ${esc(TEAM.worker)}`).test(text), `card page doesn't say "by ${TEAM.worker}" ("${text.slice(0, 200)}")`);
+    }, { shot: false });
+  },
+});
+
+/** The Team page's row for a worker (li[data-worker]). */
+const teamRow = (p, username) => p.locator(`li[data-worker="${username}"]`).first();
+/** Tap a row's action ("Turn off", "New setup link", "Sign out everywhere"), then its "Yes, …" if it asks; returns the API answer. */
+async function teamRowAction(p, username, label, apiPart) {
+  const row = teamRow(p, username);
+  await row.waitFor({ timeout: 30_000 });
+  const wait = p.waitForResponse((r) => r.url().includes(apiPart) && r.request().method() !== "GET", { timeout: 60_000 });
+  await row.getByRole("button", { name: label }).click();
+  const yes = row.getByRole("button", { name: /^yes,/i });
+  if (await yes.isVisible({ timeout: 3_000 }).catch(() => false)) await yes.click();
+  const res = await wait;
+  let body = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  await p.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  return { status: res.status(), body };
+}
+/** The setup link the page shows (the read-only box of [data-setup-link]). */
+async function teamShownLink(p, scope = p) {
+  const box = scope.locator("[data-setup-link] input").first();
+  await box.waitFor({ timeout: 30_000 });
+  return box.inputValue();
+}
+/** Use a setup link in a browser: the two password boxes, then "Set Password & Continue". */
+async function teamUseLink(p, link, password) {
+  const u = new URL(link);
+  await p.goto(`${u.pathname}${u.search}`, { waitUntil: "load", timeout: 240_000 });
+  await p.getByLabel(/^new password$/i).fill(password);
+  await p.getByLabel(/^confirm password$/i).fill(password);
+  const [res] = await Promise.all([
+    p.waitForResponse((r) => r.url().includes(TEAM.setupApi) && r.request().method() === "POST", { timeout: 60_000 }),
+    p.getByRole("button", { name: /^set password/i }).click(),
+  ]);
+  let body = null;
+  try { body = await res.json(); } catch { /* not json */ }
+  return { status: res.status(), body };
+}
+
+Object.assign(TEAM_SCENARIOS, {
+  // A full admin adds a worker on the Team page; the setup link sets a password once (refused the
+  // second time); sign-in works (a fresh session, never a planted one); attempt limit; Turn off ends
+  // their sessions and sign-in; Turn on; Sign out everywhere; New setup link (Reset) stops the old
+  // password; a worker can't open the Team pages or call the Team API.
+  async "team-manage"({ page, ctx, s, browser, appUrl }) {
+    const NEW = "team-newhire";
+    const PASS1 = "Newhire-pass-123";
+    const PASS2 = "Newhire-pass-456";
+    let link = null;
+    let workerId = null;
+    await s.step("the Team page (admin, 1440): the seeded workers (harness-worker, harness-worker-2 Active; harness-worker-off Turned off), Add a worker", async () => {
+      await goto(page, TEAM.team);
+      for (const [u, st] of [[TEAM.worker, /active/i], [TEAM.worker2, /active/i], [TEAM.off, /turned off/i]]) {
+        const row = teamRow(page, u);
+        await row.waitFor({ timeout: 30_000 });
+        assert(st.test(await row.innerText()), `${u}: "${flat(await row.innerText()).slice(0, 120)}"`);
+      }
+      await page.screenshot({ path: path.join(OUT, "team-manage-01-team-1440.png"), fullPage: true });
+    }, { critical: true, shot: false });
+
+    await s.step(`Add a worker "${NEW}" (name "Test Newhire"): 201, the page shows the one-time setup link /workshop/setup?token=<64 hex>; the database keeps only its SHA-256; not an admin_users row`, async () => {
+      await page.getByLabel(/^username$/i).fill(NEW);
+      await page.getByLabel(/their name/i).fill("Test Newhire");
+      const [res] = await Promise.all([
+        page.waitForResponse((r) => new URL(r.url()).pathname === TEAM.api && r.request().method() === "POST", { timeout: 60_000 }),
+        page.getByRole("button", { name: /^add a worker$/i }).click(),
+      ]);
+      eq(res.status(), 201, "POST /api/admin/team");
+      link = await teamShownLink(page);
+      assert(TEAM.setupLinkRe.test(link), `link "${link}"`);
+      const token = new URL(link).searchParams.get("token");
+      const d = await dump();
+      const row = teamWorkerRow(d.tables, NEW);
+      assert(row, "no workshop_users row");
+      workerId = row.id;
+      eq(row.password_hash ?? null, null, "password_hash before setup");
+      eq(row.setup_token_hash, teamSha(token), "setup_token_hash = SHA-256 of the link's token");
+      assert(!JSON.stringify(d.tables).includes(token), "the token itself is stored somewhere");
+      eq(d.tables.admin_users.filter((a) => String(a.username).toLowerCase() === NEW).length, 0, "admin_users rows");
+      eq(row.created_by, TEAM.admin, "created_by");
+      await page.screenshot({ path: path.join(OUT, "team-manage-02-link-1440.png"), fullPage: true });
+      return link.replace(/token=[a-f0-9]{8}[a-f0-9]+/, "token=…");
+    }, { critical: true, shot: false });
+
+    await s.step(`taken usernames are refused: "${TEAM.worker}" (a worker's) and "${TEAM.admin}" / "Harness-Admin" (an admin's): 409; bad ones ("a", "has space", "bad!name"): 400`, async () => {
+      const bad = [];
+      for (const [u, want] of [[TEAM.worker, 409], [TEAM.admin, 409], ["Harness-Admin", 409], ["a", 400], ["has space", 400], ["bad!name", 400]]) {
+        const r = await api(ctx, "POST", TEAM.api, { username: u });
+        if (r.status !== want) bad.push(`${u}: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 100)}`);
+      }
+      assert(!bad.length, bad.join(" | "));
+    }, { shot: false });
+
+    const anon = await newSignedOutContext(browser, { appUrl });
+    anon.setDefaultTimeout(30_000);
+    const ap = await anon.newPage();
+    try {
+      await s.step("the new worker opens the link, sets a password: \"Password set!\", signed in (a workshop session), on to the Scan page", async () => {
+        const r = await teamUseLink(ap, link, PASS1);
+        eq(r.status, 200, `POST ${TEAM.setupApi} (${JSON.stringify(r.body)})`);
+        await ap.getByText(/password set/i).first().waitFor({ timeout: 15_000 });
+        await ap.screenshot({ path: path.join(OUT, "team-manage-03-setup-done.png") });
+        await ap.waitForURL((u) => u.pathname === TEAM.home, { timeout: 30_000 });
+        const t = await tables();
+        const row = teamWorkerRow(t, NEW);
+        assert(row.password_hash, "no password_hash");
+        eq([row.setup_token_hash ?? null, row.setup_token_expires_at ?? null], [null, null], "setup token used up");
+        eq(teamSessionsOf(t, workerId).length, 1, "workshop sessions");
+      }, { critical: true, shot: false });
+
+      await s.step("the same link again: refused (\"expired or was already used\") in the page and through the API; the password is unchanged", async () => {
+        const before = teamWorkerRow(await tables(), NEW).password_hash;
+        const r = await teamUseLink(ap, link, PASS2);
+        assert(r.status >= 400, `second use answered ${r.status}`);
+        await ap.getByRole("alert").filter({ hasText: /expired|already used/i }).first().waitFor({ timeout: 10_000 });
+        const token = new URL(link).searchParams.get("token");
+        const again = await api(anon, "POST", TEAM.setupApi, { token, password: PASS2 });
+        assert(again.status >= 400 && /expired|used/i.test(again.body?.error ?? ""), `API: HTTP ${again.status} ${JSON.stringify(again.body)}`);
+        eq(teamWorkerRow(await tables(), NEW).password_hash, before, "password_hash");
+        const junk = await api(anon, "POST", TEAM.setupApi, { token: "0".repeat(64), password: PASS2 });
+        assert(junk.status === 400, `a made-up token: HTTP ${junk.status}`);
+      }, { shot: false });
+
+      await s.step("sign out, then sign in on /admin/login (Admin tab) as the new worker: a NEW session (a planted admin_session cookie is replaced and never stored), lands on the Scan page, the worker's menu", async () => {
+        await anon.request.post("/api/admin/logout", { maxRedirects: 0, failOnStatusCode: false });
+        eq(teamSessionsOf(await tables(), workerId).length, 0, "sessions after sign-out");
+        const planted = "f".repeat(64);
+        await anon.addCookies([{ name: "admin_session", value: planted, domain: new URL(appUrl).hostname, path: "/", httpOnly: true, sameSite: "Lax" }]);
+        const r = await teamSignIn(ap, NEW, PASS1);
+        eq([r.status, r.body?.role], [200, "workshop"], "sign-in answer");
+        eq(r.path, TEAM.home, "landed on");
+        const cookie = await teamCookie(anon);
+        assert(cookie && cookie !== planted && /^[a-f0-9]{64}$/.test(cookie), `cookie ${cookie}`);
+        const t = await tables();
+        assert(!t.admin_sessions.some((x) => x.token_hash === teamSha(planted)), "the planted token has a session");
+        const mine = teamSessionsOf(t, workerId);
+        eq(mine.map((x) => x.token_hash), [teamSha(cookie)], "the worker's sessions");
+        eq(mine[0].admin_user_id ?? null, null, "admin_user_id on the session");
+        assert(teamWorkerRow(t, NEW).last_login_at, "last_login_at not set");
+        const links = await teamNavLinks(ap);
+        eq(sorted(links.map((l) => l.text)), sorted(TEAM.nav), "menu");
+      }, { critical: true, shot: false });
+
+      await s.step("a scanned QR while signed out: /q/CD-2549 -> sign in -> back to the scan landing (workshopLanding); ?next=/admin/orders goes to the Scan page instead", async () => {
+        await receiveViaApi(ctx, IDS.mailOrder, [mailCard(0)], todayNy());
+        const c = await newSignedOutContext(browser, { appUrl });
+        try {
+          const p2 = await c.newPage();
+          const r1 = await teamSignIn(p2, NEW, PASS1, { next: "/q/CD-2549" });
+          eq(r1.path, "/admin/receiving/open/CD-2549", "after next=/q/CD-2549");
+          await c.clearCookies();
+          const r2 = await teamSignIn(p2, NEW, PASS1, { next: `/admin/orders/${IDS.mailOrder}` });
+          eq(r2.path, TEAM.home, "after next=/admin/orders/…");
+        } finally {
+          await c.close();
+        }
+      }, { shot: false });
+
+      await s.step("the worker can't open /admin/team or /admin/team/activity (\"Not available for workshop logins\") or call any /api/admin/team/** (GET, POST, PATCH; activity CSV): 403", async () => {
+        const bad = [];
+        for (const url of [TEAM.team, TEAM.activity, `${TEAM.activity}?person=${TEAM.worker}`]) {
+          const r = await teamOpen(ap, url);
+          if (!r.denied || /harness-worker-off|Add a worker|Download actions/.test(r.text)) bad.push(`${url}: "${r.text.slice(0, 100)}"`);
+        }
+        for (const [m, url, data] of [["GET", TEAM.api], ["POST", TEAM.api, { username: "sneaky" }], ["PATCH", TEAM.apiOne(workerId), { name: "Boss" }], ["PATCH", TEAM.apiOne(WORKSHOP_IDS.off), { active: true }],
+          ["POST", TEAM.setupLinkApi(WORKSHOP_IDS.worker), {}], ["POST", TEAM.signOutApi(WORKSHOP_IDS.worker2), {}], ["GET", TEAM.activityApi], ["GET", `${TEAM.activityApi}?format=daily`]]) {
+          const r = await api(anon, m, url, data);
+          if (!teamRefused(r)) bad.push(`${m} ${url}: HTTP ${r.status}`);
+        }
+        assert(!bad.length, bad.join(" | "));
+        await ap.screenshot({ path: path.join(OUT, "team-manage-04-worker-team-denied.png"), fullPage: true });
+      }, { shot: false });
+
+      await s.step("attempt limit: 10 wrong passwords for harness-worker-2, then the right one: 429 \"wait\"; harness-worker still signs in (counted per name)", async () => {
+        const codes = [];
+        for (let i = 0; i < 10; i++) codes.push((await api(anon, "POST", "/api/admin/login", { username: TEAM.worker2, password: `wrong-${i}` })).status);
+        eq(codes.filter((c) => c === 401).length, 10, `wrong tries (${codes.join(",")})`);
+        const eleventh = await api(anon, "POST", "/api/admin/login", { username: TEAM.worker2, password: TEAM.password });
+        eq(eleventh.status, 429, `11th try (right password): ${JSON.stringify(eleventh.body)}`);
+        const other = await newSignedOutContext(browser, { appUrl });
+        try {
+          const ok = await api(other, "POST", "/api/admin/login", { username: TEAM.worker, password: TEAM.password });
+          eq([ok.status, ok.body?.role], [200, "workshop"], "harness-worker sign-in");
+        } finally {
+          await other.close();
+        }
+        return `then: ${eleventh.body?.error}`;
+      }, { shot: false });
+    } finally {
+      // (anon stays open: the next steps check what happens to its session)
+    }
+
+    try {
+      await s.step(`admin: Turn off ${NEW} ("Yes, turn off"): their session ends at once (the Scan page sends them to sign in, the API 401); signing in is refused`, async () => {
+        await goto(page, TEAM.team);
+        const r = await teamRowAction(page, NEW, /^turn off$/i, `/api/admin/team/${workerId}`);
+        eq(r.status, 200, `PATCH (${JSON.stringify(r.body).slice(0, 120)})`);
+        assert((r.body?.endedSessions ?? 0) >= 1, `endedSessions ${r.body?.endedSessions}`);
+        await teamRow(page, NEW).getByText(/turned off/i).first().waitFor({ timeout: 15_000 });
+        await page.screenshot({ path: path.join(OUT, "team-manage-05-turned-off.png"), fullPage: true });
+        const t = await tables();
+        eq(teamSessionsOf(t, workerId).length, 0, "sessions");
+        eq(teamWorkerRow(t, NEW).active, false, "active");
+        const o = await teamOpen(ap, ROUTES.scan);
+        assert(o.path.startsWith("/admin/login"), `Scan page: at ${o.path}`);
+        const a = await api(anon, "GET", ROUTES.trackSearch("CD-2549"));
+        eq(a.status, 401, "API");
+        const si = await api(anon, "POST", "/api/admin/login", { username: NEW, password: PASS1 });
+        eq(si.status, 401, "sign-in while off");
+      }, { shot: false });
+
+      await s.step(`admin: Turn on ${NEW}: they can sign in again with the same password`, async () => {
+        const r = await teamRowAction(page, NEW, /^turn on$/i, `/api/admin/team/${workerId}`);
+        eq(r.status, 200, "PATCH");
+        const si = await teamSignIn(ap, NEW, PASS1);
+        eq([si.status, si.path], [200, TEAM.home], "sign-in");
+      }, { shot: false });
+
+      await s.step(`admin: Sign out everywhere (${NEW} signed in on two browsers): both sessions end; the password still works`, async () => {
+        const second = await newSignedOutContext(browser, { appUrl, phone: true });
+        try {
+          const sp = await second.newPage();
+          const si = await teamSignIn(sp, NEW, PASS1);
+          eq(si.status, 200, "second sign-in");
+          eq(teamSessionsOf(await tables(), workerId).length, 2, "sessions before");
+          await goto(page, TEAM.team);
+          const r = await teamRowAction(page, NEW, /^sign out everywhere$/i, "/sign-out");
+          eq([r.status, r.body?.endedSessions], [200, 2], "sign-out answer");
+          eq(teamSessionsOf(await tables(), workerId).length, 0, "sessions after");
+          for (const [c, pg] of [[anon, ap], [second, sp]]) {
+            const o = await teamOpen(pg, ROUTES.desk);
+            assert(o.path.startsWith("/admin/login"), `a browser is still in (${o.path})`);
+            void c;
+          }
+          const again = await api(second, "POST", "/api/admin/login", { username: NEW, password: PASS1 });
+          eq(again.status, 200, "sign-in after");
+        } finally {
+          await second.close();
+        }
+      }, { shot: false });
+
+      await s.step(`admin: New setup link (Reset) for ${NEW}: a new link shown; the old password stops working and their session ends; the first link still refused; the new link works once`, async () => {
+        await teamSignIn(ap, NEW, PASS1);
+        await goto(page, TEAM.team);
+        const r = await teamRowAction(page, NEW, /^new setup link$/i, "/setup-link");
+        eq(r.status, 200, `POST setup-link (${JSON.stringify(r.body).slice(0, 100)})`);
+        const fresh = await teamShownLink(page, teamRow(page, NEW));
+        assert(TEAM.setupLinkRe.test(fresh) && fresh !== link, `new link "${fresh}"`);
+        const t = await tables();
+        eq([teamWorkerRow(t, NEW).password_hash ?? null, teamSessionsOf(t, workerId).length], [null, 0], "password cleared, sessions");
+        eq((await api(anon, "POST", "/api/admin/login", { username: NEW, password: PASS1 })).status, 401, "old password");
+        const old = await api(anon, "POST", TEAM.setupApi, { token: new URL(link).searchParams.get("token"), password: PASS2 });
+        assert(old.status >= 400, `first link: HTTP ${old.status}`);
+        const used = await teamUseLink(ap, fresh, PASS2);
+        eq(used.status, 200, "new link");
+        const twice = await api(anon, "POST", TEAM.setupApi, { token: new URL(fresh).searchParams.get("token"), password: PASS1 });
+        assert(twice.status >= 400, `new link again: HTTP ${twice.status}`);
+        const c3 = await newSignedOutContext(browser, { appUrl });
+        try {
+          eq((await api(c3, "POST", "/api/admin/login", { username: NEW, password: PASS2 })).status, 200, "sign-in with the new password");
+        } finally {
+          await c3.close();
+        }
+      }, { shot: false });
+
+      await s.step("phone (390): the Team page fits (no sideways scroll), rows and buttons readable", async () => {
+        const c = await newAdminContext(browser, { phone: true, appUrl });
+        try {
+          const p2 = await c.newPage();
+          await goto(p2, TEAM.team);
+          await teamRow(p2, NEW).waitFor({ timeout: 30_000 });
+          const wpx = await sidewaysScroll(p2);
+          await p2.screenshot({ path: path.join(OUT, "team-manage-06-team-390.png"), fullPage: true });
+          assert(wpx <= 1, `scrolls sideways by ${wpx}px`);
+        } finally {
+          await c.close();
+        }
+      }, { shot: false });
+    } finally {
+      await anon.close();
+    }
+  },
+});
+
+/** "YYYY-MM-DD" `n` days before today (New York). */
+const teamDaysAgo = (n) => addCalendarDaysIso(todayNy(), -n);
+function addCalendarDaysIso(day, n) {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** Noon New York on a day, as an ISO time (safely inside that day). */
+const teamNoon = (day) => `${day}T17:00:00.000Z`;
+/** Parse a CSV file's text (lib/csv.ts: BOM, CRLF, quoted cells). */
+function teamCsv(text) {
+  const s = text.replace(/^﻿/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let q = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) {
+      if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\r") continue;
+    else if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+/** The CSV a link on the Activity page downloads (clicked, through the browser's download). */
+async function teamDownload(p, name) {
+  const [dl] = await Promise.all([p.waitForEvent("download", { timeout: 60_000 }), p.getByRole("link", { name }).first().click()]);
+  const file = await dl.path();
+  return { name: dl.suggestedFilename(), text: fs.readFileSync(file, "utf8") };
+}
+
+Object.assign(TEAM_SCENARIOS, {
+  // The Activity page's filters (person, from/to days, action) through its form and quick ranges, and
+  // both CSV downloads (actions; daily counts), against actions by three people on three days.
+  async "team-activity-filters"({ page, ctx, s, browser, appUrl }) {
+    const D3 = teamDaysAgo(3);
+    const D10 = teamDaysAgo(10);
+    const TODAY = todayNy();
+    let t = null;
+    await s.step(`setup: the admin receives CD-2549 (6 cards, today); harness-worker moves CD-2549-01 to CLAMP 01 and marks it done; harness-worker-2 moves CD-2549-02 to CLAMP 02 and takes it out; the admin moves CD-2549-03 to CLAMP 03; older rows: ${D3} (harness-worker-2 moved CD-2549-04, harness-worker a step on CD-2549-07) and ${D10} (harness-worker-2 took CD-2549-08 out)`, async () => {
+      t = await teamSetup(ctx, { slots: { clamp: 5 } });
+      const w1 = await newWorkshopContext(browser, { appUrl, token: WORKSHOP_TOKEN });
+      const w2 = await newWorkshopContext(browser, { appUrl, token: WORKSHOP2_TOKEN });
+      try {
+        const id = (c) => cardIdOf(t, c);
+        await trackOk(w1, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-01", cardIds: [id("CD-2549-01")] });
+        await trackOk(w1, ROUTES.trackDone, { cardIds: [id("CD-2549-01")] });
+        await trackOk(w2, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-02", cardIds: [id("CD-2549-02")] });
+        await trackOk(w2, ROUTES.trackRelease, { cardIds: [id("CD-2549-02")] });
+        await trackOk(ctx, ROUTES.trackAssign, { locationCode: "LOC-CLAMP-03", cardIds: [id("CD-2549-03")] });
+      } finally {
+        await w1.close();
+        await w2.close();
+      }
+      t = await tables();
+      const loc = (code) => placeOf(t, code).id;
+      const card = (code) => cardByCode(t, code);
+      await insertRows("card_moves", [
+        { id: crypto.randomUUID(), card_id: card("CD-2549-04").id, order_id: IDS.mailOrder, bag_id: card("CD-2549-04").bag_id, from_location_id: null, to_location_id: loc("LOC-CLAMP-04"), stage_before: null, stage_after: "Clamp Work", action: "assign", by: TEAM.worker2, session_id: null, created_at: teamNoon(D3) },
+        { id: crypto.randomUUID(), card_id: card("CD-2549-08").id, order_id: IDS.mailOrder, bag_id: card("CD-2549-08").bag_id, from_location_id: loc("LOC-CLAMP-05"), to_location_id: null, stage_before: "Clamp Work", stage_after: "Clamp Work", action: "release", by: TEAM.worker2, session_id: null, created_at: teamNoon(D10) },
+      ]);
+      const c7 = card("CD-2549-07").id;
+      await insertRows("order_events", [
+        { id: crypto.randomUUID(), order_id: IDS.mailOrder, event_type: "stage_update", description: `Stage: Humidor [card:${c7}]`, metadata: { card_id: c7, stage: "Humidor", round: 1, by: TEAM.worker }, is_customer_visible: false, created_at: teamNoon(D3) },
+      ]);
+    }, { critical: true, shot: false });
+
+    const persons = async () => (await teamActionRows(page)).map((r) => r.person);
+    const kinds = async () => (await teamActionRows(page)).map((r) => r.action);
+    const counted = (rows) => rows.map((r) => `${r.person.replace(/^.* /, "")} ${r.action} ${r.card.slice(0, 10)}`);
+
+    await s.step(`default (last 7 days): today's and ${D3}'s actions, not ${D10}'s; By person lists harness-worker, harness-worker-2, harness-admin`, async () => {
+      await goto(page, TEAM.activity);
+      const rows = await teamActionRows(page);
+      const main = flat(await page.locator("main").innerText());
+      for (const u of [TEAM.worker, TEAM.worker2, TEAM.admin]) assert(rows.some((r) => teamIsPerson(r.person, u)), `no line by ${u}`);
+      assert(rows.some((r) => teamIsPerson(r.person, TEAM.worker2) && /^moved$/i.test(r.action) && r.card.includes("CD-2549-04")), `${D3}'s move of CD-2549-04 missing`);
+      assert(!rows.some((r) => r.card.includes("CD-2549-08") && /taken out/i.test(r.action)), `${D10}'s Take out listed`);
+      await page.screenshot({ path: path.join(OUT, "team-activity-filters-01-default-1440.png"), fullPage: true });
+      return `${rows.length} lines; ${main.slice(0, 80)}`;
+    }, { shot: false });
+
+    await s.step("Person = harness-worker (the form's select, Show): only harness-worker's lines (not harness-worker-2's); the address has ?person=", async () => {
+      await page.getByLabel(/^person$/i).selectOption(TEAM.worker);
+      await Promise.all([page.waitForURL(/person=/, { timeout: 60_000 }), page.getByRole("button", { name: /^show$/i }).click()]);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const ps = await persons();
+      assert(ps.length && ps.every((x) => teamIsPerson(x, TEAM.worker)), `persons: ${[...new Set(ps)].join(", ")}`);
+      const rows = await teamActionRows(page);
+      const want = ["Moved CD-2549-01", "Done CD-2549-01", "Step change CD-2549-07"];
+      for (const w of want) assert(rows.some((r) => `${r.action} ${r.card}`.startsWith(w.split(" CD")[0]) && r.card.includes(w.slice(-10))), `no "${w}" (${counted(rows).join(", ")})`);
+      const crow = await teamCountsRow(page, TEAM.worker);
+      return `${rows.length} lines; counts rows: ${crow.map((r) => JSON.stringify(r.counts)).join(" ")}`;
+    }, { shot: false });
+
+    await s.step(`From = To = ${D3} (date boxes): only ${D3}'s two actions (harness-worker-2's move of CD-2549-04 and harness-worker's step) once Person is Everyone`, async () => {
+      await page.getByLabel(/^person$/i).selectOption("");
+      await page.getByLabel(/^from$/i).fill(D3);
+      await page.getByLabel(/^to$/i).fill(D3);
+      await Promise.all([page.waitForURL(new RegExp(`from=${D3}`), { timeout: 60_000 }), page.getByRole("button", { name: /^show$/i }).click()]);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const rows = await teamActionRows(page);
+      eq(sorted(counted(rows)), sorted([`${TEAM.worker2} Moved CD-2549-04`, `${TEAM.worker} Step change CD-2549-07`]), `${D3}'s lines`);
+      const crow = await teamCountsRow(page, TEAM.worker2);
+      assert(crow.length && crow[0].counts.moved === 1, `harness-worker-2's counts on ${D3}: ${JSON.stringify(crow)}`);
+    }, { shot: false });
+
+    await s.step(`From ${D10} to today: ${D10}'s Take out of CD-2549-08 by harness-worker-2 is listed too`, async () => {
+      await goto(page, `${TEAM.activity}?from=${D10}&to=${TODAY}`);
+      const rows = await teamActionRows(page);
+      assert(rows.some((r) => teamIsPerson(r.person, TEAM.worker2) && /^taken out$/i.test(r.action) && r.card.includes("CD-2549-08")), `no ${D10} Take out (${counted(rows).join(", ")})`);
+    }, { shot: false });
+
+    await s.step("Action = Moved (select, Show) over the same days: only Moved lines (CD-2549-01 by harness-worker, -02 by harness-worker-2, -03 by harness-admin, -04 by harness-worker-2)", async () => {
+      await page.getByLabel(/^action$/i).selectOption("moved");
+      await Promise.all([page.waitForURL(/action=moved/, { timeout: 60_000 }), page.getByRole("button", { name: /^show$/i }).click()]);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const ks = await kinds();
+      assert(ks.length && ks.every((k) => /^moved$/i.test(k)), `actions: ${[...new Set(ks)].join(", ")}`);
+      const rows = await teamActionRows(page);
+      for (const [u, c] of [[TEAM.worker, "CD-2549-01"], [TEAM.worker2, "CD-2549-02"], [TEAM.admin, "CD-2549-03"], [TEAM.worker2, "CD-2549-04"]]) {
+        assert(rows.some((r) => teamIsPerson(r.person, u) && r.card.includes(c)), `no Moved ${c} by ${u}`);
+      }
+    }, { shot: false });
+
+    await s.step("Person = harness-worker-2 + Action = Taken out: only their Take outs (CD-2549-02 today, CD-2549-08)", async () => {
+      await goto(page, `${TEAM.activity}?from=${D10}&to=${TODAY}&person=${TEAM.worker2}&action=taken_out`);
+      const rows = await teamActionRows(page);
+      eq(sorted(counted(rows)), sorted([`${TEAM.worker2} Taken out CD-2549-02`, `${TEAM.worker2} Taken out CD-2549-08`]), "lines");
+    }, { shot: false });
+
+    await s.step("quick ranges: Today shows only today's actions (no CD-2549-04 move, no step on CD-2549-07)", async () => {
+      await goto(page, TEAM.activity);
+      await Promise.all([page.waitForURL(new RegExp(`from=${TODAY}&to=${TODAY}`), { timeout: 60_000 }), page.getByRole("link", { name: /^today$/i }).click()]);
+      await page.waitForLoadState("networkidle").catch(() => {});
+      const rows = await teamActionRows(page);
+      const older = rows.filter((r) => (r.card.includes("CD-2549-04") && /^moved$/i.test(r.action)) || (r.card.includes("CD-2549-07") && /^step change$/i.test(r.action)));
+      assert(rows.length && !older.length, `older lines on Today: ${counted(older).join(", ")} (all: ${counted(rows).join(", ")})`);
+      return `${rows.length} lines`;
+    }, { shot: false });
+
+    await s.step(`CSV "Download actions" with Person = harness-worker-2 from ${D10}: the header (Date, Time (New York), Person, Action, Card ID, …), one row per listed action, all harness-worker-2, days ${D10}..today; a full admin's download only`, async () => {
+      await goto(page, `${TEAM.activity}?from=${D10}&to=${TODAY}&person=${TEAM.worker2}`);
+      const shown = await teamActionRows(page);
+      const { name, text } = await teamDownload(page, /download actions/i);
+      const rows = teamCsv(text);
+      eq(rows[0], ["Date", "Time (New York)", "Person", "Action", "Card ID", "Card name", "Bag", "Order", "From place", "To place", "Step before", "Step after", "Details"], "header");
+      const body = rows.slice(1).filter((r) => r.some((c) => c));
+      eq(body.length, shown.length, "rows (as many as the page lists)");
+      assert(body.every((r) => r[2] === TEAM.worker2), `persons: ${[...new Set(body.map((r) => r[2]))].join(", ")}`);
+      assert(body.every((r) => r[0] >= D10 && r[0] <= TODAY), `days: ${body.map((r) => r[0]).join(", ")}`);
+      eq(sorted(body.map((r) => `${r[3]} ${r[4]}`)), sorted(["Moved CD-2549-02", "Taken out CD-2549-02", "Moved CD-2549-04", "Taken out CD-2549-08"]), "actions");
+      assert(text.startsWith("﻿") && text.includes("\r\n"), "not lib/csv.ts output (BOM, CRLF)");
+      return `${name}: ${body.length} rows`;
+    }, { shot: false });
+
+    await s.step("CSV \"Download daily counts\" for the same filters: Date, Person, Received, Moved, Done, Taken out, Step changes, Other, Cards; harness-worker-2's rows add up", async () => {
+      const { text } = await teamDownload(page, /download daily counts/i);
+      const rows = teamCsv(text);
+      eq(rows[0], ["Date", "Person", "Received", "Moved", "Done", "Taken out", "Step changes", "Other", "Cards"], "header");
+      const body = rows.slice(1).filter((r) => r.some((c) => c));
+      assert(body.every((r) => r[1] === TEAM.worker2), `persons: ${body.map((r) => r[1]).join(", ")}`);
+      const sum = (i) => body.reduce((n, r) => n + Number(r[i]), 0);
+      eq([sum(3), sum(5)], [2, 2], "Moved, Taken out over the days");
+      return body.map((r) => r.join(",")).join(" / ");
+    }, { shot: false });
+
+    await s.step("the CSV route refuses anyone but a full admin: a worker 403, signed out 401", async () => {
+      const w = await newWorkshopContext(browser, { appUrl });
+      const anon = await newSignedOutContext(browser, { appUrl });
+      try {
+        const a = await api(w, "GET", `${TEAM.activityApi}?from=${D10}&to=${TODAY}`);
+        const b = await api(anon, "GET", `${TEAM.activityApi}?from=${D10}&to=${TODAY}`);
+        eq([a.status, b.status], [403, 401], "worker, signed out");
+      } finally {
+        await w.close();
+        await anon.close();
+      }
+    }, { shot: false });
+
+    await s.step("phone (390): the Activity page with filters fits (no sideways scroll); the list shows as blocks", async () => {
+      const c = await newAdminContext(browser, { phone: true, appUrl });
+      try {
+        const p2 = await c.newPage();
+        await goto(p2, `${TEAM.activity}?from=${D10}&to=${TODAY}`);
+        const wpx = await sidewaysScroll(p2);
+        await p2.screenshot({ path: path.join(OUT, "team-activity-filters-02-390.png"), fullPage: true });
+        assert(wpx <= 1, `scrolls sideways by ${wpx}px`);
+      } finally {
+        await c.close();
+      }
+    }, { shot: false });
+  },
+});
+Object.assign(SCENARIOS, TEAM_SCENARIOS);
 
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
 export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, PLAIN, PLAIN_NOTES };

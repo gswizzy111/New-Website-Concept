@@ -169,12 +169,32 @@ export const SCHEMA = {
   admin_sessions: {
     pk: ["token_hash"],
     notNull: ["role", "expires_at"],
-    checks: { admin_sessions_role_check: (r) => ["admin", "accountant", "support"].includes(r.role) },
+    // 'workshop': workshop logins (team-*), whose people are workshop_users rows, never admin_users
+    checks: { admin_sessions_role_check: (r) => ["admin", "accountant", "support", "workshop"].includes(r.role) },
     fks: {
       admin_user_id: { table: "admin_users", onDelete: "cascade" },
       accountant_id: { table: "accountant_access", onDelete: "cascade" },
       support_id: { table: "support_access", onDelete: "cascade" },
+      workshop_id: { table: "workshop_users", onDelete: "cascade" },
     },
+  },
+  // Workshop logins (owner, Nov 26 2026: "Workshop only"): Scan, Receiving, Bags and Desk. Their own
+  // table so the old site, which treats every admin_users row as a full admin, never sees them.
+  workshop_users: {
+    pk: ["id"],
+    unique: [{ name: "workshop_users_username_key", cols: ["username"] }],
+    notNull: ["username", "active", "created_at"],
+    // lower case, 2-32 characters: a-z 0-9 . _ -, starting with a letter or digit (WORKSHOP_USERNAME_PATTERN)
+    checks: { workshop_users_username_check: (r) => typeof r.username === "string" && /^[a-z0-9][a-z0-9._-]{1,31}$/.test(r.username) },
+    defaults: () => ({ active: true, updated_at: now() }),
+  },
+  // Who took, replaced or removed each receiving photo (20261126_workshop_users.sql; insert-only)
+  card_photo_events: {
+    pk: ["id"],
+    notNull: ["card_id", "action", "created_at"],
+    checks: { card_photo_events_action_check: (r) => ["add", "replace", "remove"].includes(r.action) },
+    fks: { card_id: { table: "cards", onDelete: "cascade" } },
+    immutable: true,
   },
   show_dropoffs: {
     pk: ["id"],
@@ -721,7 +741,16 @@ function applyDefaults(store, table, row, explicitNulls) {
   return out;
 }
 
+/** workshop_users_username_free (20261126_workshop_users.sql): a worker's username is never an admin's, any letter case. */
+function workshopUsernameFree(store, row) {
+  const name = String(row.username ?? "").toLowerCase();
+  if (store.table("admin_users").some((a) => String(a.username ?? "").toLowerCase() === name)) {
+    throw pgError(409, "23505", `workshop username "${row.username}" is an admin username`);
+  }
+}
+
 function beforeInsert(store, table, row) {
+  if (table === "workshop_users") workshopUsernameFree(store, row);
   if (table === "orders" && row.order_number == null) row.order_number = `CD-${++store.orderSeq}`;
   if (table === "cards" && row.completed && row.completed_at == null) row.completed_at = now();
   if (table === "show_dropoffs") { row.created_at = now(); row.updated_at = now(); row.signed_at = now(); }
@@ -729,6 +758,7 @@ function beforeInsert(store, table, row) {
 }
 
 function beforeUpdate(store, table, oldRow, row) {
+  if (table === "workshop_users" && row.username !== oldRow.username) workshopUsernameFree(store, row);
   if (table === "orders") row.updated_at = now();
   if (table === "cards" && row.completed !== oldRow.completed) row.completed_at = row.completed ? now() : null;
   if (table === "tier_bag_due_changes") throw pgError(400, "P0001", "tier_bag_due_changes rows cannot be changed");
