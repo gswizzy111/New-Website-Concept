@@ -7391,26 +7391,27 @@ const SCAN_WEDGE_SCENARIOS = {
     }, { shot: false });
 
     await s.step(`Esc closing a photo or the code box keeps a pending "Scan the slot for …"; Esc on the page drops it`, async () => {
-      const waitingCue = () => p.getByText(/scan the slot for/i).first();
+      // The top panel's line (not the screen-reader status line, which keeps the last words)
+      const waiting = async () => /scan the slot for/i.test(flat(await UI.scanReady(p).innerText()));
       const assign = p.getByRole("button", { name: /^assign to a slot$/i }).first();
       await assign.click();
-      await waitingCue().waitFor({ timeout: 10_000 });
+      assert(await until(waiting, 10_000), "no \"Scan the slot for …\" after Assign to a slot");
       const tile = UI.scanCardPhotos(p, "CD-2549-07").first().getByRole("button").first();
       await tile.click();
       await UI.photoViewer(p).waitFor({ timeout: 15_000 });
       await p.keyboard.press("Escape");
       await until(async () => (await openDialogs(p)) === 0, 5_000);
-      assert(await waitingCue().isVisible(), "Esc on the photo dropped the waiting Assign");
+      assert(await waiting(), "Esc on the photo dropped the waiting Assign");
       await UI.typeCodeLink(p).click();
       await UI.scanInput(p).waitFor({ timeout: 10_000 });
       await p.keyboard.press("Escape");
       await until(async () => (await UI.scanInput(p).count()) === 0, 5_000);
       eq(await UI.scanInput(p).count(), 0, "code boxes after Esc");
-      assert(await waitingCue().isVisible(), "Esc in the code box dropped the waiting Assign");
+      assert(await waiting(), "Esc in the code box dropped the waiting Assign");
       await p.evaluate(() => { const a = document.activeElement; if (a && a !== document.body && typeof a.blur === "function") a.blur(); });
       await p.keyboard.press("Escape");
-      await until(async () => !(await waitingCue().isVisible().catch(() => false)), 5_000);
-      assert(!(await waitingCue().isVisible().catch(() => false)), "Esc on the page kept the waiting Assign");
+      await until(async () => !(await waiting()), 5_000);
+      assert(!(await waiting()), "Esc on the page kept the waiting Assign");
     }, { shot: false });
   },
 };
