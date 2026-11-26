@@ -406,7 +406,7 @@ export function CardListView({ list, now, onPick }: { list: CardList; now: numbe
   const out = outLine(list.out, list.cards.length, list.total);
   const done = doneInBagLine(list.doneInBag);
   const role = list.source;
-  const bigTitle = role === "search" ? searchHeading(list.title, list.cards.length, !!list.truncated) : list.title;
+  const bigTitle = role !== "search" ? list.title : list.cards.length ? searchHeading(list.title, list.cards.length, !!list.truncated) : `“${list.title}”`;
   return (
     <section data-screen="list" aria-labelledby="scan-list-title" className="flex flex-col gap-3">
       <div className="rounded-2xl border border-border bg-white px-4 py-3">
