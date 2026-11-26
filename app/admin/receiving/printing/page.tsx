@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { LabelPrinterChoice } from "@/components/intake/label-print-button";
 
@@ -33,7 +33,7 @@ function Steps({ items }: { items: ReactNode[] }) {
 }
 
 export default async function PrintingGuidePage() {
-  await requireAdmin();
+  await requireAdminOrWorkshop();
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
       <AdminLink href="/admin/receiving" className="text-sm font-bold text-primary hover:underline min-h-11 inline-flex items-center">

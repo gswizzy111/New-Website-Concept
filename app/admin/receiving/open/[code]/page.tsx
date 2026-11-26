@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ExternalLink, Images, Package } from "lucide-react";
-import { requireAdmin, staffName } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop, staffName } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { nyToday } from "@/lib/intake/business-days";
@@ -25,7 +25,8 @@ import { buildOpenView, type OpenBagLine, type OpenHeader } from "./_lib/view";
  * else: steps, due dates and labels are on their own pages (the photos page
  * stays one tap away, "All photos").
  *
- * Full admins only. Reads only, except making the first desk (LOC-DESK)
+ * Full admins and workshop logins (lib/workshop-access.ts). Reads only,
+ * except making the first desk (LOC-DESK)
  * when there is none, as the Desk page does. Moves, Done and Ready to ship go
  * through the tracking API (POST /api/admin/track/assign, done, bag-ready).
  */
@@ -133,7 +134,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 export default async function OpenCodePage({ params }: { params: Promise<{ code: string }> }) {
-  await requireAdmin();
+  await requireAdminOrWorkshop();
   const { code } = await params;
   const admin = createAdminClient();
   const loaded = await loadOpen(admin, code);

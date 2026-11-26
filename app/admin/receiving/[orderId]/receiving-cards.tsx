@@ -52,7 +52,7 @@ function shelfText(shelves: unknown): string {
  * today by default, earlier for historical entries). Each card also has its
  * tier, info corrections and "Mark not received" for a mistake.
  */
-export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn, cards, maxPhotos, canReceive: schemaReady, payment }: {
+export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn, cards, maxPhotos, canReceive: schemaReady, payment, workshop = false }: {
   orderId: string;
   /** orders.status: receiving only moves Awaiting Cards on, so others are explained after receiving */
   orderStatus: string;
@@ -66,6 +66,8 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
   maxPhotos: number;
   /** False when the intake database update isn't applied yet */
   canReceive: boolean;
+  /** A workshop login: no card info corrections, and a tier only for a card that has none (lib/workshop-access.ts) */
+  workshop?: boolean;
 }) {
   const router = useRouter();
   // A refunded order can't be received at all
@@ -170,6 +172,7 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
             maxPhotos={maxPhotos}
             nextButtonId={c.refunded ? undefined : nextButton(active.indexOf(c))}
             lastReceived={!!c.receivedAt && active.filter((x) => x.receivedAt).length === 1}
+            workshop={workshop}
           />
         ))}
       </ol>
@@ -218,9 +221,9 @@ export function ReceivingCards({ orderId, orderStatus, today, defaultReceivedOn,
   );
 }
 
-function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, maxPhotos, nextButtonId, lastReceived = false }: {
+function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, maxPhotos, nextButtonId, lastReceived = false, workshop = false }: {
   card: WorkspaceCard; orderId: string; checked: boolean; onCheck: (on: boolean) => void;
-  canReceive: boolean; canPhoto: boolean; maxPhotos: number; nextButtonId?: string;
+  canReceive: boolean; canPhoto: boolean; maxPhotos: number; nextButtonId?: string; workshop?: boolean;
   /** The order's only received card: undoing it doesn't change the order's status */
   lastReceived?: boolean;
 }) {
@@ -308,7 +311,7 @@ function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, max
 
           {/* Tier */}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {!c.refunded && !c.bagId ? (
+            {!c.refunded && !c.bagId && (!workshop || !c.tier) ? (
               <label className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
                 Tier
                 <select
@@ -380,7 +383,7 @@ function CardRow({ card: c, orderId, checked, onCheck, canReceive, canPhoto, max
           )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {!c.refunded && (
+            {!c.refunded && !workshop && (
               <button type="button" onClick={() => setEditing((e) => !e)} className="min-h-11 px-3 rounded-lg border border-border bg-white text-sm font-bold text-foreground hover:border-primary/50" aria-expanded={editing}>
                 {editing ? "Close" : "Correct card info"}
               </button>

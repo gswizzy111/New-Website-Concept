@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { productImage, thumbnail } from "@/lib/thumbnail";
@@ -102,7 +102,7 @@ async function BagLabelSection({ bag }: { bag: BagSummary }) {
 }
 
 export default async function ReceivingCardPage({ params }: { params: Promise<{ cardId: string }> }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const { cardId } = await params;
   if (!z.string().uuid().safeParse(cardId).success) notFound();
 
@@ -215,7 +215,8 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
                     disabled={!canMove}
                   />
                 </div>
-                {st.completed && (
+                {/* Rounds start on the order page, which is for full admins (lib/workshop-access.ts) */}
+                {st.completed && role === "admin" && (
                   <p className="text-sm text-muted-foreground">
                     To rework it, start the next round from the{" "}
                     <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">order page</AdminLink>.
@@ -234,7 +235,11 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
                 <div>
                   <dt className="text-xs font-semibold text-muted-foreground">Order</dt>
                   <dd>
-                    <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">#{order.orderNumber}</AdminLink>
+                    {role === "admin" ? (
+                      <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">#{order.orderNumber}</AdminLink>
+                    ) : (
+                      <span className="font-semibold text-foreground">#{order.orderNumber}</span>
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -301,7 +306,7 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
 
             <div className="flex flex-col sm:flex-row gap-2">
               <AdminLink href={`/admin/receiving/${order.id}`} className={linkButton}>Open receiving workspace</AdminLink>
-              <AdminLink href={`/admin/orders/${order.id}`} className={linkButton}>Open order #{order.orderNumber}</AdminLink>
+              {role === "admin" && <AdminLink href={`/admin/orders/${order.id}`} className={linkButton}>Open order #{order.orderNumber}</AdminLink>}
             </div>
           </div>
         </div>

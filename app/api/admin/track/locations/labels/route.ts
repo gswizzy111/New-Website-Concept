@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAdmin } from "@/lib/admin-auth";
+import { isAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadLabelPlaces } from "@/lib/intake/labels/data";
 import { placeLabelsResponse } from "@/lib/intake/labels/respond";
@@ -26,7 +26,7 @@ const Query = z.union([
  * ?format=json → { settings, pages: [{ id, code, name, page }] } (the laid-out pages, for the preview and PNGs).
  */
 export async function GET(request: Request) {
-  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAdminOrWorkshop())) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const params = new URL(request.url).searchParams;
   const idsParam = params.get("ids");
   const parsed = Query.safeParse(

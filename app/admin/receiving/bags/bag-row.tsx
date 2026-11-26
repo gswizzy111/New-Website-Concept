@@ -28,7 +28,8 @@ const ACCENT: Partial<Record<DueInfo["kind"], string>> = {
   today: "border-l-4 border-l-amber-500",
 };
 
-export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today: string }) {
+// `orderLink`: false for workshop logins, who don't get the order page (lib/workshop-access.ts)
+export function BagRow({ bag, due, today, orderLink = true }: { bag: BoardBag; due: DueInfo; today: string; orderLink?: boolean }) {
   const bagHref = `/admin/receiving/bag/${bag.id}`;
   const pickerCards = groupPickerCards(bag.stageGroups);
   return (
@@ -152,13 +153,15 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
             <Camera aria-hidden className="size-4" strokeWidth={1.75} />
             Photos
           </AdminLink>
-          <AdminLink
-            href={`/admin/orders/${bag.orderId}`}
-            aria-label={`Open order #${bag.orderNumber}`}
-            className={`${button} bg-white text-foreground border-border hover:border-primary/40`}
-          >
-            Order
-          </AdminLink>
+          {orderLink && (
+            <AdminLink
+              href={`/admin/orders/${bag.orderId}`}
+              aria-label={`Open order #${bag.orderNumber}`}
+              className={`${button} bg-white text-foreground border-border hover:border-primary/40`}
+            >
+              Order
+            </AdminLink>
+          )}
         </div>
       </div>
     </li>
@@ -171,7 +174,7 @@ export function BagRow({ bag, due, today }: { bag: BoardBag; due: DueInfo; today
  * landing, where "It's in the Ready to ship bin" files it). A bag not in the
  * bin yet says so in amber; one in the bin, in green.
  */
-export function ReadyRow({ bag }: { bag: ReadyBag }) {
+export function ReadyRow({ bag, orderLink = true }: { bag: ReadyBag; orderLink?: boolean }) {
   const n = bag.cardCount;
   return (
     <li className="bg-white rounded-xl border border-border p-4 sm:px-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -218,13 +221,15 @@ export function ReadyRow({ bag }: { bag: ReadyBag }) {
           >
             Open bag
           </AdminLink>
-          <AdminLink
-            href={`/admin/orders/${bag.orderId}`}
-            aria-label={`Open order #${bag.orderNumber}`}
-            className={`${button} bg-white text-foreground border-border hover:border-primary/40`}
-          >
-            Order
-          </AdminLink>
+          {orderLink && (
+            <AdminLink
+              href={`/admin/orders/${bag.orderId}`}
+              aria-label={`Open order #${bag.orderNumber}`}
+              className={`${button} bg-white text-foreground border-border hover:border-primary/40`}
+            >
+              Order
+            </AdminLink>
+          )}
         </div>
       </div>
     </li>

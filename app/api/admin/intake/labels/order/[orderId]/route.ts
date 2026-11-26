@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAdmin } from "@/lib/admin-auth";
+import { isAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getLabelSettings, loadLabelBags } from "@/lib/intake/labels/data";
 import { labelResponse } from "@/lib/intake/labels/respond";
@@ -11,7 +11,7 @@ import { labelResponse } from "@/lib/intake/labels/respond";
  * pages for the on-screen preview. (?tag=1 is ignored: no reusable tag.)
  */
 export async function GET(request: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAdminOrWorkshop())) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { orderId } = await params;
   if (!z.string().uuid().safeParse(orderId).success) return Response.json({ error: "Order not found" }, { status: 404 });
   const onlyParam = new URL(request.url).searchParams.get("bags");

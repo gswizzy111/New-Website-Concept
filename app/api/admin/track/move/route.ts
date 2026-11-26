@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { moveSlot } from "@/lib/intake/tracking/moves";
-import { isStringArray, json, optString, readJson, trackAdmin, trackResponse } from "@/lib/intake/tracking/http";
+import { isStringArray, json, optString, readJson, trackStaff, trackResponse } from "@/lib/intake/tracking/http";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * order), one customer email per order at most, for steps new to the customer.
  */
 export async function POST(request: Request) {
-  const admin = await trackAdmin();
+  const admin = await trackStaff();
   if ("response" in admin) return admin.response;
   const body = await readJson(request);
   if (!body || typeof body.fromCode !== "string" || typeof body.toCode !== "string") return json({ error: "Invalid request" }, 400);

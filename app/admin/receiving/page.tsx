@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { PrintOrderLabels } from "@/components/intake/print-order-labels";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { likeExact } from "@/lib/like-exact";
 import { fetchAll } from "@/lib/fetch-all";
 import { cleanSearch, etDate, orderNumberFrom, statusLabel, tierLabel } from "@/lib/support-view";
@@ -176,7 +176,7 @@ function codeFrom(q: string): string | null {
 }
 
 export default async function ReceivingPage({ searchParams }: { searchParams: Promise<{ q?: string; queue?: string; page?: string }> }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const sp = await searchParams;
   const query = searchText(sp.q);
   const queue = (Object.keys(QUEUES) as QueueKey[]).find((k) => k === sp.queue) ?? null;
@@ -291,12 +291,13 @@ export default async function ReceivingPage({ searchParams }: { searchParams: Pr
           </div>
           <nav className="flex flex-wrap gap-2 text-sm font-bold" aria-label="Receiving sections">
             <AdminLink href="/admin/scan" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-primary bg-primary text-primary-foreground hover:bg-primary/90">Scan</AdminLink>
-            <AdminLink href="/admin/receiving/shelf" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Shelf</AdminLink>
+            {/* Workshop logins don't get Shelf, Places, Completed bags or Settings (lib/workshop-access.ts) */}
+            {role === "admin" && <AdminLink href="/admin/receiving/shelf" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Shelf</AdminLink>}
             <AdminLink href="/admin/receiving/bags" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Bags</AdminLink>
-            <AdminLink href="/admin/receiving/locations" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Places</AdminLink>
+            {role === "admin" && <AdminLink href="/admin/receiving/locations" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Places</AdminLink>}
             <AdminLink href="/admin/receiving/printing" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">How to print</AdminLink>
-            <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>
-            <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>
+            {role === "admin" && <AdminLink href="/admin/receiving/completed" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Completed bags</AdminLink>}
+            {role === "admin" && <AdminLink href="/admin/receiving/settings" className="inline-flex items-center min-h-11 px-4 rounded-lg border border-border bg-white hover:border-primary/40">Settings</AdminLink>}
           </nav>
         </div>
 

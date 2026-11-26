@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { BagLabelPanel } from "@/components/intake/bag-label-panel";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { thumbnail } from "@/lib/thumbnail";
 import { catalogThumb, isCatalogImageUrl } from "@/lib/card-catalog";
 import { MAX_RECEIVING_PHOTOS } from "@/lib/intake/photos";
@@ -109,7 +109,7 @@ async function basicOrder(orderId: string) {
 }
 
 export default async function ReceivingOrderPage({ params }: { params: Promise<{ orderId: string }> }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const { orderId } = await params;
   if (!UUID.test(orderId)) notFound();
 
@@ -141,7 +141,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
           <AdminLink href="/admin/receiving" className="text-sm font-bold text-primary hover:underline min-h-11 inline-flex items-center">← Receiving</AdminLink>
           <h1 className="font-heading font-black text-3xl text-foreground mt-2">{basic.order.customer_name ?? "Order"}</h1>
-          <p className="text-sm text-muted-foreground"><AdminLink href={`/admin/orders/${orderId}`} className="font-bold text-primary hover:underline">{basic.order.order_number}</AdminLink> · {basic.order.customer_email}</p>
+          <p className="text-sm text-muted-foreground">{role === "admin" ? <AdminLink href={`/admin/orders/${orderId}`} className="font-bold text-primary hover:underline">{basic.order.order_number}</AdminLink> : <span className="font-bold text-foreground">{basic.order.order_number}</span>} · {basic.order.customer_email}</p>
           <PaymentBanner paymentStatus={basic.order.payment_status as string | null} />
           <p role="status" className="mt-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {schemaMissing ? MIGRATION_NOTICE : `The receiving details couldn't load: ${loadError}`}
@@ -211,7 +211,12 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             <div className="min-w-0">
               <h1 className="font-heading font-black text-2xl sm:text-3xl text-foreground break-words">{order.customerName ?? "No name"}</h1>
               <p className="text-sm text-muted-foreground break-all">
-                <AdminLink href={`/admin/orders/${order.id}`} className="font-heading font-black text-primary hover:underline">{order.orderNumber}</AdminLink>
+                {/* The order page is for full admins (workshop logins: lib/workshop-access.ts) */}
+                {role === "admin" ? (
+                  <AdminLink href={`/admin/orders/${order.id}`} className="font-heading font-black text-primary hover:underline">{order.orderNumber}</AdminLink>
+                ) : (
+                  <span className="font-heading font-black text-foreground">{order.orderNumber}</span>
+                )}
                 {order.customerEmail ? ` · ${order.customerEmail}` : ""}
               </p>
             </div>
@@ -310,6 +315,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
               maxPhotos={MAX_RECEIVING_PHOTOS}
               canReceive
               payment={payment}
+              workshop={role === "workshop"}
             />
           )}
           <PutInShelf groups={shelfGroups} />
@@ -328,7 +334,7 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
             <p className="bg-white rounded-xl border border-border p-5 text-sm text-muted-foreground">No bags yet. Receiving cards puts each tier in its own bag, with its own Bag ID and due date.</p>
           ) : (
             <ul className="flex flex-col gap-3">
-              {bags.map((b) => <BagRow key={b.id} bag={b} orderId={order.id} today={today} />)}
+              {bags.map((b) => <BagRow key={b.id} bag={b} orderId={order.id} today={today} workshop={role === "workshop"} />)}
             </ul>
           )}
           {labelBags.length > 0 && (
@@ -370,7 +376,7 @@ function Flag({ href, tone, children }: { href: string; tone: "red" | "amber"; c
   );
 }
 
-function BagRow({ bag: b, orderId, today }: { bag: BagSummary; orderId: string; today: string }) {
+function BagRow({ bag: b, orderId, today, workshop }: { bag: BagSummary; orderId: string; today: string; workshop: boolean }) {
   const dueFlag = !b.receivedOn
     ? { text: "Missing receiving date", cls: "bg-red-100 text-red-700" }
     : b.dueStatus === "needs_review"
@@ -411,7 +417,8 @@ function BagRow({ bag: b, orderId, today }: { bag: BagSummary; orderId: string; 
         {b.complete && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Completed{b.completedAt ? ` ${nyDateTime(b.completedAt)}` : ""}</span>}
         {b.stagesDiffer && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Cards at different steps</span>}
         {dueFlag && <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${dueFlag.cls}`}>{dueFlag.text}</span>}
-        {b.dueStatus !== "manual" && (
+        {/* A bag's received date sets its due date: full admins only (lib/workshop-access.ts) */}
+        {b.dueStatus !== "manual" && !workshop && (
           <BagReceivedDate orderId={orderId} bagId={b.id} bagCode={b.code} today={today} current={b.receivedOn} labelPrinted={!!b.labelPrintedAt} />
         )}
         {b.dueStatus === "needs_review" && b.receivedOn && (

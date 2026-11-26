@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveTrackCode } from "@/lib/intake/tracking/resolve";
-import { json, resultResponse, trackAdmin } from "@/lib/intake/tracking/http";
+import { json, resultResponse, trackStaff } from "@/lib/intake/tracking/http";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  *   → 400 { error } not a code; 404 { error } nothing has it
  */
 export async function GET(request: Request) {
-  const admin = await trackAdmin();
+  const admin = await trackStaff();
   if ("response" in admin) return admin.response;
   const code = new URL(request.url).searchParams.get("code") ?? "";
   if (!code.trim()) return json({ error: "Scan a code." }, 400);

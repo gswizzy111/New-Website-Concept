@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { PREVIEW_MODE, PREVIEW_MESSAGE } from "@/lib/preview";
 import { ADMIN_SESSION_COOKIE, SUPPORT_APIS, SUPPORT_PAGES, VIEW_AS_COOKIE, lookupAdminSessionForMiddleware, withViewAs } from "@/lib/admin-session";
+import { WORKSHOP_DENIED_MESSAGE, WORKSHOP_HOME, WORKSHOP_NOT_AVAILABLE_PATH, isAuthApi, isAuthPage as isAdminAuthPage, workshopGate } from "@/lib/workshop-access";
 
 // ─── COMING SOON MODE ───────────────────────────────────────────────────────
 // Set to false and push to bring the full site back.
@@ -26,8 +27,8 @@ export async function middleware(request: NextRequest) {
   // route checks the role again itself, uncached.
   const onAdminPath = pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/");
   // Signing in and recovering a forgotten password work without a session
-  const isAuthRoute = ["/api/admin/login", "/api/admin/logout", "/api/admin/forgot-password", "/api/admin/reset-password"].includes(pathname);
-  const isAuthPage = ["/admin/login", "/admin/forgot-password", "/admin/reset-password"].some((p) => pathname === p || pathname.startsWith(p + "/"));
+  const isAuthRoute = isAuthApi(pathname);
+  const isAuthPage = isAdminAuthPage(pathname);
   // An admin in "View as Support" is treated as support everywhere
   const adminSession = onAdminPath && !PREVIEW_MODE
     ? withViewAs(await lookupAdminSessionForMiddleware(request.cookies.get(ADMIN_SESSION_COOKIE)?.value), request.cookies.get(VIEW_AS_COOKIE)?.value)
@@ -35,8 +36,9 @@ export async function middleware(request: NextRequest) {
   const isFullAdmin = adminSession?.role === "admin";
   const isAccountantSession = adminSession?.role === "accountant";
   const isSupportSession = adminSession?.role === "support";
+  const isWorkshopSession = adminSession?.role === "workshop";
   // Only these roles get past the admin gate (a new role must be added here on purpose)
-  const isAdminSession = isFullAdmin || isAccountantSession || isSupportSession;
+  const isAdminSession = isFullAdmin || isAccountantSession || isSupportSession || isWorkshopSession;
   const within = (base: string) => pathname === base || pathname.startsWith(base + "/");
 
   // Accountants get the tax reports and nothing else: no orders, customers or
@@ -63,6 +65,20 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Workshop logins get the Scan page, the Desk and Receiving & labels, and
+  // nothing else (default deny: the allowlist is lib/workshop-access.ts).
+  // Any other admin page shows "Not available for workshop logins" (the
+  // address stays), and any other admin API refuses them. Each allowed page
+  // and route checks the role again itself.
+  if (isWorkshopSession) {
+    const verdict = workshopGate(pathname, request.method);
+    if (verdict === "deny-api") {
+      return NextResponse.json({ error: WORKSHOP_DENIED_MESSAGE }, { status: 403, headers: { "Cache-Control": "no-store" } });
+    }
+    if (verdict === "home") return NextResponse.redirect(new URL(WORKSHOP_HOME, request.url));
+    if (verdict === "deny-page") return NextResponse.rewrite(new URL(WORKSHOP_NOT_AVAILABLE_PATH, request.url));
+  }
+
   // Preview mode: checkout, payments, shipping, customer accounts and the
   // admin area are off. Every API call answers "not functional yet" and
   // Supabase writes are refused in lib/preview.ts (signing in to the admin
@@ -71,7 +87,7 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: PREVIEW_MESSAGE }, { status: 503 });
     }
-    const PRIVATE = ["/admin", "/accountant", "/support", "/account", "/affiliates", "/partners", "/cases", "/orders"];
+    const PRIVATE = ["/admin", "/accountant", "/support", "/workshop", "/account", "/affiliates", "/partners", "/cases", "/orders"];
     if (PRIVATE.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       return NextResponse.rewrite(new URL("/not-available", request.url));
     }

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { workshopLanding } from "@/lib/workshop-access";
 
 /**
  * The admin page to return to after signing in, from `?next=` (a scanned
@@ -44,7 +45,11 @@ export default function AdminLoginPage() {
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      window.location.href = mode === "accountant" ? "/admin/tax" : mode === "support" ? "/admin/support" : returnTo() ?? "/admin";
+      // Workshop logins use the Admin tab too; they go to the Scan page, or to
+      // the page asked for when it is one of theirs (lib/workshop-access.ts)
+      const data = await res.json().catch(() => ({}));
+      window.location.href = mode === "accountant" ? "/admin/tax" : mode === "support" ? "/admin/support"
+        : data.role === "workshop" ? workshopLanding(returnTo()) : returnTo() ?? "/admin";
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data.error ?? "Incorrect credentials.");

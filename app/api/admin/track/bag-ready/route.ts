@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { putBagReadyToShip } from "@/lib/intake/tracking/bag-places";
-import { json, readJson, trackAdmin } from "@/lib/intake/tracking/http";
+import { json, readJson, trackStaff } from "@/lib/intake/tracking/http";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * LOC-SHIP (tier_bags.location_id). Sending it again changes nothing.
  */
 export async function POST(request: Request) {
-  const admin = await trackAdmin();
+  const admin = await trackStaff();
   if ("response" in admin) return admin.response;
   const body = await readJson(request);
   if (!body || typeof body.bagId !== "string") return json({ error: "Invalid request" }, 400);

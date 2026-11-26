@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { unreceiveCard } from "@/lib/intake/receiving";
-import { UUID, adminName, fail, smallJson } from "../../guard";
+import { UUID, staffActor, fail, smallJson } from "../../guard";
 
 /**
  * Undo receiving one card (a mistake), only before any work step was
@@ -12,7 +12,7 @@ import { UUID, adminName, fail, smallJson } from "../../guard";
 const Body = z.object({ cardId: z.string().regex(UUID, "Card not found") });
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  const who = await adminName();
+  const who = await staffActor();
   if ("response" in who) return who.response;
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");

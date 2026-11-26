@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isAdmin, getAdminSession } from "@/lib/admin-auth";
+import { adminOrWorkshopActor } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { STAGES } from "@/lib/restoration-stages";
 import { advanceCards } from "@/lib/intake/stages";
@@ -47,13 +47,15 @@ const Body = z
  * bag (out of any holder or desk); `bagPlaces` (TrackBagPlace[]) says where
  * each bag is, for "Put it back in REYES's bag: Open bags box, under R."
  */
+// Full admins and workshop logins (step changes are workshop work); `by` is who, for the activity log
 export async function POST(request: Request) {
-  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await adminOrWorkshopActor();
+  if (!actor) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const parsed = Body.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
   const { orderId, cardIds, fromStage, fromStages, toStage } = parsed.data;
 
-  const by = (await getAdminSession())?.username ?? null;
+  const by = actor.by;
   const result = await advanceCards(createAdminClient(), {
     orderId,
     cardIds,

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Search, X } from "lucide-react";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { nyToday } from "@/lib/intake/business-days";
@@ -125,7 +125,7 @@ function Notice({ tone, children }: { tone: "amber" | "red"; children: React.Rea
 }
 
 export default async function BagsBoardPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const sp = await searchParams;
   const f = parseFilters(sp);
   const showAll = first(sp.show) === "all";
@@ -289,7 +289,7 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
               <span>Label</span>
             </div>
             <ul className="flex flex-col gap-3" aria-label="Open bags">
-              {shown.map((b) => <BagRow key={b.id} bag={b} due={due.get(b.id)!} today={today} />)}
+              {shown.map((b) => <BagRow key={b.id} bag={b} due={due.get(b.id)!} today={today} orderLink={role === "admin"} />)}
             </ul>
           </>
         )}
@@ -316,7 +316,7 @@ export default async function BagsBoardPage({ searchParams }: { searchParams: Pr
               {notInBin > 0 ? ` ${notInBin} not in the Ready to ship bin yet (listed first).` : " All in the Ready to ship bin."}
             </p>
             <ul className="mt-3 flex flex-col gap-2" aria-label="Ready to ship">
-              {ready.map((b) => <ReadyRow key={b.id} bag={b} />)}
+              {ready.map((b) => <ReadyRow key={b.id} bag={b} orderLink={role === "admin"} />)}
             </ul>
           </section>
         )}

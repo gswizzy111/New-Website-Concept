@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Check, ChevronDown, ChevronRight, ImageOff, Tags } from "lucide-react";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { productImage } from "@/lib/thumbnail";
@@ -72,7 +72,11 @@ type PhotoCard = {
   linkable: boolean;
 };
 
-type HeaderOrder = { id: string; orderNumber: string; customerName: string | null; status: string; statusLabel: string; paymentStatus: string | null };
+type HeaderOrder = {
+  id: string; orderNumber: string; customerName: string | null; status: string; statusLabel: string; paymentStatus: string | null;
+  /** false for workshop logins, who don't get the order page (lib/workshop-access.ts) */
+  orderLink?: boolean;
+};
 
 /** A run of cards on the page: one tier bag, the cards not in a bag yet, or a plain list. */
 type Section =
@@ -236,7 +240,7 @@ export default async function OrderPhotosPage({
   params: Promise<{ orderId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const [{ orderId }, query] = await Promise.all([params, searchParams]);
   if (!UUID.test(orderId)) notFound();
   const rawBag = Array.isArray(query.bag) ? query.bag[0] : query.bag;
@@ -276,7 +280,8 @@ export default async function OrderPhotosPage({
     if (!basic) notFound();
     loaded = { ...basic, bags: [], intake: false };
   }
-  const { header, bags } = loaded;
+  const { bags } = loaded;
+  const header: HeaderOrder = { ...loaded.header, orderLink: role === "admin" };
 
   // A bag of another order (or an unknown one, say emptied and removed since) is ignored: the whole order shows, and says so
   const bag = bagParam ? bags.find((b) => b.id.toLowerCase() === bagParam && b.orderId === header.id) ?? null : null;
@@ -373,9 +378,13 @@ function OrderLine({ order }: { order: HeaderOrder }) {
   const payment = paymentState(order.paymentStatus);
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <AdminLink href={`/admin/orders/${order.id}`} className={`inline-flex items-center min-h-11 font-heading font-black text-xl text-primary hover:underline break-all ${focusRing}`}>
-        {order.orderNumber}
-      </AdminLink>
+      {order.orderLink === false ? (
+        <span className="inline-flex items-center min-h-11 font-heading font-black text-xl text-foreground break-all">{order.orderNumber}</span>
+      ) : (
+        <AdminLink href={`/admin/orders/${order.id}`} className={`inline-flex items-center min-h-11 font-heading font-black text-xl text-primary hover:underline break-all ${focusRing}`}>
+          {order.orderNumber}
+        </AdminLink>
+      )}
       <span className={`${pill} ${STATUS_STYLES[order.status] ?? "bg-gray-100 text-gray-600"}`}>{order.statusLabel}</span>
       {payment !== "paid" && (
         <span className={`${pill} ${payment === "refunded" ? "bg-gray-900 text-white" : "bg-red-600 text-white"}`}>{payment === "refunded" ? "Order refunded" : "Not paid"}</span>

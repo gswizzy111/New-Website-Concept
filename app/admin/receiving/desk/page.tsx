@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { MapPin, ScanLine } from "lucide-react";
-import { requireAdmin, staffName } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop, staffName } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { normalizeCode, scanPathForLocation } from "@/lib/intake/codes";
@@ -17,7 +17,8 @@ import { deskPanelCard, type DeskPanelCard } from "./_lib/view";
  * customer's notes, and where it goes next. One desk at a time
  * (?desk=<code>, a picker when there are several: LOC-DESK, LOC-DESK-<NAME>).
  * When there is no desk at all, LOC-DESK "DESK" is made here (one small,
- * idempotent insert). Full admins only; reads only otherwise, and every
+ * idempotent insert). Full admins and workshop logins
+ * (lib/workshop-access.ts); reads only otherwise, and every
  * action goes through the tracking API (app/api/admin/track/**).
  */
 
@@ -114,7 +115,7 @@ function EmptyDesk({ desk }: { desk: DeskPlace }) {
 }
 
 export default async function DeskPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
+  await requireAdminOrWorkshop();
   const requested = normalizeCode(first((await searchParams).desk));
   const result = await loadDesk(requested);
   const desk = result.ok ? result.desk : null;

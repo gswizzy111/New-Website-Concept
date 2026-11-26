@@ -84,23 +84,46 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, role: "accountant" });
   }
 
-  // ── Admin login (username + password) ────────────────────────────────────
+  // ── Admin or workshop login (username + password) ────────────────────────
+  // Workshop logins (workshop_users) share the username box and the attempt
+  // count per username, but are never admin_users rows, so they can never
+  // sign in as a full admin here or on the other site. A username can't be
+  // both (lib/workshop-users.ts refuses it, and so does the database); the
+  // admin account is checked first all the same. A failed try checks both
+  // hashes, so it takes as long whichever kind of account the name is.
   if (!username) return Response.json({ error: "Enter your username and password." }, { status: 400 });
   const login = username.toLowerCase();
   const { wait } = await takeAttempt("admin-login", login, LOGIN_RULE);
   if (wait > 0) return tooMany(wait);
-  const { data: user } = await admin
-    .from("admin_users")
-    .select("id, password_hash")
-    .eq("username", login)
-    .eq("active", true)
-    .maybeSingle();
-  const valid = await verifyPassword(password, user?.password_hash ?? NO_MATCH_HASH);
-  if (!user || !valid) {
+  const [{ data: user }, { data: worker }] = await Promise.all([
+    admin
+      .from("admin_users")
+      .select("id, password_hash")
+      .eq("username", login)
+      .eq("active", true)
+      .maybeSingle(),
+    // Errors (say, before 20261126_workshop_users.sql is applied) count as no worker
+    admin
+      .from("workshop_users")
+      .select("id, password_hash")
+      .eq("username", login)
+      .eq("active", true)
+      .not("password_hash", "is", null)
+      .maybeSingle(),
+  ]);
+  if (user && (await verifyPassword(password, user.password_hash ?? NO_MATCH_HASH))) {
+    await clearAttempts("admin-login", login);
+    await startSession({ role: "admin", adminUserId: user.id }, request);
+    await admin.from("admin_users").update({ last_login_at: new Date().toISOString() }).eq("id", user.id);
+    return Response.json({ ok: true, role: "admin" });
+  }
+  if (!user) await verifyPassword(password, NO_MATCH_HASH);
+  const workerValid = await verifyPassword(password, (worker?.password_hash as string | null | undefined) ?? NO_MATCH_HASH);
+  if (!worker || !workerValid) {
     return Response.json({ error: "Incorrect username or password." }, { status: 401 });
   }
   await clearAttempts("admin-login", login);
-  await startSession({ role: "admin", adminUserId: user.id }, request);
-  await admin.from("admin_users").update({ last_login_at: new Date().toISOString() }).eq("id", user.id);
-  return Response.json({ ok: true, role: "admin" });
+  await startSession({ role: "workshop", workshopUserId: worker.id as string }, request);
+  await admin.from("workshop_users").update({ last_login_at: new Date().toISOString() }).eq("id", worker.id);
+  return Response.json({ ok: true, role: "workshop" });
 }

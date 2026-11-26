@@ -1,13 +1,16 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isAdmin } from "@/lib/admin-auth";
+import { adminOrWorkshopActor } from "@/lib/admin-auth";
 import { isOurCardPhoto, MAX_RECEIVING_PHOTOS } from "@/lib/intake/photos";
 import { UUID, smallJson } from "../../../orders/guard";
+import { logPhotoEvents, photoChanges } from "@/lib/intake/photo-log";
 
 /**
  * A card's receiving photos (cards.receiving_photo_urls): add, replace or
  * remove one. The customer's own photos (cards.photo_urls) are never touched.
  * Only photos /api/upload stored in our card-photos bucket are accepted.
+ * Full admins and workshop logins; who took or removed each photo is kept in
+ * card_photo_events (lib/intake/photo-log.ts).
  *
  * POST { action: "add", urls: string[] }
  *    | { action: "replace", old: string, url: string }
@@ -48,7 +51,8 @@ function apply(current: string[], body: Body): { next: string[] } | { error: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await adminOrWorkshopActor();
+  if (!actor) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   if (!UUID.test(id)) return Response.json({ error: "Card not found" }, { status: 404 });
 
@@ -62,7 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   for (let attempt = 0; attempt < 3; attempt++) {
     const { data: card, error: readError } = await admin
       .from("cards")
-      .select("id, receiving_photo_urls")
+      .select("id, order_id, receiving_photo_urls")
       .eq("id", id)
       .maybeSingle();
     if (readError) {
@@ -88,7 +92,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       .select("receiving_photo_urls");
     if (error) return Response.json({ error: error.message }, { status: 500 });
     if (updated && updated.length > 0) {
-      return Response.json({ receiving_photo_urls: (updated[0].receiving_photo_urls as string[] | null) ?? result.next });
+      const saved = (updated[0].receiving_photo_urls as string[] | null) ?? result.next;
+      await logPhotoEvents(admin, photoChanges(current, saved).map((c) => ({
+        ...c, cardId: id, orderId: (card.order_id as string | null) ?? null, by: actor.by,
+      })));
+      return Response.json({ receiving_photo_urls: saved });
     }
     // Someone else saved a photo for this card at the same moment: read again
   }

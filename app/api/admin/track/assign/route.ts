@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assignCards } from "@/lib/intake/tracking/moves";
-import { isStringArray, json, optString, readJson, trackAdmin, trackResponse } from "@/lib/intake/tracking/http";
+import { isStringArray, json, optString, readJson, trackStaff, trackResponse } from "@/lib/intake/tracking/http";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
  * left is 409 { error } ("CD-2549-07 isn't in its bag any more (now in CLAMP 03).") with nothing written.
  */
 export async function POST(request: Request) {
-  const admin = await trackAdmin();
+  const admin = await trackStaff();
   if ("response" in admin) return admin.response;
   const body = await readJson(request);
   if (!body || typeof body.locationCode !== "string" || !isStringArray(body.cardIds)) return json({ error: "Invalid request" }, 400);

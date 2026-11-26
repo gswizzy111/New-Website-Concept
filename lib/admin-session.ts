@@ -11,13 +11,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * password again. Both sites share the database, so the same logins work on
  * both; each site's cookie only works on that site. Support logins exist on
  * this site only: the other site's code doesn't know the 'support' role.
+ *
+ * Workshop logins (role 'workshop', workshop_users) are hired help for the
+ * Scan page, the Desk and Receiving: they sign in with a username and
+ * password like admins, but they are deliberately NOT admin_users rows (the
+ * other site treats every admin_users row as a full admin, and doesn't know
+ * the 'workshop' role, so its session lookup refuses these sessions). What
+ * they may open is lib/workshop-access.ts (default deny).
  */
 export const ADMIN_SESSION_COOKIE = "admin_session";
 // The cookie from before per-admin logins held the password itself; cleared on sign-in and sign-out.
 export const LEGACY_ADMIN_COOKIE = "admin_auth";
 export const SESSION_HOURS = 12;
 
-export type AdminRole = "admin" | "accountant" | "support";
+export type AdminRole = "admin" | "accountant" | "support" | "workshop";
 export type AdminSession = {
   role: AdminRole;
   /** The admin's username; for accountants and support staff, their email. */
@@ -26,7 +33,10 @@ export type AdminSession = {
   adminUserId?: string;
   /** support_access.id and the person's name (support staff only) */
   supportId?: string;
+  /** support staff: their name; workshop logins: their display name, if set */
   name?: string;
+  /** workshop_users.id (workshop logins only); `username` is what their actions record */
+  workshopUserId?: string;
   /** An admin looking at the admin as support sees it ("View as Support") */
   preview?: boolean;
 };
@@ -47,7 +57,8 @@ export function withViewAs(session: AdminSession | null, viewAs: string | null |
 export type SessionOwner =
   | { role: "admin"; adminUserId: string }
   | { role: "accountant"; accountantId: string }
-  | { role: "support"; supportId: string };
+  | { role: "support"; supportId: string }
+  | { role: "workshop"; workshopUserId: string };
 
 /**
  * What a support session may open; everything else under /admin sends them
@@ -93,6 +104,8 @@ export async function createAdminSession(
     admin_user_id: who.role === "admin" ? who.adminUserId : null,
     accountant_id: who.role === "accountant" ? who.accountantId : null,
     ...(who.role === "support" ? { support_id: who.supportId } : {}),
+    // Named only for workshop sessions, so other sign-ins never depend on the column
+    ...(who.role === "workshop" ? { workshop_id: who.workshopUserId } : {}),
     expires_at: new Date(Date.now() + SESSION_HOURS * 3600_000).toISOString(),
     user_agent: userAgent?.slice(0, 300) ?? null,
   });
@@ -135,7 +148,40 @@ async function lookupSessionByHash(tokenHash: string): Promise<{ session: AdminS
       ? { session: { role: "support", username: member.email, name: member.name, supportId: data.support_id as string }, expiresAt }
       : null;
   }
+  if (data.role === "workshop") {
+    const session = await lookupWorkshopSession(tokenHash);
+    return session ? { session, expiresAt } : null;
+  }
   return null;
+}
+
+/**
+ * A workshop session's worker, read separately so that no other sign-in's
+ * lookup names workshop_id or workshop_users (they work before
+ * 20261126_workshop_users.sql is applied). Only a worker who is switched on
+ * and has a password counts: turning someone off, or Reset (which clears the
+ * password), ends their sessions here at once even if deleting the rows failed.
+ */
+async function lookupWorkshopSession(tokenHash: string): Promise<AdminSession | null> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("admin_sessions")
+    .select("workshop_id, workshop_users(id, username, name, active, password_hash)")
+    .eq("token_hash", tokenHash)
+    .eq("role", "workshop")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+  if (error || !data?.workshop_id) return null;
+  type Worker = { id: string; username: string; name: string | null; active: boolean; password_hash: string | null };
+  const raw = data.workshop_users as Worker | Worker[] | null;
+  const worker = Array.isArray(raw) ? raw[0] ?? null : raw;
+  if (!worker?.active || !worker.password_hash || worker.id !== data.workshop_id) return null;
+  return {
+    role: "workshop",
+    username: worker.username,
+    workshopUserId: worker.id,
+    ...(worker.name ? { name: worker.name } : {}),
+  };
 }
 
 /**
@@ -193,16 +239,19 @@ export async function endAdminSession(token: string | null | undefined) {
  * session behind `keepToken` (the browser that just changed it).
  */
 export async function endSessionsFor(
-  who: { adminUserId: string } | { accountantId: string } | { supportId: string },
+  who: { adminUserId: string } | { accountantId: string } | { supportId: string } | { workshopUserId: string },
   keepToken?: string | null
-) {
+): Promise<{ ended: number; error: string | null }> {
   const admin = createAdminClient();
-  let query = admin.from("admin_sessions").delete();
+  let query = admin.from("admin_sessions").delete({ count: "exact" });
   query = "adminUserId" in who
     ? query.eq("admin_user_id", who.adminUserId)
     : "accountantId" in who
       ? query.eq("accountant_id", who.accountantId)
-      : query.eq("support_id", who.supportId);
+      : "supportId" in who
+        ? query.eq("support_id", who.supportId)
+        : query.eq("workshop_id", who.workshopUserId).eq("role", "workshop");
   if (keepToken && TOKEN_PATTERN.test(keepToken)) query = query.neq("token_hash", await sha256(keepToken));
-  await query;
+  const { count, error } = await query;
+  return { ended: count ?? 0, error: error?.message ?? null };
 }

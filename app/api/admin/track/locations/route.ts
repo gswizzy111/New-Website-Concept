@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createLocation, createSlots, listLocations, updateLocation } from "@/lib/intake/tracking/locations";
 import { STATION_TYPES } from "@/lib/intake/tracking/stations";
-import { json, readJson, trackAdmin } from "@/lib/intake/tracking/http";
+import { json, readJson, trackAdmin, trackStaff } from "@/lib/intake/tracking/http";
 import type { LocationKind } from "@/lib/intake/tracking/types";
 
 export const dynamic = "force-dynamic";
@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
  *   → 200 LocationsResponse { locations: TrackLocationWithCount[] (cardCount, bagCount, free, capacity
  *     with the one-card rule applied, cardCodes for a one-card holder with a card), stations: StationType[] }
  */
+// Workshop logins may list the slots (the Desk's holder picker); making and changing them is for full admins
 export async function GET(request: Request) {
-  const admin = await trackAdmin();
+  const admin = await trackStaff();
   if ("response" in admin) return admin.response;
   const sp = new URL(request.url).searchParams;
   const station = sp.get("station");

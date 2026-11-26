@@ -1,5 +1,5 @@
 import { createSign } from "crypto";
-import { isAdmin } from "@/lib/admin-auth";
+import { isAdminOrWorkshop } from "@/lib/admin-auth";
 
 /**
  * Signs QZ Tray requests so QZ Tray trusts the admin site (public/qz-cert.pem)
@@ -7,7 +7,7 @@ import { isAdmin } from "@/lib/admin-auth";
  * QZ_PRIVATE_KEY.
  */
 export async function POST(req: Request) {
-  if (!(await isAdmin())) return new Response("Unauthorized", { status: 401 });
+  if (!(await isAdminOrWorkshop())) return new Response("Unauthorized", { status: 401 });
 
   const key = process.env.QZ_PRIVATE_KEY;
   if (!key) return new Response("QZ_PRIVATE_KEY is not set", { status: 500 });

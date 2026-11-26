@@ -20,7 +20,7 @@ function redirect(request: Request, to: string) {
  * and the slot labels and place signs (LOC-CLAMP-07: the Scan page, ready to
  * put cards there, /admin/scan?loc=LOC-CLAMP-07). Public on
  * purpose, so the phone camera can open it, but it shows nothing itself and tells a signed-out visitor
- * nothing: without a full admin session it never looks the code up, it sends
+ * nothing: without a full admin (or workshop) session it never looks the code up, it sends
  * them to sign in and back here (`/admin/login?next=/q/<CODE>`). Signed in, a known code
  * redirects to its admin page (codeTargetPath: an order code or a Bag ID to the
  * scan landing, /admin/receiving/open/<CODE>, with the customer, the cards and
@@ -35,9 +35,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ code
   // (no lookup yet): anything else, a bare number included, is "not found" for everyone
   if (!code || !codeKind(code)) return notFound();
 
-  // Signed out (or not a full admin): sign in first, then back to this scan
+  // Signed out (or not a full admin or workshop login): sign in first, then
+  // back to this scan. Every page a code opens is one workshop logins may use
+  // (lib/workshop-access.ts).
   const session = await getAdminSession();
-  if (session?.role !== "admin") return redirect(request, `/admin/login?next=${encodeURIComponent(`/q/${code}`)}`);
+  if (session?.role !== "admin" && session?.role !== "workshop") return redirect(request, `/admin/login?next=${encodeURIComponent(`/q/${code}`)}`);
 
   let found: Awaited<ReturnType<typeof resolveCode>> = null;
   try {

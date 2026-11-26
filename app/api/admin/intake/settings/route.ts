@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isAdmin } from "@/lib/admin-auth";
+import { isAdmin, isAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isDay } from "@/lib/intake/business-days";
 import { getLabelSettings } from "@/lib/intake/labels/data";
@@ -44,8 +44,9 @@ async function state(admin: SupabaseClient) {
   };
 }
 
+// Workshop logins may read the label stock (the print button asks which paper is loaded); changes are for full admins
 export async function GET() {
-  if (!(await isAdmin())) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await isAdminOrWorkshop())) return Response.json({ error: "Unauthorized" }, { status: 401 });
   return Response.json(await state(createAdminClient()), { headers: NO_STORE });
 }
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { getAdminSession } from "@/lib/admin-auth";
+import { adminOrWorkshopActor, getAdminSession } from "@/lib/admin-auth";
 import type { TrackResult } from "@/lib/intake/tracking/moves";
 
 /** Shared bits of the /api/admin/track/* routes (server only). */
@@ -11,6 +11,18 @@ export async function trackAdmin(): Promise<{ by: string } | { response: Respons
   const session = await getAdminSession();
   if (session?.role !== "admin") return { response: json({ error: "Unauthorized" }, 401) };
   return { by: session.username ?? "admin" };
+}
+
+/**
+ * A full admin's or a workshop login's username, or a 401 response. Only for
+ * the tracking routes workshop logins may call (WORKSHOP_APIS in
+ * lib/workshop-access.ts: resolve, search, assign, move, done, release,
+ * bag-ready, the locations list); places setup and ship checks use trackAdmin().
+ */
+export async function trackStaff(): Promise<{ by: string; role: "admin" | "workshop" } | { response: Response }> {
+  const actor = await adminOrWorkshopActor();
+  if (!actor) return { response: json({ error: "Unauthorized" }, 401) };
+  return actor;
 }
 
 export function json(body: unknown, status = 200): Response {

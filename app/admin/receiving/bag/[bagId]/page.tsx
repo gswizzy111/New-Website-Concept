@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { thumbnail } from "@/lib/thumbnail";
@@ -117,7 +117,7 @@ function DueChanges({ changes }: { changes: TierBagDueChange[] }) {
 }
 
 export default async function ReceivingBagPage({ params }: { params: Promise<{ bagId: string }> }) {
-  await requireAdmin();
+  const role = await requireAdminOrWorkshop();
   const { bagId } = await params;
   if (!z.string().uuid().safeParse(bagId).success) notFound();
 
@@ -173,13 +173,18 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
           <h1 className="font-mono font-black text-3xl text-foreground mt-1">{bag.code}</h1>
           <p className="text-sm text-muted-foreground">
             {order.customerName || "—"} ·{" "}
-            <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">#{order.orderNumber}</AdminLink>
+            {role === "admin" ? (
+              <AdminLink href={`/admin/orders/${order.id}`} className="font-semibold text-primary hover:underline">#{order.orderNumber}</AdminLink>
+            ) : (
+              <span className="font-semibold text-foreground">#{order.orderNumber}</span>
+            )}
             {" · "}
             {bag.cardCount} card{bag.cardCount === 1 ? "" : "s"}
           </p>
         </header>
 
-        {isNewCompletion && (
+        {/* "Completed bags" seen marks are the owner's (workshop logins: lib/workshop-access.ts) */}
+        {isNewCompletion && role === "admin" && (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-green-200 bg-green-50 p-3">
             <p className="text-sm font-semibold text-green-900">Every card in this bag is done. The order is completed separately, once all its cards are done.</p>
             <MarkSeenButton bagIds={[bag.id]} label="Got it" />
@@ -277,7 +282,7 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
 
             <div className="flex flex-col sm:flex-row gap-2">
               <AdminLink href={`/admin/receiving/${order.id}`} className={linkButton}>Open receiving workspace</AdminLink>
-              <AdminLink href={`/admin/orders/${order.id}`} className={linkButton}>Open order #{order.orderNumber}</AdminLink>
+              {role === "admin" && <AdminLink href={`/admin/orders/${order.id}`} className={linkButton}>Open order #{order.orderNumber}</AdminLink>}
             </div>
           </div>
 
@@ -311,9 +316,12 @@ export default async function ReceivingBagPage({ params }: { params: Promise<{ b
                   </div>
                 )}
               </dl>
-              <div className="mt-3">
-                <DueDateEditor bagId={bag.id} dueDate={bag.dueDate} />
-              </div>
+              {/* Changing a due date is for full admins */}
+              {role === "admin" && (
+                <div className="mt-3">
+                  <DueDateEditor bagId={bag.id} dueDate={bag.dueDate} />
+                </div>
+              )}
               <DueChanges changes={dueChanges} />
             </section>
           </div>

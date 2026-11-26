@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAdminSession } from "@/lib/admin-auth";
+import { adminOrWorkshopActor } from "@/lib/admin-auth";
 import { RESTORATION_TIERS } from "@/lib/restoration-tiers";
 import { baggedCards, cardTierChanges, tierLockMessage } from "@/lib/intake/tier-lock";
 
@@ -10,10 +10,14 @@ const TIER_LABELS: Record<string, string> = {
 };
 const VALID_TIERS = ["prep", ...Object.keys(RESTORATION_TIERS)];
 
-/** Switch one card's tier (e.g. one card on a prep order to a restoration). Price and payment are left as they are. */
+/**
+ * Switch one card's tier (e.g. one card on a prep order to a restoration). Price and payment are left as they are.
+ * Workshop logins may only pick a tier for a card that has none (neither its
+ * own nor the order's: "Missing tier" at Receiving); changing one is for full admins.
+ */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getAdminSession();
-  if (session?.role !== "admin") return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const actor = await adminOrWorkshopActor();
+  if (!actor) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -28,6 +32,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const orderTier = (card.orders as unknown as { restoration_tier: string | null } | null)?.restoration_tier ?? null;
   const from = (card.tier as string | null) ?? orderTier;
   if (from === tier) return Response.json({ ok: true });
+  if (actor.role === "workshop" && from) {
+    return Response.json({ error: "Workshop logins can pick a tier for a card that has none, not change one. Ask the owner." }, { status: 403 });
+  }
 
   // A card already in a tier bag keeps its tier: its Bag ID, label and due
   // date belong to that tier (Receiving can take it out of the bag first)
@@ -43,8 +50,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   await admin.from("order_events").insert({
     order_id: card.order_id,
     event_type: "tier_changed",
-    description: `${card.card_name}: tier changed from ${from ? TIER_LABELS[from] ?? from : "none"} to ${TIER_LABELS[tier]} by ${session.username ?? "admin"}`,
-    metadata: { card_id: id, from, to: tier },
+    description: `${card.card_name}: tier changed from ${from ? TIER_LABELS[from] ?? from : "none"} to ${TIER_LABELS[tier]} by ${actor.by}`,
+    metadata: { card_id: id, from, to: tier, by: actor.by },
     is_customer_visible: false,
   });
 

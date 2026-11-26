@@ -1,4 +1,4 @@
-import { getAdminSession } from "@/lib/admin-auth";
+import { adminOrWorkshopActor, getAdminSession } from "@/lib/admin-auth";
 import { paymentState, REFUNDED_ERROR, UNPAID_ERROR } from "@/app/admin/receiving/_components/payment";
 
 /** Shared checks of the receiving routes (/api/admin/intake/orders/*). */
@@ -11,6 +11,18 @@ export async function adminName(): Promise<{ by: string } | { response: Response
   const session = await getAdminSession();
   if (session?.role !== "admin") return { response: Response.json({ error: "Unauthorized" }, { status: 401 }) };
   return { by: session.username ?? "admin" };
+}
+
+/**
+ * A full admin's or a workshop login's username (for received_by and the
+ * logs), or a 401 response. Only for the receiving routes workshop logins may
+ * call (WORKSHOP_APIS in lib/workshop-access.ts): receive, unreceive, add a
+ * card, prepare labels. Every other one uses adminName().
+ */
+export async function staffActor(): Promise<{ by: string; role: "admin" | "workshop" } | { response: Response }> {
+  const actor = await adminOrWorkshopActor();
+  if (!actor) return { response: Response.json({ error: "Unauthorized" }, { status: 401 }) };
+  return actor;
 }
 
 /** The request body as JSON, or null when it isn't (or is over 40 KB: 500 card ids fit). */

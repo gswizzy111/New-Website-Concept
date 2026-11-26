@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadPreparePlan, prepareLabels, type PrepareConflict, type PreparePlan, type PrepareResponse } from "@/lib/intake/prepare-labels";
-import { UUID, adminName, fail } from "../../guard";
+import { UUID, staffActor, fail } from "../../guard";
 
 /**
  * "Print labels" for any order in one tap (lib/intake/prepare-labels.ts).
@@ -48,7 +48,7 @@ async function readBody(req: Request): Promise<unknown> {
 const noStore = { "Cache-Control": "no-store" };
 
 export async function GET(_req: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  const who = await adminName();
+  const who = await staffActor();
   if ("response" in who) return who.response;
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");
@@ -59,7 +59,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ orderId
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  const who = await adminName();
+  const who = await staffActor();
   if ("response" in who) return who.response;
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");

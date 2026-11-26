@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireAdminOrWorkshop } from "@/lib/admin-auth";
 import { isLocationCode, normalizeCode } from "@/lib/intake/codes";
 import { ScanApp } from "@/components/intake/scan/scan-app";
 
@@ -14,13 +14,14 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
  * The Scan page: a handheld scanner (the Eyoyo paired with the phone as a
  * Bluetooth keyboard) reads slot, bag, order and desk QR labels, one after
  * another (components/intake/scan); there is no camera on the page, and a
- * code can be typed ("Type a code instead"). Full admins only. ?loc=<slot
+ * code can be typed ("Type a code instead"). Full admins and workshop
+ * logins (lib/workshop-access.ts). ?loc=<slot
  * code> opens on that slot (a slot's QR opened from any phone's own camera
  * app lands here through /q/<CODE>); ?mode=ship starts in ship check. The
  * URL never carries anything about a customer.
  */
 export default async function ScanPage({ searchParams }: { searchParams: Promise<Params> }) {
-  await requireAdmin();
+  await requireAdminOrWorkshop();
   const sp = await searchParams;
   const loc = normalizeCode(first(sp.loc));
   return <ScanApp initialLoc={loc && isLocationCode(loc) ? loc : null} initialShip={first(sp.mode) === "ship"} />;

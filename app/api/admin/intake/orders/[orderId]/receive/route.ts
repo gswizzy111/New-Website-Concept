@@ -2,7 +2,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { receiveCards } from "@/lib/intake/receiving";
 import { shelvesFor } from "@/lib/intake/tracking/shelf";
-import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard";
+import { DAY, UUID, staffActor, fail, paymentBlock, smallJson } from "../../guard";
 
 /**
  * Receive the cards that physically arrived (some or all of the order's).
@@ -29,7 +29,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  const who = await adminName();
+  const who = await staffActor();
   if ("response" in who) return who.response;
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");

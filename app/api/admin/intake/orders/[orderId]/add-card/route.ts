@@ -3,7 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCardCodes, receiveCards } from "@/lib/intake/receiving";
 import { isOurCardPhoto, MAX_RECEIVING_PHOTOS } from "@/lib/intake/photos";
 import { isMissingSchema } from "@/app/admin/receiving/_components/schema";
-import { DAY, UUID, adminName, fail, paymentBlock, smallJson } from "../../guard";
+import { DAY, UUID, staffActor, fail, paymentBlock, smallJson } from "../../guard";
+import { logPhotoEvents } from "@/lib/intake/photo-log";
 
 /**
  * In-person drop-off: add a card the customer brought to their existing order
@@ -43,7 +44,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ orderId: string }> }) {
-  const who = await adminName();
+  const who = await staffActor();
   if ("response" in who) return who.response;
   const { orderId } = await params;
   if (!UUID.test(orderId)) return fail(404, "Order not found");
@@ -122,6 +123,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     is_customer_visible: false,
   });
   if (logError) console.error("[intake add card] not logged:", logError.message);
+  // Who took the card's receiving photos
+  await logPhotoEvents(admin, [...new Set(d.receiving_photo_urls)].map((url) => ({ cardId: card.id, orderId, action: "add" as const, url, by: who.by })));
 
   if (!d.receive) {
     // Its Card ID now (the next number on the order), so it can be labelled later

@@ -3,6 +3,7 @@
 import { AdminLink } from "@/components/admin-ui/admin-link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { WORKSHOP_NAV_ITEMS } from "@/lib/workshop-access";
 
 const NAV_ITEMS = [
   { href: "/admin",              label: "Orders",       icon: "📋" },
@@ -41,6 +42,7 @@ const NAV_ITEMS = [
   { href: "/admin/testimonials",     label: "Reviews",         icon: "⭐" },
   { href: "/admin/accountant",      label: "Accountant Access", icon: "🔐" },
   { href: "/admin/support-team",    label: "Support Access", icon: "🪪" },
+  { href: "/admin/team",            label: "Team",           icon: "🧰" },
   { href: "/admin/checkout-errors", label: "Checkout Errors", icon: "🚨" },
   { href: "/admin/checkout-funnel", label: "Checkout Funnel", icon: "📉" },
 ];
@@ -60,7 +62,13 @@ const SUPPORT_NAV_ITEMS = [
 function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProblemCount, completedBagCount, forgottenCardCount, role }: { onNavigate?: () => void; openCaseCount?: number; openUpdateRequestCount?: number; emailProblemCount?: number; completedBagCount?: number; forgottenCardCount?: number; role?: string | null }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const items = role === "accountant" ? ACCOUNTANT_NAV_ITEMS : role === "support" ? SUPPORT_NAV_ITEMS : NAV_ITEMS;
+  // Workshop logins: Scan, Receiving, Bags, Desk only (lib/workshop-access.ts)
+  const items: readonly { href: string; label: string; icon: string }[] =
+    role === "accountant" ? ACCOUNTANT_NAV_ITEMS
+      : role === "support" ? SUPPORT_NAV_ITEMS
+        : role === "workshop" ? WORKSHOP_NAV_ITEMS
+          : role === "admin" ? NAV_ITEMS
+            : [];
 
   // A filtered view of another page (Update Requests = cases of one type) is
   // active on that page with that type; the page's own item steps aside
@@ -114,7 +122,7 @@ function NavLinks({ onNavigate, openCaseCount, openUpdateRequestCount, emailProb
           ) : null}
         </AdminLink>
       ))}
-      {role !== "support" && <a
+      {role !== "support" && role !== "workshop" && <a
         href="https://analytics.google.com"
         target="_blank"
         rel="noopener noreferrer"
@@ -159,8 +167,8 @@ export function AdminNav({ openCaseCount, openUpdateRequestCount, emailProblemCo
         </div>
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 flex flex-col gap-1">
           <NavLinks openCaseCount={openCaseCount} openUpdateRequestCount={openUpdateRequestCount} emailProblemCount={emailProblemCount} completedBagCount={completedBagCount} forgottenCardCount={forgottenCardCount} role={role} />
-          {(role === "accountant" || role === "support") && (
-            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-3 pt-4">{role === "support" ? "Support View" : "Accountant View"}</p>
+          {(role === "accountant" || role === "support" || role === "workshop") && (
+            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-3 pt-4">{role === "support" ? "Support View" : role === "workshop" ? "Workshop View" : "Accountant View"}</p>
           )}
         </nav>
         <div className="px-3 py-4 border-t border-border">
