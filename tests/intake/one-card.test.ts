@@ -262,7 +262,7 @@ test("another place that isn't a desk (BENCH 2) holds one card too; shelves and 
   await tick();
   const second = await svc.moves.assignCards(admin, { locationCode: "LOC-BENCH-2", cardIds: [C(10)], force: true, by: "gavin" });
   assert.deepEqual(second.ok ? null : [second.status, second.error],
-    [409, "BENCH 2 already has a card (CD-2549-09 · Charizard 9). Take it out first, or pick another holder."]);
+    [409, "Bench 2 already has a card (CD-2549-09 · Charizard 9). Take it out first, or pick another holder."]);
   // A shelf takes any number
   const shelf = await svc.moves.assignCards(admin, { locationCode: "LOC-SHELF-20261207", cardIds: [C(10), C(11)], by: "gavin" });
   assert.ok(shelf.ok && shelf.changed === 2, shelf.ok ? shelf.message : shelf.error);
@@ -272,7 +272,7 @@ test("another place that isn't a desk (BENCH 2) holds one card too; shelves and 
   assert.equal(holdsOneCard(open as unknown as LocationRow), false);
   // Its limit can't be set on a one-card holder; a desk's can
   const bench = await svc.locations.updateLocation(admin, { id: loc("LOC-BENCH-2").id as string, capacity: 5 });
-  assert.deepEqual(bench.ok ? null : [bench.status, bench.error], [400, "BENCH 2 holds one card (the owner's rule), so its limit can't change."]);
+  assert.deepEqual(bench.ok ? null : [bench.status, bench.error], [400, "Bench 2 holds one card (the owner's rule), so its limit can't change."]);
   const desk = await svc.locations.updateLocation(admin, { id: loc("LOC-DESK").id as string, capacity: 10 });
   assert.ok(desk.ok && desk.location.capacity === 10);
   const back = await svc.locations.updateLocation(admin, { id: loc("LOC-DESK").id as string, capacity: null });
