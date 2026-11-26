@@ -340,6 +340,16 @@ found", the /q wording).
   `tests/intake/bag-open.test.ts`.
 - The bag label's QR caption is `BAG_QR_CAPTION` = "SCAN TO OPEN THE ORDER"
   (`lib/intake/labels/layout.ts`).
+- Each card row on the bag label (owner, Nov 26 2026) starts with an empty
+  check box to tick by pen (4 mm; 3 mm on 50 x 80 mm), centered on the row's
+  first line, and has "PG" and a write-in line at a line's right end; a
+  submitted pre-grade (`cards.pregrade_result` once `pregrade_submitted_at` is
+  set, loaded as `LabelCard.pregrade`) is printed on the line, never cut up to
+  10 characters ("PSA 9", "BGS 9.5"). On 50 x 80 mm the PG field is always
+  on the line under the name (beside the set, cut with its number kept, or on
+  a line of its own), so the name has the whole line; on the inch stocks it
+  ends the name's line when the whole name fits before it (`ROW_MARKS`,
+  `LabelFit.checkBox`, `LabelFit.namesCut`).
 
 ## Tracking (slots)
 
@@ -712,8 +722,8 @@ Code: `lib/intake/prepare-labels.ts` (types at the top; client components may
 
 | route | body | response |
 |---|---|---|
-| `GET /api/admin/intake/orders/[orderId]/prepare-labels` | none | `PreparePlan` (read-only): `mode`, `reason?`, `payment`, `bags`, `toBag`, `tierQuestions`, `needsAnswers`, `dueDatesToFill`, `receivedOn` + `receivedOnSource` (`event`, `dropoff` or `today`; `bag` is no longer produced), `skipped` { refunded, awaitingArrival }; 404 / 500 `{ error }` |
-| `POST` same | `{ tiers?: { [cardId]: tierKey }, confirmReceive?, allowUnpaid? }` (an empty body is `{}`; one that isn't JSON or is over 40 KB is 400, as on the receive route; there is no received-day override) | 200 `PrepareResponse` { bags (every bag with live cards, fastest tier first: the labels to print), newlyBagged, emailed, orderStatusChanged, shelves, dueDatesFilled, message }; 409 `PrepareConflict` (the plan + `error`, `needsConfirmReceive`, `needsAllowUnpaid`, `unpaid?`, `unanswered` card ids; nothing written); 409 `{ error }` not allowed; 400 bad body, unknown tier (`Unknown tier "gold".`); 400 / 409 when the receipt or bagging can't go ahead (checked with the answers in memory first: "… Nothing was changed."); 500 |
+| `GET /api/admin/intake/orders/[orderId]/prepare-labels` | none | `PreparePlan` (read-only): `mode`, `reason?`, `payment`, `bags`, `toBag`, `tierQuestions`, `needsAnswers`, `dueDatesToFill`, `receivedOn` + `receivedOnSource` (`event`, `dropoff` or `today`; `bag` is no longer produced), `skipped` { refunded, awaitingArrival }, `addedLater` [{ id, name, code, tier, tierName, photo, addedAt }], `addedLaterQuestions`; 404 / 500 `{ error }` |
+| `POST` same | `{ tiers?: { [cardId]: tierKey }, confirmReceive?, allowUnpaid?, includeAddedLater?: cardId[] }` (an empty body is `{}`; one that isn't JSON or is over 40 KB is 400, as on the receive route; there is no received-day override) | 200 `PrepareResponse` { bags (every bag with live cards, fastest tier first: the labels to print), newlyBagged, addedLaterReceived, addedLaterLeft, emailed, orderStatusChanged, shelves, dueDatesFilled, message }; 409 `PrepareConflict` (the plan + `error`, `needsConfirmReceive`, `needsAllowUnpaid`, `unpaid?`, `unanswered` card ids; nothing written); 409 `{ error }` not allowed; 400 bad body, unknown tier (`Unknown tier "gold".`); 400 / 409 when the receipt or bagging can't go ahead (checked with the answers in memory first: "… Nothing was changed."); 500 |
 
 Then the labels print through the existing paths: `GET /api/admin/intake/labels/order/<orderId>?bags=<ids>`
 (PDF, one page per bag, design B) or the Katasymbol path (`LabelPrintButton`).
@@ -733,8 +743,31 @@ Then the labels print through the existing paths: `GET /api/admin/intake/labels/
   created after the cards were known to be here (`arrivedBy`: the event's
   time; a drop-off's hand-over, or the order's entry plus an hour when
   later; with neither, the order's first bag), to the second, not in a bag
-  and not received, are left for Receiving (`reason` says so); a finished
-  order's are bagged. Orders from before `INTAKE_START` are included.
+  and not received, are left for Receiving (`reason` says so, `addedLater`
+  lists them); a finished order's are bagged. Orders from before
+  `INTAKE_START` are included.
+- **Added later** (`addedLater`, owner Nov 26: "it wont let me print"): never
+  a refusal and never in the way of the bags there are. An order whose only
+  unbagged cards were added later is `ready` (even with no bag yet). The
+  button asks once, in its dialog: "3 cards were added after the order
+  arrived. Are they here with you?", each card (picture, name, Card ID, tier)
+  ticked. "Yes, add them and print" POSTs `includeAddedLater` (the ticked
+  ids; their tier questions, `addedLaterQuestions`, answered like the others);
+  "Not yet, just print" POSTs without it and prints the bags as they are ("Not
+  yet" alone when nothing would print). Included cards are received with
+  `receiveCards` (Card IDs, received_at now, received_by the admin, the
+  `cards_received` line; no status change or email on an order in the shop;
+  `markOthersAwaiting: false`), filed per tier (`addedLaterDays`, pure): an
+  open bag of the tier received on the order's arrival day on record
+  (`recordedArrival`: the "Cards Received" event or the drop-off; batch 1 on
+  most orders) is joined; otherwise Receiving's own day, the arrival day while
+  none of the order's cards is received yet (the workspace's default), else
+  today, and `planReceiving` reuses an open bag of the tier received that day
+  or makes the next batch with a calculated due date (named shelf slot,
+  `shelvesFor`). Ids that aren't added-later cards (refunded, awaiting
+  arrival, already received) are ignored: a repeat adds nothing. The labels
+  route reads live rows with `no-store`, and the button's PDF / picture
+  address carries a fresh `v=`, so a bag that got cards prints with them.
 - `receive_first`: Awaiting Cards. POST needs `confirmReceive: true` ("Cards
   arrived? Receive all and print"); an order that isn't paid also needs
   `allowUnpaid: true` after the dialog's tick on the Receive button's

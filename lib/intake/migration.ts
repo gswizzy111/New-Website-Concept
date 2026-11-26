@@ -231,6 +231,23 @@ function bagCompletion(cards: SetupCard[], order: SetupOrder, finishedEventAt: s
   return { at: null, unknown: false };
 }
 
+/**
+ * When the order's cards arrived, from its own records only: its first
+ * 'Cards Received' status event, else a drop-off order's hand-over (its show
+ * drop-off form, else the order's creation: a show drop-off can be entered as
+ * an order days after the show). Null when neither is on record (never
+ * invented). Pure; the received day planOrderSetup uses, and the arrival day
+ * "Print labels" files cards added later under (lib/intake/prepare-labels.ts).
+ */
+export function recordedArrival(input: Pick<PlanInput, "order" | "receivedEventAt" | "dropoffAt">): { day: string; at: string; source: "event" | "dropoff" } | null {
+  const eventDay = toNyDate(input.receivedEventAt);
+  if (input.receivedEventAt && eventDay) return { day: eventDay, at: input.receivedEventAt, source: "event" };
+  const dropoffAt = input.order.inbound_method === "dropoff" ? (input.dropoffAt || input.order.created_at) : null;
+  const dropoffDay = toNyDate(dropoffAt);
+  if (dropoffAt && dropoffDay) return { day: dropoffDay, at: dropoffAt, source: "dropoff" };
+  return null;
+}
+
 /** Exactly what setting up one order would write. Pure. */
 export function planOrderSetup(input: PlanInput): OrderPlan {
   const { order, cards, bags, holidays, turnaroundMaxDays } = input;
@@ -279,18 +296,11 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
   const orderNumber = order.order_number;
 
   // Received date: the real one or nothing
-  const eventDay = toNyDate(input.receivedEventAt);
-  // A show drop-off can be entered as an order days after the show: the form's time is the hand-over
-  const dropoffAt = order.inbound_method === "dropoff" ? (input.dropoffAt || order.created_at) : null;
-  const dropoffDay = toNyDate(dropoffAt);
-  if (input.receivedEventAt && eventDay) {
-    plan.receivedOn = eventDay;
-    plan.receivedAt = input.receivedEventAt;
-    plan.receivedSource = "event";
-  } else if (dropoffAt && dropoffDay) {
-    plan.receivedOn = dropoffDay;
-    plan.receivedAt = dropoffAt;
-    plan.receivedSource = "dropoff";
+  const recorded = recordedArrival(input);
+  if (recorded) {
+    plan.receivedOn = recorded.day;
+    plan.receivedAt = recorded.at;
+    plan.receivedSource = recorded.source;
   } else {
     // No record, but staff entered the day on a bag this setup made (setBagReceivedOn):
     // the order's later bags (a card bagged after a tier fix, say) start from that day too

@@ -8,12 +8,15 @@ import { UUID, adminName, fail } from "../../guard";
  * Full admins only, like the other receiving routes.
  *
  * GET  → 200 PreparePlan { orderId, orderNumber, status, payment, mode: ready | bag_in_shop | receive_first | not_allowed,
- *        reason?, bags, toBag, tierQuestions, needsAnswers, dueDatesToFill, receivedOn, receivedOnSource, skipped }
+ *        reason?, bags, toBag, tierQuestions, needsAnswers, dueDatesToFill, receivedOn, receivedOnSource, skipped,
+ *        addedLater: { id, name, code, tier, tierName, photo, addedAt }[], addedLaterQuestions }
  *        | 401 / 404 / 500 { error }. Read-only.
- * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, allowUnpaid?: boolean } (an empty body is {};
- *      a body that isn't JSON, or is over 40 KB, is 400 as on the receive route)
- *      → 200 PrepareResponse { ok, bags: { id, code, tier, tierName, cardCount }[], newlyBagged, emailed, orderStatusChanged,
- *        shelves, dueDatesFilled, message }
+ * POST { tiers?: { [cardId]: tierKey }, confirmReceive?: boolean, allowUnpaid?: boolean, includeAddedLater?: cardId[] }
+ *      (an empty body is {}; a body that isn't JSON, or is over 40 KB, is 400 as on the receive route).
+ *      includeAddedLater: the added-later cards staff say are here ("Yes, add them and print"): received now into their
+ *      tier bag, no status change, no email; left out ("Not yet, just print"): they stay for Receiving.
+ *      → 200 PrepareResponse { ok, bags: { id, code, tier, tierName, cardCount }[], newlyBagged, addedLaterReceived,
+ *        addedLaterLeft, emailed, orderStatusChanged, shelves, dueDatesFilled, message }
  *      | 409 PrepareConflict (the PreparePlan + error, needsConfirmReceive, needsAllowUnpaid, unpaid?, unanswered) when a tier
  *        question is unanswered, an Awaiting Cards order needs confirmReceive, or an unpaid one needs allowUnpaid
  *        (the Receive button's confirm: error UNPAID_ERROR, unpaid: true)
@@ -24,6 +27,7 @@ const Body = z.object({
   tiers: z.record(z.string().regex(UUID, "Card not found"), z.string().trim().min(1).max(40)).optional(),
   confirmReceive: z.boolean().optional(),
   allowUnpaid: z.boolean().optional(),
+  includeAddedLater: z.array(z.string().regex(UUID, "Card not found")).max(500).optional(),
 });
 
 const MAX_BODY = 40_000;

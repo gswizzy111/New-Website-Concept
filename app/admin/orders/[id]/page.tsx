@@ -243,12 +243,14 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
         <OrderBagsPanel orderId={order.id} />
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Left column */}
-          <div className="flex-1 flex flex-col gap-5">
+          {/* min-w-0: wide content can't push the right column off the page */}
+          <div className="flex-1 min-w-0 flex flex-col gap-5">
 
             {/* Header */}
             <div className="bg-white rounded-xl border border-border p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              {/* Wraps on a phone: the total (and the drop-off note) go under the order instead of off the page */}
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0">
                   <div className="flex items-center gap-3 flex-wrap mb-1">
                     <h1 className="font-heading font-black text-2xl text-foreground">Order #{order.order_number}</h1>
                     {order.restoration_tier && (() => {
@@ -275,7 +277,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                     placeholder={(cards ?? []).some((c) => c.tier) || (services ?? []).filter((s) => s.service_id && s.service_id in RESTORATION_TIERS).length > 1 ? "Restoration — mixed tiers" : "Restoration — no tier"}
                   />
                 </div>
-                <div className="shrink-0 text-right">
+                <div className="ml-auto shrink-0 text-right">
                   <span className="font-heading font-black text-2xl text-primary">{formatCurrency(order.total_cents)}</span>
                   {showDropoff && (
                     <AdminLink
@@ -756,8 +758,8 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
             })()}
           </div>
 
-          {/* Right column */}
-          <div className="lg:w-72 flex flex-col gap-5">
+          {/* Right column: always 18rem on a computer (never widened by a long email or code); long words wrap */}
+          <div className="min-w-0 lg:w-72 lg:shrink-0 flex flex-col gap-5 break-words">
 
             {/* Customer info */}
             <div className="bg-white rounded-xl border border-border p-6">

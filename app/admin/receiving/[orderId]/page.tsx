@@ -176,7 +176,8 @@ export default async function ReceivingOrderPage({ params }: { params: Promise<{
   // One "Print labels" at the top, no ticking (owner, Nov 24 2026): cards in the shop but in no bag yet
   // (older orders, orders marked received from the order page) are bagged and printed; an Awaiting
   // Cards order is received all at once ("Cards arrived?"). What it covers is the server's own plan
-  // (cards added after the order arrived stay for the ticks below), so the box says what the tap does.
+  // (cards added after the order arrived are only asked about in its dialog, "Are they here with you?",
+  // and otherwise stay for the ticks below), so the box says what the tap does.
   const printBox = ["awaiting_cards", "received", "in_progress", "completed", "shipped_back", "delivered"].includes(order.status) && payment !== "refunded";
   let prepare: PreparePlan | null = null;
   if (printBox) {
