@@ -304,12 +304,13 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   /** A code (scanned, typed or a place's link): the double scan saves at once, else it is looked up. */
   const handleCode = useCallback(
     async (code: string, source: Source, readKey: number | null): Promise<void> => {
-      const plan = planScan(flowRef.current, code, Date.now());
-      if (plan.do === "wait") {
-        // A save is still running (the queue normally keeps this from happening): after it
-        enqueue(() => handleCode(code, source, readKey));
-        return;
+      let plan = planScan(flowRef.current, code, Date.now());
+      // A save still running (the queue normally keeps this from happening): this scan is read after it
+      for (let i = 0; plan.do === "wait" && i < 300; i += 1) {
+        await new Promise((r) => setTimeout(r, 100));
+        plan = planScan(flowRef.current, code, Date.now());
       }
+      if (plan.do === "wait") return;
       if (plan.do === "save") {
         doneReading(readKey);
         await runSave(plan.save);
@@ -343,7 +344,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       else if (data.kind === "order") found({ kind: "order", order: data.order });
       else found({ kind: "card", card: data.card });
     },
-    [doneReading, enqueue, found, placeRead, router, runSave, scanProblem, setFlow],
+    [doneReading, found, placeRead, router, runSave, scanProblem, setFlow],
   );
 
   /** Every scan, typed code, pasted link and search comes in here. */

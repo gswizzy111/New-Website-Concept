@@ -47,16 +47,16 @@ export type OrdersContext = SummaryContext & {
  */
 export async function loadOrdersContext(admin: SupabaseClient, orderIds: readonly string[], opts: { notes?: boolean } = {}): Promise<OrdersContext> {
   const ids = [...new Set(orderIds.filter(Boolean))];
-  const orderColumns = opts.notes ? `${TRACK_ORDER_COLUMNS}, ${TRACK_ORDER_NOTE_COLUMNS}` : TRACK_ORDER_COLUMNS;
-  const cardColumns = opts.notes ? `${TRACK_CARD_COLUMNS}, ${TRACK_CARD_NOTE_COLUMNS}` : TRACK_CARD_COLUMNS;
+  const orderColumns: string = opts.notes ? `${TRACK_ORDER_COLUMNS}, ${TRACK_ORDER_NOTE_COLUMNS}` : TRACK_ORDER_COLUMNS;
+  const cardColumns: string = opts.notes ? `${TRACK_CARD_COLUMNS}, ${TRACK_CARD_NOTE_COLUMNS}` : TRACK_CARD_COLUMNS;
   const [orders, cards, bags, events, locations, tierNames] = await Promise.all([
     Promise.all(chunks(ids).map(async (part) => {
-      const { data, error } = await admin.from("orders").select(orderColumns).in("id", part);
+      const { data, error } = await admin.from("orders").select(orderColumns).in("id", part).overrideTypes<TrackOrderRow[], { merge: false }>();
       if (error) throw new Error(error.message);
-      return (data ?? []) as TrackOrderRow[];
+      return data ?? [];
     })).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<TrackCardRow>((from, to) =>
-      admin.from("cards").select(cardColumns).in("order_id", part).order("id").range(from, to)))).then((p) => p.flat()),
+      admin.from("cards").select(cardColumns).in("order_id", part).order("id").range(from, to).overrideTypes<TrackCardRow[], { merge: false }>()))).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<TrackBagRow>((from, to) =>
       admin.from("tier_bags").select(TRACK_BAG_COLUMNS).in("order_id", part).order("id").range(from, to)))).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<StageEventRow & { order_id: string }>((from, to) =>
