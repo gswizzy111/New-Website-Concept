@@ -37,7 +37,7 @@ export type StationType = {
   key: string;                    // "clamp", "heat-press" (slot codes LOC-CLAMP-07, LOC-HEAT-PRESS-03)
   name: string;                   // "Clamp", "Heat Press" (slot names "CLAMP 07")
   stage: string;                  // the STAGES step a card gets in one of its slots
-  defaultCapacity: number | null; // cards per slot (null = no limit)
+  defaultCapacity: number | null; // cards per slot: 1 for every type (owner, Nov 26 2026: one card per holder)
 };
 
 /** A `locations` row as stored. */
@@ -48,7 +48,7 @@ export type LocationRow = {
   kind: LocationKind;
   station: string | null;     // station type key for a slot ("clamp")
   serial: number | null;      // the slot's number (7)
-  capacity: number | null;    // cards it holds (null = no limit)
+  capacity: number | null;    // cards it holds, as stored (null = no limit); a one-card holder holds 1 whatever this says (places.ts placeCapacity)
   stage: string | null;       // a STAGES name for a slot, else null
   due_date: string | null;    // "YYYY-MM-DD" for a shelf slot
   sort: number;
@@ -94,6 +94,11 @@ export type TrackLocation = {
   /** "Clamp" (the station type's name); null when not a slot. */
   stationName: string | null;
   serial: number | null;
+  /**
+   * Cards it holds (null = no limit), the owner's rule applied (places.ts
+   * placeCapacity): 1 for every station slot and every other place but a
+   * desk or the Open bags box, whatever is stored; else as stored.
+   */
   capacity: number | null;
   stage: string | null;
   /** "Drying" for the stored "Book"; null when not a slot. */
@@ -114,6 +119,12 @@ export type TrackLocationWithCount = TrackLocation & {
   bagCount: number;
   /** Room for another card (capacity null = always). */
   free: boolean;
+  /**
+   * Card IDs of the cards in it (at most 5), for a one-card holder with a
+   * card in it (places.ts holdsOneCard): the holder picker shows it as full,
+   * "Has CD-2549-03". Left out for other places.
+   */
+  cardCodes?: string[];
 };
 
 /** One card as the Scan page shows it. */
@@ -244,7 +255,11 @@ export type SearchResponse = { query: string; cards: TrackCardSummary[]; truncat
 export type AssignRequest = {
   locationCode: string;            // LOC-CLAMP-07 or its scanned QR link
   cardIds: string[];               // 1 to 200 card ids
-  /** Add even when the slot is full ("add anyway"). */
+  /**
+   * Add even when the place is full ("Add anyway"): only a desk with a limit
+   * set. Never a one-card holder (every slot, every other place but a desk):
+   * it answers 409 HolderFull whatever force says.
+   */
   force?: boolean;
   sessionId?: string;
 };
@@ -255,6 +270,7 @@ export type MoveRequest = {
   toCode: string;                  // the slot they go to
   /** Only these cards (they must be in the from-slot); default every card in it. */
   cardIds?: string[];
+  /** As AssignRequest.force: a desk with a limit set only; a one-card holder never takes a second card. */
   force?: boolean;
   sessionId?: string;
 };
@@ -353,12 +369,34 @@ export type TrackBagPlace = {
 /** POST /api/admin/track/bag-ready { bagId }: the finished bag is in the Ready to ship bin (LOC-SHIP). */
 export type BagReadyResponse = { bag: TrackBagPlace; changed: boolean; message: string };
 
-/** assign / move 409 when the slot would hold more than its capacity (send again with force: true to add anyway). */
+/**
+ * assign / move 409 when a DESK with a limit set (Places) would hold more
+ * than it (send again with force: true to add anyway: "Add anyway?"). A
+ * one-card holder answers HolderFull instead, never this.
+ */
 export type CapacityConflict = {
   error: string;
   overCapacity: true;
   capacity: number;
   /** What's in the slot now. */
+  occupants: TrackCardSummary[];
+};
+
+/**
+ * assign / move 409 when a one-card holder (every station slot, and every
+ * other place but a desk or the Open bags box: places.ts holdsOneCard; owner,
+ * Nov 26 2026) can't take the cards. A hard limit: `force` never bypasses it
+ * and there is no "Add anyway". `error` says what to do:
+ *   - it has a card: "CLAMP 07 already has a card (CD-2549-03 · Charizard).
+ *     Take it out first, or pick another holder."
+ *   - several cards at once: "CLAMP 07 holds one card. Pick one card to put here."
+ */
+export type HolderFull = {
+  error: string;
+  holderFull: true;
+  /** The holder ("CLAMP 07"). */
+  holder: { code: string; name: string };
+  /** What's in it now (empty when it is empty and the request brought several cards). */
   occupants: TrackCardSummary[];
 };
 

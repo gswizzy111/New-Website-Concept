@@ -14,7 +14,7 @@ import { cardsLabel, placeSubtitle } from "./format";
 import {
   EMPTY_HOLDER_TEXT, PICKS_LOCKED_TEXT, REFUNDED_TEXT, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, actionLabel, actionShortLabel, addAnywayText,
   barCardLine, cardDetails, doneQuestion, doneYesLabel, dueLine, holderActionDisabled, holderButtons, holderCountText, holderOutcome,
-  inHolderText, inItNowText, myDesk, orderLine, pickedText, savingText, scanSaveResult, settledCardIds, withoutGone,
+  inHolderText, inItNowText, isStack, myDesk, orderLine, pickedText, savingText, scanSaveResult, settledCardIds, withoutGone,
   type HolderAction, type HolderResult, type ScanSave,
 } from "./holder-format";
 import { addLogItem, scanSessionId, soundStore } from "./session-store";
@@ -24,7 +24,7 @@ import { Flash, type FlashState } from "./views";
  * A scanned holder on the Scan page (owner, Nov 26 2026: "when you scan on a
  * station that has a card in it, it is a little more clear"): CLAMP 07,
  * HEAT PRESS 02 or a desk, phone first. Top to bottom:
- *   - the holder, huge: "CLAMP 07 · has 1 card", "HEAT PRESS 02 · 8 cards",
+ *   - the holder, huge: "CLAMP 07 · has 1 card", "DESK · 8 cards",
  *     "CLAMP 07 · empty" (dark when a card is in it, so it reads at a glance);
  *   - the result of the last action (the server's sentence: Done says where
  *     the bag is; the order's auto-complete line; "Open desk page");
@@ -33,7 +33,8 @@ import { Flash, type FlashState } from "./views";
  *   - the buttons (a bar stuck to the bottom of the screen at every width):
  *     one card: "Move to my desk", "Move to another holder" (the Desk page's
  *     holder picker, or scan the next holder), "Done" (asks first; back in
- *     its bag), "Take out" (back in its bag, not done); a stack: tick boxes,
+ *     its bag), "Take out" (back in its bag, not done); a desk with 2+ cards
+ *     (the only stack: every other holder holds one card): tick boxes,
  *     "Move all N to my desk", "Done for selected", "Move selected", "Take
  *     out selected". A switched-off holder: Take out and Done only.
  * Every save goes through the tracking API (api.ts: move, done, release) in
@@ -108,7 +109,8 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
   const desk = myDesk(slot.desks, storedDesk);
   const onMyDesk = !!desk && (desk.id ? desk.id === slot.id : desk.code === slot.code);
   const cards = slot.cards;
-  const stack = cards.length > 1;
+  // Only a desk holds a stack; any other holder shows (and acts on) one card
+  const stack = cards.length > 1 && isStack(slot);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const chosen = cards.filter((c) => picked.has(c.id));
   /** Done was tapped: these cards, once "Mark done" is tapped. */
@@ -331,9 +333,9 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
 
   function onAction(action: HolderAction) {
     const single = !stack;
-    const list = single ? cards : chosen;
+    const list = single ? cards.slice(0, 1) : chosen;
     setDeskAsk(null);
-    if (action === "desk") toDesk(single ? cards : movable);
+    if (action === "desk") toDesk(single ? list : movable);
     else if (action === "other") startOther(list);
     else if (action === "done") {
       if (list.length) setConfirm(list.map((c) => c.id));

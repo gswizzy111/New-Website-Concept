@@ -7,8 +7,11 @@ export const dynamic = "force-dynamic";
 /**
  * POST { locationCode, cardIds: string[], force?, sessionId? }
  *   → 200 TrackActionResponse (lib/intake/tracking/types.ts)
- *   → 409 CapacityConflict { error, overCapacity: true, capacity, occupants } when the slot is full
- *     (send again with force: true to add anyway); 409 { error } for a switched-off slot
+ *   → 409 HolderFull { error, holderFull: true, holder, occupants } when a one-card holder (every
+ *     slot, every other place but a desk or the Open bags box) has a card, or several cards would
+ *     go in at once: force never bypasses it
+ *   → 409 CapacityConflict { error, overCapacity: true, capacity, occupants } when a desk with a
+ *     limit set is full (send again with force: true to add anyway); 409 { error } for a switched-off slot
  *   → 400 / 404 { error }
  * Puts the cards in the slot (or any place). Each card leaves its old slot; in
  * a slot its step becomes the slot's step (later or earlier: any order), with at

@@ -35,14 +35,22 @@ test("which places get the holder view: work-station slots and other places (des
   assert.equal(isHolderPlace({ kind: "shipping", code: "LOC-SHIP" }), false);
 });
 
-test("the header: 'has 1 card' with a limit, '8 cards' for a stack, 'empty'", () => {
-  assert.equal(holderHeading({ name: "CLAMP 07", capacity: 1, cardCount: 1 }), "CLAMP 07 · has 1 card");
-  assert.equal(holderHeading({ name: "CLAMP 07", capacity: 1, cardCount: 2 }), "CLAMP 07 · has 2 cards");
-  assert.equal(holderHeading({ name: "HEAT PRESS 02", capacity: null, cardCount: 8 }), "HEAT PRESS 02 · 8 cards");
-  assert.equal(holderHeading({ name: "HEAT PRESS 02", capacity: null, cardCount: 1 }), "HEAT PRESS 02 · 1 card");
-  assert.equal(holderHeading({ name: "CLAMP 07", capacity: 1, cardCount: 0 }), "CLAMP 07 · empty");
-  assert.equal(holderCountText({ capacity: null, cardCount: 0 }), "empty");
-  assert.deepEqual([isStack({ capacity: null }), isStack({ capacity: 1 }), isStack({ capacity: 3 })], [true, false, false]);
+test("the header: 'has 1 card' for a holder (one card each), '8 cards' for a desk (the only stack), 'empty'", () => {
+  const clamp = { name: "CLAMP 07", kind: "station" as const, code: "LOC-CLAMP-07" };
+  const press = { name: "HEAT PRESS 02", kind: "station" as const, code: "LOC-HEAT-PRESS-02" };
+  const desk = { name: "DESK", kind: "other" as const, code: "LOC-DESK" };
+  assert.equal(holderHeading({ ...clamp, cardCount: 1 }), "CLAMP 07 · has 1 card");
+  assert.equal(holderHeading({ ...clamp, cardCount: 2 }), "CLAMP 07 · has 2 cards", "2 from before the rule");
+  assert.equal(holderHeading({ ...press, cardCount: 1 }), "HEAT PRESS 02 · has 1 card", "a heat press holds one card now");
+  assert.equal(holderHeading({ ...desk, cardCount: 8 }), "DESK · 8 cards");
+  assert.equal(holderHeading({ ...desk, cardCount: 1 }), "DESK · 1 card");
+  assert.equal(holderHeading({ ...clamp, cardCount: 0 }), "CLAMP 07 · empty");
+  assert.equal(holderCountText({ ...desk, cardCount: 0 }), "empty");
+  // Only a desk is a stack (tick boxes, "Move all N to my desk"): a heat press, BENCH 2 or LOC-DESKTOP is not
+  assert.deepEqual(
+    [desk, { kind: "other" as const, code: "LOC-DESK-GAVIN" }, press, clamp, { kind: "other" as const, code: "LOC-BENCH-2" }, { kind: "other" as const, code: "LOC-DESKTOP" }].map(isStack),
+    [true, true, false, false, false, false],
+  );
   assert.equal(EMPTY_HOLDER_TEXT, "Empty. Scan a bag or card to put one here.");
 });
 
@@ -336,21 +344,25 @@ test("a holder with a card, then each button's answer as the result line says it
   assert.equal(holderHeading(await holder("LOC-CLAMP-01")), "CLAMP 01 · empty");
   await tick();
 
-  // A stack: 3 cards in HEAT PRESS 01, then Move all 3 to my desk
-  const stack = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(2), C(3), C(4)], by: "gavin" });
+  // A stack goes on a desk only: a heat press takes one card (owner, Nov 26 2026)
+  const notPress = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(2), C(3), C(4)], force: true, by: "gavin" });
+  assert.deepEqual(notPress.ok ? null : [notPress.status, notPress.error], [409, "HEAT PRESS 01 holds one card. Pick one card to put here."]);
+  // 3 cards on DESK GAVIN, then Move all 3 to my desk
+  const stack = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(2), C(3), C(4)], by: "gavin" });
   assert.ok(stack.ok, stack.ok ? "" : stack.error);
-  const press = await holder("LOC-HEAT-PRESS-01");
-  assert.equal(holderHeading(press), "HEAT PRESS 01 · 3 cards");
+  const gavin = await holder("LOC-DESK-GAVIN");
+  assert.equal(holderHeading(gavin), "Desk Gavin · 3 cards");
+  assert.equal(isStack(gavin), true);
   await tick();
-  const all = await svc.moves.moveSlot(admin, { fromCode: press.code, toCode: "LOC-DESK-GAVIN", cardIds: press.cards.map((c) => c.id), force: true, by: "gavin" });
+  const all = await svc.moves.moveSlot(admin, { fromCode: gavin.code, toCode: "LOC-DESK", cardIds: gavin.cards.map((c) => c.id), by: "gavin" });
   assert.ok(all.ok, all.ok ? "" : all.error);
-  assert.equal(holderOutcome("desk", press.cards, all as TrackActionResponse, press.name).outcome.title, "All 3 cards are on your desk.");
+  assert.equal(holderOutcome("desk", gavin.cards, all as TrackActionResponse, gavin.name).outcome.title, "All 3 cards are on your desk.");
   await tick();
 
   // Move to another holder (the picker or a scan): the server's sentence with the new step
-  const other = await svc.moves.moveSlot(admin, { fromCode: "LOC-DESK-GAVIN", toCode: "LOC-CLAMP-02", cardIds: [C(2)], by: "gavin" });
+  const other = await svc.moves.moveSlot(admin, { fromCode: "LOC-DESK", toCode: "LOC-CLAMP-02", cardIds: [C(2)], by: "gavin" });
   assert.ok(other.ok, other.ok ? "" : other.error);
-  const otherOut = holderOutcome("other", [], other as TrackActionResponse, "DESK GAVIN");
+  const otherOut = holderOutcome("other", [], other as TrackActionResponse, "DESK");
   assert.deepEqual([otherOut.outcome.title, otherOut.deskCode], ["In CLAMP 02. Step: Clamp Work.", null]);
   await tick();
 
@@ -368,7 +380,7 @@ test("a holder with a card, then each button's answer as the result line says it
   // Done for selected on the desk: the server's sentence (where the bag is) and the order's line
   const done = await svc.moves.markCardsDone(admin, { cardIds: [C(3), C(4)], by: "gavin" });
   assert.ok(done.ok, done.ok ? "" : done.error);
-  const doneOut = holderOutcome("done", [], done as TrackActionResponse, "DESK GAVIN");
+  const doneOut = holderOutcome("done", [], done as TrackActionResponse, "DESK");
   assert.equal(doneOut.outcome.tone, "ok");
   assert.equal(doneOut.outcome.title, "2 cards done. Put them back in REYES's bag: Open bags box, under R.");
   assert.deepEqual(doneOut.outcome.lines, [], "every card went: no line per card");
@@ -397,35 +409,36 @@ test("a refused card keeps its line; the order's line after its last card; a fai
 
 test("Done / Take out from a holder name it (fromCode): a card moved meanwhile is refused with where it is now, never finished", async () => {
   for (const n of [5, 6, 7, 8, 9, 10]) mock.store.table("cards").push(card(n));
-  const put = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(5), C(6)], by: "gavin" });
+  // Two cards in one place: a desk (every other holder takes one card)
+  const put = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(5), C(6)], by: "gavin" });
   assert.ok(put.ok, put.ok ? "" : put.error);
   await tick();
-  // Another phone moves CD-6001-06 to CLAMP 02 while this one still shows HEAT PRESS 01 with both
-  const away = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-01", toCode: "LOC-CLAMP-02", cardIds: [C(6)], by: "gavin" });
+  // Another phone moves CD-6001-06 to CLAMP 02 while this one still shows DESK GAVIN with both
+  const away = await svc.moves.moveSlot(admin, { fromCode: "LOC-DESK-GAVIN", toCode: "LOC-CLAMP-02", cardIds: [C(6)], by: "gavin" });
   assert.ok(away.ok, away.ok ? "" : away.error);
   await tick();
   const moves0 = mock.store.table("card_moves").length;
-  const done = await svc.moves.markCardsDone(admin, { cardIds: [C(5), C(6)], fromCode: "LOC-HEAT-PRESS-01", by: "gavin" });
+  const done = await svc.moves.markCardsDone(admin, { cardIds: [C(5), C(6)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
   assert.ok(done.ok, done.ok ? "" : done.error);
   assert.deepEqual(done.results.map((r) => [r.code, r.ok, r.message]), [
     ["CD-6001-05", true, "Done."],
-    ["CD-6001-06", false, "Not in HEAT PRESS 01 any more (now in CLAMP 02)."],
+    ["CD-6001-06", false, "Not in Desk Gavin any more (now in CLAMP 02)."],
   ]);
   const six = mock.store.table("cards").find((c) => c.id === C(6))!;
   assert.deepEqual([six.completed, six.location_id], [false, loc("LOC-CLAMP-02")!.id], "CD-6001-06 left alone: not done, still in CLAMP 02");
   assert.equal(mock.store.table("card_moves").length - moves0, 1, "one history row (CD-6001-05's)");
-  const out = holderOutcome("done", [], done as TrackActionResponse, "HEAT PRESS 01");
+  const out = holderOutcome("done", [], done as TrackActionResponse, "Desk Gavin");
   assert.equal(out.outcome.tone, "warn");
   assert.deepEqual(out.outcome.lines.map((l) => [l.label, l.ok]), [["CD-6001-05", true], ["CD-6001-06", false]]);
   assert.deepEqual(settledCardIds(done as TrackActionResponse), [C(5)], "only the card that was done leaves the list");
   await tick();
 
   // None left in it: 409, nothing written; Done and Take out alike
-  const again = await svc.moves.markCardsDone(admin, { cardIds: [C(6)], fromCode: "LOC-HEAT-PRESS-01", by: "gavin" });
-  assert.deepEqual(again.ok ? null : [again.status, again.error], [409, "CD-6001-06 isn't in HEAT PRESS 01 any more (now in CLAMP 02)."]);
-  const both = await svc.moves.releaseCards(admin, { cardIds: [C(5), C(6)], fromCode: "LOC-HEAT-PRESS-01", by: "gavin" });
+  const again = await svc.moves.markCardsDone(admin, { cardIds: [C(6)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
+  assert.deepEqual(again.ok ? null : [again.status, again.error], [409, "CD-6001-06 isn't in Desk Gavin any more (now in CLAMP 02)."]);
+  const both = await svc.moves.releaseCards(admin, { cardIds: [C(5), C(6)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
   assert.deepEqual(both.ok ? null : [both.status, both.error],
-    [409, "Those cards aren't in HEAT PRESS 01 any more: CD-6001-05 (now in its bag), CD-6001-06 (now in CLAMP 02)."]);
+    [409, "Those cards aren't in Desk Gavin any more: CD-6001-05 (now in its bag), CD-6001-06 (now in CLAMP 02)."]);
   assert.equal(mock.store.table("card_moves").length - moves0, 1, "nothing more written");
   const unknown = await svc.moves.releaseCards(admin, { cardIds: [C(6)], fromCode: "LOC-NOPE-01", by: "gavin" });
   assert.deepEqual(unknown.ok ? null : [unknown.status, unknown.error], [404, "No slot or place has the code LOC-NOPE-01."]);
@@ -445,23 +458,30 @@ test("Done / Take out from a holder name it (fromCode): a card moved meanwhile i
 });
 
 test("a switched-off holder: moving out of it is refused (Move buttons greyed), Take out and Done with fromCode still work", async () => {
-  const two = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [C(7), C(8)], force: true, by: "gavin" });
-  assert.ok(two.ok, two.ok ? "" : two.error);
-  const off = await svc.locations.updateLocation(admin, { id: loc("LOC-CLAMP-01")!.id as string, active: false });
+  const clampId = loc("LOC-CLAMP-01")!.id as string;
+  const seven = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [C(7)], by: "gavin" });
+  assert.ok(seven.ok, seven.ok ? "" : seven.error);
+  const off = await svc.locations.updateLocation(admin, { id: clampId, active: false });
   assert.ok(off.ok);
   await tick();
   const clamp = await holder("LOC-CLAMP-01");
   assert.equal(clamp.active, false);
-  assert.deepEqual(enabled({ ...ONE, stack: true, movable: 2, chosen: 2, active: clamp.active }), ["done", "takeout"]);
+  assert.deepEqual(enabled({ ...ONE, active: clamp.active }), ["done", "takeout"]);
   const move = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-01", toCode: "LOC-DESK", cardIds: [C(7)], by: "gavin" });
   assert.deepEqual(move.ok ? null : [move.status, move.error], [409, "CLAMP 01 is switched off. Turn it back on in Places first."]);
   const out = await svc.moves.releaseCards(admin, { cardIds: [C(7)], fromCode: "LOC-CLAMP-01", by: "gavin" });
   assert.ok(out.ok && out.results[0].ok, out.ok ? out.results[0].message : out.error);
   await tick();
+  // The next card: in while it's on, then Done while it's off
+  assert.ok((await svc.locations.updateLocation(admin, { id: clampId, active: true })).ok);
+  const eight = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [C(8)], by: "gavin" });
+  assert.ok(eight.ok, eight.ok ? "" : eight.error);
+  assert.ok((await svc.locations.updateLocation(admin, { id: clampId, active: false })).ok);
+  await tick();
   const done = await svc.moves.markCardsDone(admin, { cardIds: [C(8)], fromCode: "LOC-CLAMP-01", by: "gavin" });
   assert.ok(done.ok && done.results[0].ok, done.ok ? done.results[0].message : done.error);
   assert.equal((await holder("LOC-CLAMP-01")).cardCount, 0);
-  const on = await svc.locations.updateLocation(admin, { id: loc("LOC-CLAMP-01")!.id as string, active: true });
+  const on = await svc.locations.updateLocation(admin, { id: clampId, active: true });
   assert.ok(on.ok);
 });
 

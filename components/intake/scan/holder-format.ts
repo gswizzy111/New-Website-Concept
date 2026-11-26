@@ -24,21 +24,26 @@ export function isHolderPlace(place: Place): boolean {
   return place.kind === "other" && !isOpenBagsPlace(place);
 }
 
-/** A stack holder: one without a card limit (heat press, humidor, desks). */
-export function isStack(slot: Pick<TrackSlotSummary, "capacity">): boolean {
-  return slot.capacity == null;
+/**
+ * A stack holder: a desk, the only place that holds more than one card
+ * (owner, Nov 26 2026: every other holder with a sticker holds one card,
+ * places.ts holdsOneCard). Only a desk shows tick boxes and "Move all N to
+ * my desk".
+ */
+export function isStack(slot: Pick<TrackSlotSummary, "kind" | "code">): boolean {
+  return slot.kind === "other" && isDeskCode(slot.code);
 }
 
 const cardsWord = (n: number) => `${n} card${n === 1 ? "" : "s"}`;
 
-/** After the holder's name: "has 1 card" (a holder with a limit), "8 cards" (a stack), "empty". */
-export function holderCountText(slot: Pick<TrackSlotSummary, "capacity" | "cardCount">): string {
+/** After the holder's name: "has 1 card" (a one-card holder), "8 cards" (a desk), "empty". */
+export function holderCountText(slot: Pick<TrackSlotSummary, "kind" | "code" | "cardCount">): string {
   if (slot.cardCount <= 0) return "empty";
   return isStack(slot) ? cardsWord(slot.cardCount) : `has ${cardsWord(slot.cardCount)}`;
 }
 
-/** "CLAMP 07 · has 1 card", "HEAT PRESS 02 · 8 cards", "CLAMP 07 · empty". */
-export function holderHeading(slot: Pick<TrackSlotSummary, "name" | "capacity" | "cardCount">): string {
+/** "CLAMP 07 · has 1 card", "DESK · 8 cards", "CLAMP 07 · empty". */
+export function holderHeading(slot: Pick<TrackSlotSummary, "name" | "kind" | "code" | "cardCount">): string {
   return `${slot.name} · ${holderCountText(slot)}`;
 }
 
@@ -132,8 +137,8 @@ export type HolderAction = "desk" | "other" | "done" | "takeout";
  * The buttons for the holder's cards: one obvious primary, then the rest.
  * One card: Move to my desk, then Move to another holder, Done, Take out (on
  * my own desk, Move to another holder leads; a refunded card: Take out only).
- * A stack: Move all N to my desk, then Done / Move / Take out for the
- * picked cards (on my own desk: Move selected leads).
+ * A stack (a desk with 2+ cards: isStack): Move all N to my desk, then Done /
+ * Move / Take out for the picked cards (on my own desk: Move selected leads).
  */
 export function holderButtons(input: { stack: boolean; onMyDesk: boolean; refunded?: boolean }): { primary: HolderAction; others: HolderAction[] } {
   if (!input.stack && input.refunded) return { primary: "takeout", others: [] };
@@ -207,7 +212,11 @@ export function barCardLine(card: Pick<TrackCardSummary, "code" | "name" | "cust
   return [card.code ?? "No Card ID", card.name?.trim() || null, card.customer?.trim() || null].filter(Boolean).join(" · ");
 }
 
-/** "DESK already holds Charizard 1, Charizard 2 and 3 more. Add anyway?" (the server's sentence when it names no card). */
+/**
+ * "DESK already holds Charizard 1, Charizard 2 and 3 more. Add anyway?" (the
+ * server's sentence when it names no card). Only a desk with a limit set asks
+ * this: a one-card holder refuses outright (HolderFull, no "Add anyway").
+ */
 export function addAnywayText(name: string, conflict: Pick<CapacityConflict, "error" | "occupants">): string {
   const names = conflict.occupants.map((c) => c.name ?? c.code ?? "a card");
   if (!names.length) return conflict.error;

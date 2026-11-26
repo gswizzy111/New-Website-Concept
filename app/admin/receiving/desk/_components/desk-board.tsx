@@ -15,7 +15,9 @@ import { HolderPicker, type Holder, type PickResult } from "./holder-picker";
  * The cards on one desk as a grid of panels (one column on a phone, two or
  * three on a computer) with multi-select. Every action goes through the
  * tracking API the Scan page uses (components/intake/scan/api.ts):
- *   Put in holder   POST /api/admin/track/assign  (409 full: "Add anyway?")
+ *   Put in holder   POST /api/admin/track/assign  (one card per holder: a holder that has a card, or
+ *                   several cards at once, is refused with the server's sentence; a desk with a
+ *                   limit set that is full asks "Add anyway?")
  *   Done            POST /api/admin/track/done
  *   Take out        POST /api/admin/track/release (Undo puts them back on the desk)
  * After each one the page's data reloads (router.refresh) and the dock at
