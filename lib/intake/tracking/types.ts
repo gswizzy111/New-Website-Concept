@@ -260,10 +260,25 @@ export type MoveRequest = {
 };
 
 /** POST /api/admin/track/release: take cards out of their slot (no place). */
-export type ReleaseRequest = { cardIds: string[]; sessionId?: string };
+export type ReleaseRequest = {
+  cardIds: string[];
+  /**
+   * The holder the cards were shown in (the Scan page's holder view): only
+   * cards still in it are taken out; the others come back refused, "Not in
+   * CLAMP 07 any more (now in HEAT PRESS 01)." (none in it: 409). Left out:
+   * wherever they are. May be a switched-off place.
+   */
+  fromCode?: string;
+  sessionId?: string;
+};
 
 /** POST /api/admin/track/done: mark cards done; they leave their slot and go back in their bag (no place). */
-export type DoneRequest = { cardIds: string[]; sessionId?: string };
+export type DoneRequest = {
+  cardIds: string[];
+  /** As ReleaseRequest.fromCode: only cards still in this holder are marked done. */
+  fromCode?: string;
+  sessionId?: string;
+};
 
 /** One card's outcome. */
 export type TrackCardResult = {

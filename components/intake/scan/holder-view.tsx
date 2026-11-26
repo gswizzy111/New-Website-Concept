@@ -6,14 +6,16 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { HolderPicker, type Holder, type PickResult } from "@/app/admin/receiving/desk/_components/holder-picker";
 import { storeDesk, useStoredDesk } from "@/app/admin/receiving/open/[code]/_components/desk-choice";
 import { DESK_PAGE, deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
-import type { TrackActionResponse, TrackCardSummary, TrackSlotSummary } from "@/lib/intake/tracking/types";
+import type { CapacityConflict, TrackActionResponse, TrackCardSummary, TrackDeskRef, TrackSlotSummary } from "@/lib/intake/tracking/types";
 import * as api from "./api";
 import { CardPhotos, SCAN_READ_EVENT, cardPhotoLabel } from "./card-photos";
 import { beep } from "./feedback";
 import { cardsLabel, placeSubtitle } from "./format";
 import {
-  EMPTY_HOLDER_TEXT, REFUNDED_TEXT, actionLabel, cardDetails, doneQuestion, doneYesLabel, dueLine, holderButtons,
-  holderCountText, holderOutcome, inHolderText, myDesk, orderLine, pickedText, savingText, type HolderAction, type HolderResult,
+  EMPTY_HOLDER_TEXT, PICKS_LOCKED_TEXT, REFUNDED_TEXT, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, actionLabel, actionShortLabel, addAnywayText,
+  barCardLine, cardDetails, doneQuestion, doneYesLabel, dueLine, holderActionDisabled, holderButtons, holderCountText, holderOutcome,
+  inHolderText, inItNowText, myDesk, orderLine, pickedText, savingText, scanSaveResult, settledCardIds, withoutGone,
+  type HolderAction, type HolderResult, type ScanSave,
 } from "./holder-format";
 import { addLogItem, scanSessionId, soundStore } from "./session-store";
 import { Flash, type FlashState } from "./views";
@@ -28,16 +30,23 @@ import { Flash, type FlashState } from "./views";
  *     the bag is; the order's auto-complete line; "Open desk page");
  *   - each card, big: photos, name, year / set / #, Card ID, customer, order,
  *     tier, due date with days left or late, step, time in this holder;
- *   - the buttons (a bar at the bottom of a phone): one card: "Move to my
- *     desk", "Move to another holder" (the Desk page's holder picker, or scan
- *     the next holder), "Done" (asks first; back in its bag), "Take out"
- *     (back in its bag, not done); a stack: tick boxes, "Move all N to my
- *     desk", "Done for selected", "Move selected", "Take out selected".
+ *   - the buttons (a bar stuck to the bottom of the screen at every width):
+ *     one card: "Move to my desk", "Move to another holder" (the Desk page's
+ *     holder picker, or scan the next holder), "Done" (asks first; back in
+ *     its bag), "Take out" (back in its bag, not done); a stack: tick boxes,
+ *     "Move all N to my desk", "Done for selected", "Move selected", "Take
+ *     out selected". A switched-off holder: Take out and Done only.
  * Every save goes through the tracking API (api.ts: move, done, release) in
  * the Scan page's queue (`run`), so a scan that comes in meanwhile waits its
  * turn; then the holder is read again (`refresh`) and the page is ready for
  * the next scan (nothing that takes typing keeps focus: the result line
- * takes it, and the desk choice lets go). Words: holder-format.ts.
+ * takes it, and the desk choice lets go). The buttons stay greyed until the
+ * holder has been read again; a tap that can't start says so. Done and Take
+ * out name this holder (`fromCode`), so a card someone moved meanwhile is
+ * refused, not finished from a stale screen; the cards a save took out are
+ * left off the list at once. No button that saves ever takes focus by
+ * itself (a broken scan's Enter must not press it): a question takes it.
+ * Words: holder-format.ts.
  */
 
 type Props = {
@@ -56,8 +65,10 @@ type Props = {
   onScanNext: (cards: TrackCardSummary[]) => void;
   /** Stop waiting for that scan. */
   onCancelScanNext: () => void;
-  /** The Scan page's own last save (a scan after Move, a card tapped in): shown here when it went into this holder. */
-  lastSave?: { key: number; res: TrackActionResponse } | null;
+  /** The Scan page's own last save (a scan after Move, a card tapped in, the DONE sign): shown here when it was about this holder. */
+  lastSave?: ScanSave | null;
+  /** After each save here: the Scan page clears its own older lines (the desk link, the order's line). */
+  onSaved?: () => void;
   /** A bag kept at this place: open it as if scanned. */
   onOpenBag?: (code: string) => void;
   /** Under the cards: the Scan page's "Tap a card from bag …" list. */
@@ -85,7 +96,14 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
 }
 
-export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, onCancelScanNext, lastSave, onOpenBag, children }: Props) {
+export function HolderView({ slot: given, now, busy, moving, run, refresh, onScanNext, onCancelScanNext, lastSave, onSaved, onOpenBag, children }: Props) {
+  /** Cards a save took out of this holder, left off the list until the holder is read again (a fresh `slot`). */
+  const [gone, setGone] = useState<{ slot: TrackSlotSummary; ids: Set<string> } | null>(null);
+  const slot = withoutGone(given, gone);
+  const givenRef = useRef(given);
+  useEffect(() => {
+    givenRef.current = given;
+  }, [given]);
   const storedDesk = useStoredDesk();
   const desk = myDesk(slot.desks, storedDesk);
   const onMyDesk = !!desk && (desk.id ? desk.id === slot.id : desk.code === slot.code);
@@ -95,31 +113,39 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
   const chosen = cards.filter((c) => picked.has(c.id));
   /** Done was tapped: these cards, once "Mark done" is tapped. */
   const [confirm, setConfirm] = useState<string[] | null>(null);
+  /** Move to my desk found the desk full (a limit set in Places): "Add anyway?" for these cards. */
+  const [deskAsk, setDeskAsk] = useState<{ list: TrackCardSummary[]; desk: TrackDeskRef; conflict: CapacityConflict } | null>(null);
   /** The holder picker is open for these cards. */
   const [picker, setPicker] = useState<TrackCardSummary[] | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  /** A save is done and the holder is being read again: the buttons wait for it. */
+  const [rereading, setRereading] = useState(false);
   const [result, setResult] = useState<Shown | null>(null);
   /** Results up to this key are hidden (Hide, or a new scan). */
   const [hiddenUpTo, setHiddenUpTo] = useState(0);
   const [flash, setFlash] = useState<FlashState | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
+  const questionRef = useRef<HTMLDivElement>(null);
 
   // A new scan: the last result, an open question or the picker go (the answer to the scan shows)
   useEffect(() => {
     const onScan = () => {
       setHiddenUpTo(Date.now());
       setConfirm(null);
+      setDeskAsk(null);
       setPicker(null);
     };
     window.addEventListener(SCAN_READ_EVENT, onScan);
     return () => window.removeEventListener(SCAN_READ_EVENT, onScan);
   }, []);
 
-  // Esc drops the Done question
+  // Esc drops the Done question and "Add anyway?"
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setConfirm(null);
+      if (e.key !== "Escape") return;
+      setConfirm(null);
+      setDeskAsk(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -129,13 +155,18 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
     if (flashTimer.current) clearTimeout(flashTimer.current);
   }, []);
 
-  // The newest result: this view's own, or the Scan page's save into this holder (its desk link is in the header already)
-  const incoming: Shown | null = lastSave && lastSave.res.location?.code === slot.code
-    ? { key: lastSave.key, ...holderOutcome("other", [], lastSave.res, slot.name), deskCode: null }
-    : null;
+  // A question takes focus, never its yes button: a broken scan's Enter (or a stray one) can't answer it
+  const asking = !!confirm || !!deskAsk;
+  useEffect(() => {
+    if (asking) questionRef.current?.focus({ preventScroll: true });
+  }, [asking]);
+
+  // The newest result: this view's own, or the Scan page's save about this holder (the DONE sign after Move; cards put in it)
+  const fromPage = scanSaveResult(lastSave, slot);
+  const incoming: Shown | null = fromPage && lastSave ? { key: lastSave.key, ...fromPage } : null;
   const shown = [result, incoming].filter((s): s is Shown => !!s && s.key > hiddenUpTo).sort((a, b) => b.key - a.key)[0] ?? null;
 
-  const blocked = !!busy || !!saving;
+  const blocked = !!busy || !!saving || rereading;
   const movable = cards.filter((c) => !c.refunded);
   const buttons = holderButtons({ stack, onMyDesk, refunded: !stack && !!cards[0]?.refunded });
   const waitingHere = !!moving && moving.length > 0;
@@ -146,14 +177,28 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
     flashTimer.current = setTimeout(() => setFlash(null), tone === "ok" ? 900 : 1800);
   }
 
-  /** After a save: the sound, the big tick, the session list, the result line; then the page is ready for the next scan. */
+  /**
+   * After a save: the cards it took out leave the list at once, then the
+   * sound, the big tick, the session list, the result line; then the page is
+   * ready for the next scan.
+   */
   function report(action: HolderAction, list: TrackCardSummary[], res: TrackActionResponse) {
+    const went = settledCardIds(res);
+    if (went.length) {
+      setPicked((s) => new Set([...s].filter((id) => !went.includes(id))));
+      setGone((g) => {
+        const base = givenRef.current;
+        const ids = new Set(g?.slot === base ? [...g.ids, ...went] : went);
+        return { slot: base, ids };
+      });
+    }
     const out = holderOutcome(action, list, res, slot.name);
     beep(out.outcome.tone === "ok" ? "ok" : "error", soundStore.get());
     showFlash(out.outcome.tone === "ok" ? "ok" : "error", out.outcome.title);
     addLogItem(out.outcome.tone, out.outcome.title);
     for (const n of out.outcome.orderNotes ?? []) addLogItem(n.tone === "ok" ? "ok" : "warn", n.text);
     setResult({ key: stamp(), ...out });
+    onSaved?.();
     settleFocus();
   }
 
@@ -162,6 +207,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
     showFlash("error", error);
     addLogItem("error", error);
     setResult({ key: stamp(), outcome: { tone: "error", title: error, lines: [], notes: [] }, deskCode: null });
+    onSaved?.();
     settleFocus();
   }
 
@@ -173,46 +219,78 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
     });
   }
 
-  /** One save in the Scan page's queue: say it's running, call, report, read the holder again. */
-  function save(action: HolderAction, list: TrackCardSummary[], call: () => Promise<api.ApiResult<TrackActionResponse>>, toName?: string) {
+  /**
+   * One save in the Scan page's queue: say it's running, call, report, read
+   * the holder again; the buttons stay greyed until that read is back. A tap
+   * while something else still runs starts nothing and says so (the
+   * question, if any, stays to tap again).
+   */
+  function save(
+    action: HolderAction,
+    list: TrackCardSummary[],
+    call: () => Promise<api.ApiResult<TrackActionResponse>>,
+    opts: { toName?: string; onConflict?: (conflict: CapacityConflict) => void } = {},
+  ) {
     if (!list.length) return;
-    setConfirm(null);
-    run(async () => {
-      setSaving(savingText(action, cardsLabel(list), toName));
-      const res = await call();
-      setSaving(null);
-      if (!res.ok) {
-        reportFailure(res.error);
-        // The cards moved meanwhile (another phone), or the holder was switched off: show it as it is now
-        if (res.status === 409) await refresh(slot.code);
-        return;
+    const started = run(async () => {
+      setSaving(savingText(action, cardsLabel(list), opts.toName));
+      let res: api.ApiResult<TrackActionResponse>;
+      try {
+        res = await call();
+      } finally {
+        setSaving(null);
       }
-      setPicked((s) => new Set([...s].filter((id) => !res.data.results.some((r) => r.ok && r.cardId === id))));
-      report(action, list, res.data);
-      await refresh(slot.code);
+      setRereading(true);
+      try {
+        if (!res.ok) {
+          if (res.conflict && opts.onConflict) {
+            beep("error", soundStore.get());
+            opts.onConflict(res.conflict);
+            return;
+          }
+          reportFailure(res.error);
+          // The cards moved meanwhile (another phone), or the holder was switched off: show it as it is now
+          if (res.status === 409) await refresh(slot.code);
+          return;
+        }
+        report(action, list, res.data);
+        await refresh(slot.code);
+      } finally {
+        setRereading(false);
+      }
     });
+    if (!started) {
+      reportFailure(SAVE_BUSY_TEXT);
+      return;
+    }
+    setConfirm(null);
+    setDeskAsk(null);
   }
 
-  function toDesk(list: TrackCardSummary[]) {
+  /** Move to my desk: a desk with a limit set in Places that is full asks "Add anyway?" first. */
+  function toDesk(list: TrackCardSummary[], force = false) {
     if (!desk) return;
     const to = desk;
-    // A desk has no limit; one set on it is no reason to keep a card off your own desk
-    save("desk", list, () => api.move({ fromCode: slot.code, toCode: to.code, cardIds: list.map((c) => c.id), force: true, sessionId: scanSessionId() }));
+    save("desk", list, () => api.move({ fromCode: slot.code, toCode: to.code, cardIds: list.map((c) => c.id), force, sessionId: scanSessionId() }), {
+      onConflict: (conflict) => setDeskAsk({ list, desk: to, conflict }),
+    });
   }
 
   function markDone(ids: string[]) {
     const list = cards.filter((c) => ids.includes(c.id));
-    save("done", list, () => api.done({ cardIds: list.map((c) => c.id), sessionId: scanSessionId() }));
+    // fromCode: only cards still in this holder (one moved meanwhile is refused, not finished)
+    save("done", list, () => api.done({ cardIds: list.map((c) => c.id), fromCode: slot.code, sessionId: scanSessionId() }));
   }
 
   function takeOut(list: TrackCardSummary[]) {
-    save("takeout", list, () => api.release({ cardIds: list.map((c) => c.id), sessionId: scanSessionId() }));
+    save("takeout", list, () => api.release({ cardIds: list.map((c) => c.id), fromCode: slot.code, sessionId: scanSessionId() }));
   }
 
   /** "Move to another holder": the next holder scanned gets them, or one picked from the list. */
   function startOther(list: TrackCardSummary[]) {
     if (!list.length) return;
     setConfirm(null);
+    setDeskAsk(null);
     onScanNext(list);
     setPicker(list);
   }
@@ -227,6 +305,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
           setSaving(savingText("other", cardsLabel(list), holder.name ?? holder.code));
           const res = await api.move({ fromCode: slot.code, toCode: holder.code, cardIds: list.map((c) => c.id), force, sessionId: scanSessionId() });
           setSaving(null);
+          setRereading(true);
           if (!res.ok) {
             beep("error", soundStore.get());
             resolve({ ok: false, error: res.error, conflict: res.conflict });
@@ -242,15 +321,18 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
         } catch {
           setSaving(null);
           resolve({ ok: false, error: "Something went wrong. Scan the holder again to see where the cards are." });
+        } finally {
+          setRereading(false);
         }
       });
-      if (!started) resolve({ ok: false, error: "Still saving the last change. Try again in a moment." });
+      if (!started) resolve({ ok: false, error: SAVE_BUSY_TEXT });
     });
   }
 
   function onAction(action: HolderAction) {
     const single = !stack;
     const list = single ? cards : chosen;
+    setDeskAsk(null);
     if (action === "desk") toDesk(single ? cards : movable);
     else if (action === "other") startOther(list);
     else if (action === "done") {
@@ -258,16 +340,23 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
     } else takeOut(list);
   }
 
-  function actionDisabled(action: HolderAction): boolean {
-    if (blocked) return true;
-    if (action === "desk") return !desk || (stack ? movable.length === 0 : !!cards[0]?.refunded);
-    if (stack) return chosen.length === 0;
-    if (action === "takeout") return false;
-    return !!cards[0]?.refunded;
-  }
+  const actionDisabled = (action: HolderAction) => holderActionDisabled(action, {
+    blocked,
+    stack,
+    active: slot.active,
+    hasDesk: !!desk,
+    movable: movable.length,
+    chosen: chosen.length,
+    refunded: !!cards[0]?.refunded,
+  });
+
+  /** While the page waits for the next holder, the ticked cards are the ones that move: the ticks are fixed (Cancel to change them). */
+  const picksLocked = waitingHere;
 
   function toggle(id: string) {
+    if (picksLocked) return;
     setConfirm(null);
+    setDeskAsk(null);
     setPicked((s) => {
       const next = new Set(s);
       if (next.has(id)) next.delete(id);
@@ -298,11 +387,13 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
             <p className="text-sm font-bold text-foreground">{pickedText(chosen.length, cards.length)}</p>
             <button
               type="button"
+              disabled={picksLocked}
               onClick={() => {
                 setConfirm(null);
+                setDeskAsk(null);
                 setPicked(allPicked ? new Set() : new Set(cards.map((c) => c.id)));
               }}
-              className="min-h-11 shrink-0 rounded-full px-3 text-sm font-bold text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              className="min-h-11 shrink-0 rounded-full px-3 text-sm font-bold text-primary hover:bg-primary/10 disabled:opacity-50 disabled:hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             >
               {allPicked ? "Pick none" : "Pick all"}
             </button>
@@ -314,17 +405,19 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                 className={`rounded-2xl border bg-white p-3 sm:p-4 ${picked.has(card.id) ? "border-primary ring-2 ring-primary/40" : "border-border"}`}
               >
                 <div className="flex items-start gap-2">
-                  <label className="-ml-1.5 -mt-1.5 flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-lg hover:bg-secondary">
+                  <label className={`-ml-1.5 -mt-1.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg ${picksLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-secondary"}`}>
                     <input
                       type="checkbox"
                       checked={picked.has(card.id)}
+                      disabled={picksLocked}
                       onChange={() => toggle(card.id)}
-                      className="size-6 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                      className="size-6 cursor-pointer accent-primary disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     />
                     <span className="sr-only">Pick {cardPhotoLabel(card)}</span>
                   </label>
                   <div className="min-w-0 flex-1">
-                    <CardBody card={card} slot={slot} now={now} compact={cards.length > 3} onPick={() => toggle(card.id)} />
+                    {/* A stack's photos are the list size: more cards (and the bar's Move all) fit on the screen */}
+                    <CardBody card={card} slot={slot} now={now} compact={cards.length > 3} photoSize="list" onPick={picksLocked ? undefined : () => toggle(card.id)} />
                   </div>
                 </div>
               </li>
@@ -337,29 +430,46 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
         </article>
       )}
 
-      {/* The buttons, right under the cards: on a phone they stay in thumb reach at the bottom of the screen while the cards scroll (sticky) */}
+      {/* The buttons, right under the cards: they stay in reach at the bottom of the screen while the cards scroll (sticky at every width) */}
       {cards.length > 0 && (
         <>
           <div
             role="group"
             aria-label={stack ? `What to do with the cards in ${slot.name}` : `What to do with ${what ?? "the card"}`}
-            className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)] backdrop-blur sm:-mx-6 sm:px-6 lg:static lg:z-auto lg:mx-0 lg:rounded-2xl lg:border lg:bg-white lg:px-4 lg:pb-3 lg:shadow-none lg:backdrop-blur-none"
+            className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-white/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.25)] backdrop-blur sm:-mx-6 sm:px-6 lg:bottom-4 lg:mx-0 lg:rounded-2xl lg:border lg:px-4 lg:pb-3 lg:shadow-[0_8px_28px_-12px_rgb(0_0_0/0.3)]"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
+              {/* On a phone the card can sit under this bar: say which card the buttons act on */}
+              {!stack && cards[0] && <BarCardLine card={cards[0]} />}
               {saving ? (
                 <p className="flex min-h-14 items-center gap-2 text-base font-bold text-foreground">
                   <LoaderCircle className="size-5 shrink-0 animate-spin motion-reduce:animate-none" strokeWidth={1.75} aria-hidden="true" />
                   {saving}
                 </p>
               ) : confirm ? (
-                <div role="group" aria-label="Mark done?" className="flex flex-col gap-2">
-                  <p className="text-base font-bold text-foreground">{doneQuestion(confirm.length)}</p>
+                // The question takes focus, never "Mark done": a broken scan's Enter can't answer it
+                <div ref={questionRef} tabIndex={-1} role="group" aria-labelledby={`holder-${slot.id}-question`} className="flex flex-col gap-2 outline-none">
+                  <p id={`holder-${slot.id}-question`} className="text-base font-bold text-foreground">{doneQuestion(confirm.length)}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" autoFocus onClick={() => markDone(confirm)} disabled={blocked} className={`${otherButton} min-h-14 border-green-700 bg-green-700 text-base text-white hover:bg-green-800`}>
+                    <button type="button" onClick={() => markDone(confirm)} disabled={blocked} className={`${otherButton} min-h-14 border-green-700 bg-green-700 text-base text-white hover:bg-green-800`}>
                       <PackageCheck className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                       {doneYesLabel(confirm.length)}
                     </button>
                     <button type="button" onClick={() => setConfirm(null)} className={`${otherButton} min-h-14 border-border bg-white text-base text-foreground`}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : deskAsk ? (
+                // The desk is full (a limit set in Places): ask before going over it, as the holder picker does
+                <div ref={questionRef} tabIndex={-1} role="group" aria-labelledby={`holder-${slot.id}-question`} className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950 outline-none">
+                  <p id={`holder-${slot.id}-question`} className="text-base font-bold">{addAnywayText(deskAsk.desk.name, deskAsk.conflict)}</p>
+                  <p className="text-sm">{inItNowText(deskAsk.conflict)}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => toDesk(deskAsk.list, true)} disabled={blocked} className={`${otherButton} min-h-12 border-amber-500 bg-amber-500 text-base text-gray-950 hover:bg-amber-400`}>
+                      Add anyway
+                    </button>
+                    <button type="button" onClick={() => setDeskAsk(null)} className={`${otherButton} min-h-12 border-amber-300 bg-white text-base text-amber-950`}>
                       Cancel
                     </button>
                   </div>
@@ -370,6 +480,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                     <ScanLine className="size-5 shrink-0 text-primary" strokeWidth={1.75} aria-hidden="true" />
                     Scan the next holder, or pick it from the list.
                   </p>
+                  {stack && <p className="-mt-1 pl-7 text-sm text-muted-foreground">{PICKS_LOCKED_TEXT}</p>}
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => setPicker(moving)} disabled={blocked} className={`${otherButton} min-h-14 border-primary bg-primary text-base text-primary-foreground hover:bg-primary/90`}>
                       Pick from the list
@@ -383,7 +494,7 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                 <>
                   <button type="button" onClick={() => onAction(buttons.primary)} disabled={actionDisabled(buttons.primary)} className={primaryButton}>
                     <span className="flex flex-col items-center leading-tight">
-                      <span>{actionLabel(buttons.primary, stack, movable.length)}</span>
+                      <ActionWords action={buttons.primary} stack={stack} movable={movable.length} />
                       {buttons.primary === "desk" && severalDesks && desk && <span className="text-xs font-bold opacity-80">{desk.name}</span>}
                     </span>
                   </button>
@@ -394,19 +505,21 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
                         return (
                           <button key={a} type="button" onClick={() => onAction(a)} disabled={actionDisabled(a)} className={`${otherButton} ${BUTTON_TONE[a]}`}>
                             <Icon className="hidden size-4 shrink-0 min-[400px]:block" strokeWidth={1.75} aria-hidden="true" />
-                            {actionLabel(a, stack, movable.length)}
+                            <ActionWords action={a} stack={stack} movable={movable.length} />
                           </button>
                         );
                       })}
                     </div>
                   )}
-                  {!desk && buttons.primary === "desk" && (
+                  {!slot.active ? (
+                    <p className="text-sm font-semibold text-red-800">{SWITCHED_OFF_TEXT}</p>
+                  ) : !desk && buttons.primary === "desk" ? (
                     <p className="text-sm text-muted-foreground">
                       No desk yet.{" "}
                       <AdminLink href={DESK_PAGE} className="font-bold text-primary underline-offset-2 hover:underline">Open the Desk page</AdminLink>
                       {" "}once to make one.
                     </p>
-                  )}
+                  ) : null}
                 </>
               )}
             </div>
@@ -444,6 +557,30 @@ export function HolderView({ slot, now, busy, moving, run, refresh, onScanNext, 
         onClose={() => setPicker(null)}
       />
     </section>
+  );
+}
+
+/** A button's words; on a phone the short ones ("Another holder"), with the full words as its name. */
+function ActionWords({ action, stack, movable }: { action: HolderAction; stack: boolean; movable: number }) {
+  const label = actionLabel(action, stack, movable);
+  const short = actionShortLabel(action, stack);
+  if (!short) return <span>{label}</span>;
+  return (
+    <>
+      <span aria-hidden="true" className="sm:hidden">{short}</span>
+      <span className="sr-only sm:not-sr-only">{label}</span>
+    </>
+  );
+}
+
+/** The one card, in the bar on a phone: "CD-2549-07 · Charizard · Maria Reyes" (the card itself can be under the bar). */
+function BarCardLine({ card }: { card: TrackCardSummary }) {
+  const [code, ...rest] = barCardLine(card).split(" · ");
+  return (
+    <p className="truncate text-sm text-foreground lg:hidden">
+      <span className="font-mono font-black">{code}</span>
+      {rest.length > 0 && <span className="font-semibold"> · {rest.join(" · ")}</span>}
+    </p>
   );
 }
 
@@ -495,13 +632,20 @@ function HolderHeader({ slot, onOpenBag }: { slot: TrackSlotSummary; onOpenBag?:
 }
 
 /** One card, big: photos, name, year / set / #, Card ID, whose, due, step, how long it has been here. */
-function CardBody({ card, slot, now, compact = false, onPick }: { card: TrackCardSummary; slot: TrackSlotSummary; now: number; compact?: boolean; onPick?: () => void }) {
+function CardBody({ card, slot, now, compact = false, photoSize = "large", onPick }: {
+  card: TrackCardSummary;
+  slot: TrackSlotSummary;
+  now: number;
+  compact?: boolean;
+  photoSize?: "list" | "large";
+  onPick?: () => void;
+}) {
   const due = dueLine(card.dueDate);
   const details = cardDetails(card);
   return (
     <div className="flex flex-col gap-3">
       {/* Photos first: tell the card by eye (a tap opens them full screen) */}
-      <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size={compact ? "list" : "large"} />
+      <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size={compact ? "list" : photoSize} />
       {/* In a stack a tap on the words ticks the card too (the tick box is the control for keyboards and screen readers) */}
       <div onClick={onPick} className={`min-w-0 ${onPick ? "cursor-pointer" : ""}`}>
         <p className={`font-black leading-tight text-foreground break-words ${compact ? "text-xl" : "text-2xl sm:text-3xl"}`}>{card.name?.trim() || "No card name"}</p>

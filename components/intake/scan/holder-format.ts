@@ -2,7 +2,7 @@ import { outcomeOf, type Outcome } from "@/app/admin/receiving/desk/_lib/outcome
 import { isDay, nyToday } from "@/lib/intake/business-days";
 import { isOpenBagsPlace, putBackSentence } from "@/lib/intake/tracking/bag-home";
 import { DESK_CODE, isDeskCode } from "@/lib/intake/tracking/desk-codes";
-import type { LocationRef, TrackActionResponse, TrackCardSummary, TrackDeskRef, TrackLocation, TrackSlotSummary } from "@/lib/intake/tracking/types";
+import type { CapacityConflict, LocationRef, TrackActionResponse, TrackCardSummary, TrackDeskRef, TrackLocation, TrackSlotSummary } from "@/lib/intake/tracking/types";
 import { cardsLabel } from "./format";
 
 /**
@@ -150,6 +150,97 @@ export function actionLabel(action: HolderAction, stack: boolean, movable = 0): 
   return { other: "Move selected", done: "Done for selected", takeout: "Take out selected" }[action];
 }
 
+/**
+ * A button's words on a phone, where three buttons share a 390 px row: one
+ * card's "Move to another holder" is "Another holder" (it would wrap to three
+ * lines); null: the same as actionLabel.
+ */
+export function actionShortLabel(action: HolderAction, stack: boolean): string | null {
+  return !stack && action === "other" ? "Another holder" : null;
+}
+
+/** What the buttons depend on. `blocked`: a save, its re-read or a scan is running. */
+export type HolderButtonState = {
+  blocked: boolean;
+  stack: boolean;
+  /** The holder is switched on (a switched-off one can't be moved out of: the server refuses it). */
+  active: boolean;
+  /** There is a desk for "Move to my desk". */
+  hasDesk: boolean;
+  /** Cards "Move all N to my desk" takes (not refunded). */
+  movable: number;
+  /** Ticked cards (a stack). */
+  chosen: number;
+  /** The one card is refunded. */
+  refunded: boolean;
+};
+
+/**
+ * A button is greyed: while something runs; Move to my desk / Move to
+ * another holder in a switched-off holder (SWITCHED_OFF_TEXT says why) or
+ * without a desk; a stack's Done / Move / Take out with nothing ticked; a
+ * refunded card's Done and moves (Take out only).
+ */
+export function holderActionDisabled(action: HolderAction, s: HolderButtonState): boolean {
+  if (s.blocked) return true;
+  if (!s.active && (action === "desk" || action === "other")) return true;
+  if (action === "desk") return !s.hasDesk || (s.stack ? s.movable === 0 : s.refunded);
+  if (s.stack) return s.chosen === 0;
+  if (action === "takeout") return false;
+  return s.refunded;
+}
+
+/** Under the buttons of a switched-off holder. */
+export const SWITCHED_OFF_TEXT = "This holder is switched off: use Take out or Done, or switch it on in Places.";
+
+/** A tap while the last change (or a scan) is still being saved or read: nothing was started. */
+export const SAVE_BUSY_TEXT = "Still saving the last change. Try again in a moment.";
+
+/** While the page waits for the next holder for the ticked cards, the ticks are fixed. */
+export const PICKS_LOCKED_TEXT = "Cancel to change the cards.";
+
+/** In the top panel over a holder with cards in it: the small line that says a bag scan adds a card. */
+export const ADD_HERE_TEXT = "Scan a bag to add a card here.";
+
+/** The one card's line in the button bar (phone): "CD-2549-07 · Charizard · Maria Reyes". */
+export function barCardLine(card: Pick<TrackCardSummary, "code" | "name" | "customer">): string {
+  return [card.code ?? "No Card ID", card.name?.trim() || null, card.customer?.trim() || null].filter(Boolean).join(" · ");
+}
+
+/** "DESK already holds Charizard 1, Charizard 2 and 3 more. Add anyway?" (the server's sentence when it names no card). */
+export function addAnywayText(name: string, conflict: Pick<CapacityConflict, "error" | "occupants">): string {
+  const names = conflict.occupants.map((c) => c.name ?? c.code ?? "a card");
+  if (!names.length) return conflict.error;
+  const shown = names.length > 3 ? `${names.slice(0, 3).join(", ")} and ${names.length - 3} more` : names.join(names.length === 2 ? " and " : ", ");
+  return `${name} already holds ${shown}. Add anyway?`;
+}
+
+/** "In it now: CD-2549-01, CD-2549-02 · holds 2 cards". */
+export function inItNowText(conflict: Pick<CapacityConflict, "capacity" | "occupants">): string {
+  const codes = conflict.occupants.map((c) => c.code ?? c.name ?? "a card").join(", ");
+  const holds = `holds ${conflict.capacity === 1 ? "1 card" : `${conflict.capacity} cards`}`;
+  return codes ? `In it now: ${codes} · ${holds}` : `It ${holds}.`;
+}
+
+/**
+ * The holder as the view shows it after a save: the cards the answer says
+ * went (ok results) left out at once, so a re-read that fails can't leave
+ * them listed. `gone` applies only to the same `slot` object it was made for
+ * (a fresh read replaces it, and the server's list counts again).
+ */
+export function withoutGone(slot: TrackSlotSummary, gone: { slot: TrackSlotSummary; ids: ReadonlySet<string> } | null): TrackSlotSummary {
+  if (!gone || gone.slot !== slot || !gone.ids.size) return slot;
+  const cards = slot.cards.filter((c) => !gone.ids.has(c.id));
+  const left = slot.cards.length - cards.length;
+  if (!left) return slot;
+  return { ...slot, cards, cardCount: Math.max(0, slot.cardCount - left) };
+}
+
+/** The cards an answer took out of the holder (or put where they were going): every ok result. */
+export function settledCardIds(res: Pick<TrackActionResponse, "results">): string[] {
+  return res.results.filter((r) => r.ok).map((r) => r.cardId);
+}
+
 /** "None picked", "3 of 8 picked", "All 8 picked". */
 export function pickedText(picked: number, total: number): string {
   if (picked <= 0) return "None picked";
@@ -222,4 +313,34 @@ export function holderOutcome(
     outcome: { ...base, title, lines: base.tone === "ok" ? [] : base.lines },
     deskCode: action === "desk" || action === "other" ? deskLinkCode(res) : null,
   };
+}
+
+/**
+ * The Scan page's own last save (not a holder-view button: a scan after
+ * "Move to another holder", a card tapped in, the DONE sign). `at`: the
+ * holder the cards were in when it was a Done or Take out (their answer has
+ * no place: location null), so that holder says what happened.
+ */
+export type ScanSave = {
+  key: number;
+  res: TrackActionResponse;
+  at?: string | null;
+  action?: "done" | "takeout";
+  cards?: readonly Pick<TrackCardSummary, "code" | "name">[];
+};
+
+/**
+ * What a holder shows of the Scan page's last save: a Done or Take out of
+ * its cards (the DONE sign after "Move to another holder": "Done. Put it
+ * back in REYES's bag: …"), or cards that went into it ("In HEAT PRESS 01.
+ * Step: Heat Press."); null when the save was about another place.
+ */
+export function scanSaveResult(save: ScanSave | null | undefined, slot: Pick<TrackSlotSummary, "code" | "name">): HolderResult | null {
+  if (!save) return null;
+  if (save.at && save.at === slot.code) {
+    return { ...holderOutcome(save.action ?? "done", save.cards ?? [], save.res, slot.name), deskCode: null };
+  }
+  // Cards that went into this holder (its desk link is in the header already)
+  if (save.res.location?.code === slot.code) return { ...holderOutcome("other", [], save.res, slot.name), deskCode: null };
+  return null;
 }

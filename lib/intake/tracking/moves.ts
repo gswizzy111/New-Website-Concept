@@ -9,6 +9,7 @@ import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locati
 import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
 import { withBagSentences } from "@/lib/intake/tracking/bag-home";
 import { settleBags } from "@/lib/intake/tracking/bag-places";
+import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import { isSlot, locationRef } from "@/lib/intake/tracking/places";
 import { loadCardSummaries } from "@/lib/intake/tracking/resolve";
 import { sendStageUpdateEmail } from "@/lib/intake/tracking/stage-email";
@@ -184,11 +185,52 @@ export async function moveSlot(
   return planAndRun(admin, "move", to.loc, moving, input, notInside, input.force);
 }
 
-/** POST /api/admin/track/release: take cards out of their slots (no place; the step stays). */
-export async function releaseCards(admin: SupabaseClient, input: Common & { cardIds: readonly string[] }): Promise<TrackResult> {
+/**
+ * The place a Done or Take out names (`fromCode`: the holder the cards were
+ * shown in). Unlike a move's places it may be switched off: its cards can
+ * still be finished or taken out.
+ */
+async function fromPlace(admin: SupabaseClient, raw: string): Promise<{ loc: LocationRow } | { ok: false; status: number; error: string }> {
+  let loc: LocationRow | null;
+  try {
+    loc = await getLocationByCode(admin, raw);
+  } catch (e) {
+    return { ok: false, status: 500, error: `Couldn't read the slot. Nothing was changed. (${errText(e)})` };
+  }
+  if (!loc) return { ok: false, status: 404, error: `No slot or place has the code ${normalizeCode(raw) || String(raw ?? "").trim().slice(0, 60) || "(blank)"}.` };
+  return { loc };
+}
+
+/** Where a card is now, for "Not in CLAMP 07 any more (now in HEAT PRESS 01)": in a holder, on a desk, on a shelf, in its bag. */
+export function nowAtText(loc: Pick<LocationRef, "code" | "name" | "kind"> | null | undefined): string {
+  if (!loc) return "now in its bag";
+  if (loc.kind === "other" && isDeskCode(loc.code)) return `now on ${loc.name}`;
+  if (loc.kind === "shelf") return `now on shelf ${loc.name}`;
+  if (loc.kind === "other") return `now at ${loc.name}`;
+  return `now in ${loc.name}`;
+}
+
+/** A card refused because it isn't in the holder the request named any more. */
+export function notInPlaceText(placeName: string, now: Pick<LocationRef, "code" | "name" | "kind"> | null | undefined): string {
+  return `Not in ${placeName} any more (${nowAtText(now)}).`;
+}
+
+/**
+ * POST /api/admin/track/release: take cards out of their slots (no place; the
+ * step stays). With `fromCode` (the holder they were shown in) only cards
+ * still in it are taken out; the others are refused, each with "Not in
+ * CLAMP 07 any more (now in HEAT PRESS 01)." (none left in it: 409).
+ */
+export async function releaseCards(admin: SupabaseClient, input: Common & { cardIds: readonly string[]; fromCode?: string | null }): Promise<TrackResult> {
   const bad = cardIdsProblem(input.cardIds);
   if (bad) return { ok: false, status: 400, error: bad };
-  return planAndRun(admin, "release", null, input.cardIds, input, []);
+  let only: LocationRow | null = null;
+  if (input.fromCode != null) {
+    const from = await fromPlace(admin, input.fromCode);
+    if (!("loc" in from)) return from;
+    only = from.loc;
+  }
+  return planAndRun(admin, "release", null, input.cardIds, input, [], undefined, only);
 }
 
 /**
@@ -198,12 +240,22 @@ export async function releaseCards(admin: SupabaseClient, input: Common & { card
  * can't be matched). The answer's message says where the bag is ("Done. Put
  * it back in REYES's bag: Open bags box, under R."). Bags whose last card
  * this was become complete. LOC-DONE stays a place for anyone scanning cards
- * to it (assign), but Done never uses it.
+ * to it (assign), but Done never uses it. With `fromCode` (the holder the
+ * cards were shown in, e.g. the Scan page's holder view) only cards still in
+ * it are marked done; the others are refused, each with "Not in CLAMP 07 any
+ * more (now in HEAT PRESS 01)." (none left in it: 409), so a card someone
+ * moved meanwhile is never finished from a stale screen.
  */
-export async function markCardsDone(admin: SupabaseClient, input: Common & { cardIds: readonly string[] }): Promise<TrackResult> {
+export async function markCardsDone(admin: SupabaseClient, input: Common & { cardIds: readonly string[]; fromCode?: string | null }): Promise<TrackResult> {
   const bad = cardIdsProblem(input.cardIds);
   if (bad) return { ok: false, status: 400, error: bad };
-  return planAndRun(admin, "done", null, input.cardIds, input, []);
+  let only: LocationRow | null = null;
+  if (input.fromCode != null) {
+    const from = await fromPlace(admin, input.fromCode);
+    if (!("loc" in from)) return from;
+    only = from.loc;
+  }
+  return planAndRun(admin, "done", null, input.cardIds, input, [], undefined, only);
 }
 
 /**
@@ -235,12 +287,21 @@ async function planAndRun(
   input: Common & { action?: MoveAction },
   extraResults: TrackCardResult[],
   force?: boolean,
+  only?: LocationRow | null,
 ): Promise<TrackResult> {
   let ctx: OrdersContext;
   try {
     ctx = await loadForCards(admin, cardIds);
   } catch (e) {
     return { ok: false, status: 500, error: `Couldn't read the cards. Nothing was changed. (${errText(e)})` };
+  }
+  // `only`: the holder the cards must still be in (Done / Take out from a holder's screen). A card
+  // read elsewhere is refused; one moved after this read is left alone by writePlan (lost)
+  if (only) {
+    const split = splitByPlace(ctx, cardIds, only);
+    if (!split.keep.length) return { ok: false, status: 409, error: split.error ?? `Those cards aren't in ${only.name} any more.` };
+    cardIds = split.keep;
+    extraResults = [...extraResults, ...split.refused];
   }
   const plan = planCards({
     action,
@@ -285,6 +346,33 @@ async function planAndRun(
 }
 
 const MOVED_MEANWHILE = "Someone moved it just now. Scan the slot again.";
+
+/**
+ * The requested cards still in `place` (or unknown: the planner says "Card
+ * not found."), and the others refused with where each is now. `error`: the
+ * whole request's sentence when none is left in it ("CD-2549-07 isn't in
+ * CLAMP 07 any more (now in HEAT PRESS 01).").
+ */
+function splitByPlace(ctx: Pick<OrdersContext, "cards" | "locations">, cardIds: readonly string[], place: Pick<LocationRow, "id" | "name">): { keep: string[]; refused: TrackCardResult[]; error: string | null } {
+  const byId = new Map(ctx.cards.map((c) => [c.id, c]));
+  const keep: string[] = [];
+  const refused: TrackCardResult[] = [];
+  const away: { label: string; now: string }[] = [];
+  for (const id of [...new Set(cardIds)]) {
+    const c = byId.get(id);
+    if (!c || c.location_id === place.id) {
+      keep.push(id);
+      continue;
+    }
+    const now = c.location_id ? ctx.locations.get(c.location_id) ?? null : null;
+    refused.push({ cardId: id, code: c.card_code, name: c.card_name, ok: false, changed: false, message: notInPlaceText(place.name, now) });
+    away.push({ label: c.card_code ?? c.card_name ?? "A card", now: nowAtText(now) });
+  }
+  const error = keep.length ? null
+    : away.length === 1 ? `${away[0].label} isn't in ${place.name} any more (${away[0].now}).`
+    : `Those cards aren't in ${place.name} any more: ${away.map((a) => `${a.label} (${a.now})`).join(", ")}.`;
+  return { keep, refused, error };
+}
 
 async function writePlan(
   admin: SupabaseClient,
