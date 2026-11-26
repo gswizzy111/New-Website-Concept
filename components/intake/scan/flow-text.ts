@@ -166,11 +166,52 @@ export const SHIP_SUB = "Opens its ship check page.";
 
 // ─── The picked card ────────────────────────────────────────────────────
 
-/** "1999 · Base Set · #4/102" (what's known of it; "" for nothing). */
-export function cardDetails(card: Pick<TrackCardSummary, "year" | "set" | "number">): string {
+/** "1999 · Base Set · #4/102 · 1st Edition" (what's known of it; "" for nothing). */
+export function cardDetails(card: Pick<TrackCardSummary, "year" | "set" | "number"> & Pick<Partial<TrackCardSummary>, "variation">): string {
   const num = card.number?.trim();
-  return [card.year?.trim(), card.set?.trim(), num ? (num.startsWith("#") ? num : `#${num}`) : null].filter(Boolean).join(" · ");
+  return [card.year?.trim(), card.set?.trim(), num ? (num.startsWith("#") ? num : `#${num}`) : null, card.variation?.trim()].filter(Boolean).join(" · ");
 }
+
+/** Which note a box shows. */
+export type NoteKind = "card" | "defects" | "order";
+
+/** A card's notes, each in its labelled box (as the scan landing's boxes). */
+export type CardNote = { kind: NoteKind; title: string; text: string };
+
+export const NOTE_TITLES: Record<NoteKind, string> = {
+  card: "Notes on this card",
+  defects: "Known defects",
+  order: "Customer's notes",
+};
+
+/**
+ * The notes the picked card shows next to its photos (owner, Nov 26 2026:
+ * "I want to be able to see the notes when I scan on the spot along with the
+ * photo"): the customer's note on the card, its known defects, then the
+ * order's notes from the customer. Only the ones written.
+ */
+export function cardNoteList(card: Pick<Partial<TrackCardSummary>, "notes" | "knownDefects" | "customerNotes">): CardNote[] {
+  const out: CardNote[] = [];
+  const add = (kind: NoteKind, text: string | null | undefined) => {
+    const t = text?.trim();
+    if (t) out.push({ kind, title: NOTE_TITLES[kind], text: t });
+  };
+  add("card", card.notes);
+  add("defects", card.knownDefects);
+  add("order", card.customerNotes);
+  return out;
+}
+
+/** A row in a list: the card has a note on it or known defects (the order's notes show once it is picked). */
+export const HAS_NOTES_LABEL = "Has notes";
+export function hasCardNotes(card: Pick<Partial<TrackCardSummary>, "notes" | "knownDefects">): boolean {
+  return !!(card.notes?.trim() || card.knownDefects?.trim());
+}
+
+/** A long note folds at NOTE_LINES lines. */
+export const NOTE_LINES = 6;
+export const SHOW_MORE_LABEL = "Show more";
+export const SHOW_LESS_LABEL = "Show less";
 
 /** "Maria Reyes · Order CD-2549 · Gold". */
 export function orderLine(card: Pick<TrackCardSummary, "customer" | "orderNumber" | "tierName">): string {
@@ -247,6 +288,9 @@ export const TAKE_OUT_LABEL = "Take out";
 export const DONE_QUESTION = "Mark it done? Then put it back in its bag.";
 export const DONE_YES_LABEL = "Mark done";
 export const CARD_PAGE_LABEL = "Card page";
+export const HIDE_MESSAGE_LABEL = "Hide this message";
+export const STOP_LABEL = "Stop";
+export const SEARCH_TRUNCATED_TEXT = "Only the first ones are shown: type more to narrow it down.";
 
 // ─── Lists (a bag, an order, a desk, a search) ──────────────────────────
 

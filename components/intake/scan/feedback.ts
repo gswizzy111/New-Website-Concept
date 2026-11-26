@@ -72,15 +72,18 @@ function vibrate(pattern: number | number[]) {
   }
 }
 
-export type Beep = "read" | "ok" | "error";
+export type Beep = "read" | "pending" | "ok" | "error";
 
 /**
  * "read": a code was read (one short high beep, a tap of vibration).
- * "ok": saved (two quick rising notes). "error": not a code, not found or not
- * saved (two low buzzes, a long double vibration).
+ * "pending": a move or Done waits for the same label again (two equal mid
+ * beeps: "again"). "ok": saved, moved (two quick rising notes). "error": not
+ * a code, not found, refused or not saved (two low buzzes, a long double
+ * vibration).
  */
 export function beep(kind: Beep, sound = true) {
   if (kind === "error") vibrate([120, 60, 120]);
+  else if (kind === "pending") vibrate([40, 80, 40]);
   else vibrate(kind === "read" ? 35 : 20);
   if (!sound) return;
   const c = audio();
@@ -88,6 +91,10 @@ export function beep(kind: Beep, sound = true) {
   try {
     const t = c.currentTime + 0.01;
     if (kind === "read") tone(c, 1760, t, 0.07, "sine", 0.25);
+    else if (kind === "pending") {
+      tone(c, 988, t, 0.09, "triangle", 0.22);
+      tone(c, 988, t + 0.16, 0.09, "triangle", 0.22);
+    }
     else if (kind === "ok") {
       tone(c, 1320, t, 0.06, "sine", 0.2);
       tone(c, 1760, t + 0.07, 0.08, "sine", 0.2);
