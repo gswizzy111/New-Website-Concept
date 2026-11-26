@@ -518,3 +518,213 @@ test("tiers are written only once the receipt can go ahead: a refused Awaiting C
   assert.deepEqual([orderRow(big).status, bagsOf(big).length, eventsOf(big).length], ["awaiting_cards", 0, eventsBefore]);
 });
 
+
+// ── Cards added after the order arrived (owner, Nov 26: "it wont let me print") ──
+
+test("plan: cards added after the order arrived never block the bags there are: ready, with the cards listed to ask about", () => {
+  const input = setupInput({
+    order: { id: "o1", order_number: "CD-2549", status: "in_progress", inbound_method: "self_ship", created_at: "2026-11-02T15:00:00Z", restoration_tier: null },
+    bags: [setupBag("g", "premium", "CD-2549-G", "2026-11-05")],
+    cards: [
+      setupCard("a", { tier: "premium", bag_id: "g", received_at: "2026-11-05T16:00:00Z", card_seq: 1, card_code: "CD-2549-01" }),
+      setupCard("late1", { tier: "premium", created_at: "2026-11-20T15:00:00Z", photo_urls: ["https://x.test/late1.jpg"] }),
+      setupCard("late2", { created_at: "2026-11-20T15:00:01Z", card_seq: 3, card_code: "CD-2549-03", catalog_image_url: "https://x.test/cat.png" }),
+      setupCard("refunded", { tier: "premium", created_at: "2026-11-20T15:00:02Z", status: "refunded" }),
+      setupCard("onTheWay", { tier: "premium", created_at: "2026-11-20T15:00:03Z", awaiting_arrival: true }),
+    ],
+  });
+  const { plan, toBagIds } = pure.buildPreparePlan({
+    order: pOrder({ status: "in_progress" }),
+    cards: input.cards.map((c) => pCard(c.id, { card_name: c.card_name ?? null, tier: c.tier, bag_id: c.bag_id, received_at: c.received_at, status: c.status, awaiting_arrival: c.awaiting_arrival })),
+    bags: [{ id: "g", code: "CD-2549-G", tier: "premium", cardCount: 1, createdAt: "2026-11-24T20:00:00.000Z" } as unknown as BagSummary],
+    today: "2026-11-26", setupInput: input,
+    guesses: { late2: { tier: "expedited", confidence: "likely", source: "price", why: "Paid for 1 Silver." } },
+  });
+  assert.deepEqual([plan.mode, plan.toBag, toBagIds], ["ready", 0, []], "the Gold bag prints; nothing is refused");
+  assert.deepEqual(plan.addedLater.map((c) => [c.id, c.name, c.code, c.tier, c.tierName, c.photo]), [
+    ["late1", "late1", null, "premium", "Gold", "https://x.test/late1.jpg"],
+    ["late2", "late2", "CD-2549-03", null, null, "https://x.test/cat.png"],
+  ], "refunded and awaiting-arrival cards are never listed");
+  assert.deepEqual(plan.addedLaterQuestions.map((q) => [q.cardIds, q.guess, q.needsAnswer]), [[["late2"], "expedited", true]]);
+  assert.deepEqual([plan.tierQuestions, plan.needsAnswers], [[], false], "the added-later question never blocks a plain print");
+  assert.match(plan.reason ?? "", /^2 cards were added after the order arrived, so they are left for Receiving\./);
+});
+
+test("plan: an order whose only cards were added after it arrived (no bag yet) is ready to ask, not refused", () => {
+  const input = setupInput({
+    order: { id: "o1", order_number: "CD-2549", status: "received", inbound_method: "buy_label", created_at: "2026-11-04T02:38:07Z", restoration_tier: null },
+    receivedEventAt: "2026-11-12T01:18:58Z",
+    cards: [
+      setupCard("x", { tier: "ultra_premium", created_at: "2026-11-12T01:19:09Z" }),
+      setupCard("y", { tier: "regular", created_at: "2026-11-26T20:03:55Z" }),
+      setupCard("z", { tier: "regular", created_at: "2026-11-26T20:04:35Z" }),
+    ],
+  });
+  const { plan } = pure.buildPreparePlan({
+    order: pOrder({ status: "received" }), cards: input.cards.map((c) => pCard(c.id, { tier: c.tier })), bags: [], today: "2026-11-26", setupInput: input, guesses: {},
+  });
+  assert.deepEqual([plan.mode, plan.toBag, plan.addedLater.map((c) => c.id), plan.bags.length], ["ready", 0, ["x", "y", "z"], 0]);
+  assert.equal(plan.reason, "3 cards were added after the order arrived, so they are left for Receiving.");
+});
+
+test("addedLaterDays: join the open bag of the order's arrival day; otherwise Receiving's own day (arrival day while nothing is received, else today)", () => {
+  const cards = [
+    { id: "old", tier: "premium", status: "active", received_at: "2026-11-05T16:00:00Z" },
+    { id: "g", tier: "premium", status: "active", received_at: null },
+    { id: "s", tier: "expedited", status: "active", received_at: null },
+    { id: "o", tier: null, status: "active", received_at: null },
+  ];
+  const bags = [
+    { tier: "premium", received_on: "2026-11-05", completed_at: null },
+    { tier: "expedited", received_on: "2026-11-05", completed_at: "2026-11-20T15:00:00Z" },
+  ];
+  const days = (over: Partial<Parameters<typeof pure.addedLaterDays>[0]>) =>
+    Object.fromEntries(pure.addedLaterDays({ cardIds: ["g", "s", "o"], cards, bags, orderTier: null, orderDay: "2026-11-05", today: "2026-11-26", ...over }));
+  // Gold joins the open Gold bag of Nov 5; the Silver bag of Nov 5 is finished: a card is received today (next batch);
+  // a card with no tier anywhere is left out (its tier is filled first)
+  assert.deepEqual(days({}), { "2026-11-05": ["g"], "2026-11-26": ["s"] });
+  assert.deepEqual(days({ orderTier: "regular" }), { "2026-11-05": ["g"], "2026-11-26": ["s", "o"] });
+  // Nothing received yet (no bags): Receiving's default, the order's arrival day
+  assert.deepEqual(days({ cards: cards.filter((c) => c.id !== "old"), bags: [] }), { "2026-11-05": ["g", "s"] });
+  // Nothing on record: today
+  assert.deepEqual(days({ orderDay: null }), { "2026-11-26": ["g", "s"] });
+  // A day still to come is no arrival day
+  assert.deepEqual(days({ orderDay: "2026-12-01" }), { "2026-11-26": ["g", "s"] });
+});
+
+test("added later, in the shop: 'Not yet' prints the bags there are and changes nothing; 'Yes' receives the ticked cards into their tier bags (no status change, no email)", async () => {
+  const oid = id(10);
+  mock.store.table("orders").push(order(oid, "CD-4010", "in_progress"));
+  mock.store.table("order_events").push(ev(oid, "status_updated", "Status updated to: Cards Received", "2026-11-06T16:00:00+00:00"));
+  const orig = [card(oid, "Original Gold 1", { tier: "premium" }), card(oid, "Original Gold 2", { tier: "premium" })];
+  for (const c of orig) mock.store.table("cards").push(c);
+  const first = await pure.prepareLabels(admin, { orderId: oid, by: "gavin" });
+  assert.ok(first.ok, first.ok ? "" : first.error);
+  assert.deepEqual(bagsOf(oid).map((b) => [b.bag_code, b.received_on]), [["CD-4010-G", "2026-11-06"]]);
+
+  // Then 3 cards added on the order page / an add-cards checkout (plus a refunded and a not-arrived one)
+  const late = [
+    card(oid, "Late Gold", { tier: "premium", created_at: "2026-11-20T15:00:01+00:00", photo_urls: ["https://x.test/g.jpg"] }),
+    card(oid, "Late Silver", { tier: "expedited", created_at: "2026-11-20T15:00:02+00:00" }),
+    card(oid, "Late Untiered", { created_at: "2026-11-20T15:00:03+00:00" }),
+  ];
+  const refundedLate = card(oid, "Late Refunded", { tier: "premium", status: "refunded", created_at: "2026-11-20T15:00:04+00:00" });
+  const awaitingLate = card(oid, "Late On The Way", { tier: "premium", awaiting_arrival: true, created_at: "2026-11-20T15:00:05+00:00" });
+  for (const c of [...late, refundedLate, awaitingLate]) mock.store.table("cards").push(c);
+  const lateIds = late.map((c) => c.id as string);
+
+  const p = await plan(oid);
+  assert.deepEqual([p.mode, p.toBag, p.bags.map((b) => [b.code, b.cardCount])], ["ready", 0, [["CD-4010-G", 2]]]);
+  assert.deepEqual(p.addedLater.map((c) => [c.name, c.tier]), [["Late Gold", "premium"], ["Late Silver", "expedited"], ["Late Untiered", null]]);
+  assert.deepEqual(p.addedLaterQuestions.map((q) => [q.cardNames, q.needsAnswer]), [[["Late Untiered"], true]]);
+
+  // "Not yet, just print": the existing bag prints, the cards stay for Receiving, nothing is written
+  const eventsBefore = eventsOf(oid).length;
+  const sentBefore = sent.length;
+  const notYet = await pure.prepareLabels(admin, { orderId: oid, by: "gavin" });
+  assert.ok(notYet.ok, notYet.ok ? "" : notYet.error);
+  if (notYet.ok) {
+    assert.deepEqual(notYet.response.bags.map((b) => [b.code, b.cardCount]), [["CD-4010-G", 2]]);
+    assert.deepEqual([notYet.response.newlyBagged, notYet.response.addedLaterReceived, notYet.response.addedLaterLeft], [0, 0, 3]);
+    assert.equal(notYet.response.message, "Nothing new to bag. 3 cards added after the order arrived are left for Receiving. 1 label to print.");
+  }
+  assert.ok([...late, refundedLate].every((c) => (cardRow(c.id).bag_id ?? null) === null && (cardRow(c.id).received_at ?? null) === null && !cardRow(c.id).awaiting_arrival));
+  assert.equal(eventsOf(oid).length, eventsBefore);
+
+  // "Yes" without the untiered card's tier: asked (409, the plan + unanswered), nothing written
+  const bogus = "00000000-0000-4000-8000-00000000dead";
+  const include = [...lateIds, refundedLate.id as string, awaitingLate.id as string, bogus];
+  const ask = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: include, by: "gavin" });
+  assert.ok(!ask.ok && ask.status === 409);
+  const conflict = (ask as { conflict: PrepareConflict }).conflict;
+  assert.deepEqual([conflict.unanswered, conflict.error, conflict.addedLater.length], [[late[2].id], "Pick a tier for 1 card first.", 3]);
+  assert.equal(eventsOf(oid).length, eventsBefore);
+  assert.equal(cardRow(late[2].id).tier ?? null, null);
+
+  // "Yes, add them and print": Gold joins CD-4010-G (the order's arrival day, still open); Silver and Bronze
+  // go where Receiving puts them now that the order's cards are in: a new bag received today
+  const yes = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: include, tiers: { [late[2].id as string]: "regular" }, by: "gavin" });
+  assert.ok(yes.ok, yes.ok ? "" : yes.error);
+  const today = nyToday();
+  if (yes.ok) {
+    assert.deepEqual(yes.response.bags.map((b) => [b.code, b.cardCount]), [["CD-4010-G", 3], ["CD-4010-S", 1], ["CD-4010-B", 1]], "every bag prints, the Gold bag with its new card");
+    assert.deepEqual([yes.response.newlyBagged, yes.response.addedLaterReceived, yes.response.addedLaterLeft, yes.response.emailed, yes.response.orderStatusChanged], [3, 3, 0, false, false]);
+    assert.match(yes.response.message, /^Added 3 cards that came after the order arrived: Gold bag CD-4010-G \(\+1\), Silver bag CD-4010-S \(\+1\), Bronze bag CD-4010-B \(\+1\)\. 3 labels to print\./);
+    assert.deepEqual(yes.response.shelves.map((x) => x.bagCode), ["CD-4010-S", "CD-4010-B"], "only the new bags go to a shelf");
+  }
+  const bag = (code: string) => bagsOf(oid).find((b) => b.bag_code === code)!;
+  assert.deepEqual(["CD-4010-G", "CD-4010-S", "CD-4010-B"].map((c) => [bag(c).source, bag(c).received_on, bag(c).batch]), [
+    ["migration", "2026-11-06", 1], ["receiving", today, 1], ["receiving", today, 1],
+  ]);
+  assert.deepEqual(late.map((c) => cardRow(c.id).bag_id), [bag("CD-4010-G").id, bag("CD-4010-S").id, bag("CD-4010-B").id]);
+  assert.ok(late.every((c) => cardRow(c.id).received_at && cardRow(c.id).received_by === "gavin" && cardRow(c.id).awaiting_arrival === false));
+  assert.deepEqual(late.map((c) => cardRow(c.id).card_code), ["CD-4010-03", "CD-4010-04", "CD-4010-05"], "Card IDs as usual");
+  assert.equal(cardRow(late[2].id).tier, "regular");
+  // Refunded and not-arrived cards are never included; nobody is flagged as on the way
+  assert.deepEqual([cardRow(refundedLate.id).bag_id ?? null, cardRow(awaitingLate.id).bag_id ?? null, cardRow(awaitingLate.id).awaiting_arrival], [null, null, true]);
+  assert.equal(orderRow(oid).status, "in_progress");
+  assert.equal(sent.length, sentBefore, "no email");
+  assert.deepEqual(eventsOf(oid).slice(eventsBefore).map((e) => [e.event_type, e.is_customer_visible]), [
+    ["tier_changed", false], ["cards_received", false], ["cards_received", false],
+  ]);
+
+  // Again (a double tap): nothing new, the same bags
+  const again = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: include, tiers: { [late[2].id as string]: "regular" }, by: "gavin" });
+  assert.ok(again.ok);
+  if (again.ok) assert.deepEqual([again.response.newlyBagged, again.response.addedLaterLeft, again.response.bags.map((b) => b.cardCount)], [0, 0, [3, 1, 1]]);
+  assert.equal(eventsOf(oid).length, eventsBefore + 3);
+  assert.deepEqual((await plan(oid)).addedLater, []);
+});
+
+test("added later, some ticked: the unticked card stays for Receiving (not flagged), the ticked one joins its bag", async () => {
+  const oid = id(11);
+  mock.store.table("orders").push(order(oid, "CD-4011", "received", { restoration_tier: "premium" }));
+  mock.store.table("order_events").push(ev(oid, "status_updated", "Status updated to: Cards Received", "2026-11-06T16:00:00+00:00"));
+  mock.store.table("cards").push(card(oid, "Here from the start"));
+  assert.ok((await pure.prepareLabels(admin, { orderId: oid, by: "gavin" })).ok);
+  const [here, notHere] = [card(oid, "Came later, here", { created_at: "2026-11-21T15:00:01+00:00" }), card(oid, "Came later, not here", { created_at: "2026-11-21T15:00:02+00:00" })];
+  mock.store.table("cards").push(here, notHere);
+  const r = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: [here.id as string], by: "gavin" });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  if (r.ok) {
+    assert.deepEqual([r.response.bags.map((b) => [b.code, b.cardCount]), r.response.addedLaterReceived, r.response.addedLaterLeft], [[["CD-4011-G", 2]], 1, 1]);
+    assert.match(r.response.message, /Gold bag CD-4011-G \(\+1\)\. 1 card added after the order arrived is left for Receiving\. 1 label to print\./);
+  }
+  assert.equal(cardRow(here.id).tier, "premium", "the order's tier is written onto it, as on the other bagged cards");
+  assert.deepEqual([cardRow(notHere.id).bag_id ?? null, cardRow(notHere.id).received_at ?? null, cardRow(notHere.id).awaiting_arrival], [null, null, false]);
+  assert.deepEqual((await plan(oid)).addedLater.map((c) => c.id), [notHere.id]);
+});
+
+test("added later, no bag yet (CD-2370's case: every card typed in after Cards Received): 'Not yet' prints nothing and says so; 'Yes' bags them on the arrival day", async () => {
+  const oid = id(12);
+  mock.store.table("orders").push(order(oid, "CD-4012", "received", { inbound_method: "buy_label" }));
+  mock.store.table("order_events").push(ev(oid, "status_updated", "Status updated to: Cards Received", "2026-11-12T01:18:58+00:00"));
+  const cs = [
+    card(oid, "Placeholder for 3 cards", { tier: "ultra_premium", created_at: "2026-11-12T01:19:09+00:00" }),
+    card(oid, "Holo jam", { tier: "regular", created_at: "2026-11-20T20:03:55+00:00" }),
+    card(oid, "Skybox", { tier: "regular", created_at: "2026-11-20T20:04:35+00:00" }),
+  ];
+  for (const c of cs) mock.store.table("cards").push(c);
+  const p = await plan(oid);
+  assert.deepEqual([p.mode, p.toBag, p.addedLater.length, p.reason], ["ready", 0, 3, "3 cards were added after the order arrived, so they are left for Receiving."]);
+
+  const notYet = await pure.prepareLabels(admin, { orderId: oid, by: "gavin" });
+  assert.ok(notYet.ok, notYet.ok ? "" : notYet.error);
+  if (notYet.ok) {
+    assert.deepEqual([notYet.response.bags, notYet.response.addedLaterLeft], [[], 3]);
+    assert.equal(notYet.response.message, "Nothing new to bag. 3 cards added after the order arrived are left for Receiving. No labels to print.");
+  }
+  assert.equal(bagsOf(oid).length, 0);
+
+  const yes = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: cs.map((c) => c.id as string), by: "gavin" });
+  assert.ok(yes.ok, yes.ok ? "" : yes.error);
+  if (yes.ok) assert.deepEqual(yes.response.bags.map((b) => [b.code, b.cardCount]), [["CD-4012-P", 1], ["CD-4012-B", 2]]);
+  // Nothing of the order was received yet: Receiving's default day, the order's arrival (Nov 11 in New York)
+  const holidays = new Set(["2026-11-26", "2026-12-25"]);
+  assert.deepEqual(bagsOf(oid).map((b) => [b.bag_code, b.source, b.received_on, b.due_date, b.due_status]).sort(), [
+    ["CD-4012-B", "receiving", "2026-11-11", addBusinessDays("2026-11-11", 60, holidays), "calculated"],
+    ["CD-4012-P", "receiving", "2026-11-11", addBusinessDays("2026-11-11", 15, holidays), "calculated"],
+  ]);
+  assert.deepEqual(cs.map((c) => cardRow(c.id).card_code), ["CD-4012-01", "CD-4012-02", "CD-4012-03"]);
+  assert.equal(orderRow(oid).status, "received");
+});

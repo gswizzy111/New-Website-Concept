@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Printer, X } from "lucide-react";
-import type { PrepareConflict, PreparePlan, PrepareRequest, PrepareResponse, TierQuestion } from "@/lib/intake/prepare-labels";
+import type { AddedLaterCard, PrepareConflict, PreparePlan, PrepareRequest, PrepareResponse, TierQuestion } from "@/lib/intake/prepare-labels";
 import { DEFAULT_STOCK, LABEL_STOCKS, isStockId } from "@/lib/intake/labels/stock";
 import { UNPAID_CONFIRM } from "@/app/admin/receiving/_components/payment";
 import { LabelPrintButton } from "./label-print-button";
@@ -28,6 +28,12 @@ import { LabelPrintButton } from "./label-print-button";
  *      label shows the due date.
  *    - `not_allowed`: the server's reason shows under the button; a tap
  *      asks again (a card may have been added since).
+ *    - Cards added after the order arrived (`addedLater`, any mode): the
+ *      dialog asks "3 cards were added after the order arrived. Are they
+ *      here with you?", each card ticked by default. "Yes, add them and
+ *      print" sends the ticked ones (`includeAddedLater`: received now into
+ *      their tier bag); "Not yet, just print" prints the bags there are and
+ *      leaves the cards for Receiving. They never stop the bags printing.
  * 2. The labels are then got ready (the PDF, or the Katasymbol pictures, are
  *    fetched before the next tap: an iPhone only opens the share sheet
  *    straight from a tap) and the button reads "Print 3 labels": the second
@@ -150,6 +156,18 @@ function dayText(day: string): string {
   const d = new Date(`${day}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) return day;
   return d.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+}
+
+/** The plan's note without its "N cards were added after the order arrived…" sentence (the dialog asks about them instead). */
+function withoutAddedLater(reason: string | null | undefined): string {
+  return (reason ?? "").replace(/\d+ cards? (was|were) added after the order arrived, so (it is|they are) left for Receiving\.\s*/, "").trim();
+}
+
+/** "3 cards were added after the order arrived. Are they here with you?" */
+function addedLaterQuestion(n: number): string {
+  return n === 1
+    ? "1 card was added after the order arrived. Is it here with you?"
+    : `${n} cards were added after the order arrived. Are they here with you?`;
 }
 
 const RECEIVED_FROM: Record<PreparePlan["receivedOnSource"], string> = {
@@ -303,14 +321,16 @@ export function PrintOrderLabels({
 
   /** Where the plan sends us (also after a 409 that sent a fresh plan: then never straight back to the server). */
   function follow(plan: PreparePlan, problem: string | null = null, fromConflict = false) {
-    planNoteRef.current = plan.mode === "not_allowed" ? null : plan.reason || null;
+    // (the cards added later are asked about, and the result's message says what became of them)
+    planNoteRef.current = plan.mode === "not_allowed" ? null : withoutAddedLater(plan.reason) || null;
     if (plan.mode === "not_allowed") {
       setAsk(null);
       setRefusal(plan.reason || "Labels can't be printed for this order.");
       focusNext.current = "trigger";
       return;
     }
-    if (plan.mode === "receive_first" || (plan.toBag > 0 && (plan.needsAnswers || fromConflict))) {
+    // Cards added after the order arrived: asked about first ("Are they here with you?"), never a refusal
+    if (plan.mode === "receive_first" || (plan.addedLater?.length ?? 0) > 0 || (plan.toBag > 0 && (plan.needsAnswers || fromConflict))) {
       setAsk({ plan, problem });
       return;
     }
@@ -380,7 +400,11 @@ export function PrintOrderLabels({
       }
       const list = res.body.bags.filter((b) => b.cardCount > 0).map((b) => ({ id: b.id, code: b.code }));
       if (!list.length) {
-        setError(res.body.message || "This order has no cards in bags to label.");
+        // "Not yet" on an order with no bag yet: nothing to print, the cards wait for Receiving
+        if ((res.body.addedLaterLeft ?? 0) > 0) {
+          setRefusal(res.body.message || "Nothing to print yet.");
+          focusNext.current = "trigger";
+        } else setError(res.body.message || "This order has no cards in bags to label.");
         return;
       }
       const note = [res.body.message, planNoteRef.current].filter(Boolean).join(" ");
@@ -503,7 +527,7 @@ export function PrintOrderLabels({
 
   const dialog = ask && (
     <TierDialog
-      key={`${ask.plan.orderId}|${ask.plan.mode}|${ask.plan.payment}|${ask.plan.tierQuestions.map((q) => q.cardIds.join(".")).join("|")}`}
+      key={`${ask.plan.orderId}|${ask.plan.mode}|${ask.plan.payment}|${ask.plan.tierQuestions.map((q) => q.cardIds.join(".")).join("|")}|${(ask.plan.addedLater ?? []).map((c) => c.id).join(".")}`}
       ask={ask}
       orderNumber={orderNumber}
       busy={busy === "bagging"}
@@ -570,15 +594,26 @@ function TierDialog({
   const questions = plan.tierQuestions;
   const toAnswer = questions.map((q, i) => ({ q, i })).filter(({ q }) => q.needsAnswer);
   const known = questions.filter((q) => !q.needsAnswer);
+  // Cards added after the order arrived: "Are they here with you?" (each ticked by default)
+  const later = plan.addedLater ?? [];
+  const laterQuestionOf = new Map((plan.addedLaterQuestions ?? []).flatMap((q) => q.cardIds.map((id) => [id, q] as const)));
   // One answer per card, preselected with its question's best guess (none for an unknown one: required)
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
-    Object.fromEntries(toAnswer.flatMap(({ q }) => q.cardIds.map((id) => [id, q.guess ?? ""]))),
+    Object.fromEntries([
+      ...toAnswer.flatMap(({ q }) => q.cardIds.map((id) => [id, q.guess ?? ""])),
+      ...(plan.addedLaterQuestions ?? []).filter((q) => q.needsAnswer).flatMap((q) => q.cardIds.map((id) => [id, q.guess ?? ""])),
+    ]),
   );
   // Questions whose cards are listed one by one ("Set each card")
   const [eachCard, setEachCard] = useState<Record<number, boolean>>({});
   const [missing, setMissing] = useState<Set<string>>(() => new Set());
   const [unpaidOk, setUnpaidOk] = useState(false);
   const [unpaidMissing, setUnpaidMissing] = useState(false);
+  const [here, setHere] = useState<Set<string>>(() => new Set(later.map((c) => c.id)));
+  const [noneTicked, setNoneTicked] = useState(false);
+  // Which button sent the request (its label says it is working)
+  const [sentWith, setSentWith] = useState<"yes" | "no" | null>(null);
+  const laterToAnswer = later.filter((c) => here.has(c.id) && laterQuestionOf.get(c.id)?.needsAnswer);
 
   useEffect(() => {
     const d = ref.current;
@@ -589,10 +624,20 @@ function TierDialog({
     first?.focus();
   }, []);
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  /** `addLater`: "Yes, add them and print" (the ticked added-later cards go in too); false: "Not yet, just print" (or no such cards). */
+  function send(addLater: boolean) {
     if (busy) return;
-    const empty = toAnswer.flatMap(({ q }) => q.cardIds.filter((id) => !answers[id]));
+    const laterIds = addLater ? later.filter((c) => here.has(c.id)).map((c) => c.id) : [];
+    if (addLater && !laterIds.length) {
+      setNoneTicked(true);
+      document.getElementById(`${uid}-later-0`)?.focus();
+      return;
+    }
+    setNoneTicked(false);
+    const empty = [
+      ...toAnswer.flatMap(({ q }) => q.cardIds.filter((id) => !answers[id])),
+      ...(addLater ? laterToAnswer.filter((c) => !answers[c.id]).map((c) => c.id) : []),
+    ];
     setMissing(new Set(empty));
     if (empty.length) {
       // Some cards of a question picked and some not: list them one by one so the gaps show
@@ -608,11 +653,19 @@ function TierDialog({
     }
     const tiers: Record<string, string> = {};
     for (const { q } of toAnswer) for (const id of q.cardIds) tiers[id] = answers[id];
+    if (addLater) for (const c of laterToAnswer) tiers[c.id] = answers[c.id];
+    setSentWith(addLater ? "yes" : "no");
     onSubmit({
       ...(Object.keys(tiers).length ? { tiers } : {}),
       ...(receive ? { confirmReceive: true } : {}),
       ...(unpaid ? { allowUnpaid: true } : {}),
+      ...(laterIds.length ? { includeAddedLater: laterIds } : {}),
     });
+  }
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    send(later.length > 0);
   }
 
   const toBag = plan.toBag;
@@ -624,8 +677,21 @@ function TierDialog({
       : guessed === 0
         ? "Pick a tier, then print."
         : "The best guess is picked where there is one: check it, pick the rest, then print.";
-  const title = receive ? "Cards arrived?" : toAnswer.length === 1 ? "Check the tier" : "Check the tiers";
-  const primary = busy ? (receive ? "Receiving…" : "Saving…") : receive ? "Receive all and print" : "Save & print";
+  const ticked = later.filter((c) => here.has(c.id)).length;
+  const title = receive
+    ? "Cards arrived?"
+    : toAnswer.length > 0
+      ? toAnswer.length === 1 ? "Check the tier" : "Check the tiers"
+      : later.length > 0
+        ? "Cards added later"
+        : "Check the tiers";
+  const primary = later.length > 0
+    ? busy && sentWith === "yes" ? "Adding…" : ticked === 1 ? "Yes, add it and print" : "Yes, add them and print"
+    : busy ? (receive ? "Receiving…" : "Saving…") : receive ? "Receive all and print" : "Save & print";
+  // "Not yet": the bags there are (and any cards bagged now) still print; with nothing at all to print it only closes the question
+  const nothingElse = toBag === 0 && !plan.bags.some((b) => b.cardCount > 0);
+  const notYet = busy && sentWith === "no" ? "Getting labels ready…" : nothingElse ? "Not yet" : "Not yet, just print";
+  const note = withoutAddedLater(plan.reason);
   const selectCls = (bad: boolean) =>
     `h-11 rounded-lg border bg-white px-2 text-base font-semibold text-foreground disabled:opacity-50 sm:text-sm ${
       bad ? "border-red-500 ring-1 ring-red-200" : "border-border"
@@ -672,15 +738,15 @@ function TierDialog({
                 <p className="font-semibold">The order moves to Cards Received and the customer gets the usual cards-received email, just like the Receive button.</p>
                 {toAnswer.length > 0 && <p>{`${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint}`}</p>}
               </>
-            ) : (
+            ) : toBag > 0 ? (
               <p>
                 {[
                   toAnswer.length > 0 ? `${unsureCards === 1 ? "A card has" : "Some cards have"} no tier saved. ${pickHint}` : "",
                   `${toBag} ${plural(toBag, "card goes", "cards go")} into tier bags; the order's status stays the same and the customer isn't emailed.`,
                 ].filter(Boolean).join(" ")}
               </p>
-            )}
-            {plan.reason && <p className="text-xs text-muted-foreground">{plan.reason}</p>}
+            ) : null}
+            {note && <p className="text-xs text-muted-foreground">{note}</p>}
           </div>
 
           {unpaid && (
@@ -831,10 +897,35 @@ function TierDialog({
             </ul>
           )}
 
+          {later.length > 0 && (
+            <AddedLaterBlock
+              uid={uid}
+              cards={later}
+              here={here}
+              busy={busy}
+              questionOf={laterQuestionOf}
+              answers={answers}
+              missing={missing}
+              noneTicked={noneTicked && ticked === 0}
+              onTick={(id, on) => {
+                setNoneTicked(false);
+                setHere((h) => {
+                  const next = new Set(h);
+                  if (on) next.add(id);
+                  else next.delete(id);
+                  return next;
+                });
+              }}
+              onTier={(id, tier) => setAnswers((a) => ({ ...a, [id]: tier }))}
+            />
+          )}
+
           <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-            <p>
-              Received date for the new bags: <span className="font-semibold text-foreground">{dayText(plan.receivedOn)}</span> ({RECEIVED_FROM[plan.receivedOnSource] ?? plan.receivedOnSource}).
-            </p>
+            {(toBag > 0 || receive) && (
+              <p>
+                Received date for the new bags: <span className="font-semibold text-foreground">{dayText(plan.receivedOn)}</span> ({RECEIVED_FROM[plan.receivedOnSource] ?? plan.receivedOnSource}).
+              </p>
+            )}
             {plan.skipped.awaitingArrival > 0 && (
               <p>
                 {plan.skipped.awaitingArrival} {plural(plan.skipped.awaitingArrival, "card is", "cards are")} marked as still on the way and{" "}
@@ -851,14 +942,25 @@ function TierDialog({
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-border px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">
-          <button
-            type="button"
-            onClick={() => !busy && ref.current?.close()}
-            aria-disabled={busy || undefined}
-            className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-white px-4 text-sm font-bold text-foreground hover:bg-muted ${focusRing}`}
-          >
-            Cancel
-          </button>
+          {later.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => send(false)}
+              aria-disabled={busy || undefined}
+              className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-white px-4 text-sm font-bold text-foreground hover:bg-muted ${busy && sentWith === "no" ? "cursor-wait opacity-60" : ""} ${focusRing}`}
+            >
+              {notYet}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => !busy && ref.current?.close()}
+              aria-disabled={busy || undefined}
+              className={`inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-white px-4 text-sm font-bold text-foreground hover:bg-muted ${focusRing}`}
+            >
+              Cancel
+            </button>
+          )}
           <button
             type="submit"
             data-primary
@@ -871,5 +973,130 @@ function TierDialog({
         </div>
       </form>
     </dialog>
+  );
+}
+
+/**
+ * "3 cards were added after the order arrived. Are they here with you?": each card with its picture, name,
+ * Card ID and tier, ticked by default; a ticked card with no tier gets the tier question (its best guess
+ * preselected, as the other cards' questions).
+ */
+function AddedLaterBlock({
+  uid,
+  cards,
+  here,
+  busy,
+  questionOf,
+  answers,
+  missing,
+  noneTicked,
+  onTick,
+  onTier,
+}: {
+  uid: string;
+  cards: AddedLaterCard[];
+  here: ReadonlySet<string>;
+  busy: boolean;
+  questionOf: ReadonlyMap<string, TierQuestion>;
+  answers: Record<string, string>;
+  missing: ReadonlySet<string>;
+  noneTicked: boolean;
+  onTick: (id: string, here: boolean) => void;
+  onTier: (id: string, tier: string) => void;
+}) {
+  const n = cards.length;
+  const errId = `${uid}-later-err`;
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border-2 border-amber-300 bg-amber-50/60 p-3" aria-describedby={`${uid}-later-hint${noneTicked ? ` ${errId}` : ""}`}>
+      <legend className="sr-only">{addedLaterQuestion(n)}</legend>
+      <p aria-hidden className="text-sm font-bold text-foreground">
+        {addedLaterQuestion(n)}
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {cards.map((c, k) => {
+          const id = `${uid}-later-${k}`;
+          const on = here.has(c.id);
+          const q = questionOf.get(c.id);
+          const sure = !c.tier && q && !q.needsAnswer && q.guess ? q.choices.find((x) => x.key === q.guess)?.name ?? q.guess : null;
+          const ask = on && !c.tier && !!q?.needsAnswer;
+          const value = answers[c.id] ?? "";
+          const bad = ask && missing.has(c.id) && !value;
+          const tierId = `${id}-tier`;
+          return (
+            <li key={c.id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-white p-2">
+              <label htmlFor={id} className="flex min-h-11 cursor-pointer items-center gap-3">
+                <input
+                  id={id}
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy}
+                  aria-invalid={noneTicked || undefined}
+                  onChange={(e) => onTick(c.id, e.target.checked)}
+                  className={`size-5 shrink-0 accent-foreground ${focusRing}`}
+                />
+                {c.photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.photo} alt="" width={48} height={48} loading="lazy" decoding="async" className="size-12 shrink-0 rounded-md border border-border bg-muted object-cover" />
+                ) : (
+                  <span aria-hidden className="size-12 shrink-0 rounded-md border border-dashed border-border bg-muted" />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold text-foreground [overflow-wrap:anywhere]">{c.name}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {c.code ? <span className="whitespace-nowrap font-mono font-semibold text-foreground">{c.code}</span> : "No Card ID yet"}
+                    {c.tierName ? ` · ${c.tierName}` : sure ? ` · ${sure} (${q!.why})` : ""}
+                  </span>
+                </span>
+              </label>
+              {ask && (
+                <div className="flex flex-col gap-1 border-t border-border pt-2 pl-8">
+                  <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                    <label htmlFor={tierId} className="text-xs font-bold text-foreground">
+                      Tier for {c.name}
+                    </label>
+                    <select
+                      id={tierId}
+                      value={value}
+                      required
+                      data-unanswered={value ? undefined : "true"}
+                      aria-invalid={bad || undefined}
+                      aria-describedby={`${tierId}-why`}
+                      disabled={busy}
+                      onChange={(e) => onTier(c.id, e.target.value)}
+                      className={`h-11 w-full rounded-lg border bg-white px-2 text-base font-semibold text-foreground disabled:opacity-50 sm:w-44 sm:text-sm ${
+                        bad ? "border-red-500 ring-1 ring-red-200" : "border-border"
+                      } ${focusRing}`}
+                    >
+                      {!value && (
+                        <option value="" disabled>
+                          Pick a tier…
+                        </option>
+                      )}
+                      {q!.choices.map((t) => (
+                        <option key={t.key} value={t.key}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p id={`${tierId}-why`} className="text-xs text-muted-foreground">
+                    {q!.why}
+                  </p>
+                  {bad && <p className="text-xs font-semibold text-red-700">Pick a tier for this card.</p>}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p id={`${uid}-later-hint`} className="text-xs text-muted-foreground">
+        Ticked cards are received now and go in their tier bag. The order&apos;s status stays the same and the customer isn&apos;t emailed. Unticked cards stay for Receiving.
+      </p>
+      {noneTicked && (
+        <p id={errId} role="alert" className="text-xs font-semibold text-red-700">
+          Tick the cards that are here, or tap Not yet.
+        </p>
+      )}
+    </fieldset>
   );
 }
