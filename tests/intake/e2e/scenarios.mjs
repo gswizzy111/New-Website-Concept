@@ -245,6 +245,8 @@ export const UI = {
   plainFull: (name, has, was) => new RegExp(`${esc(name)} already has ${esc(has)}(?![0-9-])[^]{0,40}?${esc(was)}(?![0-9-]) didn['’]t move`, "i"),
   // The picked card's own spot: "CD-2549-07 is already in HUMIDITY PRESS 04"
   plainAlready: (code, name) => new RegExp(`${esc(code)} is already (in|on|at) ${esc(name)}(?!\\d)`, "i"),
+  // A tap while a scan or save runs: a flash only ("Still saving the last change. Try again in a moment.")
+  plainBusy: /still saving the last change\. try again in a moment\./i,
   // Over 30 s between the two scans: "Nothing moved" / "That took over 30 seconds. …"
   plainExpired: /\bnothing moved\b|took over 30 seconds/i,
   // A bag or order with cards out: "2 more cards are out: CLAMP 07, DESK" ("All 3 cards are out: …")
@@ -6360,7 +6362,8 @@ const DONE_SCENARIOS = {
       const main = page.locator("main").first();
       const t1 = await tables();
       const idsOf = (code) => [code, ...bagCardCodes(t1, code)];
-      const anyOf = (codes) => new RegExp(codes.map((c) => `${esc(c)}(?![A-Z0-9])`).join("|"));
+      // (textContent runs a Card ID into the next word, "CD-2549-08Test Card…": only a digit or "-" may not follow)
+      const anyOf = (codes) => new RegExp(codes.map((c) => `${esc(c)}(?![0-9-])`).join("|"));
       const problems = [];
       for (const code of bagCodes) {
         const others = bagCodes.filter((c) => c !== code).flatMap(idsOf);
@@ -6377,10 +6380,16 @@ const DONE_SCENARIOS = {
       await typeCode(page, BO_CUSTOMER);
       await checkPlaces("search by name");
     });
-    await s.step(`Scan page, Type a code instead, "${BO_ORDER}" + Enter (the order): the same places`, async () => {
+    // The plain Scan page (Nov 26): an order lists only the cards still in their bags to work on, so
+    // the done bag's cards are a count and the bags' places are on the search rows (above), not here
+    await s.step(`Scan page, Type a code instead, "${BO_ORDER}" + Enter (the order): only the cards in their bags to do (CD-2549-08, -09, -05, -06), "1 more card is out: DESK", "4 cards are done."`, async () => {
       await goto(page, ROUTES.scan);
       await typeCode(page, BO_ORDER);
-      await checkPlaces("the order");
+      await plainShows(page, ["CD-2549-08", "CD-2549-09"], [...BO_GOLD, "CD-2549-07"]);
+      for (const c of ["CD-2549-05", "CD-2549-06"]) await UI.plainCardTap(page, c).waitFor({ timeout: 10_000 });
+      const text = flat(await seenText(page));
+      assert(UI.plainOut(1).test(text) && /\bdesk\b/i.test(text), `no "1 more card is out: DESK" ("${text.slice(0, 300)}")`);
+      assert(/\b4 cards are done\./i.test(text), `no "4 cards are done." ("${text.slice(0, 300)}")`);
     });
     await s.step("the search API: each card's bagLocation is its bag's place", async () => {
       const body = await searchVia(ctx, BO_CUSTOMER);
@@ -7907,6 +7916,7 @@ const SCAN_PLAIN_SCENARIOS = {
         eq([cardByCode(after, PLAIN.card).location_id ?? null, cardsIn(after, PLAIN.spot.code)], [null, []], "no place; the spot empty");
         eq(latestStage(after, cardIdOf(after, PLAIN.card)), PLAIN.spot.step, "step");
         eq(newMoves(before, after, PLAIN.card).map((r) => r[0]), ["release"], "card_moves rows");
+        eq(sentOf(res).fromCode, PLAIN.spot.code, "release body fromCode (the spot it was picked in)");
         return JSON.stringify(sentOf(res)).slice(0, 120);
       }, { shot: false });
       await s.step(`back in ${PLAIN.spot.name}; Done focused, then a scan (bag CD-2549-G) with the focus left there: the scan's Enter presses nothing`, async () => {
@@ -7934,7 +7944,9 @@ const SCAN_PLAIN_SCENARIOS = {
         const saved = saveAwaited(p, /\/api\/admin\/track\/done$/);
         const yesName = await nameOf(yes);
         await yes.click();
-        eq((await saved).status(), 200, "POST done");
+        const res = await saved;
+        eq(res.status(), 200, "POST done");
+        eq(sentOf(res).fromCode, PLAIN.spot.code, "done body fromCode (the spot it was picked in)");
         const after = await dump();
         const problems = doneInBagProblems(before, after, PLAIN.card, PLAIN.spot.code);
         assert(!problems.length, problems.join(" | "));
@@ -8002,6 +8014,91 @@ const SCAN_PLAIN_SCENARIOS = {
         eq([cardsIn(after, PLAIN.empty2.code), cardsIn(after, PLAIN.empty.code)], [[PLAIN.card], []], `${PLAIN.empty2.name}, ${PLAIN.empty.name}`);
         eq(newMoves(before, after, PLAIN.card), [], "new card_moves rows");
         return `HTTP ${r.res.status()}; the page shows "${oneLine(await seenText(p)).slice(0, 160)}"`;
+      }, { shot: false });
+      await s.step(`the taps: back in ${PLAIN.spot.name} (API), picked there, moved away by another phone; Take out (fromCode ${PLAIN.spot.code}) refused: still in ${PLAIN.empty2.name}, no row; Done, "Mark done" (fromCode) refused: not done, no row, no email`, async () => {
+        const m = p.locator("main").first();
+        const tapStale = async (what, button, re) => {
+          await plainPut(ctx, mockUrl, t, PLAIN.card, PLAIN.spot.code);
+          await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+          await pickedCheck(p, PLAIN.card);
+          await trackOk(ctx, ROUTES.trackMove, { fromCode: PLAIN.spot.code, toCode: PLAIN.empty2.code, cardIds: [cardIdOf(t, PLAIN.card)] });
+          const before = await dump();
+          const saved = refusedSave(re);
+          await button().click();
+          if (what === "Done") await UI.holderConfirm(p).click();
+          const r = await saved;
+          eq(r.sent.fromCode, PLAIN.spot.code, `${what} body fromCode`);
+          assert(!r.ok, `${what} went through: HTTP ${r.res.status()} ${JSON.stringify(r.body).slice(0, 160)}`);
+          await sleep(1_500);
+          const after = await dump();
+          const c = cardByCode(after.tables, PLAIN.card);
+          eq([c.completed, cardsIn(after.tables, PLAIN.empty2.code)], [false, [PLAIN.card]], `${what}: done, ${PLAIN.empty2.name}`);
+          eq(newMoves(before.tables, after.tables, PLAIN.card), [], `${what}: new card_moves rows`);
+          eq(mailsTo(after.emails.slice(before.emails.length), CUSTOMER_A).length, 0, `${what}: emails`);
+          return `${what} HTTP ${r.res.status()}`;
+        };
+        const a = await tapStale("Take out", () => UI.holderTakeOut(m), /\/api\/admin\/track\/release$/);
+        const b = await tapStale("Done", () => UI.holderDone(m), /\/api\/admin\/track\/done$/);
+        return `${a}; ${b}; the page shows "${oneLine(await seenText(p)).slice(0, 140)}"`;
+      }, { shot: false });
+      await s.step("no browser errors", async () => noErrors(), { shot: false });
+    } finally {
+      await pc.close();
+    }
+  },
+
+  // A tap while a scan is still being looked up starts nothing: only a flash says so, and the panel keeps
+  // its message (#81's busy tap, on the plain page); while the lookup runs the buttons are greyed
+  async "scan-plain-busy"({ ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step(`setup: ${PLAIN.card} in ${PLAIN.spot.name}, CD-2549-08 in ${PLAIN.empty.name}`, async () => {
+      t = await plainSetup(ctx, mockUrl);
+      await plainPut(ctx, mockUrl, t, "CD-2549-08", PLAIN.empty.code);
+    }, { critical: true, shot: false });
+    const { p, scan, posts, shot, noErrors, ctx: pc } = await plainPhone(browser, appUrl, "scan-plain-busy");
+    const m = () => p.locator("main").first();
+    const panelText = () => p.locator("[data-scan-panel]").first().innerText().then(flat).catch(() => "");
+    try {
+      await goto(p, ROUTES.scan);
+      await s.step(`${PLAIN.spot.name}, then the full ${PLAIN.empty.name}: the panel says "${PLAIN.empty.name} already has CD-2549-08", CD-2549-08 picked with Take out`, async () => {
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainFull(PLAIN.empty.name, "CD-2549-08", PLAIN.card), "full-spot line");
+        await pickedCheck(p, "CD-2549-08");
+        await UI.holderTakeOut(m()).waitFor({ timeout: 10_000 });
+        assert(!(await UI.holderTakeOut(m()).isDisabled()), "Take out greyed");
+      }, { critical: true, shot: false });
+      await s.step(`the scanner reads bag CD-2549-G (its lookup held) and Take out is tapped at that moment: nothing is saved, a flash says "${UI.plainBusy.source}", the panel keeps "${PLAIN.empty.name} already has CD-2549-08"; while the lookup runs the buttons are greyed; then the bag shows`, async () => {
+        const from = posts.length;
+        const before = await tables();
+        let release = () => {};
+        const held = new Promise((r) => { release = r; });
+        await p.route(/\/api\/admin\/track\/resolve/, async (route) => { await held; await route.continue().catch(() => {}); });
+        // the scan's keys and Enter, then the tap, in one go (before the page draws its "working" state)
+        await p.evaluate(({ text }) => {
+          const a = document.activeElement;
+          if (a && a !== document.body && typeof a.blur === "function") a.blur();
+          const key = (k) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+          for (const ch of text) key(ch);
+          key("Enter");
+          const b = [...document.querySelectorAll("main button")].find((x) => /^take out$/i.test((x.textContent ?? "").trim()));
+          if (!b) throw new Error("no Take out button");
+          b.click();
+        }, { text: SCAN_LINK("CD-2549-G") });
+        const flash = await until(async () => { const x = flat(await p.locator("body").innerText().catch(() => "")); return UI.plainBusy.test(x) ? x.match(UI.plainBusy)[0] : null; }, 5_000);
+        const panel = await panelText();
+        const greyed = await UI.holderTakeOut(m()).isDisabled().catch(() => null);
+        await shot("01-busy-tap", false);
+        release();
+        await p.unroute(/\/api\/admin\/track\/resolve/);
+        await plainShows(p, BO_GOLD);
+        const sent = savesIn(posts, from);
+        eq(sent, [], "saves sent by the tap");
+        eq(plainSnap(await tables()), plainSnap(before), "places, done, moves, steps");
+        assert(flash, "no \"Still saving the last change…\" flash after the tap");
+        assert(!UI.plainBusy.test(panel), `the busy line took the panel ("${panel.slice(0, 120)}")`);
+        assert(/already has CD-2549-08/i.test(panel) || /got it/i.test(panel), `the panel lost its message: "${panel.slice(0, 160)}"`);
+        return `panel during the lookup: "${panel.slice(0, 110)}"; Take out greyed during the lookup: ${greyed}`;
       }, { shot: false });
       await s.step("no browser errors", async () => noErrors(), { shot: false });
     } finally {

@@ -483,13 +483,23 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
   Completed with exactly one Completed email and the held notes email
   (`checkOrderCompleted`), the put-back sentence.
 - `scan-plain-buttons`: Done and Take out 44+ px; Take out (tap): no place,
-  step kept, a `release` row; a scan with Done focused presses nothing; Done
-  asks first ("Mark it done? …"), nothing saved before "Mark done".
+  step kept, a `release` row, `fromCode` the spot it was picked in; a scan with
+  Done focused presses nothing; Done asks first ("Mark it done? …"), nothing
+  saved before "Mark done", which sends `fromCode` too.
 - `scan-plain-stale`: 07 picked in HUMIDITY PRESS 04, then moved to CLAMP 06
   by another phone (API): DONE twice sends `fromCode` LOC-HUMIDITY-PRESS-04
   and is refused (not done, no row, no email, the page says why); picked
   again and moved away again, CLAMP 07 twice sends the move with that
-  `fromCode` and is refused (it stays in CLAMP 06, no row).
+  `fromCode` and is refused (it stays in CLAMP 06, no row); the same for the
+  taps: Take out and Done ("Mark done") send that `fromCode` and are refused
+  (not done, no row, no email).
+- `scan-plain-busy` (08 in CLAMP 07): 07 picked, the full CLAMP 07 scanned
+  ("CLAMP 07 already has CD-2549-08", 08 picked); then, with the next lookup
+  held, the scanner's keys for bag CD-2549-G and a tap on Take out in one go
+  (before the page draws its busy state): nothing saved, a flash "Still saving
+  the last change. Try again in a moment.", the panel keeps its message (the
+  busy line never takes it), Take out greyed while the lookup runs; released:
+  the bag shows.
 - `scan-plain-one-card` (08 in CLAMP 07): a tapped card and the full clamp
   scanned twice: nothing; the API refuses a second card (409 `overCapacity`);
   with `force` it must still refuse once the one-card rule (branch `one-card`)
@@ -903,9 +913,11 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
 - `done-search`: CD-2549-P in the Open bags box (07 on the desk), CD-2549-G
   finished and in the bin (`bag-ready`), Silver CD-2549-S on its due-date shelf
   (written in the mock when the receipt leaves the bag unplaced); the Scan page,
-  typing "Test Customer A" and then "CD-2549": next to each Bag ID "Open bags
-  box · A", "Ready to ship", "Shelf DUE …"; the search API's `bagLocation` per
-  card.
+  typing "Test Customer A": next to each bag's cards "Open bags box · A",
+  "Ready to ship", "Shelf DUE …"; typing "CD-2549" (the plain page's order
+  list, Nov 26): only the cards in their bags to do (08, 09, 05, 06), "1 more
+  card is out: DESK", "4 cards are done." (the bags' places are on the search
+  rows only now); the search API's `bagLocation` per card.
 - `done-layout`: 1440 and 390 (iPhone 13): CD-2549-P with 1 of 3 done (no
   sideways scroll, the big button on the first screen, Done buttons 44+ px,
   "Mark all 2 done"), the Desk page's Done at 390, the finished bag's "It's in
