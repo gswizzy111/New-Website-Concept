@@ -166,6 +166,20 @@ export type TrackCardSummary = {
   photos?: TrackCardPhoto[];
   photosUrl: string;               // /admin/receiving/<orderId>/photos[?bag=<bagId>]
   cardUrl: string;                 // /admin/receiving/card/<cardId>
+  /*
+   * The card's notes, as the Scan page shows them next to its photos (owner,
+   * Nov 26 2026). Optional: only the Scan page's reads (GET resolve, GET
+   * search) add them, and older answers have none; null = read, nothing
+   * written (lib/intake/tracking/summaries.ts cardNotes).
+   */
+  /** "1st Edition" (cards.variation). */
+  variation?: string | null;
+  /** The customer's note on this card (cards.notes). */
+  notes?: string | null;
+  /** The card's known defects (cards.known_defects). */
+  knownDefects?: string | null;
+  /** The order's notes from the customer (orders.customer_notes). */
+  customerNotes?: string | null;
 };
 
 /** An image address, with resized copies when there are some (lib/thumbnail.ts productImage). */
@@ -261,6 +275,12 @@ export type AssignRequest = {
    * it answers 409 HolderFull whatever force says.
    */
   force?: boolean;
+  /**
+   * Only cards still with their bag go in (the Scan page, a card picked while
+   * in its bag): one someone put in a holder or on a desk meanwhile is
+   * refused, "Not in its bag any more (now in CLAMP 03)." (none left: 409).
+   */
+  fromBag?: boolean;
   sessionId?: string;
 };
 
@@ -293,6 +313,8 @@ export type DoneRequest = {
   cardIds: string[];
   /** As ReleaseRequest.fromCode: only cards still in this holder are marked done. */
   fromCode?: string;
+  /** As AssignRequest.fromBag: only cards still with their bag are marked done (not with fromCode). */
+  fromBag?: boolean;
   sessionId?: string;
 };
 

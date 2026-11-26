@@ -18,6 +18,15 @@ export const TRACK_CARD_COLUMNS =
   "id, order_id, card_name, card_set, card_year, card_number, tier, status, completed, completed_at, current_round, card_seq, card_code, bag_id, received_at, awaiting_arrival, photo_urls, receiving_photo_urls, catalog_image_url, location_id, located_at";
 export const TRACK_ORDER_COLUMNS = "id, order_number, customer_name, customer_email, status, restoration_tier";
 export const TRACK_BAG_COLUMNS = "id, order_id, bag_code, tier, batch, due_date, completed_at, source, location_id, located_at";
+/**
+ * What the Scan page also reads to show a card's notes (owner, Nov 26 2026:
+ * "when a card is attached to a spot, I want to be able to see the notes when
+ * I scan on the spot along with the photo"): the card's variation, the
+ * customer's note on it and its known defects, and the order's notes from the
+ * customer. Only the Scan page's reads add them (loadOrdersContext `notes`).
+ */
+export const TRACK_CARD_NOTE_COLUMNS = "variation, notes, known_defects";
+export const TRACK_ORDER_NOTE_COLUMNS = "customer_notes";
 
 export type TrackCardRow = {
   id: string;
@@ -41,6 +50,10 @@ export type TrackCardRow = {
   catalog_image_url: string | null;
   location_id: string | null;
   located_at: string | null;
+  /** Read only with TRACK_CARD_NOTE_COLUMNS (the Scan page). */
+  variation?: string | null;
+  notes?: string | null;
+  known_defects?: string | null;
 };
 export type TrackOrderRow = {
   id: string;
@@ -49,6 +62,8 @@ export type TrackOrderRow = {
   customer_email: string | null;
   status: string;
   restoration_tier: string | null;
+  /** Read only with TRACK_ORDER_NOTE_COLUMNS (the Scan page). */
+  customer_notes?: string | null;
 };
 export type TrackBagRow = {
   id: string;
@@ -124,6 +139,27 @@ export function cardPhotos(card: Pick<TrackCardRow, "receiving_photo_urls" | "ph
   return [{ url: catalog, kind: "reference", tile: { src: catalogThumb(catalog) }, full: { src: catalog } }];
 }
 
+const noteText = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/**
+ * A card's notes for the Scan page, from rows read with the note columns:
+ * only the fields whose column was read (`variation`, `notes`,
+ * `knownDefects` from the card; `customerNotes` from its order), blank text
+ * as null. Rows read without them give {} (the summary then has no note
+ * fields, which is not the same as "no notes").
+ */
+export function cardNotes(
+  card: Pick<TrackCardRow, "variation" | "notes" | "known_defects">,
+  order: Pick<TrackOrderRow, "customer_notes"> | null | undefined,
+): Pick<TrackCardSummary, "variation" | "notes" | "knownDefects" | "customerNotes"> {
+  return {
+    ...("variation" in card ? { variation: noteText(card.variation) } : {}),
+    ...("notes" in card ? { notes: noteText(card.notes) } : {}),
+    ...("known_defects" in card ? { knownDefects: noteText(card.known_defects) } : {}),
+    ...(order && "customer_notes" in order ? { customerNotes: noteText(order.customer_notes) } : {}),
+  };
+}
+
 export function cardSummary(card: TrackCardRow, ctx: SummaryContext): TrackCardSummary {
   const order = ctx.orders.get(card.order_id);
   const bag = card.bag_id ? ctx.bags.get(card.bag_id) ?? null : null;
@@ -161,6 +197,7 @@ export function cardSummary(card: TrackCardRow, ctx: SummaryContext): TrackCardS
     photos: cardPhotos(card),
     photosUrl: orderPhotosPath(card.order_id, card.bag_id),
     cardUrl: `/admin/receiving/card/${encodeURIComponent(card.id)}`,
+    ...cardNotes(card, order),
   };
 }
 

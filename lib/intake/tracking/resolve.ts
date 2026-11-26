@@ -24,8 +24,8 @@ import type {
 const SLOT_CARD_LIMIT = 200;
 const SEARCH_LIMIT = 30;
 
-/** Card summaries by id, in the order given (unknown ids left out). Throws on a failed read. */
-export async function loadCardSummaries(admin: SupabaseClient, cardIds: readonly string[]): Promise<TrackCardSummary[]> {
+/** Card summaries by id, in the order given (unknown ids left out); `notes`: with their notes. Throws on a failed read. */
+export async function loadCardSummaries(admin: SupabaseClient, cardIds: readonly string[], opts: { notes?: boolean } = {}): Promise<TrackCardSummary[]> {
   const ids = [...new Set(cardIds)];
   if (!ids.length) return [];
   const orderIds = new Set<string>();
@@ -34,7 +34,7 @@ export async function loadCardSummaries(admin: SupabaseClient, cardIds: readonly
     if (error) throw new Error(error.message);
     for (const r of data ?? []) if (r.order_id) orderIds.add(r.order_id as string);
   }
-  const ctx = await loadOrdersContext(admin, [...orderIds]);
+  const ctx = await loadOrdersContext(admin, [...orderIds], opts);
   const byId = new Map(ctx.cards.map((c) => [c.id, c]));
   return ids.map((id) => byId.get(id)).filter((c): c is TrackCardRow => !!c).map((c) => cardSummary(c, ctx));
 }
@@ -71,7 +71,8 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
     ]);
     if (cErr) throw new Error(cErr.message);
     const ids = (cardRows ?? []).map((r) => r.id as string);
-    const ctx = await loadOrdersContext(admin, [...new Set([...(cardRows ?? []).map((r) => r.order_id as string), ...bagRows.map((b) => b.order_id)])]);
+    // With the cards' notes: the Scan page shows them with the card (owner, Nov 26 2026)
+    const ctx = await loadOrdersContext(admin, [...new Set([...(cardRows ?? []).map((r) => r.order_id as string), ...bagRows.map((b) => b.order_id)])], { notes: true });
     const byId = new Map(ctx.cards.map((c) => [c.id, c]));
     const cards = ids.map((id) => byId.get(id)).filter((c): c is TrackCardRow => !!c).map((c) => cardSummary(c, ctx));
     const cardCount = count ?? cards.length;
@@ -98,8 +99,9 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
 /**
  * GET /api/admin/track/resolve: a slot or place (LOC-...) -> the slot and its
  * cards; a Bag ID -> the bag's cards with their slots; an order code -> its
- * bags and cards; a Card ID -> the card. 400 when it isn't a code, 404 when
- * nothing has it.
+ * bags and cards; a Card ID -> the card. Every card comes with its notes
+ * (variation, notes, knownDefects, customerNotes). 400 when it isn't a code,
+ * 404 when nothing has it.
  */
 export async function resolveTrackCode(admin: SupabaseClient, raw: string): Promise<IntakeResult<{ response: ResolveResponse }>> {
   const code = normalizeCode(raw);
@@ -117,12 +119,12 @@ export async function resolveTrackCode(admin: SupabaseClient, raw: string): Prom
   }
   try {
     if (found.kind === "card") {
-      const [card] = await loadCardSummaries(admin, [found.id]);
+      const [card] = await loadCardSummaries(admin, [found.id], { notes: true });
       if (!card) return { ok: false, status: 404, error: `Nothing has the code ${code}.` };
       return { ok: true, response: { kind: "card", code, card } };
     }
     const orderId = found.orderId ?? found.id;
-    const ctx = await loadOrdersContext(admin, [orderId]);
+    const ctx = await loadOrdersContext(admin, [orderId], { notes: true });
     if (found.kind === "bag") {
       const bag = ctx.bags.get(found.id);
       if (!bag) return { ok: false, status: 404, error: `Nothing has the code ${code}.` };
@@ -186,7 +188,7 @@ export async function searchCards(admin: SupabaseClient, raw: string): Promise<I
         for (const r of data ?? []) ids.add(r.id as string);
       }
     }
-    const all = (await loadCardSummaries(admin, [...ids])).filter((c) => c.code);
+    const all = (await loadCardSummaries(admin, [...ids], { notes: true })).filter((c) => c.code);
     const rank = (c: TrackCardSummary) => (c.refunded ? 2 : c.done ? 1 : 0);
     all.sort((a, b) => rank(a) - rank(b) || (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999") || (a.code ?? "").localeCompare(b.code ?? "", undefined, { numeric: true }));
     return { ok: true, response: { query, cards: all.slice(0, SEARCH_LIMIT), truncated: all.length > SEARCH_LIMIT } };

@@ -5,7 +5,7 @@ import { loadTierNames } from "@/lib/intake/data";
 import type { StageEventRow } from "@/lib/intake/types";
 import { LOCATION_REF_COLUMNS, locationRef } from "@/lib/intake/tracking/places";
 import {
-  TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS,
+  TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_CARD_NOTE_COLUMNS, TRACK_ORDER_COLUMNS, TRACK_ORDER_NOTE_COLUMNS,
   type SummaryContext, type TrackBagRow, type TrackCardRow, type TrackOrderRow,
 } from "@/lib/intake/tracking/summaries";
 import type { LocationRef, LocationRow } from "@/lib/intake/tracking/types";
@@ -40,17 +40,23 @@ export type OrdersContext = SummaryContext & {
   cards: TrackCardRow[];
 };
 
-/** Orders, all their cards and bags, their stage events (newest first per order), every place and the tier names. */
-export async function loadOrdersContext(admin: SupabaseClient, orderIds: readonly string[]): Promise<OrdersContext> {
+/**
+ * Orders, all their cards and bags, their stage events (newest first per
+ * order), every place and the tier names. `notes`: also the cards' and the
+ * orders' notes (the Scan page's reads: summaries then carry them, cardNotes).
+ */
+export async function loadOrdersContext(admin: SupabaseClient, orderIds: readonly string[], opts: { notes?: boolean } = {}): Promise<OrdersContext> {
   const ids = [...new Set(orderIds.filter(Boolean))];
+  const orderColumns: string = opts.notes ? `${TRACK_ORDER_COLUMNS}, ${TRACK_ORDER_NOTE_COLUMNS}` : TRACK_ORDER_COLUMNS;
+  const cardColumns: string = opts.notes ? `${TRACK_CARD_COLUMNS}, ${TRACK_CARD_NOTE_COLUMNS}` : TRACK_CARD_COLUMNS;
   const [orders, cards, bags, events, locations, tierNames] = await Promise.all([
     Promise.all(chunks(ids).map(async (part) => {
-      const { data, error } = await admin.from("orders").select(TRACK_ORDER_COLUMNS).in("id", part);
+      const { data, error } = await admin.from("orders").select(orderColumns).in("id", part).overrideTypes<TrackOrderRow[], { merge: false }>();
       if (error) throw new Error(error.message);
-      return (data ?? []) as TrackOrderRow[];
+      return data ?? [];
     })).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<TrackCardRow>((from, to) =>
-      admin.from("cards").select(TRACK_CARD_COLUMNS).in("order_id", part).order("id").range(from, to)))).then((p) => p.flat()),
+      admin.from("cards").select(cardColumns).in("order_id", part).order("id").range(from, to).overrideTypes<TrackCardRow[], { merge: false }>()))).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<TrackBagRow>((from, to) =>
       admin.from("tier_bags").select(TRACK_BAG_COLUMNS).in("order_id", part).order("id").range(from, to)))).then((p) => p.flat()),
     Promise.all(chunks(ids).map((part) => fetchAll<StageEventRow & { order_id: string }>((from, to) =>

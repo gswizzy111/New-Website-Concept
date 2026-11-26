@@ -17,7 +17,8 @@ node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
-node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view (and its review fixes)
+node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the plain page
+node tests/intake/e2e/scenarios.mjs --only 'scan-plain-*'   # the plain Scan page: every scan replaces the view, scan an empty spot twice to move
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
@@ -338,7 +339,9 @@ mock (`mockUpdate()`), not left to the station type's default.
 - `track-q`: `/q/LOC-CLAMP-01`, `/Q/…`, lower case → `/admin/scan?loc=LOC-CLAMP-01`;
   LOC-DONE, LOC-SHIP; bag/order codes → the scan landing, a Card ID → its card
   page; signed out → sign in
-  with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page.
+  with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page (redirected
+  to `?loc=LOC-CLAMP-01`, which the page reads once and then drops from the
+  address) showing CLAMP 01.
 - `track-shelf`: Receive on the workspace says "Put in shelf: DUE MON DEC 7";
   Print shelf sign; one LOC-SHELF-20261207 slot shared by bags due that day
   (same order later, another order); the receive answer names the shelves;
@@ -346,12 +349,12 @@ mock (`mockUpdate()`), not left to the station type's default.
   390 px.
 - `track-scan-page` (iPhone 13, 390 px): "Ready to scan" and "Type a code
   instead" (the code box closed); the handheld scanner (keystrokes + Enter
-  with nothing focused) reads CLAMP 01's link: "Put a card in CLAMP 01"
-  without navigating; the bag's QR lists its cards, "Put in CLAMP 01" on
-  CD-2549-07 assigns it; a full slot shows its card with Move to another holder,
-  Done, Take out (the holder view, `scan-holder-card`);
-  `/admin/scan?loc=LOC-CLAMP-03`; no browser errors; the desktop menu's
-  "Scan" link.
+  with nothing focused) reads CLAMP 01's link: "CLAMP 01 · empty" without
+  navigating; the bag's QR lists its cards, a tap picks CD-2549-07 ("Picked:
+  CD-2549-07") and CLAMP 01 scanned twice puts it there (step Clamp Work); a
+  full slot shows its card, picked, with Done and Take out;
+  `/admin/scan?loc=LOC-CLAMP-03` "CLAMP 03 · empty"; no browser errors; the
+  desktop menu's "Scan" link.
 
 ### The Scan page (`scan-*`, the owner's request of Nov 26)
 
@@ -361,10 +364,11 @@ in it. The Eyoyo handheld scanner is paired with the shop's iPhone as a
 Bluetooth keyboard: it types the label's text and presses Enter, with nothing
 focused (the page's keyboard wedge). `scanType()` types the label's link
 `HTTPS://THECARDDOC1.COM/Q/<code>` with keys 10 ms apart, then Enter;
-`scannerOn(page)` waits out the page's 2 s double-read gate for a repeated
-code. Wording: `UI.readyToScan*`, `UI.gotIt`, `UI.typeCodeLink`,
-`UI.scanCardPhotos`, and the holder view's `UI.holder*` (from the HOLDER
-agent's holder-text.md).
+`scannerOn(page)` waits 2.1 s before reading the same label again (past the
+page's 750 ms double-read gate, so a repeat is a real second scan). Wording:
+`UI.readyToScan*`, `UI.gotIt`, `UI.typeCodeLink`, `UI.scanCardPhotos`, and
+the plain page's `UI.plain*` and `UI.holderDone` / `holderTakeOut` /
+`holderConfirm` / `holderEmptyHead`.
 
 - `scan-scanner-only` (390 and 1440 px): no camera anywhere (no video or
   canvas, no camera word or button, no `capture` file input; an init script
@@ -375,7 +379,7 @@ agent's holder-text.md).
   1.5 s) and lists its 4 cards without navigating; after that result a scan of
   CD-2549-P replaces them; a photo opened full screen and closed with Close
   (focus back on the photo) or Esc, then a scan: it opens and its Enter
-  reopens nothing; with "Assign to a slot" focused a scan presses nothing; a
+  reopens nothing; with a card's "Pick …" button focused a scan presses nothing; a
   scan while a photo is open closes it; "Type a code instead" reveals the
   focused code box (CD-2549-02 + Enter shows it; a scanner typing into the
   box works; Esc closes it); no browser errors.
@@ -386,7 +390,8 @@ agent's holder-text.md).
   `full` image. Scanning the bag: each card's list "Photos of <Card ID>
   <name>" sits under its Card ID and name, the tiles in that order (by alt),
   each `<img>` the API's tile (`src` and `srcset`, never the full-size
-  image), lazy and loaded; -03 "Reference photo" / "Not the customer's
+  image), lazy and loaded (in a list under each card's row; a typed Card ID
+  shows the picked card's view, its large photos first); -03 "Reference photo" / "Not the customer's
   card" (the catalog's host isn't reachable from the sandbox, so the browser
   context answers `assets.tcgdex.net` with a PNG); -04 "No photo yet" and no
   image. A tap opens the full-size image
@@ -403,86 +408,143 @@ agent's holder-text.md).
   photo at most 480 px wide (the browser context answers those URLs with the
   original, since `next dev` doesn't serve them) and the viewer's image 1280+
   px wide.
-- `scan-holder-card` (390 px, one step at 1440): CD-2549-07 in CLAMP 07 (put
-  in 2 h 5 min ago), CD-2549-01..03 in HEAT PRESS 02, CLAMP 06 and HEAT PRESS
-  01 empty (`holderSetup()`). With no desk yet "Move to my desk" is greyed with
-  "No desk yet. Open the Desk page once to make one."; then (LOC-DESK made)
-  scanning CLAMP 07 shows "CLAMP 07 · has 1 card", the card's name, Card ID,
-  customer, order, tier, due date, "Step: Clamp Work", "In CLAMP 07 for 2
-  hours", its photo, and Move to my desk, Move to another holder, Done, Take
-  out. Each works, the card put back in CLAMP 07 through the API in between:
-  Move to my desk (on LOC-DESK, CLAMP 07 empty, step kept, one move row, no
-  email, "CD-2549-07 is on your desk."); Move to another holder (the holder
-  picker and "Scan the next slot"; the scanner reads HEAT PRESS 01: there,
-  step Heat Press, no email, the picker closes; at 1440 the picker's box has
-  the focus and takes the scan); Take out (no place, step kept, a release
-  row, "taken out of CLAMP 07"); Done, answering "Mark done" (done, no place,
-  a done row, no email, "Done. Put it back in A's bag…"). CLAMP 07 then and
-  CLAMP 06 read "<name> · empty" and "Empty. Scan a bag or card to put one
-  here." with no buttons; HEAT PRESS 02 reads "· 3 cards" with each card and
-  its photos, and "Move all 3 to my desk" moves all 3 (steps kept, no email,
-  "All 3 cards are on your desk.").
-- `scan-layout` (390 and 1440 px, LOC-DESK made): no sideways scroll; the
-  "Ready to scan" panel and "Type a code instead" on the first screen; bag
-  CD-2549-G's photo rows inside the screen and each card's button 44+ px, not
-  covered when scrolled to; scrolled to the bottom of that list, a scan of
-  CLAMP 07 lands with its header on screen and not covered (no scrolling by
-  hand); on a fresh page CLAMP 07's header and its four buttons on the
-  first screen (unscrolled, not covered, 44+ px); "Move to another holder":
-  the picker on the first screen with HEAT PRESS 01 to tap, Esc and Cancel
-  leave nothing waiting; HEAT PRESS 02's "Move all 3 to my desk" and CLAMP
-  06's "Empty…" on the first screen. Screenshots `scan-layout-{390,1440}-*.png`.
-
 - `scan-wedge-timing` (1440 px; review fixes, Nov 26): a slow scanner (120
   ms a key) and a 400 ms pause before Enter, with "Type a code instead"
   focused, still open the code and never open the code box; the same label
   1 s later is read again, a double read 200 ms apart once (the page's
   750 ms repeat gate); a scan that closes a photo leaves nothing focused and a
   stray Enter reopens nothing; a thumbnail whose file is missing says "Photo
-  couldn't load" in its tile; Esc closing a photo or the code box keeps a
-  waiting "Scan the slot for …", Esc on the page drops it.
+  couldn't load" in its tile.
 
-- `scan-holder-fixes` (390 px; holder view review fixes, Nov 26): Done's
-  question takes focus (never "Mark done"), and a broken scan's Enter (two
-  characters + Enter, a stray key + Enter 600 ms later, and "Mark done"
-  itself focused) saves nothing; bag CD-2549-G then HEAT PRESS 02 (4 cards):
-  "Got it: HEAT PRESS 02", the top panel "Ready to scan" / "Scan a bag to add
-  a card here." and no "Tap a card from …" list, the photos at the list size;
-  "Take out selected" sends `fromCode` and the card leaves the list even when
-  the re-read fails (aborted), and with a slow re-read "Move all 2 to my
-  desk" stays greyed until it lands; "Move selected": the picker starts on
-  its heading (not its box) and offers no OPEN BAGS; Esc: tick boxes and Pick
-  all greyed with "Cancel to change the cards.", Cancel frees them; a card
-  moved to CLAMP 06 meanwhile is refused by "Done for selected" ("Not in HEAT
-  PRESS 02 any more (now in CLAMP 06).") and left alone; CLAMP 07 switched
-  off: both moves greyed with "This holder is switched off: …", Take out
-  works; "Move to another holder", Esc, the DONE sign: CLAMP 07's own line
-  says where the bag is; LOC-DESK with a limit of 1 and a card on it: "Move
-  to my desk" sends no force, asks "Add anyway?" (the question focused), and
-  "Add anyway" sends force; the green "Open the desk page" line above a
-  holder goes when the holder saves. Screenshots `scan-holder-fixes-*.png`.
-  The DONE sign sends `fromCode` (the from-holder).
+The holder view's scenarios (`scan-holder-card`, `scan-layout`,
+`scan-holder-fixes`, `scan-holder-fixes-2`: Move to my desk / another
+holder, a stack's tick boxes, the move picker) went with that view: the plain
+page below replaced it (`scan-plain-stale` keeps #81's rule that a save names
+the spot the card was picked in).
 
-- `scan-holder-fixes-2` (390 px, then 1440; review fixes 2, Nov 26): CLAMP
-  07, "Move to another holder", Esc, then another phone moves the card to
-  HEAT PRESS 01 and the DONE sign is scanned: `POST done` with `fromCode`
-  LOC-CLAMP-07 answers 409 ("… isn't in CLAMP 07 any more (now in HEAT PRESS
-  01)."), the card isn't done and stays put, no history row, no email, the
-  top panel stops waiting and CLAMP 07 shows empty, and CLAMP 06 scanned next
-  moves nothing; a move forgotten 11 minutes (the phone's clock moved on)
-  marks nothing done on the DONE sign; the DONE sign while the page reads
-  CLAMP 07 again (held): "Done. Put it back in …" shows and a tap on Take
-  out only flashes "Still saving the last change. …" (no save, the line
-  stays); two desks, LOC-DESK full (limit 1): "Add anyway?" goes when "My
-  desk" changes to Desk Gavin, and Add anyway sends `toCode` LOC-DESK with
-  force; at 1440 the picker's box is focused, so the DONE sign scanned into
-  it says "To finish it, close this list, then scan DONE or tap Done." and
-  saves nothing; Esc, then DONE: done with `fromCode`. Screenshots
-  `scan-holder-fixes-2-*.png`.
+### The plain Scan page (`scan-plain-*`, the owner's request of Nov 26)
 
-2x screenshots of the same states (ready, bag, move picker, holder, stack,
-empty) come from a script outside the repo that imports `holderSetup` and
-`scanType` from `scenarios.mjs` against a running harness.
+"I want the page to be pretty plain and then when I scan on someones order or
+a spot that corresponds with an order then there card comes up … if I scan
+another spot that has nothing in it twice, it auto moves that card to the
+empty spot." Words: `components/intake/scan/flow-text.ts` (the BUILDER's
+ui-text.md), in `UI.plain*`; hooks `[data-scan-panel][data-panel]`,
+`[data-screen]`, `[data-pick-card]`, `[data-note]`. Nothing changes on one
+scan: every check also says the page sent no save and the database (places,
+done, `card_moves`, step events) didn't move, unless the step expects it.
+
+Setup (`plainSetup()`, exported with `PLAIN`): CD-2549 Gold 01-04 (bag
+CD-2549-G) + Platinum 07-08 (CD-2549-P) and CD-2600-01 (CD-2600-G) received,
+CLAMP 01..07 and HUMIDITY PRESS 01..04 (bulk API), a receiving photo each;
+CD-2549-07 in HUMIDITY PRESS 04 (step Humidity Press) put in 2 h 5 min ago;
+LOC-DESK. All on an iPhone 13 (390 px) unless said.
+
+- `scan-plain-page`: after a load only "Ready to scan" (no Card, Bag or order
+  ID, photo, card list or card button); bag A (CD-2549-G) lists its 4; bag B
+  (CD-2600-G, another customer) replaces it: no CD-2549 code, no "Test
+  Customer A", no A photo on screen (text only screen readers get is
+  reported); reloaded: plain again.
+- `scan-plain-bag` (02 in CLAMP 05, 03 on the desk): CD-2549-G lists only 01
+  and 04, "2 more cards are out" at most; nothing picked with two, so CLAMP 07
+  twice moves nothing; a tap picks 04 ("Picked: CD-2549-04", tap target 44+
+  px) and CLAMP 07 once asks "Scan CLAMP 07 again to move CD-2549-04 here";
+  CD-2549-P (07 out) picks 08 by itself; the order label lists 01, 04, 08
+  (not received cards reported).
+- `scan-plain-spot`: HUMIDITY PRESS 04: the card's photos, name, Card ID,
+  customer, order, tier, due date, step, "for 2 hours", picked; CLAMP 07 once:
+  the question with the card's thumbnail in the panel, nothing moved.
+- `scan-plain-move`: CLAMP 07 twice: a `move` row HUMIDITY PRESS 04 -> CLAMP 07
+  (Humidity Press -> Clamp Work), at most one customer email, "CD-2549-07 is
+  in CLAMP 07 now", then plain (the line shows 8 s); from a bag (CD-2600-G
+  picks its one card) a double read 200 ms apart asks once and moves nothing,
+  the next read 2 s later assigns it (row from no place).
+- `scan-plain-cancel`: CLAMP 07, CLAMP 06, CLAMP 07; CLAMP 07, a bag, CLAMP
+  07; DONE, CLAMP 07, DONE; CLAMP 07, the panel's Cancel, CLAMP 07; CLAMP 07,
+  Esc, CLAMP 07: nothing moves or is done (each last scan asks again); then
+  the flow works.
+- `scan-plain-timeout`: `page.clock` (Playwright fakes Date, performance.now
+  and timers; no page hook needed): 35 s between the two scans moves nothing
+  ("Nothing moved" reported), 20 s moves. SKIP with the reason if the clock
+  can't be installed.
+- `scan-plain-full` (08 in CLAMP 07): CLAMP 07 with 07 picked: nothing moves,
+  "CLAMP 07 already has CD-2549-08" + "CD-2549-07 didn't move…", 08 picked;
+  CLAMP 07 again: nothing; CLAMP 06 twice moves 08 (07 stays).
+- `scan-plain-same`: the picked card's own spot three times: nothing, no
+  question, "… is already in HUMIDITY PRESS 04" reported.
+- `scan-plain-desk`: the desk twice: on LOC-DESK, step kept (no step event), a
+  `move` row with step before = after, no email, "… is on DESK now"; with 07
+  and 08 on the desk its list shows both, a tap picks 08, CLAMP 06 twice
+  moves it (Clamp Work).
+- `scan-plain-done`: DONE once asks "Scan DONE again to mark CD-2549-07 done";
+  again: done, no place (back in its bag), one `done` row, no email, "Done.
+  Put it back in A's bag…".
+- `scan-plain-done-order`: CD-2700 with 01-03 done (`doneOrderSetup`), 04 in
+  HUMIDITY PRESS 01: that spot, DONE, DONE: 04 back in its bag, the order
+  Completed with exactly one Completed email and the held notes email
+  (`checkOrderCompleted`), the put-back sentence.
+- `scan-plain-buttons`: Done and Take out 44+ px; Take out (tap): no place,
+  step kept, a `release` row, `fromCode` the spot it was picked in; a scan with
+  Done focused presses nothing; Done asks first ("Mark it done? …"), nothing
+  saved before "Mark done", which sends `fromCode` too.
+- `scan-plain-stale`: 07 picked in HUMIDITY PRESS 04, then moved to CLAMP 06
+  by another phone (API): DONE twice sends `fromCode` LOC-HUMIDITY-PRESS-04
+  and is refused (not done, no row, no email, the page says why); picked
+  again and moved away again, CLAMP 07 twice sends the move with that
+  `fromCode` and is refused (it stays in CLAMP 06, no row); the same for the
+  taps: Take out and Done ("Mark done") send that `fromCode` and are refused
+  (not done, no row, no email).
+- `scan-plain-fixes` (the builder's review fixes, c7c6f38; sounds told apart
+  by the vibration each makes, `watchVibes`): (2) the picked card's spot
+  scanned again after another phone swapped its card picks the spot's real
+  card ("… already has CD-2549-08"), and after it was emptied asks to move
+  the card back (not "already in"); (3) a holder filled between the two
+  scans: "CLAMP 07 already has CD-2549-01 · Test Card Gold One" + "…
+  didn't move.", no Add anyway, nothing written (409 `HolderFull` since
+  #83); (6) switching to a full holder's card makes no error buzz; (4) a
+  repeat inside 750 ms flashes "Scan CLAMP 06 again" and moves nothing, the
+  next read moves it; (5) a card picked in a switched-off holder says "This
+  holder is switched off: …" and the desk twice moves it out; a switched-off
+  empty holder as the target: "CLAMP 05 is switched off. Turn it back on in
+  Places first."; (1) a card picked in its bag and put in CLAMP 03 by
+  another phone: the double scan's assign and DONE twice (`fromBag: true`)
+  are refused 409 "CD-2600-01 isn't in its bag any more (now in CLAMP 03).",
+  nothing written, no email.
+- `scan-plain-busy` (08 in CLAMP 07): 07 picked, the full CLAMP 07 scanned
+  ("CLAMP 07 already has CD-2549-08", 08 picked); then, with the next lookup
+  held, the scanner's keys for bag CD-2549-G and a tap on Take out in one go
+  (before the page draws its busy state): nothing saved, a flash "Still saving
+  the last change. Try again in a moment.", the panel keeps its message (the
+  busy line never takes it), Take out greyed while the lookup runs; released:
+  the bag shows.
+- `scan-plain-one-card` (08 in CLAMP 07): a tapped card and the full clamp
+  scanned twice: nothing; the API refuses a second card with and without
+  `force` (409 `HolderFull`, no Add anyway: #83).
+- `scan-plain-notes` (390 and 1440): CD-2549-08 with a card note, a known
+  defect, its order's customer note and a staff note (`orders.internal_notes`),
+  in HUMIDITY PRESS 03: scanning it shows, with no tap, each in its own
+  labelled box ("Notes on this card", "Known defects", "Customer's notes",
+  staff notes; `[data-note]`) next to the photos and no other card's note;
+  staff notes are their own step; taken out (back in CD-2549-P, 07 still out)
+  the bag picks it by itself and shows the same.
+- `scan-one-card` (#83, one card per holder; HEAT PRESS 02 stored "no limit"
+  from before the rule, holding CD-2549-04): with 07 picked, HEAT PRESS 02
+  scanned twice is never a place to move it (04 is picked instead, nothing
+  sent); the server refuses 07 into it with and without force (409
+  `HolderFull`, `checkHolderFull`); CLAMP 03 twice moves 04 there; Places at
+  390 says "Holds 1 card" (HEAT PRESS: "1 slot was set to no limit: now 1
+  card (owner's rule).") with no capacity setting, desks "No limit". The
+  holder view's picker steps went with that view.
+- `scan-plain-layout` (390 and 1440): no sideways scroll; "Ready to scan" and
+  "Type a code instead" on the first screen; the bag's photos inside the
+  screen; scanned from the bottom of the page, the card's ID and name, the
+  question and the moved line on screen where the page lands (not covered);
+  Done's question on screen, 44+ px, Cancel saves nothing. Screenshots
+  `scan-plain-layout-{390,1440}-*.png`.
+
+2x screenshots of the plain page (plain, bag, spot with card, the question,
+moved, Done's question, notes) come from a script outside the repo that
+imports `plainSetup` and `scanType` from `scenarios.mjs` against a running
+harness.
 
 ### Desk (`desk-*`, the owner's request of Nov 24)
 
@@ -540,14 +602,13 @@ change.
   HUMIDOR 01; reloaded, still those 3; 390 px. A failed UI action is redone
   through the API ("(fallback)") so the later steps still run.
 - `desk-scan` (iPhone 13, 390 px): `/q/LOC-DESK`, `/Q/LOC-DESK`, `/q/loc-desk`
-  -> `/admin/scan?loc=LOC-DESK`; the scanner reads HEAT PRESS 01's link: its 8
-  cards with Move; Move, then the desk's link: `POST move` (from HEAT PRESS 01,
-  to LOC-DESK, 8 cards), all 8 at the desk at Heat Press, an "Open (the) desk
-  page" link; on a fresh Scan page, typing `desk` + Enter ("Type a code
-  instead"), the desk's link, and
-  `/admin/scan?loc=LOC-DESK` each show the desk's 8 cards and "Open desk page"
-  (-> `/admin/receiving/desk`, `?desk=LOC-DESK` if given); that link opens the
-  Desk page with the 8; no browser errors.
+  -> `/admin/scan?loc=LOC-DESK`; the 8 put on the desk through the API (the
+  Scan page's stack Move is gone); on a fresh Scan page, typing `desk` + Enter
+  ("Type a code instead"), the desk's link, and `/admin/scan?loc=LOC-DESK`
+  each show the desk's 8 cards and "Open desk page" (-> `/admin/receiving/desk`,
+  `?desk=LOC-DESK` if given); that link opens the Desk page with the 8; back on
+  the Scan page a tap picks CD-2549-01 in the desk's list and HEAT PRESS 01
+  scanned twice moves it there (step Heat Press, 7 left); no browser errors.
 - `desk-capacity`: the station list's defaults (clamp, slab-crack 1; the other
   six null); new CLAMP/SLAB CRACK slots store 1, HEAT PRESS/HUMIDOR null; a
   second card into CLAMP 01 or SLAB CRACK 01 -> 409 `overCapacity` (nothing
@@ -875,9 +936,11 @@ payment status in the mock. The CD-2549 scenarios start from `bagOpenSetup()`.
 - `done-search`: CD-2549-P in the Open bags box (07 on the desk), CD-2549-G
   finished and in the bin (`bag-ready`), Silver CD-2549-S on its due-date shelf
   (written in the mock when the receipt leaves the bag unplaced); the Scan page,
-  typing "Test Customer A" and then "CD-2549": next to each Bag ID "Open bags
-  box · A", "Ready to ship", "Shelf DUE …"; the search API's `bagLocation` per
-  card.
+  typing "Test Customer A": next to each bag's cards "Open bags box · A",
+  "Ready to ship", "Shelf DUE …"; typing "CD-2549" (the plain page's order
+  list, Nov 26): only the cards in their bags to do (08, 09, 05, 06), "1 more
+  card is out: DESK", "4 cards are done." (the bags' places are on the search
+  rows only now); the search API's `bagLocation` per card.
 - `done-layout`: 1440 and 390 (iPhone 13): CD-2549-P with 1 of 3 done (no
   sideways scroll, the big button on the first screen, Done buttons 44+ px,
   "Mark all 2 done"), the Desk page's Done at 390, the finished bag's "It's in

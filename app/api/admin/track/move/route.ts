@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  *   → 200 TrackActionResponse; 409 HolderFull (a one-card holder can't take them: force or not);
  *     409 CapacityConflict (a desk with a limit set is full; force: true adds anyway);
  *     409 { error } when the from-slot is empty; 400 / 404 { error }
- * Moves the cards in the from-slot (all, or only cardIds) to the to-slot: the
- * from-slot frees up, the step follows the new slot (later or earlier: any
+ * Moves the cards in the from-slot (all, or only cardIds) to the to-slot (the
+ * from-slot may be switched off; the to-slot must be on): the from-slot frees up, the step follows the new slot (later or earlier: any
  * order), one customer email per order at most, for steps new to the customer.
  */
 export async function POST(request: Request) {
