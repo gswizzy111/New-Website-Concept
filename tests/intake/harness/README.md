@@ -17,6 +17,7 @@ node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
+node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
@@ -343,11 +344,89 @@ mock (`mockUpdate()`), not left to the station type's default.
   (same order later, another order); the receive answer names the shelves;
   Shelf view in due-date order with each bag under its slot; `/q/LOC-SHELF-…`;
   390 px.
-- `track-scan-page` (iPhone 13, 390 px): the handheld-scanner box; CLAMP 01's
-  link + Enter shows "Put a card in CLAMP 01" without navigating; the bag's QR
-  lists its cards, "Put in CLAMP 01" on CD-2549-07 assigns it; a full slot
-  shows its card with Move, Done, Take out; `/admin/scan?loc=LOC-CLAMP-03`;
-  no browser errors (no camera in headless); the desktop menu's "Scan" link.
+- `track-scan-page` (iPhone 13, 390 px): "Ready to scan" and "Type a code
+  instead" (the code box closed); the handheld scanner (keystrokes + Enter
+  with nothing focused) reads CLAMP 01's link: "Put a card in CLAMP 01"
+  without navigating; the bag's QR lists its cards, "Put in CLAMP 01" on
+  CD-2549-07 assigns it; a full slot shows its card with Move to another holder,
+  Done, Take out (the holder view, `scan-holder-card`);
+  `/admin/scan?loc=LOC-CLAMP-03`; no browser errors; the desktop menu's
+  "Scan" link.
+
+### The Scan page (`scan-*`, the owner's request of Nov 26)
+
+"Remove the camera, make it so you can only use the scanner, and also add the
+images under each card", and make it clearer when a scanned holder has a card
+in it. The Eyoyo handheld scanner is paired with the shop's iPhone as a
+Bluetooth keyboard: it types the label's text and presses Enter, with nothing
+focused (the page's keyboard wedge). `scanType()` types the label's link
+`HTTPS://THECARDDOC1.COM/Q/<code>` with keys 10 ms apart, then Enter;
+`scannerOn(page)` waits out the page's 2 s double-read gate for a repeated
+code. Wording: `UI.readyToScan*`, `UI.gotIt`, `UI.typeCodeLink`,
+`UI.scanCardPhotos`, and the holder view's `UI.holder*` (from the HOLDER
+agent's holder-text.md).
+
+- `scan-scanner-only` (390 and 1440 px): no camera anywhere (no video or
+  canvas, no camera word or button, no `capture` file input; an init script
+  records every `getUserMedia`, `webkitGetUserMedia` and camera permission
+  query: none); the "Ready to scan" panel and its line, the code box closed,
+  nothing focused. Right after a fresh load a keyboard-wedge scan of bag
+  CD-2549-G's link (nothing focused) flashes "Got it: CD-2549-G" (within
+  1.5 s) and lists its 4 cards without navigating; after that result a scan of
+  CD-2549-P replaces them; a photo opened full screen and closed with Close
+  (focus back on the photo) or Esc, then a scan: it opens and its Enter
+  reopens nothing; with "Assign to a slot" focused a scan presses nothing; a
+  scan while a photo is open closes it; "Type a code instead" reveals the
+  focused code box (CD-2549-02 + Enter shows it; a scanner typing into the
+  box works; Esc closes it); no browser errors.
+- `scan-card-photos` (1440 and 390 px): CD-2549-01 has a receiving photo and
+  2 customer photos, -02 a customer photo only, -03 only a catalog picture,
+  -04 nothing (set in the mock). The resolve API lists them receiving first,
+  then customer, the catalog's only without either, each with a `tile` and a
+  `full` image. Scanning the bag: each card's list "Photos of <Card ID>
+  <name>" sits under its Card ID and name, the tiles in that order (by alt),
+  each `<img>` the API's tile (`src` and `srcset`, never the full-size
+  image), lazy and loaded; -03 "Reference photo" / "Not the customer's
+  card"; -04 "No photo yet" and no image. A tap opens the full-size image
+  full screen (90%+), Close closes it. The order's label and a typed Card ID
+  show the same photos. **Thumbnails:** off Netlify `lib/thumbnail.ts` serves
+  the original, so the tile equals the original in a plain harness (the
+  scenario says so in its note). Start the harness with `IMAGE_CDN=netlify`
+  to check the resize path: every tile must then be
+  `/.netlify/images?url=<original>&w=<=480` (the browser context answers
+  those with the original, since `next dev` doesn't serve them) and the
+  viewer's image 1280+ px wide.
+- `scan-holder-card` (390 px, one step at 1440): CD-2549-07 in CLAMP 07 (put
+  in 2 h 5 min ago), CD-2549-01..03 in HEAT PRESS 02, CLAMP 06 and HEAT PRESS
+  01 empty (`holderSetup()`). With no desk yet "Move to my desk" is greyed with
+  "No desk yet. Open the Desk page once to make one."; then (LOC-DESK made)
+  scanning CLAMP 07 shows "CLAMP 07 · has 1 card", the card's name, Card ID,
+  customer, order, tier, due date, "Step: Clamp Work", "In CLAMP 07 for 2
+  hours", its photo, and Move to my desk, Move to another holder, Done, Take
+  out. Each works, the card put back in CLAMP 07 through the API in between:
+  Move to my desk (on LOC-DESK, CLAMP 07 empty, step kept, one move row, no
+  email, "CD-2549-07 is on your desk."); Move to another holder (the holder
+  picker and "Scan the next slot"; the scanner reads HEAT PRESS 01: there,
+  step Heat Press, no email, the picker closes; at 1440 the picker's box has
+  the focus and takes the scan); Take out (no place, step kept, a release
+  row, "taken out of CLAMP 07"); Done, answering "Mark done" (done, no place,
+  a done row, no email, "Done. Put it back in A's bag…"). CLAMP 07 then and
+  CLAMP 06 read "<name> · empty" and "Empty. Scan a bag or card to put one
+  here." with no buttons; HEAT PRESS 02 reads "· 3 cards" with each card and
+  its photos, and "Move all 3 to my desk" moves all 3 (steps kept, no email,
+  "All 3 cards are on your desk.").
+- `scan-layout` (390 and 1440 px, LOC-DESK made): no sideways scroll; the
+  "Ready to scan" panel and "Type a code instead" on the first screen; bag
+  CD-2549-G's photo rows inside the screen and each card's button 44+ px, not
+  covered when scrolled to; CLAMP 07's header and its four buttons on the
+  first screen (unscrolled, not covered, 44+ px); "Move to another holder":
+  the picker on the first screen with HEAT PRESS 01 to tap, Esc and Cancel
+  leave nothing waiting; HEAT PRESS 02's "Move all 3 to my desk" and CLAMP
+  06's "Empty…" on the first screen. Screenshots `scan-layout-{390,1440}-*.png`.
+
+2x screenshots of the same states (ready, bag, move picker, holder, stack,
+empty) come from a script outside the repo that imports `holderSetup` and
+`scanType` from `scenarios.mjs` against a running harness.
 
 ### Desk (`desk-*`, the owner's request of Nov 24)
 
@@ -408,7 +487,8 @@ change.
   -> `/admin/scan?loc=LOC-DESK`; the scanner reads HEAT PRESS 01's link: its 8
   cards with Move; Move, then the desk's link: `POST move` (from HEAT PRESS 01,
   to LOC-DESK, 8 cards), all 8 at the desk at Heat Press, an "Open (the) desk
-  page" link; on a fresh Scan page, typing `desk` + Enter, the desk's link, and
+  page" link; on a fresh Scan page, typing `desk` + Enter ("Type a code
+  instead"), the desk's link, and
   `/admin/scan?loc=LOC-DESK` each show the desk's 8 cards and "Open desk page"
   (-> `/admin/receiving/desk`, `?desk=LOC-DESK` if given); that link opens the
   Desk page with the 8; no browser errors.

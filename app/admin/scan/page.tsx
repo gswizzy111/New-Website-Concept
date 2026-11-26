@@ -11,11 +11,13 @@ type Params = { loc?: string | string[]; mode?: string | string[] };
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 
 /**
- * The Scan page: the phone's camera (or a handheld scanner) reads slot and
- * bag QR labels, one after another (components/intake/scan). Full admins
- * only. ?loc=<slot code> opens on that slot (a slot's QR scanned with the
- * phone's own camera lands here through /q/<CODE>); ?mode=ship starts in ship
- * check. The URL never carries anything about a customer.
+ * The Scan page: a handheld scanner (the Eyoyo paired with the phone as a
+ * Bluetooth keyboard) reads slot, bag, order and desk QR labels, one after
+ * another (components/intake/scan); there is no camera on the page, and a
+ * code can be typed ("Type a code instead"). Full admins only. ?loc=<slot
+ * code> opens on that slot (a slot's QR opened from any phone's own camera
+ * app lands here through /q/<CODE>); ?mode=ship starts in ship check. The
+ * URL never carries anything about a customer.
  */
 export default async function ScanPage({ searchParams }: { searchParams: Promise<Params> }) {
   await requireAdmin();

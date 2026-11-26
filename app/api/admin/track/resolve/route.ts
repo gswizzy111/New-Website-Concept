@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 /**
  * GET ?code=<slot | bag | order | Card ID, or its QR link>
  *   → 200 ResolveResponse: { kind: "location", code, location: TrackSlotSummary } (the slot, its
- *     cards, capacity, free) | { kind: "bag", code, bag } | { kind: "order", code, order }
+ *     cards, capacity, free, desks: the switched-on desks for "Move to my desk")
+ *     | { kind: "bag", code, bag } | { kind: "order", code, order }
  *     (cards with their slots) | { kind: "card", code, card }
  *   → 400 { error } not a code; 404 { error } nothing has it
  */

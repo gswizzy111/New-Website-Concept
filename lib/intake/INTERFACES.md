@@ -346,7 +346,7 @@ found", the /q wording).
 Owner's model (Nov 24 2026): cards carry no sticker and are never scanned.
 Every physical holder is a numbered **slot** with a QR label: each clamp, heat
 press spot, humidor spot and so on. Staff scan a slot on the Scan page
-(`/admin/scan`, phone camera or a handheld scanner), then pick the card(s) from
+(`/admin/scan`, with a handheld scanner: the page has no camera), then pick the card(s) from
 a bag's QR or a search; the card is now in that slot and at its step. Bags wait
 on due-date shelf slots until a card comes out, then in the Open bags box
 (`LOC-OPEN-BAGS`); a finished bag goes in the Ready to ship bin (`LOC-SHIP`).
@@ -438,7 +438,7 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `POST release` | `{ cardIds, sessionId? }` | "Take out": no place, step kept |
 | `POST done` | `{ cardIds, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
-| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards; a bag or order with each card's slot) |
+| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks for "Move to my desk"; a bag or order with each card's slot) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order |
 | `GET history` | `?code=` | last 50 moves, newest first |
 | `GET ship-check` | `?code=` bag, order or Card ID | each card `ok`, `not_done`, `in_slot`, `refunded`; `ready` |
@@ -456,6 +456,90 @@ print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).
+
+**Scan page** (`/admin/scan`, `components/intake/scan/`; owner, Nov 26 2026:
+"remove the camera, make it so you can only use the scanner, and also add the
+images under each card"):
+
+- **Scanner only.** No camera, no camera button and no camera permission
+  prompt (`camera.tsx` and its jsQR reader are gone; the `jsqr` package is
+  unused now). The scanner (an Eyoyo EY-015P paired with the iPhone as a
+  Bluetooth keyboard: it types the label's text, e.g.
+  `HTTPS://THECARDDOC1.COM/Q/CD-2549-P`, and presses Enter; the phone's
+  on-screen keyboard stays hidden while it's connected) is caught anywhere on
+  the page with nothing focused (`scan-input.tsx` `useKeyboardWedge`, rules in
+  `wedge.ts`, by the key events' `timeStamp`: characters at most 300 ms apart
+  are one scan; Enter or Tab within 1 s of the last one sends it when it has
+  4+ characters; a focused button, link or `<select>` never gets the scan's
+  keys or its Enter, nor a second Enter or Tab right after it). It listens
+  from the moment the page has loaded, after a result shows, and after a
+  photo or any other overlay closes; a scan while a photo is open full screen
+  closes it (`SCAN_READ_EVENT`) without handing focus back to the thumbnail,
+  so the answer shows. The same code again within 750 ms of the last time it
+  was taken is a double read and ignored (`parse.ts` `createScanGate`: an
+  ignored read doesn't renew the time, and a code whose lookup failed is
+  let straight back in); Esc that closes a photo, a sheet or the code box
+  doesn't also drop a waiting Move or Assign. A thumbnail that can't load
+  says "Photo couldn't load" in its tile.
+- **Top panel.** While nothing is waiting for a scan: "Ready to scan" (big on
+  the empty page, a slim sticky bar once something is on screen; "Getting
+  ready…" until the page is listening, `data-scanner="ready"` then) and
+  "Point your scanner at a bag, order, holder or desk label and press the
+  button." Each scan flashes "Got it: CD-2549-P" over it for 1.6 s, with the
+  usual sound and vibration. Move, Assign, ship check and "Put a card in
+  CLAMP 07" keep their own lines there.
+- **Typing.** "Type a code instead" (under the panel) opens the code box (a
+  code, a slot name such as `clamp 7`, `desk`, or a search by Card ID, name,
+  customer or order), focused; Esc or its Close button shuts it.
+- **Photos under each card.** Every card the page lists (bag, order, search,
+  a typed Card ID, a holder's or desk's cards, the cards offered for an empty
+  slot) shows up to 3 white-framed thumbnails under its name and details
+  (`<CardPhotos photos label size>`: "list" 112 px tall; "large", a holder's
+  own card, three across up to 160 px wide each): its receiving photos, then the
+  customer's; the catalog picture only when it has neither, dashed amber and
+  labelled "Reference photo / Not the customer's card"; none: "No photo yet".
+  More than 3: "+N" on the third. A tap opens the photos page's full-screen
+  viewer (`PhotoViewer` in `photo-grid.tsx`, shared with `PhotoGrid`), which
+  steps through all of them. Thumbnails are lazy and resized on the server:
+  `TrackCardSummary.photos` (optional; `TrackCardPhoto { url, kind, tile,
+  full }`, at most `MAX_CARD_PHOTOS` = 6, web addresses only) is built by
+  `cardPhotos()` in `tracking/summaries.ts` with `productImage` (tile 240 /
+  360 / 480 px wide, full 1280 / 2048) on Netlify; `photoUrl` stays as it was.
+  Component: `components/intake/scan/card-photos.tsx`.
+- **Holder view** (owner, Nov 26 2026: "when you scan on a station that has
+  a card in it, it is a little more clear"; `holder-view.tsx`, words and
+  rules in `holder-format.ts`, tests `tests/intake/scan-holder.test.ts`): a
+  scanned work-station slot or `other` place (desks, BENCH 2; not the Open
+  bags box: `isHolderPlace`) shows, top to bottom: the holder huge ("CLAMP
+  07 · has 1 card" with a limit, "HEAT PRESS 02 · 8 cards" without one,
+  "CLAMP 07 · empty"; dark while a card is in it); the last action's result
+  line (the server's sentence: Done says where the bag is, the Open bags box
+  line, the order's auto-complete line, finished bags' links, "Open desk
+  page" after a move to a desk; Move to my desk: "CD-2549-03 is on your
+  desk.", Take out: "CD-2549-03 taken out of CLAMP 07, not done. Put it back
+  in REYES's bag: …"; a save from the Scan page's own flow into this holder,
+  e.g. a Move then a scan of it, shows the same way); each card big (photos
+  "large", name, year · set · #, Card ID, "Maria Reyes · Order CD-2549 ·
+  Gold", "Due Mon Dec 7 · 3 days late" / "· 2 days left" / "· today", "Step:
+  Clamp Work", "In CLAMP 07 for 2 days"); then the buttons, sticky at the
+  bottom of a phone: one card "Move to my desk" (primary; `POST move` to the
+  desk, force), "Move to another holder" (the Desk page's `HolderPicker`,
+  and the Scan page waits for the next holder scan at the same time), "Done"
+  (asks "Mark it done? Then put it back in its bag."; `POST done`), "Take
+  out" (`POST release`); a stack (2+ cards): tick boxes (none ticked at
+  first), "Move all N to my desk", "Done for selected", "Move selected",
+  "Take out selected". On your own desk Move to another holder (Move
+  selected) leads; a refunded card has Take out only. "My desk" is the
+  phone's desk choice shared with the scan landing (`desk-choice.ts`, with a
+  "My desk" select when there are 2+ desks); no desk: "No desk yet. Open the
+  Desk page once to make one." Empty: "Empty. Scan a bag or card to put one
+  here." After a save the holder is read again, the result line takes focus
+  (no typing box keeps it, so the scanner's next scan is caught), and any
+  scan clears the result. Exact words: the HOLDER agent's holder-text.md.
+  Data: `TrackSlotSummary.desks?: TrackDeskRef[]` (`{ id, code, name }`,
+  the switched-on desks, LOC-DESK first; `deskRefs` / `loadDeskRefs` in
+  `tracking/desk.ts`, read with every scanned place; left out when that
+  read fails; a scan never makes a desk).
 
 ## Finished cards and bags (done flow)
 

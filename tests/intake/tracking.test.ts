@@ -1,7 +1,8 @@
 /**
  * Slot tracking without a database (lib/intake/tracking): place codes, slot
  * and shelf names, the planner's rules (steps in any order, the email rule, done, take out,
- * idempotency, refused cards), capacity and ship-check statuses.
+ * idempotency, refused cards), capacity, ship-check statuses and the photos the
+ * Scan page shows under each card.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +12,7 @@ import {
   compareLocations, hasRoom, locationCodeCandidates, locationSlug, moveStageLabel, shelfSlotCode, shelfSlotName, shelfSlotSort,
 } from "@/lib/intake/tracking/places";
 import { STATION_TYPES, capacityText, slotCode, slotName, stationType } from "@/lib/intake/tracking/stations";
-import { shipCheckStatus } from "@/lib/intake/tracking/summaries";
+import { MAX_CARD_PHOTOS, cardPhotos, cardSummary, shipCheckStatus, type TrackCardRow } from "@/lib/intake/tracking/summaries";
 import { STAGES } from "@/lib/restoration-stages";
 
 const CLAMP: PlanLocation = { id: "loc-clamp-07", code: "LOC-CLAMP-07", name: "CLAMP 07", kind: "station", stage: "Clamp Work" };
@@ -282,4 +283,54 @@ test("history labels: null = Not started, done = Done, Book = Drying", () => {
   assert.equal(moveStageLabel("done"), "Done");
   assert.equal(moveStageLabel("Book"), "Drying");
   assert.equal(moveStageLabel("Clamp Work"), "Clamp Work");
+});
+
+// ─── Photos under each card on the Scan page (owner, Nov 26: "add the images under each card") ───
+
+const SB = "https://example.supabase.co/storage/v1/object/public/card-photos";
+const photoRow = (over: Partial<TrackCardRow> = {}): TrackCardRow => ({
+  id: "card-1", order_id: "order-1", card_name: "Charizard", card_set: "Base Set", card_year: "1999", card_number: "4/102",
+  tier: "premium", status: "active", completed: false, completed_at: null, current_round: 1, card_seq: 1, card_code: "CD-2549-01",
+  bag_id: "bag-1", received_at: "2026-11-15T15:00:00Z", awaiting_arrival: false, photo_urls: [], receiving_photo_urls: [],
+  catalog_image_url: null, location_id: null, located_at: null, ...over,
+});
+
+test("card photos: receiving photos first, then the customer's; web addresses only; at most MAX_CARD_PHOTOS", () => {
+  const photos = cardPhotos(photoRow({
+    receiving_photo_urls: [`${SB}/r1.jpg`, "javascript:alert(1)"],
+    photo_urls: [`${SB}/c1.jpg`, "not a link", `${SB}/c2.jpg`],
+    catalog_image_url: "https://assets.tcgdex.net/en/base/base1/4/high.webp",
+  }));
+  assert.deepEqual(photos.map((p) => [p.kind, p.url]), [["receiving", `${SB}/r1.jpg`], ["customer", `${SB}/c1.jpg`], ["customer", `${SB}/c2.jpg`]]);
+  // Off Netlify (no IMAGE_CDN) the tile and the viewer get the original
+  assert.deepEqual(photos[0].tile, { src: `${SB}/r1.jpg` });
+  assert.deepEqual(photos[0].full, { src: `${SB}/r1.jpg` });
+  const many = cardPhotos(photoRow({ receiving_photo_urls: [1, 2, 3, 4].map((n) => `${SB}/r${n}.jpg`), photo_urls: [1, 2, 3, 4].map((n) => `${SB}/c${n}.jpg`) }));
+  assert.equal(many.length, MAX_CARD_PHOTOS);
+  assert.deepEqual(many.map((p) => p.kind), ["receiving", "receiving", "receiving", "receiving", "customer", "customer"]);
+});
+
+test("card photos: the catalog picture only when there are no own photos, as a reference with its small picture", () => {
+  const ref = cardPhotos(photoRow({ catalog_image_url: "https://assets.tcgdex.net/en/base/base1/4/high.webp" }));
+  assert.deepEqual(ref, [{
+    url: "https://assets.tcgdex.net/en/base/base1/4/high.webp",
+    kind: "reference",
+    tile: { src: "https://assets.tcgdex.net/en/base/base1/4/low.webp" },
+    full: { src: "https://assets.tcgdex.net/en/base/base1/4/high.webp" },
+  }]);
+  // Not a catalog host, or nothing at all: no photo
+  assert.deepEqual(cardPhotos(photoRow({ catalog_image_url: "https://example.com/x.png" })), []);
+  assert.deepEqual(cardPhotos(photoRow({ photo_urls: null, receiving_photo_urls: null })), []);
+  // A receiving photo wins over the catalog picture
+  assert.deepEqual(cardPhotos(photoRow({ receiving_photo_urls: [`${SB}/r1.jpg`], catalog_image_url: "https://assets.tcgdex.net/en/base/base1/4/high.webp" })).map((p) => p.kind), ["receiving"]);
+});
+
+test("card summary: photos added next to photoUrl (unchanged), so older pages keep working", () => {
+  const ctx = { orders: new Map(), bags: new Map(), events: new Map(), locations: new Map() };
+  const s = cardSummary(photoRow({ photo_urls: [`${SB}/c1.jpg`], receiving_photo_urls: [`${SB}/r1.jpg`] }), ctx);
+  assert.equal(s.photoUrl, `${SB}/r1.jpg`);
+  assert.deepEqual(s.photos?.map((p) => p.kind), ["receiving", "customer"]);
+  const none = cardSummary(photoRow(), ctx);
+  assert.equal(none.photoUrl, null);
+  assert.deepEqual(none.photos, []);
 });

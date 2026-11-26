@@ -1,7 +1,7 @@
 /** The Scan page's code parser and repeat gate (components/intake/scan/parse.ts). */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess, typedSlotGuess } from "@/components/intake/scan/parse";
+import { SCAN_REPEAT_MS, createScanGate, isLocationCode, parseScan, scanKey, scanKindLabel, slotCodeGuess, typedSlotGuess } from "@/components/intake/scan/parse";
 import { cardsLabel, fillText, placeSubtitle, roomLeft, sinceText, whereLine } from "@/components/intake/scan/format";
 import { deskPagePath, isDeskCode } from "@/lib/intake/tracking/desk-codes";
 
@@ -63,17 +63,42 @@ test("labels", () => {
   assert.deepEqual(["card", "bag", "order", "location", null].map(scanKindLabel), ["Card", "Bag", "Order", "Place", "Code"]);
 });
 
-test("the repeat gate: the same code within 2 s is ignored", () => {
-  const accept = createScanGate(2000);
+test("the repeat gate: the same code within 750 ms of the last accepted read is ignored", () => {
+  assert.equal(SCAN_REPEAT_MS, 750);
+  const accept = createScanGate();
   assert.equal(accept("CD-2549-03", 0), true);
-  assert.equal(accept("CD-2549-03", 500), false, "same code again at once");
-  assert.equal(accept("CD-2549-03", 2400), false, "still in view: every sighting renews the time");
-  assert.equal(accept("CD-2549-03", 4500), true, "out of view for 2 s: counts again");
-  // Another code fires at once, and two codes in one frame don't fire turn about
-  assert.equal(accept("CD-2549-04", 4600), true);
-  assert.equal(accept("CD-2549-03", 4700), false);
-  assert.equal(accept("CD-2549-04", 4800), false);
-  assert.equal(accept("CD-2549-03", 4900), false);
+  assert.equal(accept("CD-2549-03", 300), false, "a scanner's double read");
+  assert.equal(accept("CD-2549-03", 700), false, "still within 750 ms of the accepted one");
+  // An ignored repeat doesn't renew the time: 750 ms after the ACCEPTED read it counts again
+  assert.equal(accept("CD-2549-03", 760), true);
+  // Another code fires at once; two codes scanned turn about each fire
+  assert.equal(accept("CD-2549-04", 800), true);
+  assert.equal(accept("LOC-SHELF-20261207", 900), true);
+  assert.equal(accept("CD-2549-04", 1000), false);
+});
+
+test("the repeat gate: the same shelf for the next card 1.5 s later, and retries every second, all count", () => {
+  const accept = createScanGate();
+  // Assign card 1 to SHELF X, then card 2 to SHELF X: the shelf's label is scanned again 1.5 s later
+  assert.equal(accept("LOC-SHELF-X", 0), true);
+  assert.equal(accept("CD-2549-P", 600), true);
+  assert.equal(accept("LOC-SHELF-X", 1500), true);
+  // A label retried every second (the old 2 s gate, renewed on every read, dropped them all)
+  const retry = createScanGate();
+  for (const at of [0, 1000, 2000, 3000, 4000]) assert.equal(retry("CD-2549-03", at), true, `retry at ${at} ms`);
+  // Old-style renewing: reads every 500 ms are ignored, but one at 750 ms after the accepted read counts
+  const busy = createScanGate();
+  assert.deepEqual([0, 500, 750, 1250, 1500].map((at) => busy("CD-2549-03", at)), [true, false, true, false, true]);
+});
+
+test("the repeat gate: forget() lets a code straight back in (its lookup failed)", () => {
+  const accept = createScanGate();
+  assert.equal(accept("CD-2549-03", 0), true);
+  accept.forget("CD-2549-03");
+  assert.equal(accept("CD-2549-03", 100), true, "scanned again at once after a failed lookup");
+  assert.equal(accept("CD-2549-03", 200), false);
+  accept.forget("CD-9999-99"); // a code it never saw: nothing happens
+  assert.equal(accept("CD-2549-03", 300), false);
 });
 
 test("the gate's key: the code when it parses, the text otherwise", () => {

@@ -1,9 +1,9 @@
 import { codeKind, isLocationCode, normalizeCode, type CodeKind } from "@/lib/intake/codes";
 
 /**
- * What the Scan page (/admin/scan) reads from a scan: the camera's QR text, a
- * handheld scanner's keystrokes, a pasted link or a typed code all go through
- * parseScan(). Pure (safe in client components and tests).
+ * What the Scan page (/admin/scan) reads from a scan: a handheld scanner's
+ * keystrokes (the label's QR text), a pasted link or a typed code all go
+ * through parseScan(). Pure (safe in client components and tests).
  *
  *   "HTTPS://THECARDDOC1.COM/Q/CD-2549-03"  -> card      CD-2549-03 (any host, any case)
  *   "cd-2549-p"                             -> bag       CD-2549-P
@@ -35,21 +35,31 @@ export function scanKindLabel(kind: ScanKind | string | null | undefined): strin
   return "Code";
 }
 
+/** A label read again this soon after it was taken is a scanner's double read, not a new scan. */
+export const SCAN_REPEAT_MS = 750;
+
 /**
- * Ignores a repeat: the same code seen again within `windowMs` (2 s) of the
- * last time it was seen. Every sighting renews the time, so a code held in
- * front of the camera fires once, and again only after it has been out of
- * view for 2 s. Several codes are remembered at once, so two labels in the
- * same frame don't fire turn about.
+ * Ignores a repeat: the same code again within `windowMs` (750 ms) of the
+ * last time it was ACCEPTED: a scanner's double read, or a scanner typing
+ * into the code box right after. An ignored repeat doesn't renew the time,
+ * so the same label scanned again a moment later (the next card into the
+ * same shelf, a retry) always counts. `forget(code)` lets a code straight
+ * back in (its lookup failed: scanning it again must work). Several codes
+ * are remembered at once.
  */
-export function createScanGate(windowMs = 2000) {
-  const seen = new Map<string, number>();
-  return function accept(key: string, now: number): boolean {
-    for (const [k, at] of seen) if (now - at >= windowMs) seen.delete(k);
-    const repeat = seen.has(key);
-    seen.set(key, now);
-    return !repeat;
-  };
+export function createScanGate(windowMs = SCAN_REPEAT_MS) {
+  const accepted = new Map<string, number>();
+  function accept(key: string, now: number): boolean {
+    for (const [k, at] of accepted) if (now - at >= windowMs) accepted.delete(k);
+    if (accepted.has(key)) return false;
+    accepted.set(key, now);
+    return true;
+  }
+  return Object.assign(accept, {
+    forget(key: string) {
+      accepted.delete(key);
+    },
+  });
 }
 
 /** The key the gate compares: the code when it parses, else the text itself. */

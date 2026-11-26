@@ -5,6 +5,7 @@ import { codeKind, normalizeCode, orderPhotosPath } from "@/lib/intake/codes";
 import { resolveCode } from "@/lib/intake/data";
 import type { IntakeResult } from "@/lib/intake/types";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
+import { loadDeskRefs } from "@/lib/intake/tracking/desk";
 import { getLocationById } from "@/lib/intake/tracking/locations";
 import { hasRoom, locationView } from "@/lib/intake/tracking/places";
 import {
@@ -58,10 +59,15 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
   try {
     const row = await getLocationById(admin, locationId);
     if (!row) return { ok: false, status: 404, error: "Place not found" };
-    const [{ data: cardRows, error: cErr, count }, bagRows] = await Promise.all([
+    const [{ data: cardRows, error: cErr, count }, bagRows, desks] = await Promise.all([
       admin.from("cards").select("id, order_id", { count: "exact" }).eq("location_id", row.id)
         .order("located_at", { ascending: false, nullsFirst: false }).order("id").limit(SLOT_CARD_LIMIT),
       fetchAll<TrackBagRow>((from, to) => admin.from("tier_bags").select(TRACK_BAG_COLUMNS).eq("location_id", row.id).order("id").range(from, to)),
+      // For "Move to my desk": a failed read leaves `desks` out, the place still shows
+      loadDeskRefs(admin).catch((e) => {
+        console.warn("[tracking] desks not read for the scanned place:", e instanceof Error ? e.message : String(e));
+        return undefined;
+      }),
     ]);
     if (cErr) throw new Error(cErr.message);
     const ids = (cardRows ?? []).map((r) => r.id as string);
@@ -79,6 +85,7 @@ export async function loadSlotSummary(admin: SupabaseClient, locationId: string)
         overCapacity: row.capacity != null && cardCount > row.capacity,
         cards,
         bags,
+        ...(desks ? { desks } : {}),
       },
     };
   } catch (e) {

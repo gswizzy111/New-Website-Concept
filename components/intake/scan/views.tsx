@@ -7,6 +7,7 @@ import { filingLetter } from "@/lib/intake/filing-letter";
 import { bagPlaceText } from "@/lib/intake/tracking/bag-home";
 import { dayText, dueHint } from "@/lib/intake/tracking-format";
 import type { TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary } from "@/lib/intake/tracking/types";
+import { CardPhotos, cardPhotoLabel } from "./card-photos";
 import { fillText, placeSubtitle, sinceText, whereLine } from "./format";
 
 // The Scan page's pieces (components/intake/scan/scan-app.tsx holds the flow).
@@ -91,7 +92,8 @@ function cardTitle(card: TrackCardSummary): string {
 
 /**
  * One card in a list (bag, order, search, a slot's picks): Card ID, name,
- * where it is (tap to open that slot), and its button.
+ * where it is (tap to open that slot), its photos under that (tap for full
+ * screen), and its button.
  */
 export function CardRow({
   card,
@@ -147,6 +149,9 @@ export function CardRow({
             {whereLine(card, now)}
           </p>
         )}
+        <div className="mt-2">
+          <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} />
+        </div>
       </div>
       {action && onAction && (
         <button
@@ -167,9 +172,10 @@ export function CardRow({
 }
 
 /**
- * A slot's own card, big: what's in CLAMP 07. `dense` for a stack (a heat
- * press or desk holding several cards): smaller type, so eight cards don't
- * fill three screens.
+ * A slot's own card, big: what's in CLAMP 07, with its photos under it.
+ * `dense` for a stack (a heat press or desk holding several cards): smaller
+ * type and photos, so eight cards don't fill three screens. The photos sit
+ * outside the tick box's label (a button can't be inside one).
  */
 export function SlotCard({
   card,
@@ -204,13 +210,23 @@ export function SlotCard({
       </p>
     </>
   );
-  if (!selectable) return <li className="flex flex-col gap-0.5 px-4 py-3">{body}</li>;
+  const photos = <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size={dense ? "list" : "large"} />;
+  if (!selectable) {
+    return (
+      <li className="flex flex-col gap-0.5 px-4 py-3">
+        {body}
+        <div className="mt-2">{photos}</div>
+      </li>
+    );
+  }
   return (
     <li className="border-b border-border last:border-b-0">
-      <label className="flex cursor-pointer items-start gap-3 px-4 py-3">
+      <label className="flex cursor-pointer items-start gap-3 px-4 pt-3 pb-2">
         <input type="checkbox" checked={selected} onChange={onToggle} className={`${dense ? "mt-1" : "mt-2"} h-6 w-6 shrink-0 accent-primary`} />
         <span className="flex min-w-0 flex-col gap-0.5">{body}</span>
       </label>
+      {/* Lined up with the text above (past the tick box) */}
+      <div className="pb-3 pl-[3.25rem] pr-4">{photos}</div>
     </li>
   );
 }
