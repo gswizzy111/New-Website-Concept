@@ -7250,7 +7250,20 @@ const SCAN_HOLDER_SCENARIOS = {
         await shot("02-bag");
         assert(!problems.length, problems.join(" | "));
       }, { shot: false });
-      await s.step(`${label}: ${HOLDER.name} with 1 card: its header and the four buttons on the first screen (not covered, 44+ px); no sideways scroll`, async () => {
+      await s.step(`${label}: scrolled to the bottom of the bag's list, the scanner reads ${HOLDER.name}: its header is on screen where the page lands (no scrolling by hand)`, async () => {
+        await p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await sleep(300);
+        const y0 = await p.evaluate(() => window.scrollY);
+        await holderOpen(p, scan, HOLDER, 1);
+        await sleep(800);
+        const head = p.locator("main").first().getByText(UI.holderHas(HOLDER.name, 1)).first();
+        const r = await head.evaluate((el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, y: Math.round(window.scrollY) }; });
+        await shot("03a-holder-after-scroll", false);
+        assert(r.top >= 0 && r.bottom <= r.vh, `the header at ${r.top}-${r.bottom}px of ${r.vh}px (page scrolled to ${r.y}px, was ${y0}px)`);
+        return `scrolled ${y0}px -> ${r.y}px; header at ${r.top}px`;
+      }, { shot: false });
+      await s.step(`${label}: ${HOLDER.name} with 1 card, fresh page: its header and the four buttons on the first screen (unscrolled, not covered, 44+ px); no sideways scroll`, async () => {
+        await goto(p, ROUTES.scan);
         await holderOpen(p, scan, HOLDER, 1);
         await noSideways();
         await shot("03-holder");
@@ -7273,13 +7286,21 @@ const SCAN_HOLDER_SCENARIOS = {
         if (!box || box.y < -1 || box.x < -1 || box.x + box.width > vp.width + 1) problems.push(`the picker at ${JSON.stringify(box)}`);
         const ob = await option.boundingBox();
         if (!ob || ob.y + ob.height > vp.height || ob.height < 44) problems.push(`${HOLDER_TO.name} option at ${JSON.stringify(ob)}`);
+        // Esc closes the picker; the holder's bar then says "Scan the next holder, or pick it from the list." [Pick from the list] [Cancel]
         await p.keyboard.press("Escape");
         await until(async () => (await openDialogs(p)) === 0, 5_000);
-        const cancel = p.getByRole("button", { name: /^cancel$/i }).first();
+        if (await openDialogs(p)) problems.push("Esc left the picker open");
+        const fromList = p.getByRole("button", { name: /^pick from the list$/i }).first();
+        if (!(await fromList.isVisible().catch(() => false))) problems.push('no "Pick from the list" after Esc');
+        const cancel = p.locator("main").first().getByRole("button", { name: /^cancel$/i }).last();
         if (await cancel.isVisible().catch(() => false)) await cancel.click();
-        await sleep(300);
-        const left = flat(await p.locator("body").innerText());
-        if (UI.holderNext.test(left)) problems.push(`still waiting: "${left.match(UI.holderNext)[0]}"`);
+        else problems.push("no Cancel after Esc");
+        await sleep(400);
+        // nothing waits any more: the top panel is back to "Ready to scan" and the four buttons are back
+        const cue = flat(await UI.scanReady(p).innerText().catch(() => ""));
+        if (!UI.readyToScan.test(cue)) problems.push(`the top panel still says "${cue.slice(0, 80)}"`);
+        if (await fromList.isVisible().catch(() => false)) problems.push('"Pick from the list" still shown');
+        if (!(await UI.holderToHolder(p.locator("main").first()).isVisible().catch(() => false))) problems.push('"Move to another holder" not back');
         assert(!problems.length, problems.join(" | "));
       }, { shot: false });
       await s.step(`${label}: the stack ${HOLDER_STACK.name} (3 cards): "Move all 3 to my desk" on the first screen (not covered, 44+ px); no sideways scroll`, async () => {
