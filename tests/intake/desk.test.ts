@@ -25,11 +25,11 @@ import { deskPanelCard, deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/
 
 // ─── Pure ───────────────────────────────────────────────────────────────
 
-test("desk codes: LOC-DESK and LOC-DESK-<NAME>, typed, lower case or as a QR link; nothing else", () => {
-  for (const yes of ["LOC-DESK", "LOC-DESK-GAVIN", "loc-desk-2", " LOC-DESK ", "HTTPS://THECARDDOC1.COM/Q/LOC-DESK-GAVIN", "https://x.netlify.app/q/loc-desk"]) {
+test("desk codes: LOC-DESK, LOC-DESK-<NAME> and LOC-<NAME>-DESK, typed, lower case or as a QR link; nothing else", () => {
+  for (const yes of ["LOC-DESK", "LOC-DESK-GAVIN", "loc-desk-2", " LOC-DESK ", "LOC-GAVINS-DESK", "loc-front-desk", "HTTPS://THECARDDOC1.COM/Q/LOC-DESK-GAVIN", "https://x.netlify.app/q/loc-desk"]) {
     assert.equal(isDeskCode(yes), true, yes);
   }
-  for (const no of ["LOC-DESKTOP", "LOC-DESK-", "LOC-CLAMP-07", "LOC-DONE", "DESK", "CD-2549", "", null, undefined]) {
+  for (const no of ["LOC-DESKTOP", "LOC-DESK-", "LOC-DESKS-2", "LOC-GAVINS-DESKTOP", "LOC--DESK", "LOC-CLAMP-07", "LOC-DONE", "DESK", "CD-2549", "", null, undefined]) {
     assert.equal(isDeskCode(no), false, String(no));
   }
   assert.equal(deskPagePath(), "/admin/receiving/desk");

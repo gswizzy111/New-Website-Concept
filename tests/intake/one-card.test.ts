@@ -34,7 +34,7 @@ test("which places hold one card: every station slot and every other place but a
     ["LOC-HEAT-PRESS-02", "station", true],
     ["LOC-DRYING-30", "station", true],
     ["LOC-BENCH-2", "other", true],
-    ["LOC-GAVINS-DESK", "other", true], // named like a desk, but its code isn't a desk's
+    ["LOC-GAVINS-DESK", "other", false], // "Gavins Desk": a code ending in -DESK is a desk (no limit)
     ["LOC-DESKTOP", "other", true],
     ["LOC-DESK", "other", false],
     ["LOC-DESK-GAVIN", "other", false],

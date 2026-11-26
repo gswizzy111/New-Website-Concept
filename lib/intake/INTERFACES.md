@@ -422,9 +422,10 @@ limit); slots made then still store null (production, Nov 26: all 30 drying,
   were set to no limit: now 1 card (owner's rule)."); no capacity controls
   ("No limit", "Set for all N … slots" are gone). Desks say "No limit"; other
   places "Holds 1 card" ("No limit before · now 1 card (owner's rule)" when
-  stored otherwise); an `other` place named like a desk that isn't one
-  ("Gavins Desk", `LOC-GAVINS-DESK`) says "Not a desk: it holds one card.
-  Add desks under Desks". Slot tiles over one card: "Holds 1 card: take the
+  stored otherwise); an `other` place named like a desk whose code isn't a
+  desk code says "Not a desk: it holds one card. Add desks under Desks"
+  (a code ending in `-DESK`, like "Gavins Desk" `LOC-GAVINS-DESK`, IS a
+  desk). Slot tiles over one card: "Holds 1 card: take the
   others out".
 - **Tests**: `tests/intake/one-card.test.ts` (which places, the words, a
   full slot, several cards, force, no-op, a desk, BENCH 2, two phones at
@@ -434,8 +435,9 @@ limit); slots made then still store null (production, Nov 26: all 30 drying,
 **Desks** (`tracking/desk-codes.ts`, pure: `DESK_CODE`, `isDeskCode`,
 `deskPagePath`; `tracking/desk.ts`: `deskPlaces`, `ensureDesk`,
 `loadDeskCards`, `pickDesk`, re-exports the codes): a desk is a place of kind
-`other` whose code is `LOC-DESK` or `LOC-DESK-<NAME>` (`LOC-DESK-GAVIN`, made
-from its name "DESK GAVIN"; `LOC-DESKTOP` is not one). Like any `other` place
+`other` whose code is `LOC-DESK`, `LOC-DESK-<NAME>` (`LOC-DESK-GAVIN`, made
+from its name "DESK GAVIN") or ends in `-DESK` (`LOC-GAVINS-DESK`, "Gavins
+Desk" made with "Add another kind of place"); `LOC-DESKTOP` is not one. Like any `other` place
 it changes where cards are, never their step, and has no capacity: the only
 place that holds a stack (every other holder holds one card). Cards go on it
 with `POST move` (scan CLAMP 01, Move, scan the desk) or `assign`. The
