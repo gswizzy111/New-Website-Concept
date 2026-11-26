@@ -757,3 +757,44 @@ test("live: a switched-off holder is refused before asking; moving out of one is
   assert.equal(dbCard(5).location_id, null);
   for (const code of ["LOC-CLAMP-01", "LOC-CLAMP-02"]) await svc.locations.updateLocation(admin, { id: loc(code)!.id as string, active: true });
 });
+
+test("live: DONE twice for an order's last card after someone moved it: refused (409), nothing changes, no order completion, no email", async () => {
+  // An order whose only card is this one: finishing it would complete the order and email the customer
+  const order2 = "00000000-0000-4000-8000-00000ac00002";
+  const bag2 = "00000000-0000-4000-8000-00000ac0b002";
+  const id = C(20);
+  const base = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  mock.store.table("orders").push({ ...base, id: order2, order_number: "CD-6102", customer_name: "Sam Ortiz", customer_email: "sam@example.com",
+    status: "in_progress", payment_status: "paid", updated_at: "2026-11-23T19:00:00+00:00" });
+  mock.store.table("tier_bags").push({ ...mock.store.table("tier_bags").find((b) => b.id === BAG)!, id: bag2, order_id: order2, bag_code: "CD-6102-G" });
+  mock.store.table("cards").push(row(20, { order_id: order2, bag_id: bag2, card_code: "CD-6102-01", card_seq: 1 }));
+  const put = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [id], by: "gavin" });
+  assert.ok(put.ok, put.ok ? "" : put.error);
+  await tick();
+
+  // This phone: CLAMP 01 scanned (its card picked), then DONE once
+  let s = await scanLive(startFlow(), "LOC-CLAMP-01", T0);
+  assert.equal(pickedCard(s)?.code, "CD-6102-01");
+  s = await scanLive(s, "LOC-DONE", T0 + 1_000);
+  assert.equal(s.pending?.kind, "done");
+  // Another phone moves it to HEAT PRESS 02
+  const away = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HEAT-PRESS-02", cardIds: [id], by: "gavin" });
+  assert.ok(away.ok, away.ok ? "" : away.error);
+  await tick();
+  const card20 = () => mock.store.table("cards").find((c) => c.id === id)!;
+  const snapshot = () => ({
+    card: { ...card20() },
+    moves: mock.store.table("card_moves").length,
+    order: mock.store.table("orders").find((o) => o.id === order2)!.status,
+    events: mock.store.table("order_events").filter((e) => e.order_id === order2).length,
+    bag: { ...mock.store.table("tier_bags").find((b) => b.id === bag2)! },
+    emails,
+  });
+  const before = snapshot();
+  // DONE again: the body names CLAMP 01 (fromCode), so the card (now in HEAT PRESS 02) is refused
+  s = await scanLive(s, "LOC-DONE", T0 + 2_000);
+  assert.deepEqual([s.message?.tone, s.message?.title], ["error", "CD-6102-01 isn't in CLAMP 01 any more (now in HEAT PRESS 02)."]);
+  await tick();
+  assert.deepEqual(snapshot(), before, "nothing changed: the card, its history, the order, its events, the bag, no email");
+  assert.equal(pickedCard(s)?.id, id, "still picked (the page reads it again)");
+});
