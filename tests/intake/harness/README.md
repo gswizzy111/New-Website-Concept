@@ -339,7 +339,9 @@ mock (`mockUpdate()`), not left to the station type's default.
 - `track-q`: `/q/LOC-CLAMP-01`, `/Q/…`, lower case → `/admin/scan?loc=LOC-CLAMP-01`;
   LOC-DONE, LOC-SHIP; bag/order codes → the scan landing, a Card ID → its card
   page; signed out → sign in
-  with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page.
+  with `next=/q/LOC-CLAMP-01`; the browser lands on the Scan page (redirected
+  to `?loc=LOC-CLAMP-01`, which the page reads once and then drops from the
+  address) showing CLAMP 01.
 - `track-shelf`: Receive on the workspace says "Put in shelf: DUE MON DEC 7";
   Print shelf sign; one LOC-SHELF-20261207 slot shared by bags due that day
   (same order later, another order); the receive answer names the shelves;
@@ -388,7 +390,8 @@ the plain page's `UI.plain*` and `UI.holderDone` / `holderTakeOut` /
   `full` image. Scanning the bag: each card's list "Photos of <Card ID>
   <name>" sits under its Card ID and name, the tiles in that order (by alt),
   each `<img>` the API's tile (`src` and `srcset`, never the full-size
-  image), lazy and loaded; -03 "Reference photo" / "Not the customer's
+  image), lazy and loaded (in a list under each card's row; a typed Card ID
+  shows the picked card's view, its large photos first); -03 "Reference photo" / "Not the customer's
   card" (the catalog's host isn't reachable from the sandbox, so the browser
   context answers `assets.tcgdex.net` with a PNG); -04 "No photo yet" and no
   image. A tap opens the full-size image
@@ -414,8 +417,10 @@ the plain page's `UI.plain*` and `UI.holderDone` / `holderTakeOut` /
   couldn't load" in its tile.
 
 The holder view's scenarios (`scan-holder-card`, `scan-layout`,
-`scan-holder-fixes`: Move to my desk / another holder, a stack's tick boxes,
-the move picker) went with that view: the plain page below replaced it.
+`scan-holder-fixes`, `scan-holder-fixes-2`: Move to my desk / another
+holder, a stack's tick boxes, the move picker) went with that view: the plain
+page below replaced it (`scan-plain-stale` keeps #81's rule that a save names
+the spot the card was picked in).
 
 ### The plain Scan page (`scan-plain-*`, the owner's request of Nov 26)
 
@@ -480,6 +485,11 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
 - `scan-plain-buttons`: Done and Take out 44+ px; Take out (tap): no place,
   step kept, a `release` row; a scan with Done focused presses nothing; Done
   asks first ("Mark it done? …"), nothing saved before "Mark done".
+- `scan-plain-stale`: 07 picked in HUMIDITY PRESS 04, then moved to CLAMP 06
+  by another phone (API): DONE twice sends `fromCode` LOC-HUMIDITY-PRESS-04
+  and is refused (not done, no row, no email, the page says why); picked
+  again and moved away again, CLAMP 07 twice sends the move with that
+  `fromCode` and is refused (it stays in CLAMP 06, no row).
 - `scan-plain-one-card` (08 in CLAMP 07): a tapped card and the full clamp
   scanned twice: nothing; the API refuses a second card (409 `overCapacity`);
   with `force` it must still refuse once the one-card rule (branch `one-card`)

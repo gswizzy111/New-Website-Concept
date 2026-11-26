@@ -3103,10 +3103,13 @@ const SCENARIOS = {
       } finally { await anon.close(); }
     }, { shot: false });
     await s.step("scanning CLAMP 01's label in the signed-in browser lands on the Scan page, showing CLAMP 01", async () => {
-      await goto(page, ROUTES.qrUpper("LOC-CLAMP-01"));
-      const u = new URL(page.url());
+      const res = await goto(page, ROUTES.qrUpper("LOC-CLAMP-01"));
+      // the page reads ?loc= once and then drops it from the address (the plain Scan page): the redirect's target says where it landed
+      const u = new URL(res.url());
       eq([u.pathname, u.searchParams.get("loc")], [ROUTES.scan, "LOC-CLAMP-01"], "landed on");
+      eq(new URL(page.url()).pathname, ROUTES.scan, "the page's address");
       await page.getByText(nameRe("CLAMP 01", "i")).first().waitFor({ timeout: 15_000 });
+      return `address now ${new URL(page.url()).pathname}${new URL(page.url()).search}`;
     });
   },
 
@@ -6595,7 +6598,7 @@ const isThumbPath = (src, original) => {
  * else the reference photo with its label), each <img> the API's thumbnail (tile), lazy, loaded; or
  * "No photo yet". Returns a short note.
  */
-async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false, minH = 90, maxH = 200 } = {}) {
+async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false, minH = 90, maxH = 200, under = true } = {}) {
   const want = photosWanted(t, code);
   const name = cardByCode(t, code).card_name;
   const label = `${code} ${name}`;
@@ -6621,7 +6624,8 @@ async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false,
     if (b) above.push(b.y + b.height);
   }
   assert(above.length === 2, `${code}: its Card ID or name isn't in its block`);
-  assert(listBox && listBox.y >= Math.max(...above) - 1, `${code}: the photos (top ${listBox?.y}) are not under its details (bottom ${Math.max(...above)})`);
+  // (in a list each card's photos sit under its row; the picked card's view puts its large photos first)
+  if (under) assert(listBox && listBox.y >= Math.max(...above) - 1, `${code}: the photos (top ${listBox?.y}) are not under its details (bottom ${Math.max(...above)})`);
   assert(listBox.height >= minH && listBox.height <= maxH, `${code}: thumbnails ${Math.round(listBox.height)} px tall (want ${minH}-${maxH})`);
   const apiPhotos = apiCard?.photos ?? [];
   eq(apiPhotos.map((x) => [x.kind, x.url]), want.map((w) => [w.kind, w.url]), `${code}: the API's photos`);
@@ -6917,13 +6921,16 @@ const SCAN_SCENARIOS = {
         await shot("03-order");
         return notes.join(", ");
       }, { shot: false });
-      await s.step(`${label}: a typed Card ID (CD-2549-01) shows that card with its 3 photos`, async () => {
+      await s.step(`${label}: a typed Card ID (CD-2549-01) shows that card (picked, its large photos first) with its 3 photos`, async () => {
         await typeCode(p, "CD-2549-01");
         // the card alone (the order's other cards gone), then its photos
         const one = await until(async () => { const x = await scanMain(p); return x.includes("CD-2549-01") && !x.includes("CD-2549-02") ? x : null; }, 30_000);
         assert(one, `CD-2549-01 not shown on its own ("${(await scanMain(p)).slice(0, 200)}")`);
         await until(async () => (await UI.scanCardPhotos(p, "CD-2549-01").count()) > 0, 15_000);
-        return checkCardPhotos(p, t, "CD-2549-01", api0["CD-2549-01"], { cdn });
+        const block = UI.plainPickedView(p, "CD-2549-01");
+        const tall = await UI.scanCardPhotos(p, "CD-2549-01").first().evaluate((el) => Math.round(el.getBoundingClientRect().height));
+        const note = await checkCardPhotos(p, t, "CD-2549-01", api0["CD-2549-01"], { cdn, block, under: false, maxH: 900 });
+        return `${note}; the photos ${tall} px tall`;
       }, { shot: false });
       await s.step(`${label}: no sideways scroll; no browser errors`, async () => {
         const w = await sidewaysScroll(p);
@@ -7941,6 +7948,67 @@ const SCAN_PLAIN_SCENARIOS = {
     }
   },
 
+  // Someone else moved the picked card meanwhile (another phone): the double scan and the DONE sign
+  // name the spot it was picked in (fromCode), so the server refuses and nothing changes (the holder
+  // view's review fixes 2, #81, kept on the plain page)
+  async "scan-plain-stale"({ ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step(`setup: ${PLAIN.card} in ${PLAIN.spot.name}`, async () => { t = await plainSetup(ctx, mockUrl); }, { critical: true, shot: false });
+    const { p, scan, noErrors, ctx: pc } = await plainPhone(browser, appUrl, "scan-plain-stale");
+    const refusedSave = async (re, what) => {
+      const res = await saveAwaited(p, re);
+      let body = null;
+      try { body = await res.json(); } catch { /* not JSON */ }
+      const ok = res.status() < 300 && (body?.results ?? []).some((r) => r.ok && r.changed !== false);
+      return { res, body, ok, sent: sentOf(res) };
+    };
+    try {
+      await goto(p, ROUTES.scan);
+      await s.step(`${PLAIN.spot.name} (picks ${PLAIN.card}); another phone moves it to ${PLAIN.empty2.name}; DONE twice: the done sent with fromCode ${PLAIN.spot.code} is refused: not done, still in ${PLAIN.empty2.name}, no row, no email; the page says why`, async () => {
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await trackOk(ctx, ROUTES.trackMove, { fromCode: PLAIN.spot.code, toCode: PLAIN.empty2.code, cardIds: [cardIdOf(t, PLAIN.card)] });
+        const before = await dump();
+        await scan(PLAIN.done.code);
+        await plainSays(p, UI.plainDoneAgain(PLAIN.card), "Done question");
+        const saved = refusedSave(/\/api\/admin\/track\/done$/);
+        await scan(PLAIN.done.code);
+        const r = await saved;
+        eq(r.sent.fromCode, PLAIN.spot.code, "done body fromCode");
+        assert(!r.ok, `the done went through: HTTP ${r.res.status()} ${JSON.stringify(r.body).slice(0, 160)}`);
+        await sleep(1_500);
+        const after = await dump();
+        const c = cardByCode(after.tables, PLAIN.card);
+        eq([c.completed, cardsIn(after.tables, PLAIN.empty2.code)], [false, [PLAIN.card]], `${PLAIN.card} done, ${PLAIN.empty2.name}`);
+        eq(newMoves(before.tables, after.tables, PLAIN.card), [], "new card_moves rows");
+        eq(mailsTo(after.emails.slice(before.emails.length), CUSTOMER_A).length, 0, "emails");
+        const said = await plainSays(p, new RegExp(`${esc(PLAIN.card)}[^]{0,40}(isn['’]t|not) in ${esc(PLAIN.spot.name)}|moved it just now|any more`, "i"), "refusal");
+        return `HTTP ${r.res.status()}; "${said}"`;
+      }, { shot: false });
+      await s.step(`back in ${PLAIN.spot.name} (API), picked there; another phone moves it to ${PLAIN.empty2.name}; ${PLAIN.empty.name} twice: the move sent with fromCode ${PLAIN.spot.code} is refused: it stays in ${PLAIN.empty2.name}, ${PLAIN.empty.name} empty, no row`, async () => {
+        await plainPut(ctx, mockUrl, t, PLAIN.card, PLAIN.spot.code);
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await pickedCheck(p, PLAIN.card);
+        await trackOk(ctx, ROUTES.trackMove, { fromCode: PLAIN.spot.code, toCode: PLAIN.empty2.code, cardIds: [cardIdOf(t, PLAIN.card)] });
+        const before = await tables();
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty.name, PLAIN.card), "move question");
+        const saved = refusedSave(/\/api\/admin\/track\/(assign|move)$/);
+        await scan(PLAIN.empty.code);
+        const r = await saved;
+        eq(r.sent.fromCode ?? null, PLAIN.spot.code, "move body fromCode");
+        assert(!r.ok, `the move went through: HTTP ${r.res.status()} ${JSON.stringify(r.body).slice(0, 160)}`);
+        await sleep(1_500);
+        const after = await tables();
+        eq([cardsIn(after, PLAIN.empty2.code), cardsIn(after, PLAIN.empty.code)], [[PLAIN.card], []], `${PLAIN.empty2.name}, ${PLAIN.empty.name}`);
+        eq(newMoves(before, after, PLAIN.card), [], "new card_moves rows");
+        return `HTTP ${r.res.status()}; the page shows "${oneLine(await seenText(p)).slice(0, 160)}"`;
+      }, { shot: false });
+      await s.step("no browser errors", async () => noErrors(), { shot: false });
+    } finally {
+      await pc.close();
+    }
+  },
+
   // One card per holder (the one-card rule, branch one-card): a second card into a full clamp is refused
   async "scan-plain-one-card"({ ctx, s, browser, appUrl, mockUrl }) {
     let t = null;
@@ -8038,6 +8106,7 @@ const SCAN_PLAIN_SCENARIOS = {
         const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
         await scan(PLAIN.empty.code);
         eq((await saved).status(), 200, "POST");
+        await sleep(1_700); // past the scan's "Got it" flash (up to 1.6 s over the panel); the line shows 8 s
         const x = await messageOnScreen(p, UI.plainMoved(PLAIN.card, PLAIN.empty.name), "the moved line");
         await shot("05-moved");
         await noSideways("moved");
