@@ -17,7 +17,7 @@ node tests/intake/e2e/scenarios.mjs --only receive-partial,qr
 node tests/intake/e2e/scenarios.mjs --only labels,labels-40,qr,photos-page,print-step,bags-board   # one label per tier bag
 node tests/intake/e2e/scenarios.mjs --only 'track-*'   # card tracking with serial-numbered slots (CLAMP 07)
 node tests/intake/e2e/scenarios.mjs --only track-assign,track-move   # a few of them
-node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view
+node tests/intake/e2e/scenarios.mjs --only 'scan-*'    # the Scan page: the handheld scanner only (no camera), photos under each card, the holder view (and its review fixes)
 node tests/intake/e2e/scenarios.mjs --only 'desk-*'    # the Desk: a heat press stack to the desk, the Desk page, scanning the desk
 node tests/intake/e2e/scenarios.mjs --only 'bag-open-*'   # what a bag / order QR opens: the person, "Move all N cards to my desk"
 node tests/intake/e2e/scenarios.mjs --only 'labels-any-*'   # "Print labels" for any order (prepare-labels, one tap)
@@ -441,6 +441,26 @@ agent's holder-text.md).
   stray Enter reopens nothing; a thumbnail whose file is missing says "Photo
   couldn't load" in its tile; Esc closing a photo or the code box keeps a
   waiting "Scan the slot for …", Esc on the page drops it.
+
+- `scan-holder-fixes` (390 px; holder view review fixes, Nov 26): Done's
+  question takes focus (never "Mark done"), and a broken scan's Enter (two
+  characters + Enter, a stray key + Enter 600 ms later, and "Mark done"
+  itself focused) saves nothing; bag CD-2549-G then HEAT PRESS 02 (4 cards):
+  "Got it: HEAT PRESS 02", the top panel "Ready to scan" / "Scan a bag to add
+  a card here." and no "Tap a card from …" list, the photos at the list size;
+  "Take out selected" sends `fromCode` and the card leaves the list even when
+  the re-read fails (aborted), and with a slow re-read "Move all 2 to my
+  desk" stays greyed until it lands; "Move selected": the picker starts on
+  its heading (not its box) and offers no OPEN BAGS; Esc: tick boxes and Pick
+  all greyed with "Cancel to change the cards.", Cancel frees them; a card
+  moved to CLAMP 06 meanwhile is refused by "Done for selected" ("Not in HEAT
+  PRESS 02 any more (now in CLAMP 06).") and left alone; CLAMP 07 switched
+  off: both moves greyed with "This holder is switched off: …", Take out
+  works; "Move to another holder", Esc, the DONE sign: CLAMP 07's own line
+  says where the bag is; LOC-DESK with a limit of 1 and a card on it: "Move
+  to my desk" sends no force, asks "Add anyway?" (the question focused), and
+  "Add anyway" sends force; the green "Open the desk page" line above a
+  holder goes when the holder saves. Screenshots `scan-holder-fixes-*.png`.
 
 2x screenshots of the same states (ready, bag, move picker, holder, stack,
 empty) come from a script outside the repo that imports `holderSetup` and

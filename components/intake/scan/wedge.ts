@@ -11,6 +11,11 @@
  *  - Enter or Tab within ENTER_GAP_MS (1 s) of the last character sends the
  *    scan when it has MIN_LENGTH (4) or more characters; that Enter never
  *    reaches the focused element.
+ *  - Enter or Tab within ENTER_GAP_MS of ANY character is kept from the
+ *    focused element even when it isn't a scan (a broken read: fewer than 4
+ *    characters got through before the scanner's Enter), so a broken scan
+ *    can never press a focused button. A lone Space (a person pressing a
+ *    button or tick box with the keyboard, then Tab or Enter) doesn't count.
  *  - From a scan's second character on, its keys are kept from the focused
  *    element (a button or link never reacts); on a focused <select> every
  *    character is (its type-ahead would change the choice).
@@ -44,7 +49,9 @@ export function wedgeKey(state: WedgeState, key: string, at: number, { select = 
       state.scannedAt = at;
       return { scan: text, block: true };
     }
-    return { scan: null, block: at - state.scannedAt <= SUFFIX_MS };
+    // A broken scan's end key (too short, or an Enter after a stray key) is kept from the focused element too
+    const broken = fresh && text.trim() !== "";
+    return { scan: null, block: broken || at - state.scannedAt <= SUFFIX_MS };
   }
   if (key.length !== 1) return { scan: null, block: false };
   if (at - state.last > KEY_GAP_MS) state.buffer = "";

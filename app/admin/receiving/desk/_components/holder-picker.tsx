@@ -64,6 +64,7 @@ function conflictText(name: string, conflict: CapacityConflict): string {
 export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const open = cardIds !== null;
   const need = cardIds?.length ?? 1;
   const [list, setList] = useState<ListState>({ status: "loading" });
@@ -88,8 +89,10 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
     }
     if (d.open) return;
     d.showModal();
-    // A computer (a mouse, maybe a handheld scanner) starts in the box; a phone doesn't pop its keyboard over the list
+    // A computer (a mouse, maybe a handheld scanner) starts in the box. A phone starts on the heading:
+    // showModal() alone would focus the first field, and the phone's keyboard would cover the list
     if (window.matchMedia("(pointer: fine)").matches) input.current?.focus();
+    else heading.current?.focus({ preventScroll: true });
     let live = true;
     loadHolders().then((got) => {
       if (live) setList("error" in got ? { status: "error", error: got.error } : { status: "ready", ...got });
@@ -153,7 +156,7 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
         <div className="flex max-h-[88dvh] flex-col sm:max-h-[85dvh]">
           <div className="flex items-start gap-2 border-b border-border px-4 pt-3 pb-3">
             <div className="min-w-0 flex-1">
-              <h2 id={titleId} className="font-heading text-xl font-black leading-tight break-words">Put {what} in…</h2>
+              <h2 ref={heading} id={titleId} tabIndex={-1} className="font-heading text-xl font-black leading-tight break-words outline-none">Put {what} in…</h2>
               <p className="text-sm text-muted-foreground">Tap a holder, or type or scan one (clamp 7).</p>
             </div>
             <button type="button" onClick={() => dialog.current?.close()} className={`${deskButtons.secondary} shrink-0`}>

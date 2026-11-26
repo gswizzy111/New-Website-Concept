@@ -1,4 +1,6 @@
 import { codeKind, isLocationCode, normalizeCode, type CodeKind } from "@/lib/intake/codes";
+import { isDay } from "@/lib/intake/business-days";
+import { shelfSlotName } from "@/lib/intake/tracking/places";
 
 /**
  * What the Scan page (/admin/scan) reads from a scan: a handheld scanner's
@@ -24,6 +26,21 @@ export function parseScan(raw: string | null | undefined): ParsedScan | null {
   // codeKind checks places first ("LOC-2" is a place, never an order)
   const kind = code ? codeKind(code) : null;
   return kind ? { code, kind } : null;
+}
+
+/**
+ * What "Got it: …" shows for a scanned code before it is looked up: a place
+ * by a name read from its code (LOC-HEAT-PRESS-02 -> "HEAT PRESS 02",
+ * LOC-SHELF-20261207 -> "DUE MON DEC 7"; the page then shows the place's own
+ * name once found), anything else as the code itself (CD-2549-P).
+ */
+export function scanReadLabel(code: string): string {
+  if (!isLocationCode(code)) return code;
+  const rest = code.slice(4);
+  const shelf = /^SHELF-(\d{4})(\d{2})(\d{2})$/.exec(rest);
+  const day = shelf ? `${shelf[1]}-${shelf[2]}-${shelf[3]}` : null;
+  if (day && isDay(day)) return shelfSlotName(day);
+  return rest.replace(/-/g, " ");
 }
 
 /** "Card", "Bag", "Order", "Place". */

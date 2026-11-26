@@ -17,7 +17,7 @@ import {
 } from "@/lib/intake/tracking/desk";
 import { STATION_TYPES } from "@/lib/intake/tracking/stations";
 import type { TrackActionResponse, TrackLocationWithCount } from "@/lib/intake/tracking/types";
-import { holderFromText, holderGroups, matchesHolder } from "@/app/admin/receiving/desk/_lib/holders";
+import { BAG_ONLY_CODES, holderFromText, holderGroups, isCardDestination, matchesHolder } from "@/app/admin/receiving/desk/_lib/holders";
 import { outcomeOf, settledIds } from "@/app/admin/receiving/desk/_lib/outcome";
 import { deskPanelCard, deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/view";
 
@@ -130,6 +130,26 @@ test("holder picker box: a typed or scanned holder, else the one name that match
   assert.ok(many && !many.ok && /2 holders match/.test(many.error));
   const none = holderFromText("toaster", PLACES, "desk");
   assert.ok(none && !none.ok && /No holder is called/.test(none.error));
+});
+
+test("holder picker: places that hold bags (the Open bags box, the Ready to ship bin, the Done shelf) are never offered for a card, listed or typed", () => {
+  const withBags: TrackLocationWithCount[] = [
+    ...PLACES,
+    loc({ id: "open-bags", code: "LOC-OPEN-BAGS", name: "OPEN BAGS", kind: "other", bagCount: 12 }),
+    loc({ id: "ship", code: "LOC-SHIP", name: "Shipping", kind: "shipping" }),
+    loc({ id: "bench", code: "LOC-BENCH-2", name: "BENCH 2", kind: "other" }),
+  ];
+  const names = holderGroups(withBags, STATION_TYPES, { excludeId: "desk" }).flatMap((g) => [...g.free, ...g.full].map((l) => l.code));
+  for (const code of ["LOC-OPEN-BAGS", "LOC-SHIP", "LOC-DONE"]) assert.ok(!names.includes(code), `${code} offered`);
+  assert.ok(names.includes("LOC-BENCH-2"), "another place still is");
+  assert.deepEqual(BAG_ONLY_CODES, ["LOC-OPEN-BAGS", "LOC-SHIP", "LOC-DONE"]);
+  assert.deepEqual(["LOC-OPEN-BAGS", "LOC-SHIP", "LOC-DONE", "LOC-BENCH-2", "LOC-CLAMP-07"].map((code) => isCardDestination({ code, kind: code === "LOC-CLAMP-07" ? "station" : code === "LOC-SHIP" ? "shipping" : code === "LOC-DONE" ? "done" : "other" })),
+    [false, false, false, true, true]);
+  // Typed or scanned into the box: refused with why
+  for (const [typed, name] of [["open bags", "OPEN BAGS"], ["LOC-OPEN-BAGS", "OPEN BAGS"], ["HTTPS://THECARDDOC1.COM/Q/LOC-SHIP", "Shipping"], ["LOC-DONE", "Done"]]) {
+    const got = holderFromText(typed, withBags, "desk");
+    assert.deepEqual(got, { ok: false, error: `${name} holds bags, not cards. Pick a holder, like clamp 7.` }, typed);
+  }
 });
 
 test("after an action: the API's sentence, each card's line when it helps, and what else happened", () => {

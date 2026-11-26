@@ -20,9 +20,9 @@ import * as api from "./api";
 import { SCAN_READ_EVENT } from "./card-photos";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
 import { cardsLabel, roomLeft } from "./format";
-import { isHolderPlace } from "./holder-format";
+import { ADD_HERE_TEXT, isHolderPlace, scanSaveResult, type ScanSave } from "./holder-format";
 import { HolderView } from "./holder-view";
-import { createScanGate, parseScan, typedSlotGuess } from "./parse";
+import { createScanGate, parseScan, scanReadLabel, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
 import {
@@ -206,8 +206,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [conflict, setConflict] = useState<{ text: string; conflict: CapacityConflict; retry: Retry } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<FlashState | null>(null);
-  /** "Got it: CD-2549-P" over the top panel for a moment after each scan. */
-  const [read, setRead] = useState<{ key: number; code: string } | null>(null);
+  /** "Got it: CD-2549-P" (a place: "Got it: HEAT PRESS 02") over the top panel for a moment after each scan. */
+  const [read, setRead] = useState<{ key: number; code: string; text: string } | null>(null);
   /** The code box ("Type a code instead"), closed until tapped. */
   const [typing, setTyping] = useState(false);
   const [status, setStatus] = useState("");
@@ -219,8 +219,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [deskNote, setDeskNote] = useState<{ code: string; text: string } | null>(null);
   /** The order's line after a Done finished it ("Order completed. Maria Reyes emailed."; amber when it wasn't completed), until the next save. */
   const [orderNotes, setOrderNotes] = useState<ToneLine[]>([]);
-  /** The last save here (cleared by the next scan): a holder view shows it when the cards went into that holder. */
-  const [lastSave, setLastSave] = useState<{ key: number; res: TrackActionResponse } | null>(null);
+  /** The last save here (cleared by the next scan): a holder view shows it when it was about that holder (cards put in it, or Done / Take out of its cards). */
+  const [lastSave, setLastSave] = useState<ScanSave | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = useRef(0);
   const gate = useRef(createScanGate());
@@ -285,12 +285,23 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     flashTimer.current = setTimeout(() => setFlash(null), tone === "ok" ? 900 : 1800);
   }, []);
 
-  /** A code came in: "Got it: CD-2549-P" for a moment, and an open photo closes so the answer shows. */
+  /**
+   * A code came in: "Got it: CD-2549-P" for a moment, and an open photo
+   * closes so the answer shows. A place says its name, not its code ("Got
+   * it: HEAT PRESS 02": read from the code, then the place's own name once
+   * looked up, placeRead).
+   */
   const gotIt = useCallback((code: string) => {
     if (readTimer.current) clearTimeout(readTimer.current);
-    setRead({ key: Date.now(), code });
-    setStatus(`Got it: ${code}`);
+    const text = scanReadLabel(code);
+    setRead({ key: Date.now(), code, text });
+    setStatus(`Got it: ${text}`);
     readTimer.current = setTimeout(() => setRead(null), READ_FLASH_MS);
+  }, []);
+
+  /** The scanned place's own name in "Got it: …" while it still shows (a renamed place's code reads differently). */
+  const placeRead = useCallback((code: string, name: string) => {
+    setRead((r) => (r && r.code === code && r.text !== name ? { ...r, text: name } : r));
   }, []);
 
   const fail = useCallback(
@@ -303,13 +314,14 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   );
 
   const saved = useCallback(
-    (res: TrackActionResponse, fallback: string) => {
+    (res: TrackActionResponse, fallback: string, from?: Pick<ScanSave, "at" | "action" | "cards">) => {
       const problem = api.partialProblem(res);
       const text = res.message || fallback;
       // The order auto-complete line (a Done that finished the order, or why it wasn't completed)
       const notes = orderCompletionNotes(res.orderCompletions);
       setOrderNotes(notes);
-      setLastSave({ key: Date.now(), res });
+      // `from`: a Done or Take out of a holder's cards (no place in the answer): that holder says what happened
+      setLastSave({ key: Date.now(), res, ...from });
       for (const n of notes) addLogItem(n.tone === "ok" ? "ok" : "warn", n.text);
       if (problem && res.results.some((r) => r.ok)) {
         beep("error", soundStore.get());
@@ -361,12 +373,15 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   const showSlot = useCallback(
     (slot: TrackSlotSummary) => {
+      // Another place than the one on screen (a scan): the page goes to the top, so its name shows
+      const prev = viewRef.current;
+      if (!(prev.type === "slot" && prev.slot.code === slot.code)) scrollToTop();
       setView({ type: "slot", slot });
       setSelected(new Set(slot.cards.map((c) => c.id)));
       setConfirmDone(false);
       setTarget(canFill(slot) ? { slot, at: Date.now() } : null);
     },
-    [setTarget, setView],
+    [setTarget, setView, viewRef],
   );
 
   /** The slot again from the server (after a save), shown. */
@@ -470,7 +485,9 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         return;
       }
       setWaiting(null);
-      saved(res.data, kind === "done" ? `${cardsLabel(cards)} done.` : `${cardsLabel(cards)} taken out${slot ? ` of ${slot.name}` : ""}.`);
+      // From a holder (the DONE sign after "Move to another holder"): that holder shows the answer (where the bag is)
+      const from = slot ? { at: slot.code, action: kind === "done" ? ("done" as const) : ("takeout" as const), cards } : undefined;
+      saved(res.data, kind === "done" ? `${cardsLabel(cards)} done.` : `${cardsLabel(cards)} taken out${slot ? ` of ${slot.name}` : ""}.`, from);
       noteDesk(null);
       if (picksRef.current) {
         setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location, kind === "done") });
@@ -513,6 +530,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     (next: View, label: string, cards: TrackCardSummary[]) => {
       setConflict(null);
       setWaiting(null);
+      // A scan replaces what's on screen: the page goes to the top, so its answer shows
+      scrollToTop();
       setView(next);
       setPicks({ label, cards, mixed: next.type === "search" });
       // An empty slot scanned long ago no longer counts as "put a card in"
@@ -555,6 +574,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       }
       const found = res.data;
       if (found.kind === "location") {
+        placeRead(code, found.location.name);
         // Ship check is about bags and orders; a scanned slot works as always
         await onSlot(found.location);
         return;
@@ -580,7 +600,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         showCards({ type: "card", card: found.card }, found.card.code ?? "the card", placeable([found.card]));
       }
     },
-    [fail, onSlot, router, shipRef, showCards],
+    [fail, onSlot, placeRead, router, shipRef, showCards],
   );
 
   /** Every scan, typed code, pasted link and search comes in here. */
@@ -656,6 +676,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   function cancelWaiting() {
     setWaiting(null);
     setConflict(null);
+    // The screen-reader line said "Scan the next slot for …": nothing waits now
+    setStatus("");
   }
 
   function startAssign(cards: TrackCardSummary[]) {
@@ -728,8 +750,16 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     cue = { title: `Scan the slot for ${cardsLabel(waiting.cards)}`, sub: "Or type its name (desk, clamp 7) below.", tone: "bg-primary text-primary-foreground", cancel: cancelWaiting };
   } else if (ship) {
     cue = { title: "Ship check: scan the bag or order", sub: "Opens its ship check page.", tone: "bg-cyan-700 text-white", cancel: toggleShip, cancelLabel: "Stop" };
+  } else if (activeTarget && holderView && slotView?.code === activeTarget.code && slotCards.length > 0) {
+    // A holder with cards in it, on screen: its own buttons are the one prompt; a bag scanned next still adds a card here
+    cue = {
+      title: scannerReady ? "Ready to scan" : "Getting ready…",
+      sub: ADD_HERE_TEXT,
+      tone: "bg-white text-foreground border border-border",
+      ready: true,
+    };
   } else if (activeTarget) {
-    // A holder or desk with cards in it already, on screen: its own cards' buttons are below
+    // An empty slot (or one scanned before a bag or search): the next card tapped goes in it
     const holding = slotView?.code === activeTarget.code && slotCards.length > 0;
     cue = {
       title: `${holding ? "Add a card to" : "Put a card in"} ${activeTarget.name}`,
@@ -757,6 +787,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const pickList = activeTarget && slotView && activeTarget.code === slotView.code && picks
     ? picks.cards.filter((c) => c.location?.code !== slotView.code && !c.done)
     : [];
+  // The holder view on screen says the last save itself (with the order's line): no second box above it
+  const savedHere = !!slotView && holderView && !!scanSaveResult(lastSave, slotView);
 
   return (
     <div className={`mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 sm:px-6 lg:py-8 ${showActions ? "pb-44 lg:pb-8" : "pb-10"}`}>
@@ -867,7 +899,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             </button>
           </div>
         )}
-        {orderNotes.length > 0 && (
+        {orderNotes.length > 0 && !savedHere && (
           <div role="status" className="flex items-start gap-3 rounded-2xl border border-border bg-white px-4 py-3">
             <div className="min-w-0 flex-1 flex flex-col gap-1">
               {orderNotes.map((n) => (
@@ -908,10 +940,10 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           <div className={`${panel} p-4 text-sm text-muted-foreground`}>
             <p className="font-semibold text-foreground">How it works</p>
             <ul className="mt-1 list-disc space-y-1 pl-5">
-              <li>Scan an <span className="font-semibold text-foreground">empty slot</span>, then scan the bag and tap the card to put in it.</li>
-              <li>Scan a <span className="font-semibold text-foreground">full slot</span> to see its card: Move it (then scan the next slot), Done, or Take out.</li>
+              <li>Scan an <span className="font-semibold text-foreground">empty holder</span>, then scan the bag and tap the card to put in it.</li>
+              <li>Scan a <span className="font-semibold text-foreground">holder with a card</span> to see it big: Move to my desk, Move to another holder (scan it, or pick it from the list), Done, or Take out.</li>
               <li>Scan a <span className="font-semibold text-foreground">bag</span> to see where each of its cards is.</li>
-              <li>A stack coming out (a heat press of 8): scan the holder, tap Move, then scan the <span className="font-semibold text-foreground">desk</span>. All its cards go.</li>
+              <li>A stack coming out (a heat press of 8): scan the holder and tap <span className="font-semibold text-foreground">Move all 8 to my desk</span>. Or tick some and use Done, Move or Take out for those.</li>
             </ul>
             <div className="mt-3 flex flex-wrap gap-2">
               <AdminLink href="/admin/receiving/locations" className={smallButton}>Slots and labels</AdminLink>
@@ -942,9 +974,15 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             }}
             onCancelScanNext={cancelWaiting}
             lastSave={lastSave}
+            onSaved={() => {
+              // The holder's own result line replaces the older lines above it
+              setDeskNote(null);
+              setOrderNotes([]);
+            }}
             onOpenBag={(code) => onInput(code, "link")}
           >
-            {activeTarget?.code === slotView.code && pickList.length > 0 && picks && (
+            {/* An empty holder: the cards of the bag (or search) scanned before it, to tap in. A holder with cards has its own buttons only */}
+            {activeTarget?.code === slotView.code && slotCards.length === 0 && pickList.length > 0 && picks && (
               <div className={panel}>
                 <p className="px-4 pt-3 text-sm font-bold text-foreground">Tap a card from {picks.label}</p>
                 <ul>
@@ -1041,10 +1079,13 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                   <button
                     type="button"
                     disabled={!!busy || chosen.length === 0}
-                    onClick={() => {
+                    onClick={(e) => {
                       if (!confirmDone) {
                         setConfirmDone(true);
                         setStatus("Tap Done again to mark it finished.");
+                        // Tapped or clicked (not pressed with the keyboard): it doesn't keep focus while it asks,
+                        // so a broken scan's Enter can't answer "Tap again"
+                        if (e.detail > 0) e.currentTarget.blur();
                         return;
                       }
                       const cards = chosen;
@@ -1173,7 +1214,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 }
 
 /** "Got it: CD-2549-P" over the top panel for a moment (READ_FLASH_MS); screen readers hear it from the status line. */
-function ReadFlash({ read }: { read: { key: number; code: string } | null }) {
+function ReadFlash({ read }: { read: { key: number; text: string } | null }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = ref.current;
@@ -1190,7 +1231,7 @@ function ReadFlash({ read }: { read: { key: number; code: string } | null }) {
       className="pointer-events-none absolute inset-0 flex items-center gap-3 bg-green-600 px-4 text-white sm:px-6"
     >
       <Check className="h-8 w-8 shrink-0" strokeWidth={3} />
-      <p className="min-w-0 truncate text-2xl font-black sm:text-3xl">Got it: {read.code}</p>
+      <p className="min-w-0 truncate text-2xl font-black sm:text-3xl">Got it: {read.text}</p>
     </div>
   );
 }

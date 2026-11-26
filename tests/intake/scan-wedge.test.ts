@@ -71,11 +71,40 @@ test("wedge: a pause over 300 ms between characters starts a new scan (a stray k
   assert.equal(wedgeKey(e, "Enter", d.last + 5).scan, "CD-2549-P");
 });
 
-test("wedge: fewer than 4 characters + Enter is a person's Enter: not a scan, not blocked", () => {
+test("wedge: a broken scan (fewer than 4 characters + Enter or Tab) is not a scan, and its end key never reaches the focused element", () => {
+  // A focused "Mark done" (or any button) must not be pressed by what's left of a broken read
+  for (const [chars, gap] of [["abc", 5], ["Q", 5], ["CD", 40]] as const) {
+    const w = newWedge();
+    const { last } = type(w, chars, 0, gap);
+    assert.deepEqual(wedgeKey(w, "Enter", last + 5), { scan: null, block: true }, `"${chars}" + Enter`);
+    const t = newWedge();
+    const tl = type(t, chars, 0, gap);
+    assert.deepEqual(wedgeKey(t, "Tab", tl.last + 5), { scan: null, block: true }, `"${chars}" + Tab`);
+  }
+  // ... whatever the buffer length, up to ENTER_GAP_MS after the last character
   const w = newWedge();
-  const { last } = type(w, "abc", 0, 5);
-  assert.deepEqual(wedgeKey(w, "Enter", last + 5), { scan: null, block: false });
+  wedgeKey(w, "x", 0);
+  assert.deepEqual(wedgeKey(w, "Enter", ENTER_GAP_MS), { scan: null, block: true }, "1 s after a stray key");
+  // A lone Enter (no character before it) and an Enter over 1 s after the last key are a person's
   assert.deepEqual(wedgeKey(newWedge(), "Enter", 10_000), { scan: null, block: false }, "a lone Enter");
+  const late = newWedge();
+  wedgeKey(late, "x", 0);
+  assert.deepEqual(wedgeKey(late, "Enter", ENTER_GAP_MS + 1), { scan: null, block: false }, "over 1 s after a stray key");
+  // Blocked once: the next Enter (nothing typed since) is a person's again
+  const again = newWedge();
+  const a = type(again, "ab", 0, 5);
+  assert.equal(wedgeKey(again, "Enter", a.last + 5).block, true);
+  assert.equal(wedgeKey(again, "Enter", a.last + 400).block, false);
+});
+
+test("wedge: a person's Space on a button or tick box, then Tab or Enter, goes through (keyboard use isn't trapped)", () => {
+  const w = newWedge();
+  assert.deepEqual(wedgeKey(w, " ", 0), { scan: null, block: false }, "the Space presses the focused button");
+  assert.deepEqual(wedgeKey(w, "Tab", 120), { scan: null, block: false }, "Tab moves on");
+  const e = newWedge();
+  wedgeKey(e, " ", 0);
+  wedgeKey(e, " ", 150);
+  assert.deepEqual(wedgeKey(e, "Enter", 300), { scan: null, block: false }, "Enter after two Spaces");
 });
 
 test("wedge: Shift, arrows and Escape are left alone and don't break a scan", () => {
