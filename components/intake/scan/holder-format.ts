@@ -344,3 +344,30 @@ export function scanSaveResult(save: ScanSave | null | undefined, slot: Pick<Tra
   if (save.res.location?.code === slot.code) return { ...holderOutcome("other", [], save.res, slot.name), deskCode: null };
   return null;
 }
+
+/**
+ * The body of the Scan page's Done or Take out (`POST done` / `release`).
+ * From a holder or slot (the DONE sign after "Move to another holder", the
+ * plain slot view's Done and Take out) it names that place (`fromCode`), so
+ * a card someone moved meanwhile is refused, never finished where it is now
+ * (and its order never auto-completed from a stale screen); from a bag,
+ * order or search (`from` null): the cards wherever they are.
+ */
+export function finishBody(
+  cardIds: readonly string[],
+  from: Pick<TrackSlotSummary, "code"> | null,
+  sessionId?: string,
+): { cardIds: string[]; fromCode?: string; sessionId?: string } {
+  return { cardIds: [...cardIds], ...(from ? { fromCode: from.code } : {}), ...(sessionId ? { sessionId } : {}) };
+}
+
+/** How long "Move to another holder" waits for the next holder (or the DONE sign) to be scanned. */
+export const MOVE_WAIT_MS = 10 * 60_000;
+
+/**
+ * A waiting "Move to another holder" that started at `at` has waited too
+ * long: it is dropped, so a forgotten move never acts on a later scan.
+ */
+export function moveWaitOver(at: number, now: number): boolean {
+  return now - at > MOVE_WAIT_MS;
+}

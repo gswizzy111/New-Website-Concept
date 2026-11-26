@@ -13,9 +13,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  ADD_HERE_TEXT, EMPTY_HOLDER_TEXT, PICKS_LOCKED_TEXT, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, actionLabel, actionShortLabel, addAnywayText,
-  barCardLine, cardDetails, deskLinkCode, doneQuestion, doneYesLabel, dueLine, durationText, holderActionDisabled, holderButtons,
-  holderCountText, holderHeading, holderOutcome, inHolderText, inItNowText, isHolderPlace, isStack, myDesk, onYourDeskText, orderLine,
+  ADD_HERE_TEXT, EMPTY_HOLDER_TEXT, MOVE_WAIT_MS, PICKS_LOCKED_TEXT, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, actionLabel, actionShortLabel, addAnywayText,
+  barCardLine, cardDetails, deskLinkCode, doneQuestion, doneYesLabel, dueLine, durationText, finishBody, holderActionDisabled, holderButtons,
+  holderCountText, holderHeading, holderOutcome, inHolderText, inItNowText, isHolderPlace, isStack, moveWaitOver, myDesk, onYourDeskText, orderLine,
   pickedText, savingText, scanSaveResult, settledCardIds, shortDay, takenOutText, withoutGone, type HolderAction, type HolderButtonState,
 } from "@/components/intake/scan/holder-format";
 import { scanReadLabel } from "@/components/intake/scan/parse";
@@ -212,6 +212,18 @@ test("after a save the cards it took out leave the list at once, until the holde
   assert.equal(withoutGone(slot, null), slot);
 });
 
+test("the Scan page's Done / Take out name the place they come from (fromCode); a waiting 'Move to another holder' ends after 10 minutes", () => {
+  // From a holder or slot (the DONE sign after Move, the slot view's Done and Take out): only cards still in it
+  assert.deepEqual(finishBody(["a", "b"], { code: "LOC-CLAMP-07" }, "scan-1"), { cardIds: ["a", "b"], fromCode: "LOC-CLAMP-07", sessionId: "scan-1" });
+  // From a bag, order or search (the DONE sign after "Assign to a slot"): wherever they are, as before
+  assert.deepEqual(finishBody(["a"], null, "scan-1"), { cardIds: ["a"], sessionId: "scan-1" });
+  assert.deepEqual(finishBody(["a"], { code: "LOC-SHELF-20261207" }), { cardIds: ["a"], fromCode: "LOC-SHELF-20261207" });
+  assert.equal(MOVE_WAIT_MS, 10 * 60_000);
+  const at = Date.parse("2026-11-26T18:00:00Z");
+  assert.deepEqual([moveWaitOver(at, at), moveWaitOver(at, at + 9 * 60_000), moveWaitOver(at, at + MOVE_WAIT_MS), moveWaitOver(at, at + MOVE_WAIT_MS + 1), moveWaitOver(at, at + 3 * 60 * 60_000)],
+    [false, false, false, true, true]);
+});
+
 // ─── Against the in-memory database ─────────────────────────────────────
 
 type Row = Record<string, unknown>;
@@ -225,6 +237,8 @@ let svc: {
   resolve: typeof import("@/lib/intake/tracking/resolve");
 };
 const realFetch = globalThis.fetch;
+/** Every email the app tried to send (Resend's API, caught at fetch). */
+const sent: { to: string; subject: string }[] = [];
 
 const ORDER = "00000000-0000-4000-8000-00000ab00001";
 const BAG = "00000000-0000-4000-8000-00000ab0b001";
@@ -272,7 +286,11 @@ before(async () => {
   // No customer email leaves the test: Resend's API is caught here
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes("resend")) return new Response(JSON.stringify({ id: "email" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.includes("resend")) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { to?: string | string[]; subject?: string };
+      sent.push({ to: String(Array.isArray(body.to) ? body.to[0] : body.to), subject: String(body.subject ?? "") });
+      return new Response(JSON.stringify({ id: `email-${sent.length}` }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     return realFetch(input, init);
   }) as typeof fetch;
   admin = createClient(mock.url, "service-role-test-key", { auth: { persistSession: false } });
@@ -486,12 +504,16 @@ test("Move to my desk sends no force: a desk with a limit set in Places that is 
   await svc.locations.updateLocation(admin, { id: desk.id as string, capacity: null });
 });
 
-test("the DONE sign after 'Move to another holder': the from-holder says where the bag is (the answer has no place)", async () => {
+test("the DONE sign after 'Move to another holder': it names the from-holder (fromCode); the from-holder says where the bag is (the answer has no place)", async () => {
   const into = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-02", cardIds: [C(9)], by: "gavin" });
   assert.ok(into.ok, into.ok ? "" : into.error);
   await tick();
-  const res = await svc.moves.markCardsDone(admin, { cardIds: [C(9)], by: "gavin" });
+  // The Scan page's body for the DONE sign while CLAMP 02's move waits (scan-app.tsx doFinish)
+  const body = finishBody([C(9)], await holder("LOC-CLAMP-02"), "scan-1");
+  assert.deepEqual(body, { cardIds: [C(9)], fromCode: "LOC-CLAMP-02", sessionId: "scan-1" });
+  const res = await svc.moves.markCardsDone(admin, { cardIds: body.cardIds, fromCode: body.fromCode, sessionId: body.sessionId, by: "gavin" });
   assert.ok(res.ok, res.ok ? "" : res.error);
+  assert.deepEqual(res.results.map((r) => [r.code, r.ok]), [["CD-6001-09", true]]);
   const answer = res as TrackActionResponse;
   assert.equal(answer.location, null);
   const save = { key: 1, res: answer, at: "LOC-CLAMP-02", action: "done" as const, cards: [{ code: "CD-6001-09", name: "Charizard 9" }] };
@@ -504,4 +526,60 @@ test("the DONE sign after 'Move to another holder': the from-holder says where t
   // Cards put into a holder by the Scan page's own flow still show there
   const moved = { ...answer, location: { id: "x", code: "LOC-HEAT-PRESS-01", name: "HEAT PRESS 01", kind: "station" as const, station: "heat-press", serial: 1, stage: "Heat Press" }, message: "In HEAT PRESS 01. Step: Heat Press." };
   assert.equal(scanSaveResult({ key: 2, res: moved }, { code: "LOC-HEAT-PRESS-01", name: "HEAT PRESS 01" })?.outcome.title, "In HEAT PRESS 01. Step: Heat Press.");
+});
+
+test("the DONE sign after 'Move to another holder' when someone moved the card meanwhile: refused (409), nothing changes, no email", async () => {
+  // An order whose only card is this one: finishing it would complete the order and email the customer
+  const order2 = "00000000-0000-4000-8000-00000ab00002";
+  const bag2 = "00000000-0000-4000-8000-00000ab0b002";
+  const id = C(20);
+  const base = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  mock.store.table("orders").push({ ...base, id: order2, order_number: "CD-6002", customer_name: "Sam Ortiz", customer_email: "sam@example.com",
+    status: "in_progress", payment_status: "paid", updated_at: "2026-11-23T19:00:00+00:00" });
+  mock.store.table("tier_bags").push({ ...mock.store.table("tier_bags").find((b) => b.id === BAG)!, id: bag2, order_id: order2, bag_code: "CD-6002-G" });
+  mock.store.table("cards").push(card(20, { order_id: order2, bag_id: bag2, card_code: "CD-6002-01", card_seq: 1 }));
+  const put = await svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-01", cardIds: [id], force: true, by: "gavin" });
+  assert.ok(put.ok, put.ok ? "" : put.error);
+  await tick();
+
+  // This phone: CLAMP 01 on screen, "Move to another holder" tapped (the Scan page waits, from CLAMP 01)
+  const from = await holder("LOC-CLAMP-01");
+  assert.deepEqual(from.cards.map((c) => c.code), ["CD-6002-01"]);
+  // Another phone moves it to HEAT PRESS 01
+  const away = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-01", toCode: "LOC-HEAT-PRESS-01", cardIds: [id], force: true, by: "gavin" });
+  assert.ok(away.ok, away.ok ? "" : away.error);
+  await tick();
+
+  const row = () => mock.store.table("cards").find((c) => c.id === id)!;
+  const snapshot = () => ({
+    card: { ...row() },
+    moves: mock.store.table("card_moves").length,
+    order: mock.store.table("orders").find((o) => o.id === order2)!.status,
+    events: mock.store.table("order_events").filter((e) => e.order_id === order2).length,
+    bag: { ...mock.store.table("tier_bags").find((b) => b.id === bag2)! },
+    emails: sent.length,
+  });
+  const before = snapshot();
+  assert.equal(before.order, "in_progress");
+
+  // This phone scans DONE: the body names CLAMP 01, so the card (now in HEAT PRESS 01) is refused
+  const body = finishBody([id], from, "scan-1");
+  assert.equal(body.fromCode, "LOC-CLAMP-01");
+  const res = await svc.moves.markCardsDone(admin, { cardIds: body.cardIds, fromCode: body.fromCode, sessionId: body.sessionId, by: "gavin" });
+  assert.deepEqual(res.ok ? null : [res.status, res.error], [409, "CD-6002-01 isn't in CLAMP 01 any more (now in HEAT PRESS 01)."]);
+  await tick();
+  const after = snapshot();
+  assert.deepEqual(after, before, "nothing changed: the card, its history, the order, its events, the bag, no email");
+  assert.deepEqual([row().completed, row().location_id], [false, loc("LOC-HEAT-PRESS-01")!.id], "still in HEAT PRESS 01, not done");
+  // The Scan page then stops waiting and shows CLAMP 01 as it is now
+  assert.equal((await holder("LOC-CLAMP-01")).cardCount, 0);
+
+  // Before the fix the DONE sign sent no fromCode: the same scan finished the card where it is now,
+  // completed the order and emailed the customer (what the refusal above prevents)
+  const old = await svc.moves.markCardsDone(admin, { cardIds: [id], by: "gavin" });
+  assert.ok(old.ok && old.results[0].ok, old.ok ? old.results[0].message : old.error);
+  await tick();
+  assert.equal(row().completed, true);
+  assert.equal(mock.store.table("orders").find((o) => o.id === order2)!.status, "completed");
+  assert.ok(sent.slice(before.emails).some((m) => m.to === "sam@example.com"), `no email to the customer (${JSON.stringify(sent.slice(before.emails))})`);
 });
