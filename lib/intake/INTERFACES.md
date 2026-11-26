@@ -438,7 +438,7 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `POST release` | `{ cardIds, sessionId? }` | "Take out": no place, step kept |
 | `POST done` | `{ cardIds, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
-| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards; a bag or order with each card's slot) |
+| `GET resolve` | `?code=` slot, bag, order, Card ID or its QR link | `ResolveResponse` (a slot with its cards and `desks`, the switched-on desks for "Move to my desk"; a bag or order with each card's slot) |
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order |
 | `GET history` | `?code=` | last 50 moves, newest first |
 | `GET ship-check` | `?code=` bag, order or Card ID | each card `ok`, `not_done`, `in_slot`, `refunded`; `ready` |
@@ -498,6 +498,40 @@ images under each card"):
   `cardPhotos()` in `tracking/summaries.ts` with `productImage` (tile 240 /
   360 / 480 px wide, full 1280 / 2048) on Netlify; `photoUrl` stays as it was.
   Component: `components/intake/scan/card-photos.tsx`.
+- **Holder view** (owner, Nov 26 2026: "when you scan on a station that has
+  a card in it, it is a little more clear"; `holder-view.tsx`, words and
+  rules in `holder-format.ts`, tests `tests/intake/scan-holder.test.ts`): a
+  scanned work-station slot or `other` place (desks, BENCH 2; not the Open
+  bags box: `isHolderPlace`) shows, top to bottom: the holder huge ("CLAMP
+  07 · has 1 card" with a limit, "HEAT PRESS 02 · 8 cards" without one,
+  "CLAMP 07 · empty"; dark while a card is in it); the last action's result
+  line (the server's sentence: Done says where the bag is, the Open bags box
+  line, the order's auto-complete line, finished bags' links, "Open desk
+  page" after a move to a desk; Move to my desk: "CD-2549-03 is on your
+  desk.", Take out: "CD-2549-03 taken out of CLAMP 07, not done. Put it back
+  in REYES's bag: …"; a save from the Scan page's own flow into this holder,
+  e.g. a Move then a scan of it, shows the same way); each card big (photos
+  "large", name, year · set · #, Card ID, "Maria Reyes · Order CD-2549 ·
+  Gold", "Due Mon Dec 7 · 3 days late" / "· 2 days left" / "· today", "Step:
+  Clamp Work", "In CLAMP 07 for 2 days"); then the buttons, sticky at the
+  bottom of a phone: one card "Move to my desk" (primary; `POST move` to the
+  desk, force), "Move to another holder" (the Desk page's `HolderPicker`,
+  and the Scan page waits for the next holder scan at the same time), "Done"
+  (asks "Mark it done? Then put it back in its bag."; `POST done`), "Take
+  out" (`POST release`); a stack (2+ cards): tick boxes (none ticked at
+  first), "Move all N to my desk", "Done for selected", "Move selected",
+  "Take out selected". On your own desk Move to another holder (Move
+  selected) leads; a refunded card has Take out only. "My desk" is the
+  phone's desk choice shared with the scan landing (`desk-choice.ts`, with a
+  "My desk" select when there are 2+ desks); no desk: "No desk yet. Open the
+  Desk page once to make one." Empty: "Empty. Scan a bag or card to put one
+  here." After a save the holder is read again, the result line takes focus
+  (no typing box keeps it, so the scanner's next scan is caught), and any
+  scan clears the result. Exact words: the HOLDER agent's holder-text.md.
+  Data: `TrackSlotSummary.desks?: TrackDeskRef[]` (`{ id, code, name }`,
+  the switched-on desks, LOC-DESK first; `deskRefs` / `loadDeskRefs` in
+  `tracking/desk.ts`, read with every scanned place; left out when that
+  read fails; a scan never makes a desk).
 
 ## Finished cards and bags (done flow)
 
