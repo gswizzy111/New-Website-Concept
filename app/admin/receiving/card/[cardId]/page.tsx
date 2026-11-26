@@ -11,11 +11,12 @@ import { STAGES } from "@/lib/restoration-stages";
 import { loadCard } from "@/lib/intake/data";
 import { isMissingIntakeSchema } from "@/lib/intake/completed";
 import { dayText, dueHint, daysUntil, nyDateTime } from "@/lib/intake/tracking-format";
-import type { BagSummary, IntakeCard, StageHistoryEntry } from "@/lib/intake/types";
+import type { BagSummary, IntakeCard } from "@/lib/intake/types";
 import { StepPicker } from "@/components/intake/tracking-actions";
 import { BagLabelPrint } from "@/components/intake/bag-label-panel";
 import { getLabelSettings } from "@/lib/intake/labels/data";
 import { LABEL_STOCKS } from "@/lib/intake/labels/stock";
+import { CardHistory, HistoryList } from "./card-history";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Card | Receiving", robots: { index: false } };
@@ -84,36 +85,6 @@ function CardImages({ card, orderId }: { card: IntakeCard; orderId: string }) {
         Add a photo in receiving
       </AdminLink>
     </div>
-  );
-}
-
-function HistoryList({ history }: { history: StageHistoryEntry[] }) {
-  if (history.length === 0) return <p className="text-sm text-muted-foreground">No steps recorded yet.</p>;
-  // Newest first
-  const rows = [...history].reverse();
-  return (
-    <ol className="flex flex-col divide-y divide-border">
-      {rows.map((h, i) => (
-        <li key={`${h.at}-${h.kind}-${i}`} className="py-2.5 flex items-start gap-3">
-          <span
-            aria-hidden
-            className={`mt-1.5 w-2.5 h-2.5 shrink-0 rounded-full ${
-              h.kind === "completed" ? "bg-green-600" : h.kind === "received" ? "bg-blue-600" : h.kind === "round_started" ? "bg-amber-500" : "bg-purple-500"
-            }`}
-          />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">
-              {h.label}
-              {h.bulk && <span className="ml-2 text-[11px] font-bold text-muted-foreground">with its bag</span>}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {nyDateTime(h.at)}
-              {h.by ? ` · by ${h.by}` : ""}
-            </p>
-          </div>
-        </li>
-      ))}
-    </ol>
   );
 }
 
@@ -309,10 +280,17 @@ export default async function ReceivingCardPage({ params }: { params: Promise<{ 
               </dl>
             </section>
 
-            <section className={panel} aria-labelledby="history">
-              <h2 id="history" className="font-heading font-black text-base text-foreground mb-1">Restoration history</h2>
-              <HistoryList history={st.history} />
-            </section>
+            {/* The steps with who did each, then the moves; the steps alone until the names stream in */}
+            <Suspense
+              fallback={
+                <section className={panel} aria-labelledby="history">
+                  <h2 id="history" className="font-heading font-black text-base text-foreground mb-1">Restoration history</h2>
+                  <HistoryList history={st.history} />
+                </section>
+              }
+            >
+              <CardHistory cardId={card.id} history={st.history} panel={panel} />
+            </Suspense>
 
             {/* Refunded cards aren't on the bag's label */}
             {bag && !card.refunded && (
