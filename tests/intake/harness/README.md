@@ -454,7 +454,9 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
   picks its one card) a double read 200 ms apart asks once and moves nothing,
   the next read 2 s later assigns it (row from no place).
 - `scan-plain-cancel`: CLAMP 07, CLAMP 06, CLAMP 07; CLAMP 07, a bag, CLAMP
-  07; DONE, CLAMP 07, DONE: nothing moves or is done; then the flow works.
+  07; DONE, CLAMP 07, DONE; CLAMP 07, the panel's Cancel, CLAMP 07; CLAMP 07,
+  Esc, CLAMP 07: nothing moves or is done (each last scan asks again); then
+  the flow works.
 - `scan-plain-timeout`: `page.clock` (Playwright fakes Date, performance.now
   and timers; no page hook needed): 35 s between the two scans moves nothing
   ("Nothing moved" reported), 20 s moves. SKIP with the reason if the clock

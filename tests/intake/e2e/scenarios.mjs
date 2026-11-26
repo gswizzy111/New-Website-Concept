@@ -223,8 +223,8 @@ export const UI = {
   // ── The plain Scan page (scan-plain-*, owner Nov 26; components/intake/scan/flow-text.ts, the BUILDER's ui-text.md) ──
   // The top panel with a card picked: "Picked: CD-2549-07"
   plainPicked: (code) => new RegExp(`picked:\\s*${esc(code)}(?![0-9-])`, "i"),
-  // How a picked card itself may be marked (soft: the top panel says it)
-  plainSelected: (page) => page.locator('main [aria-pressed="true"], main [aria-selected="true"], main [aria-checked="true"], main [aria-current="true"], main [data-selected="true"], main [data-picked="true"]'),
+  // The picked card's view: <section data-screen="card" data-picked-card="<card id>" aria-label="CD-2549-07 <name>">
+  plainPickedView: (page, code) => page.locator(`main [data-picked-card][aria-label^="${code} "], main [data-picked-card][aria-label="${code}"]`).first(),
   // A card to tap in a list (bag, order, desk): a button naming its Card ID, not a photo
   plainCardTap: (page, code) => {
     const re = new RegExp(`${esc(code)}(?![0-9-])`);
@@ -7146,12 +7146,22 @@ async function plainShows(p, codes, hidden = [], ms = 30_000) {
   for (const c of hidden) { const how = await plainShown(p, c); if (how) extra.push(`${c} (${how})`); }
   assert(!extra.length, `shown but must not be: ${extra.join(", ")}`);
 }
-/** The card is picked: the top panel says "Picked: CD-2549-07" (and how the card itself is marked, if it is). */
+/**
+ * The card is picked: the top panel says "Picked: CD-2549-07" (a message such as "CLAMP 07 already
+ * has …" takes the panel's place while it shows), and the picked card's view ([data-picked-card],
+ * named "CD-2549-07 <name>") is the one on screen.
+ */
 async function pickedCheck(p, code) {
-  const panel = await until(async () => { const x = flat(await UI.scanReady(p).innerText().catch(() => "")); return UI.plainPicked(code).test(x) ? x : null; }, 10_000);
-  assert(panel, `the top panel doesn't say "Picked: ${code}" ("${flat(await UI.scanReady(p).innerText().catch(() => "")).slice(0, 160)}")`);
-  const marked = await UI.plainSelected(p).filter({ hasText: new RegExp(`${esc(code)}(?![0-9-])`) }).count();
-  return `"${panel.slice(0, 90)}"${marked ? "; the card is marked selected" : ""}`;
+  const view = UI.plainPickedView(p, code);
+  const seen = await until(async () => {
+    const x = flat(await UI.scanReady(p).innerText().catch(() => ""));
+    const shown = await view.isVisible().catch(() => false);
+    return shown ? (UI.plainPicked(code).test(x) ? `"${x.slice(0, 80)}"` : `its card view (the panel says "${x.slice(0, 80)}")`) : null;
+  }, 10_000);
+  assert(seen, `${code} isn't the picked card (the panel says "${flat(await UI.scanReady(p).innerText().catch(() => "")).slice(0, 160)}"; card views: ${await p.locator("main [data-picked-card]").count()})`);
+  const others = await p.locator("main [data-picked-card]").evaluateAll((els, c) => els.filter((e) => !(e.getAttribute("aria-label") ?? "").startsWith(`${c} `) && e.checkVisibility()).length, code);
+  assert(!others, `${others} other card view(s) on screen`);
+  return seen;
 }
 /** Only the waiting panel: "Ready to scan", and no Card, Bag or order ID, photo, card list or card button. */
 async function plainOnly(p, when) {
@@ -7574,6 +7584,30 @@ const SCAN_PLAIN_SCENARIOS = {
         await plainSays(p, UI.plainDoneAgain(PLAIN.card), "Done question again");
         await nothingMoved(before, posts, from, "DONE, a spot, DONE");
         return asked;
+      }, { shot: false });
+      await s.step(`the waiting panel's Cancel, and Esc on the page (a computer), each drop the waiting move: ${PLAIN.empty.name} then asks again; nothing moves`, async () => {
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        const before = await tables();
+        const from = posts.length;
+        const panel = () => UI.scanReady(p).innerText().then(flat).catch(() => "");
+        const dropped = async (how) => {
+          const ok = await until(async () => !UI.plainAgainAny.test(await panel()), 5_000);
+          assert(ok, `${how} left "${(await panel()).slice(0, 120)}"`);
+        };
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty.name, PLAIN.card), "move question");
+        await p.locator("[data-scan-panel]").first().getByRole("button", { name: /^cancel$/i }).click();
+        await dropped("Cancel");
+        const after1 = await panel();
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty.name, PLAIN.card), "move question after Cancel");
+        await p.evaluate(() => { const a = document.activeElement; if (a && a !== document.body && typeof a.blur === "function") a.blur(); });
+        await p.keyboard.press("Escape");
+        await dropped("Esc");
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty.name, PLAIN.card), "move question after Esc");
+        await nothingMoved(before, posts, from, "Cancel / Esc between the scans");
+        return `after Cancel the panel says "${after1.slice(0, 80)}"`;
       }, { shot: false });
       await s.step(`(the flow works here) ${PLAIN.spot.name}, ${PLAIN.empty.name}, ${PLAIN.empty.name}: moved`, async () => {
         await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
