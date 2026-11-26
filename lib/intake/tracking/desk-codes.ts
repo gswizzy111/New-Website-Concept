@@ -7,8 +7,11 @@ import { isLocationCode, normalizeCode } from "@/lib/intake/codes";
  * these and adds the loaders.
  *
  * A desk (owner's request, Nov 24 2026) is a place of kind 'other' whose
- * code is LOC-DESK or LOC-DESK-<NAME> (LOC-DESK-GAVIN, LOC-DESK-2). Cards
- * put on a desk change place only, never step.
+ * code is LOC-DESK or LOC-DESK-<NAME> (LOC-DESK-GAVIN, LOC-DESK-2), or ends
+ * in -DESK (LOC-GAVINS-DESK: a desk made with "Add another kind of place"
+ * and named "Gavins Desk"). Cards put on a desk change place only, never
+ * step, and a desk has no card limit (one card per holder applies to
+ * everything else).
  */
 
 /** The first desk's code and name (made by ensureDesk when there is no desk). */
@@ -17,9 +20,9 @@ export const DESK_NAME = "DESK";
 /** The Desk page. */
 export const DESK_PAGE = "/admin/receiving/desk";
 
-const DESK_CODE_RE = /^LOC-DESK(?:-[A-Z0-9]+)*$/;
+const DESK_CODE_RE = /^LOC-(?:DESK(?:-[A-Z0-9]+)*|(?:[A-Z0-9]+-)+DESK)$/;
 
-/** A desk's code (LOC-DESK, LOC-DESK-GAVIN), typed, normalized or as its QR link. LOC-DESKTOP is not a desk. */
+/** A desk's code (LOC-DESK, LOC-DESK-GAVIN, LOC-GAVINS-DESK), typed, normalized or as its QR link. LOC-DESKTOP and LOC-DESKS-2 are not desks. */
 export function isDeskCode(code: string | null | undefined): boolean {
   const c = normalizeCode(code);
   return !!c && isLocationCode(c) && DESK_CODE_RE.test(c);

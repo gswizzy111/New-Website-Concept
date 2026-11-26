@@ -2,7 +2,7 @@ import { outcomeOf } from "@/app/admin/receiving/desk/_lib/outcome";
 import { isBackInBag, isOpenBagsPlace, openBagsSentence, orderCompletionNotes, type ToneLine } from "@/lib/intake/tracking/bag-home";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type {
-  AssignRequest, CapacityConflict, DoneRequest, LocationKind, LocationRef, MoveRequest, ReleaseRequest, TrackActionResponse,
+  AssignRequest, CapacityConflict, DoneRequest, HolderFull, LocationKind, LocationRef, MoveRequest, ReleaseRequest, TrackActionResponse,
   TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary,
 } from "@/lib/intake/tracking/types";
 import {
@@ -412,7 +412,7 @@ export function saveCall(save: Save): SaveCall {
 /** A save's answer: the tracking API's (api.ts ApiResult). */
 export type SaveOutcome =
   | { ok: true; res: TrackActionResponse }
-  | { ok: false; error: string; status: number; conflict?: CapacityConflict };
+  | { ok: false; error: string; status: number; conflict?: CapacityConflict; full?: HolderFull };
 
 /**
  * After a save. Saved: the page is plain again with the result in the panel
@@ -427,6 +427,13 @@ export function afterSave(state: FlowState, outcome: SaveOutcome, now: number): 
   const base: FlowState = { ...state, saving: null, pending: null };
   const { card } = save;
   if (!outcome.ok) {
+    if (outcome.full && save.kind === "move") {
+      // A one-card holder filled meanwhile (409 HolderFull, one card per holder): what's in it, no "Add anyway", the card stays picked
+      return {
+        state: { ...base, message: { tone: "warn", title: holderFullTitle(save.to.name, outcome.full.occupants), sub: didntMoveText(card), card } },
+        sound: "refused",
+      };
+    }
     if (outcome.conflict && save.kind === "move") {
       if (save.to.desk) {
         return {

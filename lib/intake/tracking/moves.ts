@@ -6,25 +6,34 @@ import { refreshBagCompletion } from "@/lib/intake/stages";
 import { completeOrdersIfAllDone, type OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 import { chunks, loadOrdersContext, type OrdersContext } from "@/lib/intake/tracking/context";
 import { getLocationByCode, getLocationById } from "@/lib/intake/tracking/locations";
-import { overCapacity, planCards, type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove } from "@/lib/intake/tracking/move-plan";
+import {
+  holderTakenText, oneCardOnlyText, oneCardRefusal, overCapacity, planCards,
+  type CardPlan, type PlanAction, type PlanCard, type PlanLocation, type PlannedMove,
+} from "@/lib/intake/tracking/move-plan";
 import { isWithBag, withBagSentences } from "@/lib/intake/tracking/bag-home";
 import { settleBags } from "@/lib/intake/tracking/bag-places";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
-import { isSlot, locationRef } from "@/lib/intake/tracking/places";
+import { holdsOneCard, isSlot, locationRef } from "@/lib/intake/tracking/places";
 import { loadCardSummaries } from "@/lib/intake/tracking/resolve";
 import { sendStageUpdateEmail } from "@/lib/intake/tracking/stage-email";
 import { isReceived, isRefunded, type TrackCardRow } from "@/lib/intake/tracking/summaries";
-import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActionResponse, TrackCardResult } from "@/lib/intake/tracking/types";
+import type {
+  CapacityConflict, HolderFull, LocationRef, LocationRow, MoveAction, TrackActionResponse, TrackCardResult, TrackCardSummary,
+} from "@/lib/intake/tracking/types";
 
 /**
  * Putting cards in slots and taking them out (the Scan page's assign, move,
  * take out and done), server only. Admin access is checked by the calling
  * route. The rules are in move-plan.ts (planCards); this file reads, checks
- * the slot's capacity, then writes in this order:
+ * the place's room (capacityCheck), then writes in this order:
  *   1. cards.location_id / located_at (the old slot frees up), only where
  *      each card still is where it was read: a second phone moving the same
  *      card, or the same request sent twice, finds it gone and writes nothing
- *      for it (no second step event, history row or email);
+ *      for it (no second step event, history row or email); into a one-card
+ *      holder the holder is read again right after, and if another card got
+ *      in at the same moment (two phones) this request's card goes back where
+ *      it was and the answer is the 409 HolderFull, before anything else is
+ *      written;
  *   2. card_moves rows (history);
  *   3. stage_update events for cards going into a slot at another step
  *      (later or earlier): exactly what the stage buttons and advanceCards()
@@ -43,16 +52,26 @@ import type { CapacityConflict, LocationRef, LocationRow, MoveAction, TrackActio
  *      REYES's bag: Open bags box, under R.").
  * A failed write stops there and answers 500; doing it again is safe (cards
  * already there at that step are left alone; a card already in its new slot
- * still gets its step). Capacity is checked before writing, so two phones
- * filling the last space at the same moment can both get in (capacity is a
- * warning staff can override anyway).
+ * still gets its step).
+ *
+ * Room (owner, Nov 26 2026: "I want every single sticker station thingy to
+ * only be able to hold one card other than my desk"): a one-card holder
+ * (every station slot, every other place but a desk or the Open bags box:
+ * places.ts holdsOneCard) takes ONE card whatever its stored capacity says,
+ * and `force` never bypasses it: a second card, or several at once, is the
+ * 409 HolderFull ("CLAMP 07 already has a card (CD-2549-03 · Charizard).
+ * Take it out first, or pick another holder." / "CLAMP 07 holds one card.
+ * Pick one card to put here."). Putting a card in the holder it is already
+ * in is no change (200). A desk has no limit; a desk with a limit set (the
+ * capacity column) answers the 409 CapacityConflict, which `force` adds
+ * anyway ("Add anyway?"). Shelves, Done and Shipping have no limit.
  */
 
 export const MAX_CARDS = 200;
 
 export type TrackResult =
   | ({ ok: true } & TrackActionResponse)
-  | { ok: false; status: number; error: string; conflict?: CapacityConflict };
+  | { ok: false; status: number; error: string; conflict?: CapacityConflict; full?: HolderFull };
 
 type Common = { by: string | null; sessionId?: string | null };
 
@@ -118,28 +137,61 @@ async function occupantIds(admin: SupabaseClient, locationId: string): Promise<s
   return (data ?? []).map((r) => r.id as string);
 }
 
-/** The 409 for a full slot, or null when there's room (or `force`). */
-async function capacityCheck(admin: SupabaseClient, loc: LocationRow, plan: CardPlan, force: boolean | undefined): Promise<CapacityConflict | null> {
-  if (force || loc.capacity == null) return null;
-  // Only cards that would go in count; cards already inside never trip it
+/** The 409 HolderFull for a one-card holder (holdsOneCard): what's in it now, and what to do. */
+function holderFull(loc: Pick<LocationRow, "code" | "name">, why: "taken" | "several", occupants: TrackCardSummary[]): HolderFull {
+  return {
+    error: why === "taken" ? holderTakenText(loc.name, occupants) : oneCardOnlyText(loc.name),
+    holderFull: true,
+    holder: { code: loc.code, name: loc.name },
+    occupants,
+  };
+}
+
+/**
+ * Whether the place has room for the cards the plan puts in it: null when it
+ * has; `full` (409 HolderFull) for a one-card holder that can't take them,
+ * whatever `force` says; `conflict` (409 CapacityConflict, "Add anyway?")
+ * for any other place with a capacity set (a desk with a limit), unless
+ * `force`. Only cards that would go in count; cards already inside never
+ * trip it.
+ */
+async function capacityCheck(
+  admin: SupabaseClient,
+  loc: LocationRow,
+  plan: CardPlan,
+  force: boolean | undefined,
+): Promise<{ full: HolderFull } | { conflict: CapacityConflict } | null> {
   const going = plan.moves.filter((m) => m.locationChanges && m.toLocationId === loc.id).map((m) => m.cardId);
   if (!going.length) return null;
+  if (holdsOneCard(loc)) {
+    // The owner's rule: one card, whatever capacity is stored; force can't add a second
+    const inside = await occupantIds(admin, loc.id);
+    const others = inside.filter((id) => !going.includes(id));
+    const why = oneCardRefusal(going, others);
+    if (!why) return null;
+    return { full: holderFull(loc, why, why === "taken" ? await loadCardSummaries(admin, others) : []) };
+  }
+  if (force || loc.capacity == null) return null;
   const inside = await occupantIds(admin, loc.id);
   if (!overCapacity(loc.capacity, inside, going)) return null;
   const others = inside.filter((id) => !going.includes(id));
   return {
-    error: `${loc.name} holds ${loc.capacity === 1 ? "1 card" : `${loc.capacity} cards`} and ${others.length === 1 ? "has 1" : `has ${others.length}`} in it. Add anyway?`,
-    overCapacity: true,
-    capacity: loc.capacity,
-    occupants: await loadCardSummaries(admin, others),
+    conflict: {
+      error: `${loc.name} holds ${loc.capacity === 1 ? "1 card" : `${loc.capacity} cards`} and ${others.length === 1 ? "has 1" : `has ${others.length}`} in it. Add anyway?`,
+      overCapacity: true,
+      capacity: loc.capacity,
+      occupants: await loadCardSummaries(admin, others),
+    },
   };
 }
 
 /**
  * POST /api/admin/track/assign: put cards (by id) in the slot or place
  * `locationCode`. Each card leaves its old slot; in a slot its step becomes
- * the slot's step (later or earlier). Over the slot's capacity it answers 409
- * with the cards already in it, unless `force`.
+ * the slot's step (later or earlier). A one-card holder that has a card, or
+ * several cards at once into one, is the 409 HolderFull (force or not); a
+ * desk with a limit set that is full is the 409 CapacityConflict unless
+ * `force`.
  */
 export async function assignCards(
   admin: SupabaseClient,
@@ -156,7 +208,8 @@ export async function assignCards(
  * POST /api/admin/track/move: move the cards in the slot `fromCode` (all, or
  * only `cardIds`) to the slot `toCode`. Their step follows the new slot. The
  * from-slot may be switched off (its cards can still leave it); the slot
- * they go to must be on.
+ * they go to must be on. Room as assignCards: a one-card holder takes one
+ * card (409 HolderFull).
  */
 export async function moveSlot(
   admin: SupabaseClient,
@@ -270,7 +323,8 @@ export async function markCardsDone(
 /**
  * Put cards (by id) in a place by id, e.g. Receiving placing cards on their
  * due-date shelf slot with action "receive". Same rules and writes as
- * assignCards; no capacity check (shelves have none).
+ * assignCards; `force` defaults to true (shelves have no limit), but a
+ * one-card holder still takes one card.
  */
 export async function placeCards(
   admin: SupabaseClient,
@@ -326,8 +380,9 @@ async function planAndRun(
   });
   if (target && (action === "assign" || action === "move")) {
     try {
-      const conflict = await capacityCheck(admin, target, plan, force);
-      if (conflict) return { ok: false, status: 409, error: conflict.error, conflict };
+      const room = await capacityCheck(admin, target, plan, force);
+      if (room && "full" in room) return { ok: false, status: 409, error: room.full.error, full: room.full };
+      if (room) return { ok: false, status: 409, error: room.conflict.error, conflict: room.conflict };
     } catch (e) {
       return { ok: false, status: 500, error: `Couldn't read ${target.name}. Nothing was changed. (${errText(e)})` };
     }
@@ -421,13 +476,51 @@ function splitByPlace(ctx: Pick<OrdersContext, "cards" | "locations">, cardIds: 
   return { keep, refused, error };
 }
 
+/**
+ * After `mine` went into the one-card holder `target`: when another card is
+ * in it too (put there at the same moment from another phone), `mine` go
+ * back where they were (place and time) and the answer is the 409 HolderFull;
+ * null when the holder holds only `mine`. A failed read leaves the move as
+ * it is (capacityCheck found it empty just before).
+ */
+async function undoIfShared(
+  admin: SupabaseClient,
+  target: LocationRow,
+  mine: readonly PlannedMove[],
+  ctx: Pick<OrdersContext, "cards">,
+): Promise<{ ok: false; status: number; error: string; full?: HolderFull } | null> {
+  const { data, error } = await admin.from("cards").select("id").eq("location_id", target.id).limit(10);
+  if (error) {
+    console.warn("[tracking] one-card holder not read again:", error.message);
+    return null;
+  }
+  const ours = new Set(mine.map((m) => m.cardId));
+  const others = (data ?? []).map((r) => r.id as string).filter((id) => !ours.has(id));
+  if (!others.length) return null;
+  const was = new Map(ctx.cards.map((c) => [c.id, c.located_at]));
+  for (const m of mine) {
+    const { error: backErr } = await admin.from("cards")
+      .update({ location_id: m.fromLocationId, located_at: m.fromLocationId ? was.get(m.cardId) ?? null : null })
+      .eq("id", m.cardId).eq("location_id", target.id);
+    if (backErr) return { ok: false, status: 500, error: `Couldn't save where the cards are. (${backErr.message})` };
+  }
+  let occupants: TrackCardSummary[] = [];
+  try {
+    occupants = await loadCardSummaries(admin, others);
+  } catch (e) {
+    console.warn("[tracking] the holder's card not read:", errText(e));
+  }
+  const full = holderFull(target, "taken", occupants);
+  return { ok: false, status: 409, error: full.error, full };
+}
+
 async function writePlan(
   admin: SupabaseClient,
   plan: CardPlan,
   ctx: OrdersContext,
   target: LocationRow | null,
   input: Common,
-): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[]; orderCompletions: OrderAutoComplete[] } | { ok: false; status: number; error: string }> {
+): Promise<{ ok: true; emailedOrders: string[]; bagsCompleted: string[]; freed: LocationRef[]; lost: string[]; orderCompletions: OrderAutoComplete[] } | { ok: false; status: number; error: string; full?: HolderFull }> {
   const out = { ok: true as const, emailedOrders: [] as string[], bagsCompleted: [] as string[], freed: [] as LocationRef[], lost: [] as string[], orderCompletions: [] as OrderAutoComplete[] };
   if (!plan.moves.length) return out;
   const by = input.by;
@@ -452,6 +545,17 @@ async function writePlan(
   out.lost = [...lost];
   const moves = plan.moves.filter((m) => !lost.has(m.cardId));
   if (!moves.length) return out;
+
+  // 1b. A one-card holder: capacityCheck read it before this write, so two phones putting a card in
+  // the same holder at the same moment could both have got in. Read it again: another card in it
+  // now means this request's card goes back where it was, and nothing else is written
+  if (target && holdsOneCard(target)) {
+    const mine = moves.filter((m) => m.locationChanges && m.toLocationId === target.id);
+    if (mine.length) {
+      const back = await undoIfShared(admin, target, mine, ctx);
+      if (back) return back;
+    }
+  }
 
   // 2. History
   for (const part of chunks(moves, 500)) {

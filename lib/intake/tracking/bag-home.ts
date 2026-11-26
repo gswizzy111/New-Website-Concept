@@ -1,7 +1,7 @@
 import { customerLastName, filingLetter } from "@/lib/intake/filing-letter";
 import type { OrderAutoComplete } from "@/lib/intake/order-autocomplete";
 import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
-import { SHIP_LOCATION_CODE } from "@/lib/intake/tracking/places";
+import { OPEN_BAGS_CODE, SHIP_LOCATION_CODE } from "@/lib/intake/tracking/places";
 import type { LocationRef, TrackBagPlace } from "@/lib/intake/tracking/types";
 
 /**
@@ -19,8 +19,8 @@ import type { LocationRef, TrackBagPlace } from "@/lib/intake/tracking/types";
  * Server side: lib/intake/tracking/bag-places.ts (the writes) and moves.ts.
  */
 
-/** The Open bags box: one place (kind 'other'), made on first use. */
-export const OPEN_BAGS_CODE = "LOC-OPEN-BAGS";
+/** The Open bags box: one place (kind 'other'), made on first use (the code lives in places.ts, for the one-card rule). */
+export { OPEN_BAGS_CODE };
 export const OPEN_BAGS_NAME = "OPEN BAGS";
 /** What staff call LOC-SHIP. */
 export const READY_TO_SHIP = "Ready to ship";

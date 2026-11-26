@@ -3,6 +3,7 @@ import type {
   BagReadyResponse,
   CapacityConflict,
   DoneRequest,
+  HolderFull,
   MoveRequest,
   ReleaseRequest,
   ResolveResponse,
@@ -13,13 +14,15 @@ import type {
 /**
  * The Scan page's calls to the tracking API (app/api/admin/track/**). Each
  * returns { ok: true, data } or { ok: false, error } with a sentence staff can
- * read; a full slot comes back as { ok: false, conflict } so the page can
- * offer "Add anyway".
+ * read; a one-card holder that can't take the cards comes back as { ok:
+ * false, full } (its `error` says what to do: no "Add anyway"), a desk with a
+ * limit that is full as { ok: false, conflict } so the page can offer "Add
+ * anyway".
  */
 
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; status: number; conflict?: CapacityConflict };
+  | { ok: false; error: string; status: number; conflict?: CapacityConflict; full?: HolderFull };
 
 /**
  * How long a call may take. Scans run one after another, so a request that
@@ -47,6 +50,9 @@ async function call<T>(url: string, init?: RequestInit): Promise<ApiResult<T>> {
     clearTimeout(timer);
   }
   if (res.ok && body) return { ok: true, data: body as T };
+  if (res.status === 409 && body?.holderFull) {
+    return { ok: false, status: 409, error: String(body.error ?? "That holder already has a card."), full: body as unknown as HolderFull };
+  }
   if (res.status === 409 && body?.overCapacity) {
     return { ok: false, status: 409, error: String(body.error ?? "That slot is full."), conflict: body as unknown as CapacityConflict };
   }

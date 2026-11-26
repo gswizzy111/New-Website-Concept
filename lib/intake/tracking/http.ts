@@ -34,13 +34,14 @@ export async function readJson(req: Request): Promise<Record<string, unknown> | 
 export const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 export const optString = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
-/** A tracking service result as a response: the TrackActionResponse, { error } or the 409 CapacityConflict. */
+/** A tracking service result as a response: the TrackActionResponse, { error }, or a 409 HolderFull (a one-card holder) or CapacityConflict (a desk with a limit). */
 export function trackResponse(result: TrackResult): Response {
   if (result.ok) {
     const { ok: _ok, ...body } = result;
     void _ok;
     return json(body);
   }
+  if (result.full) return json(result.full, 409);
   if (result.conflict) return json(result.conflict, 409);
   return json({ error: result.error }, result.status);
 }

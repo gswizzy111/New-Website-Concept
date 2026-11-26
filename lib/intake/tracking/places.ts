@@ -2,6 +2,7 @@ import { STAGES, adminStageLabel } from "@/lib/restoration-stages";
 import { isDay, weekday } from "@/lib/intake/business-days";
 import { isLocationCode, qrUrl } from "@/lib/intake/codes";
 import { DONE_LABEL, NOT_STARTED_LABEL } from "@/lib/intake/stage-plan";
+import { isDeskCode } from "@/lib/intake/tracking/desk-codes";
 import type { LocationKind, LocationRef, LocationRow, TrackLocation } from "@/lib/intake/tracking/types";
 import { LOCATION_KINDS } from "@/lib/intake/tracking/types";
 import { STATION_TYPES, stationName } from "@/lib/intake/tracking/stations";
@@ -19,6 +20,33 @@ export const LOCATION_REF_COLUMNS = "id, code, name, kind, station, serial, stag
 /** The Done shelf and Shipping, as seeded (supabase/migrations/20261124_card_tracking.sql). */
 export const DONE_LOCATION_CODE = "LOC-DONE";
 export const SHIP_LOCATION_CODE = "LOC-SHIP";
+/** The Open bags box: one place (kind 'other') that holds bags, A-Z (bag-home.ts re-exports it). */
+export const OPEN_BAGS_CODE = "LOC-OPEN-BAGS";
+
+/** What a one-card holder holds (holdsOneCard). */
+export const ONE_CARD = 1;
+
+/**
+ * The owner's rule (Nov 26 2026: "I want every single sticker station thingy
+ * to only be able to hold one card other than my desk"): every holder with a
+ * QR sticker holds at most ONE card. That is every work-station slot (kind
+ * 'station') and every other place (kind 'other') that is not a desk
+ * (LOC-DESK, LOC-DESK-<NAME>: isDeskCode) and not the Open bags box (it holds
+ * bags). Desks have no limit (unless one is set on the desk). Shelves, Done
+ * and Shipping hold bags, or are legacy: unchanged. The server enforces it
+ * whatever the stored capacity column says, and `force` never bypasses it
+ * (moves.ts).
+ */
+export function holdsOneCard(loc: Pick<LocationRow, "kind" | "code"> | null | undefined): boolean {
+  if (!loc) return false;
+  if (loc.kind === "station") return true;
+  return loc.kind === "other" && !isDeskCode(loc.code) && loc.code !== OPEN_BAGS_CODE;
+}
+
+/** The cards a place holds: 1 for a one-card holder (holdsOneCard) whatever is stored, else the stored capacity (null = no limit). */
+export function placeCapacity(loc: Pick<LocationRow, "kind" | "code" | "capacity">): number | null {
+  return holdsOneCard(loc) ? ONE_CARD : loc.capacity ?? null;
+}
 
 /** The stage key card_moves stores for a finished card. */
 export const DONE_STAGE_KEY = "done";
@@ -96,7 +124,7 @@ export function shelfSlotSort(dueDate: string): number {
   return Number(dueDate.replaceAll("-", ""));
 }
 
-/** A locations row as the pages show it. */
+/** A locations row as the pages show it (`capacity`: the owner's one-card rule applied, placeCapacity). */
 export function locationView(row: LocationRow): TrackLocation {
   return {
     id: row.id,
@@ -106,7 +134,7 @@ export function locationView(row: LocationRow): TrackLocation {
     station: row.station ?? null,
     stationName: row.kind === "station" ? stationName(row.station) : null,
     serial: row.serial ?? null,
-    capacity: row.capacity ?? null,
+    capacity: placeCapacity(row),
     stage: row.stage,
     stageLabel: row.stage ? adminStageLabel(row.stage) : null,
     dueDate: row.due_date,

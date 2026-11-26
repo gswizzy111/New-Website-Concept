@@ -22,10 +22,11 @@ import {
   spotRole, startFlow, startSave, tapSave, type FlowState, type Found, type Panel, type SaveCall, type SaveOutcome, type Step,
 } from "@/components/intake/scan/scan-flow";
 import {
-  NOTE_TITLES, PENDING_SUB, PICKED_SUB, READY_SUB, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, backLabel, holderFullTitle, cardDetails, cardNoteList, doneInBagLine, dueLine,
+  NOTE_TITLES, PENDING_SUB, PICKED_SUB, READY_SUB, SAVE_BUSY_TEXT, SWITCHED_OFF_TEXT, addAnywayText, backLabel, holderFullTitle, cardDetails, cardNoteList, doneInBagLine, dueLine,
   emptySpotText, hasCardNotes, inItNowText, movedTitle, outLine, searchHeading, takenOutText, whereText,
 } from "@/components/intake/scan/flow-text";
 import { cardNotes } from "@/lib/intake/tracking/summaries";
+import { deskRefs } from "@/lib/intake/tracking/desk";
 import type {
   LocationRef, TrackActionResponse, TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary,
 } from "@/lib/intake/tracking/types";
@@ -666,7 +667,8 @@ function send(call: SaveCall) {
   return svc.moves.releaseCards(admin, { ...call.body, by });
 }
 const outcomeOfResult = (r: Awaited<ReturnType<typeof send>>): SaveOutcome =>
-  (r.ok ? { ok: true, res: r as TrackActionResponse } : { ok: false, status: r.status, error: r.error, ...(r.conflict ? { conflict: r.conflict } : {}) });
+  (r.ok ? { ok: true, res: r as TrackActionResponse }
+    : { ok: false, status: r.status, error: r.error, ...(r.conflict ? { conflict: r.conflict } : {}), ...(r.full ? { full: r.full } : {}) });
 
 async function resolved(code: string): Promise<Found> {
   const r = await svc.resolve.resolveTrackCode(admin, code);
@@ -959,4 +961,135 @@ test("live: a card picked in its bag that another phone put in a holder: the dou
   mock.store.table("cards").push(row(32, { order_id: order3, bag_id: bag3, card_code: "CD-6103-03", card_seq: 3 }));
   const inBag = await svc.moves.markCardsDone(admin, { cardIds: [C(32)], fromBag: true, by: "gavin" });
   assert.ok(inBag.ok && inBag.results[0].ok, inBag.ok ? inBag.results[0].message : inBag.error);
+});
+
+// ─── Kept from the retired holder view's tests (scan-holder.test.ts: #81's fromCode, #83's one card per holder) ───
+
+test("deskRefs: switched-on 'other' places with a desk code, LOC-DESK first", () => {
+  const ref = (code: string, name: string, over: Partial<{ active: boolean; kind: "other" | "done"; sort: number }> = {}) =>
+    ({ id: code, code, name, kind: "other" as const, active: true, sort: 0, ...over });
+  assert.deepEqual(deskRefs([
+    ref("LOC-DESK-ZED", "DESK ZED"), ref("LOC-DESK-OLD", "DESK OLD", { active: false }), ref("LOC-DESKTOP", "DESKTOP"),
+    ref("LOC-DESK", "DESK"), ref("LOC-DESK-AMY", "DESK AMY"), ref("LOC-DESK-X", "DESK X", { kind: "done" }),
+  ]).map((d) => [d.code, d.name]), [["LOC-DESK", "DESK"], ["LOC-DESK-AMY", "DESK AMY"], ["LOC-DESK-ZED", "DESK ZED"]]);
+  assert.deepEqual(Object.keys(deskRefs([ref("LOC-DESK", "DESK")])[0]).sort(), ["code", "id", "name"]);
+});
+
+/** Order CD-6104 (Ana Diaz), bag CD-6104-G, cards CD-6104-40..45 in the bag; HUMIDOR 01..02 and the desk "Desk Gavin". */
+const ORDER4 = "00000000-0000-4000-8000-00000ac00004";
+const BAG4 = "00000000-0000-4000-8000-00000ac0b004";
+async function order4() {
+  if (mock.store.table("orders").some((o) => o.id === ORDER4)) return;
+  const base = mock.store.table("orders").find((o) => o.id === ORDER)!;
+  mock.store.table("orders").push({ ...base, id: ORDER4, order_number: "CD-6104", customer_name: "Ana Diaz", customer_email: "ana@example.com",
+    status: "in_progress", payment_status: "paid", customer_notes: null, updated_at: "2026-11-23T19:00:00+00:00" });
+  mock.store.table("tier_bags").push({ ...mock.store.table("tier_bags").find((b) => b.id === BAG)!, id: BAG4, order_id: ORDER4, bag_code: "CD-6104-G", location_id: null });
+  for (const n of [40, 41, 42, 43, 44, 45]) mock.store.table("cards").push(row(n, { order_id: ORDER4, bag_id: BAG4, card_code: `CD-6104-${n}`, card_seq: n }));
+  const humidors = await svc.locations.createSlots(admin, { station: "humidor", count: 2, by: "gavin" });
+  assert.ok(humidors.ok, humidors.ok ? "" : humidors.error);
+  const gavin = await svc.locations.createLocation(admin, { name: "Desk Gavin", kind: "other", by: "gavin" });
+  assert.ok(gavin.ok, gavin.ok ? "" : gavin.error);
+  assert.ok(loc("LOC-DESK-GAVIN") && loc("LOC-HUMIDOR-02"));
+}
+
+test("server: Done / Take out naming a place (fromCode): a card moved meanwhile is refused with where it is now, never finished; none left: 409; an unknown place: 404", async () => {
+  await order4();
+  // Two cards on a desk (every other holder takes one card)
+  const put = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(40), C(41)], by: "gavin" });
+  assert.ok(put.ok, put.ok ? "" : put.error);
+  await tick();
+  // Another phone moves CD-6104-41 to HUMIDOR 01 while this one still has it on Desk Gavin
+  const away = await svc.moves.moveSlot(admin, { fromCode: "LOC-DESK-GAVIN", toCode: "LOC-HUMIDOR-01", cardIds: [C(41)], by: "gavin" });
+  assert.ok(away.ok, away.ok ? "" : away.error);
+  await tick();
+  const moves0 = mock.store.table("card_moves").length;
+  const sent0 = emails;
+  const done = await svc.moves.markCardsDone(admin, { cardIds: [C(40), C(41)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
+  assert.ok(done.ok, done.ok ? "" : done.error);
+  assert.deepEqual(done.ok && done.results.map((r) => [r.code, r.ok, r.message]), [
+    ["CD-6104-40", true, "Done."],
+    ["CD-6104-41", false, "Not in Desk Gavin any more (now in HUMIDOR 01)."],
+  ]);
+  assert.deepEqual([dbCard(41).completed, dbCard(41).location_id], [false, loc("LOC-HUMIDOR-01")!.id], "CD-6104-41 left alone: not done, still in HUMIDOR 01");
+  assert.equal(mock.store.table("card_moves").length - moves0, 1, "one history row (CD-6104-40's)");
+  await tick();
+
+  // None left in it: 409, nothing written; Done and Take out alike
+  const again = await svc.moves.markCardsDone(admin, { cardIds: [C(41)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
+  assert.deepEqual(again.ok ? null : [again.status, again.error], [409, "CD-6104-41 isn't in Desk Gavin any more (now in HUMIDOR 01)."]);
+  const both = await svc.moves.releaseCards(admin, { cardIds: [C(40), C(41)], fromCode: "LOC-DESK-GAVIN", by: "gavin" });
+  assert.deepEqual(both.ok ? null : [both.status, both.error],
+    [409, "Those cards aren't in Desk Gavin any more: CD-6104-40 (now in its bag), CD-6104-41 (now in HUMIDOR 01)."]);
+  assert.equal(mock.store.table("card_moves").length - moves0, 1, "nothing more written");
+  assert.equal(emails, sent0, "no email");
+  const unknown = await svc.moves.releaseCards(admin, { cardIds: [C(41)], fromCode: "LOC-NOPE-01", by: "gavin" });
+  assert.deepEqual(unknown.ok ? null : [unknown.status, unknown.error], [404, "No slot or place has the code LOC-NOPE-01."]);
+
+  // From where it really is: taken out; without fromCode (the Desk page, the scan landing) a card is done wherever it is
+  const out41 = await svc.moves.releaseCards(admin, { cardIds: [C(41)], fromCode: "LOC-HUMIDOR-01", by: "gavin" });
+  assert.ok(out41.ok && out41.results[0].ok, out41.ok ? out41.results[0].message : out41.error);
+  await tick();
+  const onDesk = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(41)], by: "gavin" });
+  assert.ok(onDesk.ok, onDesk.ok ? "" : onDesk.error);
+  await tick();
+  const fromHumidor = await svc.moves.markCardsDone(admin, { cardIds: [C(41)], fromCode: "LOC-HUMIDOR-01", by: "gavin" });
+  assert.deepEqual(fromHumidor.ok ? null : fromHumidor.error, "CD-6104-41 isn't in HUMIDOR 01 any more (now on Desk Gavin).");
+  const anywhere = await svc.moves.markCardsDone(admin, { cardIds: [C(41)], by: "gavin" });
+  assert.ok(anywhere.ok && anywhere.results[0].ok, anywhere.ok ? anywhere.results[0].message : anywhere.error);
+  assert.deepEqual([dbCard(41).completed, dbCard(41).location_id], [true, null]);
+});
+
+test("server: a desk with a limit set in Places that is full answers 409 overCapacity (the page's 'Add anyway?', no force); force adds it", async () => {
+  await order4();
+  const desk = loc("LOC-DESK-GAVIN")!;
+  const limit = await svc.locations.updateLocation(admin, { id: desk.id as string, capacity: 1 });
+  assert.ok(limit.ok, limit.ok ? "" : limit.error);
+  try {
+    const first = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(42)], by: "gavin" });
+    assert.ok(first.ok, first.ok ? "" : first.error);
+    const into = await svc.moves.assignCards(admin, { locationCode: "LOC-HUMIDOR-02", cardIds: [C(43)], by: "gavin" });
+    assert.ok(into.ok, into.ok ? "" : into.error);
+    await tick();
+    const full = await svc.moves.moveSlot(admin, { fromCode: "LOC-HUMIDOR-02", toCode: "LOC-DESK-GAVIN", cardIds: [C(43)], by: "gavin" });
+    assert.ok(!full.ok && full.status === 409 && full.conflict, "409 with the conflict");
+    if (full.ok || !full.conflict) return;
+    assert.equal(addAnywayText("Desk Gavin", full.conflict), "Desk Gavin already holds Charizard 42. Add anyway?");
+    assert.equal(inItNowText(full.conflict), "In it now: CD-6104-42 · holds 1 card");
+    assert.equal(dbCard(43).location_id, loc("LOC-HUMIDOR-02")!.id, "not moved");
+    const anyway = await svc.moves.moveSlot(admin, { fromCode: "LOC-HUMIDOR-02", toCode: "LOC-DESK-GAVIN", cardIds: [C(43)], force: true, by: "gavin" });
+    assert.ok(anyway.ok, anyway.ok ? "" : anyway.error);
+    assert.equal(dbCard(43).location_id, desk.id);
+  } finally {
+    await svc.locations.updateLocation(admin, { id: desk.id as string, capacity: null });
+  }
+});
+
+test("live: a holder filled between the two scans (one card per holder: 409 HolderFull): '… already has CD-… · name' / '… didn't move.', no Add anyway, nothing written, no email", async () => {
+  await order4();
+  // CD-6104-44 and -45 are still in their bag: the bag's list, tap -44
+  let s = await scanLive(startFlow(), "CD-6104-G", T0);
+  assert.equal(s.screen.kind, "list");
+  s = pickCard(s, s.screen.kind === "list" ? s.screen.list.cards.find((c) => c.id === C(44))! : card(0));
+  assert.equal(pickedCard(s)?.id, C(44));
+  s = await scanLive(s, "LOC-HUMIDOR-01", T0 + 1_000);
+  assert.equal(s.pending?.to.code, "LOC-HUMIDOR-01");
+  // Another phone puts CD-6104-45 in HUMIDOR 01 meanwhile
+  const other = await svc.moves.assignCards(admin, { locationCode: "LOC-HUMIDOR-01", cardIds: [C(45)], by: "gavin" });
+  assert.ok(other.ok, other.ok ? "" : other.error);
+  await tick();
+  const moves0 = mock.store.table("card_moves").length;
+  const sent0 = emails;
+  // The page's save as sent (assign from its bag, fromBag) answers HolderFull, force or not
+  const plan = planScan(s, "LOC-HUMIDOR-01", T0 + 2_000);
+  assert.equal(plan.do, "save");
+  const answer = await send(saveCall(plan.do === "save" ? plan.save : (null as never)));
+  assert.ok(!answer.ok && answer.status === 409 && answer.full && !answer.conflict, `409 HolderFull (${JSON.stringify(answer).slice(0, 160)})`);
+  s = await scanLive(s, "LOC-HUMIDOR-01", T0 + 2_000);
+  assert.deepEqual([s.message?.tone, s.message?.title, s.message?.sub, s.message?.retry ?? null],
+    ["warn", "HUMIDOR 01 already has CD-6104-45 · Charizard 45", "CD-6104-44 didn't move.", null]);
+  assert.equal(pickedCard(s)?.id, C(44), "still picked");
+  assert.equal(s.pending, null);
+  assert.deepEqual([dbCard(44).location_id, dbCard(45).location_id], [null, loc("LOC-HUMIDOR-01")!.id]);
+  assert.equal(mock.store.table("card_moves").length - moves0, 0, "nothing written");
+  assert.equal(emails, sent0, "no email");
 });

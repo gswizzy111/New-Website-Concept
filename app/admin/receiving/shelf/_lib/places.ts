@@ -27,7 +27,7 @@ export type PlaceRow = {
   station: string | null;
   /** A station slot's serial number (7 for CLAMP 07); null otherwise. */
   serial: number | null;
-  /** Cards the slot holds (null = no limit). */
+  /** Cards the place holds, as stored (null = no limit); a slot holds one card whatever this says (placeCapacity in lib/intake/tracking/places.ts). */
   capacity: number | null;
   /** A shelf slot's due date (YYYY-MM-DD); null otherwise. */
   due_date: string | null;

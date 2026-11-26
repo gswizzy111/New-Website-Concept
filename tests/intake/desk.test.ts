@@ -17,17 +17,19 @@ import {
 } from "@/lib/intake/tracking/desk";
 import { STATION_TYPES } from "@/lib/intake/tracking/stations";
 import type { TrackActionResponse, TrackLocationWithCount } from "@/lib/intake/tracking/types";
-import { BAG_ONLY_CODES, DONE_IN_PICKER_TEXT, holderFromText, holderGroups, isCardDestination, matchesHolder } from "@/app/admin/receiving/desk/_lib/holders";
+import {
+  BAG_ONLY_CODES, DONE_IN_PICKER_TEXT, holderFromText, holderGroups, isCardDestination, isTakenHolder, matchesHolder, oneEachText, takenText,
+} from "@/app/admin/receiving/desk/_lib/holders";
 import { outcomeOf, settledIds } from "@/app/admin/receiving/desk/_lib/outcome";
 import { deskPanelCard, deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/view";
 
 // ─── Pure ───────────────────────────────────────────────────────────────
 
-test("desk codes: LOC-DESK and LOC-DESK-<NAME>, typed, lower case or as a QR link; nothing else", () => {
-  for (const yes of ["LOC-DESK", "LOC-DESK-GAVIN", "loc-desk-2", " LOC-DESK ", "HTTPS://THECARDDOC1.COM/Q/LOC-DESK-GAVIN", "https://x.netlify.app/q/loc-desk"]) {
+test("desk codes: LOC-DESK, LOC-DESK-<NAME> and LOC-<NAME>-DESK, typed, lower case or as a QR link; nothing else", () => {
+  for (const yes of ["LOC-DESK", "LOC-DESK-GAVIN", "loc-desk-2", " LOC-DESK ", "LOC-GAVINS-DESK", "loc-front-desk", "HTTPS://THECARDDOC1.COM/Q/LOC-DESK-GAVIN", "https://x.netlify.app/q/loc-desk"]) {
     assert.equal(isDeskCode(yes), true, yes);
   }
-  for (const no of ["LOC-DESKTOP", "LOC-DESK-", "LOC-CLAMP-07", "LOC-DONE", "DESK", "CD-2549", "", null, undefined]) {
+  for (const no of ["LOC-DESKTOP", "LOC-DESK-", "LOC-DESKS-2", "LOC-GAVINS-DESKTOP", "LOC--DESK", "LOC-CLAMP-07", "LOC-DONE", "DESK", "CD-2549", "", null, undefined]) {
     assert.equal(isDeskCode(no), false, String(no));
   }
   assert.equal(deskPagePath(), "/admin/receiving/desk");
@@ -86,7 +88,9 @@ const slot = (station: string, n: number, capacity: number | null, cardCount: nu
     stationName: type.name, serial: n, capacity, stage: type.stage, stageLabel: type.stage, cardCount, free: capacity == null || cardCount < capacity, active });
 };
 const PLACES: TrackLocationWithCount[] = [
-  slot("heat-press", 1, null, 3),
+  // Stored "no limit" (made before the one-card rule): HEAT PRESS 02 holds one card all the same
+  slot("heat-press", 1, null, 0),
+  { ...slot("heat-press", 2, null, 1), cardCodes: ["CD-2549-03"] },
   slot("clamp", 1, 1, 1),
   slot("clamp", 7, 1, 0),
   slot("clamp", 8, 1, 0, false),
@@ -100,19 +104,35 @@ const PLACES: TrackLocationWithCount[] = [
 test("holder picker: by station type in step order, room first, full ones apart; other places last; not the desk itself", () => {
   const groups = holderGroups(PLACES, STATION_TYPES, { excludeId: "desk" });
   assert.deepEqual(groups.map((g) => [g.title, g.free.map((l) => l.name), g.full.map((l) => l.name)]), [
-    ["Heat Press", ["HEAT PRESS 01"], []],
+    ["Heat Press", ["HEAT PRESS 01"], ["HEAT PRESS 02"]],
     ["Clamp", ["CLAMP 07"], ["CLAMP 01"]],
     ["Other places", ["DESK GAVIN"], []],
     ["Final Dry", [], ["FINAL DRY 01"]], // no room at all: after the groups with room
   ]);
-  // Three cards don't fit a clamp that holds one
+  // Three cards: every holder takes one card, so only the desks are listed (and the sheet says why)
   const three = holderGroups(PLACES, STATION_TYPES, { excludeId: "desk", need: 3 });
-  assert.deepEqual(three.find((g) => g.title === "Clamp")?.free.map((l) => l.name), []);
+  assert.deepEqual(three.map((g) => [g.title, g.free.map((l) => l.name), g.full.map((l) => l.name)]), [["Other places", ["DESK GAVIN"], []]]);
+  assert.equal(oneEachText(3), "Each holder takes one card: put these 3 cards in one at a time, or on another desk.");
   // Typing narrows it
   assert.deepEqual(holderGroups(PLACES, STATION_TYPES, { excludeId: "desk", query: "clamp 7" }).map((g) => g.free.concat(g.full).map((l) => l.name)), [["CLAMP 07"]]);
   assert.deepEqual(holderGroups(PLACES, STATION_TYPES, { excludeId: "desk", query: "heat" }).map((g) => g.title), ["Heat Press"]);
   assert.equal(matchesHolder(PLACES[0], "HEAT PRESS"), true);
   assert.equal(matchesHolder(PLACES[0], "clamp"), false);
+});
+
+test("holder picker: a holder that has a card is full, greyed with its card's ID, never offered; a desk never is", () => {
+  const by = new Map(PLACES.map((l) => [l.code, l]));
+  assert.deepEqual(["LOC-HEAT-PRESS-01", "LOC-HEAT-PRESS-02", "LOC-CLAMP-01", "LOC-FINAL-DRY-01", "LOC-DESK-GAVIN"].map((c) => isTakenHolder(by.get(c)!)),
+    [false, true, true, true, false]);
+  assert.equal(takenText(by.get("LOC-HEAT-PRESS-02")!), "Has CD-2549-03");
+  assert.equal(takenText(by.get("LOC-CLAMP-01")!), "Has a card", "no Card ID known");
+  assert.equal(takenText(by.get("LOC-FINAL-DRY-01")!), "Has 2 cards", "2 from before the rule");
+  // A desk that has cards is still offered, and another place but a desk is a one-card holder
+  const desk = loc({ id: "d", code: "LOC-DESK-SAM", name: "DESK SAM", kind: "other", cardCount: 12 });
+  const bench = loc({ id: "b", code: "LOC-BENCH-2", name: "BENCH 2", kind: "other", cardCount: 1, cardCodes: ["CD-1-01"] });
+  assert.deepEqual([isTakenHolder(desk), isTakenHolder(bench)], [false, true]);
+  const groups = holderGroups([desk, bench], STATION_TYPES);
+  assert.deepEqual(groups.map((g) => [g.free.map((l) => l.name), g.full.map((l) => l.name)]), [[["DESK SAM"], ["BENCH 2"]]]);
 });
 
 test("holder picker box: a typed or scanned holder, else the one name that matches", () => {
@@ -289,14 +309,19 @@ test("ensureDesk: no desk -> LOC-DESK \"DESK\" (other), made once even when two 
   assert.deepEqual(await loadDeskCards(admin, desks[0].id), []);
 });
 
-test("a heat press stack moved to the desk: every card shows with its order, notes and where it came from; steps stay", async () => {
-  const made = await svc.locations.createSlots(admin, { station: "heat-press", count: 1, by: "gavin" });
+test("heat press cards moved to the desk together: every card shows with its order, notes and where it came from; steps stay", async () => {
+  const made = await svc.locations.createSlots(admin, { station: "heat-press", count: 3, by: "gavin" });
   assert.ok(made.ok, made.ok ? "" : made.error);
-  const press = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(1), C(2), C(3)], force: true, by: "gavin" });
-  assert.ok(press.ok, press.ok ? "" : press.error);
+  // A heat press takes one card (owner, Nov 26 2026): three at once are refused, force or not
+  const stack = await svc.moves.assignCards(admin, { locationCode: "LOC-HEAT-PRESS-01", cardIds: [C(1), C(2), C(3)], force: true, by: "gavin" });
+  assert.deepEqual(stack.ok ? null : [stack.status, stack.error], [409, "HEAT PRESS 01 holds one card. Pick one card to put here."]);
+  for (const n of [1, 2, 3]) {
+    const press = await svc.moves.assignCards(admin, { locationCode: `LOC-HEAT-PRESS-0${n}`, cardIds: [C(n)], by: "gavin" });
+    assert.ok(press.ok, press.ok ? "" : press.error);
+  }
   await tick();
-  // Scan HEAT PRESS 01, Move, scan DESK: all three
-  const moved = await svc.moves.moveSlot(admin, { fromCode: "LOC-HEAT-PRESS-01", toCode: "https://thecarddoc1.com/q/loc-desk", by: "sam" });
+  // All three onto DESK in one go (the desk takes any number)
+  const moved = await svc.moves.assignCards(admin, { locationCode: "https://thecarddoc1.com/q/loc-desk", cardIds: [C(1), C(2), C(3)], by: "sam" });
   assert.ok(moved.ok, moved.ok ? "" : moved.error);
   assert.equal(moved.ok && moved.changed, 3);
   await tick();
@@ -322,7 +347,7 @@ test("a heat press stack moved to the desk: every card shows with its order, not
   const [four, one, two] = cards;
   // The desk changes the place only: the stack keeps Heat Press, the loose card stays not started
   assert.deepEqual([one.stageLabel, two.stageLabel, four.stageLabel], ["Heat Press", "Heat Press", "Not started"]);
-  assert.deepEqual([one.arrival?.from?.name, one.arrival?.by, one.arrival?.action], ["HEAT PRESS 01", "sam", "move"]);
+  assert.deepEqual([one.arrival?.from?.name, one.arrival?.by, one.arrival?.action], ["HEAT PRESS 01", "sam", "assign"]);
   assert.deepEqual([four.arrival?.from, four.arrival?.by], [null, "gavin"]);
   assert.deepEqual(
     [one.name, one.year, one.set, one.number, one.variation, one.notes, one.knownDefects, one.declaredValueCents],
@@ -362,7 +387,7 @@ test("more desks: LOC-DESK-<NAME> places count; a switched-off LOC-DESK stays of
 test("Take out, then Undo (assign back to the desk with force): the cards are on the desk again with their step", async () => {
   const gavin = mock.store.table("locations").find((l) => l.code === "LOC-DESK-GAVIN")!;
   assert.equal(gavin.capacity ?? null, null, "a desk has no limit");
-  // The heat press stack (on the switched-off LOC-DESK) goes on DESK GAVIN
+  // The heat press cards (on the switched-off LOC-DESK) go on DESK GAVIN
   const on = await svc.moves.assignCards(admin, { locationCode: "LOC-DESK-GAVIN", cardIds: [C(1), C(2), C(3)], by: "gavin" });
   assert.ok(on.ok, on.ok ? "" : on.error);
   await tick();

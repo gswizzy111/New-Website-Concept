@@ -375,22 +375,73 @@ renamed or switched off, never deleted.
 
 **Station types** (`tracking/stations.ts` `STATION_TYPES`, editable list): key,
 name, stage, default capacity: slab-crack, humidor, humidity-press, drying
-(stage `Book`), heat-press, clamp, book-weights, final-dry. Holders that take a
-stack have no limit by default (null: humidor, humidity-press, drying,
-heat-press, book-weights, final-dry); clamp and slab-crack hold 1 (owner, Nov
-24 2026). A new slot copies its type's stage and capacity; capacity is stored
-per slot after that, so changing a default never changes slots already made
-(Places: "Set for all N <type> slots" PATCHes each slot of the type, turned-off
-ones too, 4 at a time, at most 200 per tap). Over capacity answers 409
-`overCapacity`; `force: true` adds anyway.
+(stage `Book`), heat-press, clamp, book-weights, final-dry. A new slot copies
+its type's stage and stores capacity 1.
+
+**One card per holder** (owner, Nov 26 2026: "okay so I want every single
+sticker station thingy to only be able to hold one card other than my
+desk"; `tracking/places.ts` `holdsOneCard`, `placeCapacity`, `ONE_CARD`,
+pure): every holder with a QR sticker holds at most ONE card: every station
+slot (kind `station`) and every `other` place that is not a desk
+(`isDeskCode`) and not the Open bags box (it holds bags). Desks have no
+limit. Shelves, Done, Shipping and the Open bags box are unchanged (they
+hold bags, or are legacy). Before (Nov 24 2026) humidor, humidity-press,
+drying, heat-press, book-weights and final-dry slots took a stack (no
+limit); slots made then still store null (production, Nov 26: all 30 drying,
+10 of 30 humidity press, 6 humidor) and hold one card all the same.
+
+- **A hard limit, on the server** (`moves.ts` `capacityCheck`, rules in
+  `move-plan.ts` `oneCardRefusal`, words `holderTakenText`,
+  `oneCardOnlyText`), whatever the stored capacity column says. There is no
+  "Add anyway" and `force` can't bypass it. `assign` / `move` answer 409
+  `HolderFull { error, holderFull: true, holder: { code, name }, occupants }`
+  (not a `CapacityConflict`): a holder that has a card, "CLAMP 07 already has
+  a card (CD-2549-03 · Charizard). Take it out first, or pick another
+  holder." (2+ from before the rule: "already has 2 cards (…, …). Take them
+  out first, …"); several cards at once, "CLAMP 07 holds one card. Pick one
+  card to put here." A card put in the holder it is already in is no change
+  (200, "Already in CLAMP 07."). Two phones putting a card in the same empty
+  holder at the same moment: the holder is read again right after the write
+  (before any history, step event or email), and if it holds another card
+  this request's card goes back where it was (place and time) and the answer
+  is the same 409 (`undoIfShared`; both may be refused, never both in).
+- **Everything reads the rule**: `locationView` gives `capacity` =
+  `placeCapacity` (1 for a one-card holder whatever is stored), so `free`,
+  `overCapacity` (resolve) and the list (`listLocations`) follow it; the
+  list adds `cardCodes` (Card IDs, at most 5) for a one-card holder with a
+  card in it. `createSlots` stores 1; `createLocation` stores 1 for an
+  `other` place that isn't a desk; `updateLocation` refuses another
+  capacity on a one-card holder (400 "CLAMP 07 holds one card (the owner's
+  rule), so its limit can't change."; 1 is accepted). No production data is
+  written for the rule.
+- **A desk with a limit** (the capacity column, set through PATCH; Places
+  shows no control) still answers 409 `CapacityConflict` `overCapacity`
+  when full, and `force: true` adds anyway ("Add anyway?" on the Scan
+  page's Move to my desk and in the holder picker). No desk has one today.
+- **Places** (`/admin/receiving/locations`): each station type says "Holds 1
+  card"; slots whose stored capacity isn't 1 are named there ("All 30 slots
+  were set to no limit: now 1 card (owner's rule)."); no capacity controls
+  ("No limit", "Set for all N … slots" are gone). Desks say "No limit"; other
+  places "Holds 1 card" ("No limit before · now 1 card (owner's rule)" when
+  stored otherwise); an `other` place named like a desk whose code isn't a
+  desk code says "Not a desk: it holds one card. Add desks under Desks"
+  (a code ending in `-DESK`, like "Gavins Desk" `LOC-GAVINS-DESK`, IS a
+  desk). Slot tiles over one card: "Holds 1 card: take the
+  others out".
+- **Tests**: `tests/intake/one-card.test.ts` (which places, the words, a
+  full slot, several cards, force, no-op, a desk, BENCH 2, two phones at
+  once); e2e `track-assign`, `track-move`, `desk-capacity`,
+  `scan-one-card` (the refusal on the Scan page and the picker, 390 px).
 
 **Desks** (`tracking/desk-codes.ts`, pure: `DESK_CODE`, `isDeskCode`,
 `deskPagePath`; `tracking/desk.ts`: `deskPlaces`, `ensureDesk`,
 `loadDeskCards`, `pickDesk`, re-exports the codes): a desk is a place of kind
-`other` whose code is `LOC-DESK` or `LOC-DESK-<NAME>` (`LOC-DESK-GAVIN`, made
-from its name "DESK GAVIN"; `LOC-DESKTOP` is not one). Like any `other` place
-it changes where cards are, never their step, and has no capacity. A stack
-goes on it with `POST move` (scan HEAT PRESS 01, Move, scan the desk). The
+`other` whose code is `LOC-DESK`, `LOC-DESK-<NAME>` (`LOC-DESK-GAVIN`, made
+from its name "DESK GAVIN") or ends in `-DESK` (`LOC-GAVINS-DESK`, "Gavins
+Desk" made with "Add another kind of place"); `LOC-DESKTOP` is not one. Like any `other` place
+it changes where cards are, never their step, and has no capacity: the only
+place that holds a stack (every other holder holds one card). Cards go on it
+with `POST move` (scan CLAMP 01, Move, scan the desk) or `assign`. The
 Desk page `/admin/receiving/desk[?desk=<code>]` (menu "Desk", full admins)
 shows each card on one desk (photos, card and order details, the order's
 customer notes, the card's notes and known defects, time on the desk, the
@@ -398,7 +449,12 @@ holder it came from) with Put in holder (`assign`), Done (`done`), Take out
 (`release`, Undo = `assign` back to the desk with `force`) and Open order.
 The holder picker ("Put in holder", `desk/_components/holder-picker.tsx`)
 lists switched-on work-station
-slots and other places, never the places that hold bags (`LOC-OPEN-BAGS`,
+slots and other places (a holder that has a card folds away under "Full",
+greyed with its card's ID, "Has CD-2549-03": `isTakenHolder`, `takenText`,
+never offered; for 2+ cards only desks are listed, under "Each holder takes
+one card: put these 3 cards in one at a time, or on another desk.",
+`oneEachText`; a holder the server refuses shows its sentence and the list
+is read again), never the places that hold bags (`LOC-OPEN-BAGS`,
 `LOC-SHIP`, `LOC-DONE`: `isCardDestination` in `desk/_lib/holders.ts`; typed
 or scanned: "OPEN BAGS holds bags, not cards. Pick a holder, like clamp
 7."; typed shelf codes too: "DUE MON DEC 7 holds bags, not cards. …"; the
@@ -455,8 +511,8 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 
 | route | body / query | response |
 |---|---|---|
-| `POST assign` | `{ locationCode, cardIds, force?, fromBag?, sessionId? }` | `TrackActionResponse`; 409 `{ overCapacity, capacity, occupants }`; 409 `{ error }` with `fromBag` and no card left in its bag |
-| `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed; it may be switched off, the to-slot must be on); 409 full / empty |
+| `POST assign` | `{ locationCode, cardIds, force?, fromBag?, sessionId? }` | `TrackActionResponse`; 409 `HolderFull { holderFull, holder, occupants }` (a one-card holder: force can't bypass it); 409 `{ overCapacity, capacity, occupants }` (a desk with a limit; force adds); 409 `{ error }` with `fromBag` and no card left in its bag |
+| `POST move` | `{ fromCode, toCode, cardIds?, force?, sessionId? }` | `TrackActionResponse` (from-slot freed; it may be switched off, the to-slot must be on); 409 HolderFull / full desk / empty |
 | `POST release` | `{ cardIds, fromCode?, sessionId? }` | "Take out": no place, step kept |
 | `POST done` | `{ cardIds, fromCode?, fromBag?, sessionId? }` | done, back in its bag (no place), `bagsCompleted`, `bags`, `orderCompletions` |
 | `POST bag-ready` | `{ bagId }` | `BagReadyResponse { bag, changed, message }`: the finished bag is at `LOC-SHIP`; 409 while a card is still to do |
@@ -464,7 +520,7 @@ no server-only import); pure: `stations.ts`, `places.ts`, `move-plan.ts`,
 | `GET search` | `?q=` (2+ characters) | up to 30 cards by Card ID, name, customer, order (with their notes) |
 | `GET history` | `?code=` | last 50 moves, newest first |
 | `GET ship-check` | `?code=` bag, order or Card ID | each card `ok`, `not_done`, `in_slot`, `refunded`; `ready` |
-| `GET/POST/PATCH locations` | `?all=1&station=`; `{ station, count, startAt? }` or `{ name, kind, dueDate? }`; `{ id, name?, active?, capacity?, sort? }` | list with occupancy; CLAMP 01..N; rename, switch off, capacity |
+| `GET/POST/PATCH locations` | `?all=1&station=`; `{ station, count, startAt? }` or `{ name, kind, dueDate? }`; `{ id, name?, active?, capacity?, sort? }` | list with occupancy (`cardCodes` for a one-card holder with a card); CLAMP 01..N; rename, switch off, capacity (a desk's only) |
 | `GET locations/labels` | `?station=clamp&from=1&to=20` or `?ids=`; `&stock=`, `&format=json` | slot labels, one 50 x 80 mm page each |
 | `GET locations/[id]/sign` | `&stock=`, `&format=json` | one slot label or shelf sign |
 
@@ -499,8 +555,8 @@ received bag's due-date shelf slot, made with `ensureShelfSlot` through
 `shelvesFor`; "Receive all and print" does the same).
 
 **Pages**: `/admin/scan` (menu "Scan"), `/admin/receiving/desk` (menu "Desk"),
-`/admin/receiving/locations` (Places: add slots and desks, capacity per type,
-print labels), `/admin/receiving/shelf` (by due date),
+`/admin/receiving/locations` (Places: add slots and desks, "Holds 1 card" per
+type, print labels), `/admin/receiving/shelf` (by due date),
 `/admin/receiving/ship/<orderId>[?bag=]` (ship check),
 `/admin/receiving/forgotten` (menu "Check", with a badge),
 `/admin/receiving/printing` (Katasymbol guide).
@@ -654,6 +710,11 @@ scan on the spot along with the photo"):
 - **URL**: `?mode=ship` only; `?loc=<place code>` (a place's QR opened in a
   phone's camera app, through `/q/<CODE>`) is read once as a scan, then
   dropped.
+- **One card per holder** (#83, server: 409 `HolderFull`, no Add anyway): the
+  plain page's double scan into a holder filled meanwhile says "CLAMP 09
+  already has CD-2549-05 · Charizard" / "CD-2549-03 didn't move." (the
+  `HolderFull` answer and a 409 `overCapacity` from before the rule alike;
+  `afterSave` in `scan-flow.ts`).
 
 ## Finished cards and bags (done flow)
 

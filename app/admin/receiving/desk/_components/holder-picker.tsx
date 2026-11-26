@@ -4,17 +4,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { fillText } from "@/components/intake/scan/format";
 import type { CapacityConflict, LocationsResponse, StationType, TrackLocationWithCount } from "@/lib/intake/tracking/types";
-import { holderFromText, holderGroups } from "../_lib/holders";
+import { holderFromText, holderGroups, isTakenHolder, oneEachText, takenText } from "../_lib/holders";
 import { deskButtons } from "./desk-card-panel";
 
 /**
  * "Put in holder": a sheet (full width at the bottom of a phone, a dialog on
  * a computer) listing the holders, grouped by station type, the ones with
- * room first; full ones fold away under "Full" (picking one asks "Add
- * anyway?"). The box takes a typed or scanned holder ("clamp 7", a slot's QR
- * through a handheld scanner) and narrows the list as you type. The places
- * come from GET /api/admin/track/locations each time it opens, so the
- * counts are fresh.
+ * room first. Every holder but a desk takes one card (owner, Nov 26 2026):
+ * one that has a card folds away under "Full", greyed with its card's ID
+ * ("Has CD-2549-03"), and can't be picked; for 2+ cards only desks are
+ * listed. A desk at a limit set on it is listed under "Full" too, and
+ * picking it asks "Add anyway?". The box takes a typed or scanned holder
+ * ("clamp 7", a slot's QR through a handheld scanner) and narrows the list
+ * as you type; a holder the server refuses (it has a card now) shows the
+ * server's sentence and the list is read again. The places come from GET
+ * /api/admin/track/locations each time it opens, so the counts are fresh.
  */
 
 export type Holder = { code: string; name: string | null };
@@ -53,7 +57,7 @@ async function loadHolders(): Promise<Loaded | { error: string }> {
   }
 }
 
-/** "CLAMP 07 already holds Charizard. Add anyway?" (the server's sentence when it names no card). */
+/** "DESK already holds Charizard. Add anyway?" (a desk with a limit set; the server's sentence when it names no card). */
 function conflictText(name: string, conflict: CapacityConflict): string {
   const names = conflict.occupants.map((c) => c.name ?? c.code ?? "a card");
   if (!names.length) return conflict.error;
@@ -77,6 +81,12 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
     setList({ status: "loading" });
     const got = await loadHolders();
     setList("error" in got ? { status: "error", error: got.error } : { status: "ready", ...got });
+  }
+
+  /** After a refused pick (a holder that has a card now): the list again, the old one kept until it's back. */
+  async function refreshQuietly() {
+    const got = await loadHolders();
+    if (!("error" in got)) setList((l) => (l.status === "ready" ? { status: "ready", ...got } : l));
   }
 
   // Open: show the sheet, start fresh and load the holders; closed: put it away
@@ -124,7 +134,11 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
     setBusy(null);
     if (res.ok) return; // the board closes the sheet
     if (res.conflict) setConflict({ holder, text: conflictText(holder.name ?? holder.code, res.conflict), conflict: res.conflict });
-    else setProblem(res.error);
+    else {
+      setProblem(res.error);
+      // "CLAMP 07 already has a card (…)": the list shows it as full now
+      void refreshQuietly();
+    }
   }
 
   function submit(e: React.FormEvent) {
@@ -230,9 +244,12 @@ export function HolderPicker({ cardIds, what, deskId, onPick, onClose }: Props) 
                 </button>
               </div>
             )}
+            {list.status === "ready" && need > 1 && (
+              <p className="pb-1 text-sm font-semibold text-foreground">{oneEachText(need)}</p>
+            )}
             {list.status === "ready" && groups.length === 0 && (
               <p className="py-6 text-sm text-muted-foreground">
-                {query.trim() ? "No holder matches. Press Put in to try that code anyway." : "No holders yet. Add slots on the Places page."}
+                {query.trim() ? "No holder matches. Press Put in to try that code anyway." : need > 1 ? "No other desk to put them on." : "No holders yet. Add slots on the Places page."}
               </p>
             )}
             {list.status === "ready" && groups.map((g) => (
@@ -266,15 +283,26 @@ function HolderList({ holders, full = false, busy, onPick }: { holders: TrackLoc
     <ul className="mt-1.5 grid grid-cols-2 gap-2 sm:grid-cols-3">
       {holders.map((l) => (
         <li key={l.id} className="min-w-0">
-          <button
-            type="button"
-            onClick={() => onPick({ code: l.code, name: l.name })}
-            disabled={busy}
-            className={`flex min-h-11 w-full flex-col items-start justify-center rounded-xl border px-3 py-1.5 text-left transition-colors disabled:opacity-50 ${full ? "border-dashed border-amber-300 bg-amber-50/60 hover:border-amber-500" : "border-border bg-white hover:border-primary/60 hover:bg-primary/5"} ${focusRing}`}
-          >
-            <span className="w-full truncate text-sm font-black text-foreground">{l.name}</span>
-            <span className={`text-xs font-semibold ${full ? "text-amber-900" : "text-muted-foreground"}`}>{fillText(l.capacity, l.cardCount)}</span>
-          </button>
+          {full && isTakenHolder(l) ? (
+            // A one-card holder with a card in it: not offered (the server would refuse a second card)
+            <div className="flex min-h-11 w-full flex-col items-start justify-center rounded-xl border border-border bg-secondary px-3 py-1.5 text-left">
+              <span className="w-full truncate text-sm font-black text-muted-foreground">
+                {l.name}
+                <span className="sr-only"> is full</span>
+              </span>
+              <span className="w-full truncate font-mono text-xs font-semibold text-muted-foreground">{takenText(l)}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onPick({ code: l.code, name: l.name })}
+              disabled={busy}
+              className={`flex min-h-11 w-full flex-col items-start justify-center rounded-xl border px-3 py-1.5 text-left transition-colors disabled:opacity-50 ${full ? "border-dashed border-amber-300 bg-amber-50/60 hover:border-amber-500" : "border-border bg-white hover:border-primary/60 hover:bg-primary/5"} ${focusRing}`}
+            >
+              <span className="w-full truncate text-sm font-black text-foreground">{l.name}</span>
+              <span className={`text-xs font-semibold ${full ? "text-amber-900" : "text-muted-foreground"}`}>{fillText(l.capacity, l.cardCount)}</span>
+            </button>
+          )}
         </li>
       ))}
     </ul>

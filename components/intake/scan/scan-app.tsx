@@ -278,7 +278,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       else res = await api.release({ ...call.body, sessionId });
       const outcome: SaveOutcome = res.ok
         ? { ok: true, res: res.data }
-        : { ok: false, error: res.error, status: res.status, ...(res.conflict ? { conflict: res.conflict } : {}) };
+        : { ok: false, error: res.error, status: res.status, ...(res.conflict ? { conflict: res.conflict } : {}), ...(res.full ? { full: res.full } : {}) };
       const step = afterSave(flowRef.current, outcome, Date.now());
       apply(step);
       setBusyNote("");

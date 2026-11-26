@@ -493,6 +493,22 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
   `fromCode` and is refused (it stays in CLAMP 06, no row); the same for the
   taps: Take out and Done ("Mark done") send that `fromCode` and are refused
   (not done, no row, no email).
+- `scan-plain-fixes` (the builder's review fixes, c7c6f38; sounds told apart
+  by the vibration each makes, `watchVibes`): (2) the picked card's spot
+  scanned again after another phone swapped its card picks the spot's real
+  card ("… already has CD-2549-08"), and after it was emptied asks to move
+  the card back (not "already in"); (3) a holder filled between the two
+  scans: "CLAMP 07 already has CD-2549-01 · Test Card Gold One" + "…
+  didn't move.", no Add anyway, nothing written (409 `HolderFull` since
+  #83); (6) switching to a full holder's card makes no error buzz; (4) a
+  repeat inside 750 ms flashes "Scan CLAMP 06 again" and moves nothing, the
+  next read moves it; (5) a card picked in a switched-off holder says "This
+  holder is switched off: …" and the desk twice moves it out; a switched-off
+  empty holder as the target: "CLAMP 05 is switched off. Turn it back on in
+  Places first."; (1) a card picked in its bag and put in CLAMP 03 by
+  another phone: the double scan's assign and DONE twice (`fromBag: true`)
+  are refused 409 "CD-2600-01 isn't in its bag any more (now in CLAMP 03).",
+  nothing written, no email.
 - `scan-plain-busy` (08 in CLAMP 07): 07 picked, the full CLAMP 07 scanned
   ("CLAMP 07 already has CD-2549-08", 08 picked); then, with the next lookup
   held, the scanner's keys for bag CD-2549-G and a tap on Take out in one go
@@ -501,9 +517,8 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
   busy line never takes it), Take out greyed while the lookup runs; released:
   the bag shows.
 - `scan-plain-one-card` (08 in CLAMP 07): a tapped card and the full clamp
-  scanned twice: nothing; the API refuses a second card (409 `overCapacity`);
-  with `force` it must still refuse once the one-card rule (branch `one-card`)
-  is merged, else SKIP saying force still adds.
+  scanned twice: nothing; the API refuses a second card with and without
+  `force` (409 `HolderFull`, no Add anyway: #83).
 - `scan-plain-notes` (390 and 1440): CD-2549-08 with a card note, a known
   defect, its order's customer note and a staff note (`orders.internal_notes`),
   in HUMIDITY PRESS 03: scanning it shows, with no tap, each in its own
@@ -511,6 +526,14 @@ LOC-DESK. All on an iPhone 13 (390 px) unless said.
   staff notes; `[data-note]`) next to the photos and no other card's note;
   staff notes are their own step; taken out (back in CD-2549-P, 07 still out)
   the bag picks it by itself and shows the same.
+- `scan-one-card` (#83, one card per holder; HEAT PRESS 02 stored "no limit"
+  from before the rule, holding CD-2549-04): with 07 picked, HEAT PRESS 02
+  scanned twice is never a place to move it (04 is picked instead, nothing
+  sent); the server refuses 07 into it with and without force (409
+  `HolderFull`, `checkHolderFull`); CLAMP 03 twice moves 04 there; Places at
+  390 says "Holds 1 card" (HEAT PRESS: "1 slot was set to no limit: now 1
+  card (owner's rule).") with no capacity setting, desks "No limit". The
+  holder view's picker steps went with that view.
 - `scan-plain-layout` (390 and 1440): no sideways scroll; "Ready to scan" and
   "Type a code instead" on the first screen; the bag's photos inside the
   screen; scanned from the bottom of the page, the card's ID and name, the

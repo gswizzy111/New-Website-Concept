@@ -67,14 +67,14 @@ test("slots: one station type per step, codes LOC-CLAMP-07, names CLAMP 07", () 
   assert.throws(() => slotCode("Clamp", 1));
 });
 
-test("default capacity: holders that take a stack have no limit; a clamp and a slab crack hold 1", () => {
+test("default capacity: every slot holds one card (owner, Nov 26 2026: one card per holder but the desk)", () => {
   assert.deepEqual(Object.fromEntries(STATION_TYPES.map((t) => [t.key, t.defaultCapacity])), {
-    "slab-crack": 1, humidor: null, "humidity-press": null, drying: null, "heat-press": null, clamp: 1, "book-weights": null, "final-dry": null,
+    "slab-crack": 1, humidor: 1, "humidity-press": 1, drying: 1, "heat-press": 1, clamp: 1, "book-weights": 1, "final-dry": 1,
   });
   assert.deepEqual([capacityText(null), capacityText(undefined), capacityText(1), capacityText(8)], ["No limit", "No limit", "Holds 1 card", "Holds 8 cards"]);
-  // A stack of 8 fits a no-limit heat press; a clamp takes one
-  assert.equal(overCapacity(stationType("heat-press")!.defaultCapacity, [], ["a", "b", "c", "d", "e", "f", "g", "h"]), false);
-  assert.equal(hasRoom(stationType("heat-press")!.defaultCapacity, 8, 8), true);
+  // A heat press takes one card now, like a clamp
+  assert.equal(overCapacity(stationType("heat-press")!.defaultCapacity, [], ["a", "b"]), true);
+  assert.equal(hasRoom(stationType("heat-press")!.defaultCapacity, 1), false);
   assert.equal(overCapacity(stationType("clamp")!.defaultCapacity, ["a"], ["b"]), true);
 });
 
