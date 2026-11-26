@@ -23,10 +23,12 @@ export const TRACK_BAG_COLUMNS = "id, order_id, bag_code, tier, batch, due_date,
  * "when a card is attached to a spot, I want to be able to see the notes when
  * I scan on the spot along with the photo"): the card's variation, the
  * customer's note on it and its known defects, and the order's notes from the
- * customer. Only the Scan page's reads add them (loadOrdersContext `notes`).
+ * customer and the staff's own notes on it (`internal_notes`). Only the Scan
+ * page's reads add them (loadOrdersContext `notes`). Never `admin_notes`: that
+ * holds the completion notes the customer gets.
  */
 export const TRACK_CARD_NOTE_COLUMNS = "variation, notes, known_defects";
-export const TRACK_ORDER_NOTE_COLUMNS = "customer_notes";
+export const TRACK_ORDER_NOTE_COLUMNS = "customer_notes, internal_notes";
 
 export type TrackCardRow = {
   id: string;
@@ -64,6 +66,7 @@ export type TrackOrderRow = {
   restoration_tier: string | null;
   /** Read only with TRACK_ORDER_NOTE_COLUMNS (the Scan page). */
   customer_notes?: string | null;
+  internal_notes?: string | null;
 };
 export type TrackBagRow = {
   id: string;
@@ -144,19 +147,20 @@ const noteText = (v: unknown): string | null => (typeof v === "string" && v.trim
 /**
  * A card's notes for the Scan page, from rows read with the note columns:
  * only the fields whose column was read (`variation`, `notes`,
- * `knownDefects` from the card; `customerNotes` from its order), blank text
- * as null. Rows read without them give {} (the summary then has no note
- * fields, which is not the same as "no notes").
+ * `knownDefects` from the card; `customerNotes`, `staffNotes` from its
+ * order), blank text as null. Rows read without them give {} (the summary
+ * then has no note fields, which is not the same as "no notes").
  */
 export function cardNotes(
   card: Pick<TrackCardRow, "variation" | "notes" | "known_defects">,
-  order: Pick<TrackOrderRow, "customer_notes"> | null | undefined,
-): Pick<TrackCardSummary, "variation" | "notes" | "knownDefects" | "customerNotes"> {
+  order: Pick<TrackOrderRow, "customer_notes" | "internal_notes"> | null | undefined,
+): Pick<TrackCardSummary, "variation" | "notes" | "knownDefects" | "customerNotes" | "staffNotes"> {
   return {
     ...("variation" in card ? { variation: noteText(card.variation) } : {}),
     ...("notes" in card ? { notes: noteText(card.notes) } : {}),
     ...("known_defects" in card ? { knownDefects: noteText(card.known_defects) } : {}),
     ...(order && "customer_notes" in order ? { customerNotes: noteText(order.customer_notes) } : {}),
+    ...(order && "internal_notes" in order ? { staffNotes: noteText(order.internal_notes) } : {}),
   };
 }
 
