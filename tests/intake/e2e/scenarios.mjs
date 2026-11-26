@@ -245,6 +245,13 @@ export const UI = {
   plainFull: (name, has, was) => new RegExp(`${esc(name)} already has ${esc(has)}(?![0-9-])[^]{0,40}?${esc(was)}(?![0-9-]) didn['’]t move`, "i"),
   // The picked card's own spot: "CD-2549-07 is already in HUMIDITY PRESS 04"
   plainAlready: (code, name) => new RegExp(`${esc(code)} is already (in|on|at) ${esc(name)}(?!\\d)`, "i"),
+  // Review fixes (ui-text.md "REVIEW FIX n"): (3) the second scan's holder filled meanwhile: "CLAMP 09 already has
+  // CD-2549-05 · Charizard" + "CD-2549-03 didn't move."; (4) a repeat inside 750 ms: a flash "Scan CLAMP 09 again";
+  // (5) picked in a switched-off holder; (1) picked in its bag, put in a holder meanwhile
+  plainFilled: (name, has, hasName, was) => new RegExp(`${esc(name)} already has ${esc(has)} · ${esc(hasName)}[^]{0,40}?${esc(was)}(?![0-9-]) didn['’]t move\\.`, "i"),
+  plainRepeat: (name) => new RegExp(`^scan ${esc(name)} again$`, "i"),
+  plainSwitchedOff: /this holder is switched off: use take out or done, or switch it on in places\./i,
+  plainNotInBag: (code, where) => new RegExp(`${esc(code)} isn['’]t in its bag any more \\(now ${esc(where)}\\)\\.`, "i"),
   // A tap while a scan or save runs: a flash only ("Still saving the last change. Try again in a moment.")
   plainBusy: /still saving the last change\. try again in a moment\./i,
   // Over 30 s between the two scans: "Nothing moved" / "That took over 30 seconds. …"
@@ -7983,6 +7990,20 @@ async function checkNoteBoxes(p, code, whats = PLAIN_NOTES.boxes.map((b) => b.wh
   return found.map((x) => `${x.what}${x.hooked ? "" : " (no data-note hook)"} ${x.left >= pb.right - 1 ? "beside the photos" : `${x.top - Math.round(pb.bottom)}px under the photos`}`).join("; ");
 }
 
+
+/**
+ * The page's sounds, told apart by the vibration each one starts (feedback.ts beep(): navigator.vibrate is
+ * called for every kind, sound on or off): read 35, pending [40,80,40], soft 15, ok 20, error [120,60,120].
+ * An init script records the calls; `vibes(p)` gives the kinds in order.
+ */
+const VIBE_KIND = { "35": "read", "40,80,40": "pending", "15": "soft", "20": "ok", "120,60,120": "error" };
+const watchVibes = (c) => c.addInitScript(() => {
+  window.__vibes = [];
+  const rec = (pattern) => { window.__vibes.push(Array.isArray(pattern) ? pattern.join(",") : String(pattern)); return true; };
+  try { Object.defineProperty(Navigator.prototype, "vibrate", { value: rec, configurable: true, writable: true }); } catch { navigator.vibrate = rec; }
+});
+const vibes = (p) => p.evaluate(() => window.__vibes ?? []).then((list) => list.map((x) => VIBE_KIND[x] ?? `vibrate(${x})`)).catch(() => []);
+
 const SCAN_PLAIN_SCENARIOS = {
   // Plain by default; every scan replaces the view; a reload starts plain again
   async "scan-plain-page"({ ctx, s, browser, appUrl, mockUrl }) {
@@ -8751,6 +8772,195 @@ const SCAN_PLAIN_SCENARIOS = {
         assert(!UI.plainBusy.test(panel), `the busy line took the panel ("${panel.slice(0, 120)}")`);
         assert(/already has CD-2549-08/i.test(panel) || /got it/i.test(panel), `the panel lost its message: "${panel.slice(0, 160)}"`);
         return `panel during the lookup: "${panel.slice(0, 110)}"; Take out greyed during the lookup: ${greyed}`;
+      }, { shot: false });
+      await s.step("no browser errors", async () => noErrors(), { shot: false });
+    } finally {
+      await pc.close();
+    }
+  },
+
+  // The review fixes (builder's c7c6f38, ui-text.md "REVIEW FIX n"): (1) a card picked from its bag and
+  // put in a holder by another phone is refused (fromBag) for the double scan and DONE twice; (2) a spot
+  // scanned again goes by what is in it now; (3) a holder filled between the two scans: "already has …",
+  // no Add anyway; (4) a repeat inside 750 ms flashes "Scan CLAMP 06 again" and moves nothing; (5) a
+  // switched-off holder says so and its card can still leave; (6) no error buzz when a full holder's card
+  // is picked instead
+  async "scan-plain-fixes"({ ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    const ID = (code) => cardIdOf(t, code);
+    await s.step(`setup: ${PLAIN.card} in ${PLAIN.spot.name}; CD-2600-01 alone in CD-2600-G`, async () => { t = await plainSetup(ctx, mockUrl); }, { critical: true, shot: false });
+    const { p, scan, posts, shot, noErrors, ctx: pc } = await plainPhone(browser, appUrl, "scan-plain-fixes");
+    await watchVibes(pc);
+    const m = () => p.locator("main").first();
+    const vibesSince = async (n) => (await vibes(p)).slice(n);
+    const release = (code) => trackOk(ctx, ROUTES.trackRelease, { cardIds: [ID(code)] });
+    const setActive = async (code, active) => {
+      const r = await api(ctx, "PATCH", ROUTES.trackLocations(), { id: placeOf(t, code).id, active });
+      eq(r.status, 200, `switch ${code} ${active ? "on" : "off"} (${JSON.stringify(r.body).slice(0, 100)})`);
+    };
+    try {
+      await goto(p, ROUTES.scan);
+      await s.step(`(2) ${PLAIN.spot.name} picks ${PLAIN.card}; another phone takes it out and puts CD-2549-08 there; ${PLAIN.spot.name} again picks the spot's real card: "${PLAIN.spot.name} already has CD-2549-08", 08 picked, nothing sent; (6) no error buzz`, async () => {
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await release(PLAIN.card);
+        await assignOk(ctx, PLAIN.spot.code, [ID("CD-2549-08")], true);
+        const from = posts.length;
+        const v0 = (await vibes(p)).length;
+        const before = await tables();
+        await scan(PLAIN.spot.code);
+        const said = await plainSays(p, UI.plainFull(PLAIN.spot.name, "CD-2549-08", PLAIN.card), "the spot's real card");
+        const picked = await pickedCheck(p, "CD-2549-08");
+        await nothingMoved(before, posts, from, "the spot scanned again");
+        const sounds = await vibesSince(v0);
+        assert(!sounds.includes("error"), `an error buzz on switching to the spot's card (sounds: ${sounds.join(", ")})`);
+        return `"${said}"; ${picked}; sounds: ${sounds.join(", ") || "none"}`;
+      }, { shot: false });
+      await s.step(`(2) ${PLAIN.card} back in ${PLAIN.spot.name} and picked there; another phone moves it to CLAMP 02 (the spot now empty); ${PLAIN.spot.name} again: not "already in", but "Scan ${PLAIN.spot.name} again to move ${PLAIN.card} here"; nothing moved`, async () => {
+        await release("CD-2549-08");
+        await plainPut(ctx, mockUrl, t, PLAIN.card, PLAIN.spot.code);
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await trackOk(ctx, ROUTES.trackMove, { fromCode: PLAIN.spot.code, toCode: "LOC-CLAMP-02", cardIds: [ID(PLAIN.card)] });
+        const from = posts.length;
+        const before = await tables();
+        await scan(PLAIN.spot.code);
+        const said = await plainSays(p, UI.plainAgain(PLAIN.spot.name, PLAIN.card), "move question for the emptied spot");
+        assert(!UI.plainAlready(PLAIN.card, PLAIN.spot.name).test(flat(await seenText(p))), `still says "${PLAIN.card} is already in ${PLAIN.spot.name}"`);
+        await nothingMoved(before, posts, from, "the emptied spot scanned again");
+        return said;
+      }, { shot: false });
+      await s.step(`(3) ${PLAIN.card} back in ${PLAIN.spot.name}, picked; ${PLAIN.empty.name} once (asks); another phone fills it with CD-2549-01; ${PLAIN.empty.name} again: refused, "${PLAIN.empty.name} already has CD-2549-01 · Test Card Gold One" + "${PLAIN.card} didn't move.", no Add anyway; nothing written`, async () => {
+        await scan("CD-2549-G"); // drops the waiting move
+        await plainPut(ctx, mockUrl, t, PLAIN.card, PLAIN.spot.code);
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty.name, PLAIN.card), "move question");
+        await assignOk(ctx, PLAIN.empty.code, [ID("CD-2549-01")]);
+        const before = await tables();
+        const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
+        await scan(PLAIN.empty.code);
+        const res = await saved;
+        assert(res.status() >= 400, `the move went through: HTTP ${res.status()}`);
+        const said = await plainSays(p, UI.plainFilled(PLAIN.empty.name, "CD-2549-01", "Test Card Gold One", PLAIN.card), "filled-holder line");
+        eq(await m().getByRole("button", { name: /^add anyway$/i }).count() + await p.locator("[data-scan-panel]").getByRole("button", { name: /^add anyway$/i }).count(), 0, '"Add anyway" buttons');
+        await sleep(800);
+        const after = await tables();
+        eq([cardsIn(after, PLAIN.spot.code), cardsIn(after, PLAIN.empty.code)], [[PLAIN.card], ["CD-2549-01"]], `${PLAIN.spot.name}, ${PLAIN.empty.name}`);
+        eq(newMoves(before, after, PLAIN.card), [], "new card_moves rows");
+        await shot("01-filled", false);
+        return `HTTP ${res.status()}; "${said}"`;
+      }, { shot: false });
+      await s.step(`(6) still with ${PLAIN.card} picked, the full ${PLAIN.empty.name}: CD-2549-01 picked instead, nothing moved, and no error buzz (only the scan's read beep)`, async () => {
+        const from = posts.length;
+        const v0 = (await vibes(p)).length;
+        const before = await tables();
+        await scan(PLAIN.empty.code);
+        await plainSays(p, UI.plainFull(PLAIN.empty.name, "CD-2549-01", PLAIN.card), "full-spot line");
+        await pickedCheck(p, "CD-2549-01");
+        await nothingMoved(before, posts, from, "a full holder scanned");
+        const sounds = await vibesSince(v0);
+        assert(!sounds.includes("error"), `an error buzz on switching to the full holder's card (sounds: ${sounds.join(", ")})`);
+        return `sounds: ${sounds.join(", ") || "none"}`;
+      }, { shot: false });
+      await s.step(`(4) ${PLAIN.spot.name} picks ${PLAIN.card}; ${PLAIN.empty2.name} once, then again 300 ms later (inside the 750 ms gate): a flash "Scan ${PLAIN.empty2.name} again", nothing moves; the next read 2 s later moves it`, async () => {
+        await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+        const before = await tables();
+        const from = posts.length;
+        await scan(PLAIN.empty2.code);
+        await plainSays(p, UI.plainAgain(PLAIN.empty2.name, PLAIN.card), "move question");
+        const v0 = (await vibes(p)).length;
+        await sleep(300);
+        await scanType(p, SCAN_LINK(PLAIN.empty2.code), { delay: 2 });
+        const flash = p.getByText(UI.plainRepeat(PLAIN.empty2.name)).first();
+        const seen = await flash.waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false);
+        await shot("02-quick-repeat", false);
+        await nothingMoved(before, posts, from, "a repeat inside 750 ms");
+        const sounds = await vibesSince(v0);
+        assert(seen, `no flash "Scan ${PLAIN.empty2.name} again" (the page shows "${oneLine(await seenText(p)).slice(0, 200)}")`);
+        const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
+        await scan(PLAIN.empty2.code);
+        eq((await saved).status(), 200, "POST");
+        eq(cardsIn(await tables(), PLAIN.empty2.code), [PLAIN.card], `cards in ${PLAIN.empty2.name}`);
+        return `sounds on the repeat: ${sounds.join(", ") || "none"}`;
+      }, { shot: false });
+      await s.step(`(5) ${PLAIN.card} in ${PLAIN.spot.name}, switched off in Places: scanned, it is picked with "This holder is switched off: use Take out or Done, or switch it on in Places."; the desk twice moves it out (from a switched-off holder)`, async () => {
+        await plainPut(ctx, mockUrl, t, PLAIN.card, PLAIN.spot.code);
+        await setActive(PLAIN.spot.code, false);
+        try {
+          await plainPick(p, scan, PLAIN.spot.code, PLAIN.card);
+          const said = await plainSays(p, UI.plainSwitchedOff, "switched-off line");
+          await shot("03-switched-off", false);
+          await scan(DESK);
+          await plainSays(p, UI.plainAgain(placeOf(t, DESK).name, PLAIN.card), "move question");
+          const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
+          await scan(DESK);
+          const res = await saved;
+          assert(res.status() < 300, `${new URL(res.url()).pathname} answered ${res.status()}: ${(await res.text()).slice(0, 160)}`);
+          eq([cardsIn(await tables(), DESK), cardsIn(await tables(), PLAIN.spot.code)], [[PLAIN.card], []], `${DESK}, ${PLAIN.spot.name}`);
+          return `"${said}"; ${new URL(res.url()).pathname} ${JSON.stringify(sentOf(res)).slice(0, 100)}`;
+        } finally {
+          await setActive(PLAIN.spot.code, true);
+        }
+      }, { shot: false });
+      await s.step(`(5) a switched-off empty holder (CLAMP 05) as the target: "CLAMP 05 is switched off. Turn it back on in Places first.", no question, nothing moved`, async () => {
+        await setActive("LOC-CLAMP-05", false);
+        try {
+          await scan(DESK);
+          await plainShows(p, [PLAIN.card]);
+          const before = await tables();
+          const from = posts.length;
+          await scan("LOC-CLAMP-05");
+          const said = await plainSays(p, /\bCLAMP 05 is switched off\. turn it back on in places first\./i, "switched-off target line");
+          await scan("LOC-CLAMP-05");
+          await nothingMoved(before, posts, from, "a switched-off holder scanned twice");
+          return said;
+        } finally {
+          await setActive("LOC-CLAMP-05", true);
+        }
+      }, { shot: false });
+      await s.step(`(1) bag CD-2600-G picks CD-2600-01 (in its bag); another phone puts it in CLAMP 03; CLAMP 04 twice: the assign (fromBag: true) is refused, 409, "CD-2600-01 isn't in its bag any more (now in CLAMP 03).", nothing written, no email`, async () => {
+        await scan("CD-2600-G");
+        await plainShows(p, ["CD-2600-01"]);
+        await pickedCheck(p, "CD-2600-01");
+        await assignOk(ctx, "LOC-CLAMP-03", [ID("CD-2600-01")]);
+        const before = await dump();
+        await scan("LOC-CLAMP-04");
+        await plainSays(p, UI.plainAgain("CLAMP 04", "CD-2600-01"), "move question");
+        const saved = saveAwaited(p, /\/api\/admin\/track\/(assign|move)$/);
+        await scan("LOC-CLAMP-04");
+        const res = await saved;
+        const sent = sentOf(res);
+        eq([new URL(res.url()).pathname, sent.fromBag, res.status()], [ROUTES.trackAssign, true, 409], "POST (path, fromBag, status)");
+        const said = await plainSays(p, UI.plainNotInBag("CD-2600-01", "in CLAMP 03"), "not-in-its-bag line");
+        await sleep(800);
+        const after = await dump();
+        eq([cardsIn(after.tables, "LOC-CLAMP-03"), cardsIn(after.tables, "LOC-CLAMP-04")], [["CD-2600-01"], []], "CLAMP 03, CLAMP 04");
+        eq(newMoves(before.tables, after.tables, "CD-2600-01"), [], "new card_moves rows");
+        eq(mailsTo(after.emails.slice(before.emails.length), CUSTOMER_G).length, 0, "emails to CD-2600's customer");
+        await shot("04-not-in-bag", false);
+        return said;
+      }, { shot: false });
+      await s.step(`(1) CD-2600-01 back in its bag, picked from bag CD-2600-G again; another phone puts it in CLAMP 03; DONE twice: the done (fromBag: true) is refused, 409, the same line; not done, nothing written, no email`, async () => {
+        await release("CD-2600-01");
+        await scan("CD-2600-G");
+        await plainShows(p, ["CD-2600-01"]);
+        await pickedCheck(p, "CD-2600-01");
+        await assignOk(ctx, "LOC-CLAMP-03", [ID("CD-2600-01")]);
+        const before = await dump();
+        await scan(PLAIN.done.code);
+        await plainSays(p, UI.plainDoneAgain("CD-2600-01"), "Done question");
+        const saved = saveAwaited(p, /\/api\/admin\/track\/done$/);
+        await scan(PLAIN.done.code);
+        const res = await saved;
+        const sent = sentOf(res);
+        eq([sent.fromBag, sent.fromCode ?? null, res.status()], [true, null, 409], "POST done (fromBag, fromCode, status)");
+        const said = await plainSays(p, UI.plainNotInBag("CD-2600-01", "in CLAMP 03"), "not-in-its-bag line");
+        await sleep(800);
+        const after = await dump();
+        const c = cardByCode(after.tables, "CD-2600-01");
+        eq([c.completed, cardsIn(after.tables, "LOC-CLAMP-03")], [false, ["CD-2600-01"]], "done, CLAMP 03");
+        eq(newMoves(before.tables, after.tables, "CD-2600-01"), [], "new card_moves rows");
+        eq(mailsTo(after.emails.slice(before.emails.length), CUSTOMER_G).length, 0, "emails to CD-2600's customer");
+        return said;
       }, { shot: false });
       await s.step("no browser errors", async () => noErrors(), { shot: false });
     } finally {
