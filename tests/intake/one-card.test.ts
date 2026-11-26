@@ -290,7 +290,7 @@ test("two phones put a card in the same empty holder at the same moment: one car
     }
     const before = moves().length;
     const results = await Promise.all([a, b].map((n) => svc.moves.assignCards(admin, { locationCode: "LOC-CLAMP-09", cardIds: [C(n)], by: "gavin" })));
-    const inIt = mock.store.table("cards").filter((c) => c.location_id === target.id).map((c) => c.id);
+    const inIt = mock.store.table("cards").filter((c) => c.location_id === target.id).map((c) => c.id as string);
     assert.ok(inIt.length <= 1, `round ${round}: ${inIt.length} cards in CLAMP 09`);
     results.forEach((r, i) => {
       const n = [a, b][i];

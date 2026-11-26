@@ -117,6 +117,12 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
   const [confirm, setConfirm] = useState<string[] | null>(null);
   /** Move to my desk found the desk full (a limit set in Places): "Add anyway?" for these cards. */
   const [deskAsk, setDeskAsk] = useState<{ list: TrackCardSummary[]; desk: TrackDeskRef; conflict: CapacityConflict } | null>(null);
+  // Another desk chosen (the select below, the scan landing, another tab): "Add anyway?" was about the old one, so it goes
+  const [askDeskCode, setAskDeskCode] = useState(desk?.code ?? null);
+  if ((desk?.code ?? null) !== askDeskCode) {
+    setAskDeskCode(desk?.code ?? null);
+    setDeskAsk(null);
+  }
   /** The holder picker is open for these cards. */
   const [picker, setPicker] = useState<TrackCardSummary[] | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -126,6 +132,8 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
   /** Results up to this key are hidden (Hide, or a new scan). */
   const [hiddenUpTo, setHiddenUpTo] = useState(0);
   const [flash, setFlash] = useState<FlashState | null>(null);
+  /** "Still saving the last change. …" for screen readers (the flash is hidden from them); cleared by the next result. */
+  const [busyNote, setBusyNote] = useState("");
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const questionRef = useRef<HTMLDivElement>(null);
@@ -200,6 +208,7 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
     addLogItem(out.outcome.tone, out.outcome.title);
     for (const n of out.outcome.orderNotes ?? []) addLogItem(n.tone === "ok" ? "ok" : "warn", n.text);
     setResult({ key: stamp(), ...out });
+    setBusyNote("");
     onSaved?.();
     settleFocus();
   }
@@ -209,8 +218,22 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
     showFlash("error", error);
     addLogItem("error", error);
     setResult({ key: stamp(), outcome: { tone: "error", title: error, lines: [], notes: [] }, deskCode: null });
+    setBusyNote("");
     onSaved?.();
     settleFocus();
+  }
+
+  /**
+   * A tap while the last change is still saving (or the holder is being read
+   * again): the flash and the session list say so, nothing else. The result
+   * line keeps the last answer (the DONE sign's "Done. Put it back in …"
+   * too), the Scan page's lines stay and the page doesn't move.
+   */
+  function reportBusy() {
+    beep("error", soundStore.get());
+    showFlash("error", SAVE_BUSY_TEXT);
+    addLogItem("error", SAVE_BUSY_TEXT);
+    setBusyNote(SAVE_BUSY_TEXT);
   }
 
   /** The result line takes focus (a pressed button may be gone with its card; a focused box would catch the scanner's typing) and shows. */
@@ -262,17 +285,20 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
       }
     });
     if (!started) {
-      reportFailure(SAVE_BUSY_TEXT);
+      reportBusy();
       return;
     }
     setConfirm(null);
     setDeskAsk(null);
   }
 
-  /** Move to my desk: a desk with a limit set in Places that is full asks "Add anyway?" first. */
-  function toDesk(list: TrackCardSummary[], force = false) {
-    if (!desk) return;
-    const to = desk;
+  /**
+   * Move to my desk: a desk with a limit set in Places that is full asks "Add
+   * anyway?" first. `to`: the desk asked about ("Add anyway" sends the cards
+   * to the desk it named, even if this phone's desk choice changed since).
+   */
+  function toDesk(list: TrackCardSummary[], force = false, to: TrackDeskRef | null = desk) {
+    if (!to) return;
     save("desk", list, () => api.move({ fromCode: slot.code, toCode: to.code, cardIds: list.map((c) => c.id), force, sessionId: scanSessionId() }), {
       onConflict: (conflict) => setDeskAsk({ list, desk: to, conflict }),
     });
@@ -374,6 +400,7 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
   return (
     <section aria-labelledby={`holder-${slot.id}`} className="flex flex-col gap-3">
       <Flash flash={flash} />
+      <p role="status" aria-live="polite" className="sr-only">{busyNote}</p>
       <HolderHeader slot={slot} onOpenBag={onOpenBag} />
 
       {/* The last action's result; it takes focus after a save (no box that takes typing keeps it) */}
@@ -468,7 +495,7 @@ export function HolderView({ slot: given, now, busy, moving, run, refresh, onSca
                   <p id={`holder-${slot.id}-question`} className="text-base font-bold">{addAnywayText(deskAsk.desk.name, deskAsk.conflict)}</p>
                   <p className="text-sm">{inItNowText(deskAsk.conflict)}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => toDesk(deskAsk.list, true)} disabled={blocked} className={`${otherButton} min-h-12 border-amber-500 bg-amber-500 text-base text-gray-950 hover:bg-amber-400`}>
+                    <button type="button" onClick={() => toDesk(deskAsk.list, true, deskAsk.desk)} disabled={blocked} className={`${otherButton} min-h-12 border-amber-500 bg-amber-500 text-base text-gray-950 hover:bg-amber-400`}>
                       Add anyway
                     </button>
                     <button type="button" onClick={() => setDeskAsk(null)} className={`${otherButton} min-h-12 border-amber-300 bg-white text-base text-amber-950`}>

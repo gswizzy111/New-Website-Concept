@@ -18,7 +18,7 @@ import {
 import { STATION_TYPES } from "@/lib/intake/tracking/stations";
 import type { TrackActionResponse, TrackLocationWithCount } from "@/lib/intake/tracking/types";
 import {
-  BAG_ONLY_CODES, holderFromText, holderGroups, isCardDestination, isTakenHolder, matchesHolder, oneEachText, takenText,
+  BAG_ONLY_CODES, DONE_IN_PICKER_TEXT, holderFromText, holderGroups, isCardDestination, isTakenHolder, matchesHolder, oneEachText, takenText,
 } from "@/app/admin/receiving/desk/_lib/holders";
 import { outcomeOf, settledIds } from "@/app/admin/receiving/desk/_lib/outcome";
 import { deskPanelCard, deskPhotoGroups } from "@/app/admin/receiving/desk/_lib/view";
@@ -166,10 +166,24 @@ test("holder picker: places that hold bags (the Open bags box, the Ready to ship
   assert.deepEqual(["LOC-OPEN-BAGS", "LOC-SHIP", "LOC-DONE", "LOC-BENCH-2", "LOC-CLAMP-07"].map((code) => isCardDestination({ code, kind: code === "LOC-CLAMP-07" ? "station" : code === "LOC-SHIP" ? "shipping" : code === "LOC-DONE" ? "done" : "other" })),
     [false, false, false, true, true]);
   // Typed or scanned into the box: refused with why
-  for (const [typed, name] of [["open bags", "OPEN BAGS"], ["LOC-OPEN-BAGS", "OPEN BAGS"], ["HTTPS://THECARDDOC1.COM/Q/LOC-SHIP", "Shipping"], ["LOC-DONE", "Done"]]) {
+  for (const [typed, name] of [["open bags", "OPEN BAGS"], ["LOC-OPEN-BAGS", "OPEN BAGS"], ["HTTPS://THECARDDOC1.COM/Q/LOC-SHIP", "Shipping"], ["LOC-SHELF-20261207", "DUE MON DEC 7"], ["HTTPS://THECARDDOC1.COM/Q/LOC-SHELF-20261207", "DUE MON DEC 7"]]) {
     const got = holderFromText(typed, withBags, "desk");
     assert.deepEqual(got, { ok: false, error: `${name} holds bags, not cards. Pick a holder, like clamp 7.` }, typed);
   }
+});
+
+test("holder picker box: the DONE sign scanned into it (a computer, box focused) says how to finish, listed or not; never a holder", () => {
+  assert.equal(DONE_IN_PICKER_TEXT, "To finish it, close this list, then scan DONE or tap Done.");
+  const withoutDone = PLACES.filter((l) => l.code !== "LOC-DONE");
+  for (const typed of ["LOC-DONE", "HTTPS://THECARDDOC1.COM/Q/LOC-DONE", "https://thecarddoc1.com/q/LOC-DONE", "done", " Done "]) {
+    for (const list of [PLACES, withoutDone, []]) {
+      assert.deepEqual(holderFromText(typed, list, "desk"), { ok: false, error: DONE_IN_PICKER_TEXT }, `${typed} (${list.length} places)`);
+    }
+  }
+  // Not "Done holds bags, not cards …" any more; the other places that hold bags keep that line
+  assert.ok(!/holds bags/.test(DONE_IN_PICKER_TEXT));
+  assert.deepEqual(holderFromText("LOC-SHIP", [...PLACES, loc({ id: "ship", code: "LOC-SHIP", name: "Shipping", kind: "shipping" })], "desk"),
+    { ok: false, error: "Shipping holds bags, not cards. Pick a holder, like clamp 7." });
 });
 
 test("after an action: the API's sentence, each card's line when it helps, and what else happened", () => {

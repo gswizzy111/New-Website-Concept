@@ -51,6 +51,14 @@ export function isCardDestination(l: Pick<TrackLocationWithCount, "kind" | "code
 /** Typed or scanned into the picker: a place that holds bags. */
 const bagOnlyText = (name: string) => `${name} holds bags, not cards. Pick a holder, like clamp 7.`;
 
+/**
+ * The DONE sign scanned (or "done" typed) into the picker's box: a computer
+ * with the box focused gets the scanner's typing there, so the Scan page's
+ * "Move to another holder, then scan DONE" lands here. The picker never does
+ * the Done itself: it says how.
+ */
+export const DONE_IN_PICKER_TEXT = "To finish it, close this list, then scan DONE or tap Done.";
+
 /** A holder the picker lists: a switched-on place a card can go in, not the desk the cards are on. */
 function listable(l: TrackLocationWithCount, excludeId: string | null | undefined): boolean {
   return l.active && isCardDestination(l) && l.id !== excludeId;
@@ -112,8 +120,9 @@ export type HolderChoice = { ok: true; code: string; name: string | null } | { o
  * What typed or scanned text in the picker's box means: a holder's code
  * ("clamp 7", "LOC-CLAMP-07", its QR link), else the one listed holder
  * whose name contains it ("desk gavin"). A code nothing lists still goes to
- * the server, which names the problem (unknown, switched off). Null for
- * blank text.
+ * the server, which names the problem (unknown, switched off). Places that
+ * hold bags are refused ("DUE MON DEC 7 holds bags, not cards. …"), the
+ * DONE sign with how to finish (DONE_IN_PICKER_TEXT). Null for blank text.
  */
 export function holderFromText(
   text: string,
@@ -123,6 +132,8 @@ export function holderFromText(
   const t = text.trim();
   if (!t) return null;
   const code = typedCode(t);
+  // Listed or not (the list may still be loading): never sent as a holder
+  if (code === DONE_LOCATION_CODE) return { ok: false, error: DONE_IN_PICKER_TEXT };
   const known = code ? locations.find((l) => l.code === code) : undefined;
   if (known) {
     if (known.id === excludeId) return { ok: false, error: `The cards are on ${known.name} already.` };

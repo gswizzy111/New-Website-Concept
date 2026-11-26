@@ -20,7 +20,7 @@ import * as api from "./api";
 import { SCAN_READ_EVENT } from "./card-photos";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
 import { cardsLabel, roomLeft } from "./format";
-import { ADD_HERE_TEXT, isHolderPlace, scanSaveResult, type ScanSave } from "./holder-format";
+import { ADD_HERE_TEXT, MOVE_WAIT_MS, finishBody, isHolderPlace, moveWaitOver, scanSaveResult, type ScanSave } from "./holder-format";
 import { HolderView } from "./holder-view";
 import { createScanGate, parseScan, scanReadLabel, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
@@ -79,10 +79,16 @@ type View =
   | { type: "card"; card: TrackCardSummary }
   | { type: "search"; query: string; cards: TrackCardSummary[]; truncated: boolean };
 
-/** What the next slot scan does (`refused`: the last holder scanned for them can't take them, the server's sentence). */
+/**
+ * What the next slot scan does. A move waits at most MOVE_WAIT_MS from `at`
+ * (when Move was tapped) and ends when another place or a bag is shown, so a
+ * forgotten "Move to another holder" never acts on a later scan. `refused`:
+ * the last holder scanned for them can't take them (it has a card: one card
+ * per holder), the server's sentence.
+ */
 type Waiting =
   | null
-  | { type: "move"; from: TrackSlotSummary; cards: TrackCardSummary[]; refused?: string }
+  | { type: "move"; from: TrackSlotSummary; cards: TrackCardSummary[]; at: number; refused?: string }
   | { type: "assign"; cards: TrackCardSummary[]; refused?: string };
 
 /** What "Add anyway" sends again when a slot is full. */
@@ -267,6 +273,18 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
     return () => clearTimeout(t);
   }, [confirmDone]);
 
+  // A waiting move ends after MOVE_WAIT_MS (onSlot checks the time too: a phone's timers sleep while it is locked)
+  useEffect(() => {
+    if (waiting?.type !== "move") return;
+    const w = waiting;
+    const t = setTimeout(() => {
+      if (waitingRef.current !== w) return;
+      setWaiting(null);
+      setStatus("");
+    }, Math.max(0, w.at + MOVE_WAIT_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [waiting, setWaiting, waitingRef]);
+
   // The URL: the slot on screen (?loc=) and ship check (?mode=ship); nothing else
   const urlLoc = view.type === "slot" ? view.slot.code : null;
   useEffect(() => {
@@ -376,12 +394,15 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       // Another place than the one on screen (a scan): the page goes to the top, so its name shows
       const prev = viewRef.current;
       if (!(prev.type === "slot" && prev.slot.code === slot.code)) scrollToTop();
+      // A move waiting for the next holder belongs to the holder it started from: another one shown ends it
+      const w = waitingRef.current;
+      if (w?.type === "move" && w.from.code !== slot.code) setWaiting(null);
       setView({ type: "slot", slot });
       setSelected(new Set(slot.cards.map((c) => c.id)));
       setConfirmDone(false);
       setTarget(canFill(slot) ? { slot, at: Date.now() } : null);
     },
-    [setTarget, setView, viewRef],
+    [setTarget, setView, setWaiting, viewRef, waitingRef],
   );
 
   /** The slot again from the server (after a save), shown. */
@@ -462,7 +483,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
         fail(res.error);
         if (res.full) {
           // That holder has a card (one card per holder): keep waiting for another holder, the top panel says why
-          setWaiting({ type: "move", from, cards, refused: res.error });
+          const w = waitingRef.current;
+          setWaiting(w?.type === "move" && w.from.code === from.code ? { ...w, refused: res.error } : { type: "move", from, cards, at: Date.now(), refused: res.error });
           return;
         }
         if (res.status === 409) {
@@ -478,19 +500,30 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (picksRef.current) setPicks({ ...picksRef.current, cards: patchCards(picksRef.current.cards, res.data, res.data.location) });
       await refreshSlot(to.code);
     },
-    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setWaiting],
+    [fail, noteDesk, picksRef, refreshSlot, saved, setPicks, setWaiting, waitingRef],
   );
 
-  /** Done or Take out, for cards in `slot` (shown again after) or picked from a bag or search (null: the list stays). */
+  /**
+   * Done or Take out, for cards in `slot` (shown again after) or picked from a
+   * bag or search (null: the list stays). From a slot (the DONE sign after
+   * Move, the slot view's Done and Take out) the request names it
+   * (`fromCode`): a card moved meanwhile is refused, never finished where it
+   * is now; none left in it is a 409, and the slot is shown as it is now.
+   */
   const doFinish = useCallback(
     async (kind: "done" | "release", slot: TrackSlotSummary | null, cards: TrackCardSummary[]) => {
       setConfirmDone(false);
       setBusy(kind === "done" ? `Marking ${cardsLabel(cards)} done…` : `Taking ${cardsLabel(cards)} out…`);
-      const body = { cardIds: cards.map((c) => c.id), sessionId: scanSessionId() };
+      const body = finishBody(cards.map((c) => c.id), slot, scanSessionId());
       const res = kind === "done" ? await api.done(body) : await api.release(body);
       setBusy(null);
       if (!res.ok) {
         fail(res.error);
+        if (res.status === 409 && slot) {
+          // The cards aren't in the slot any more (someone moved them): stop waiting, show it as it is now
+          setWaiting(null);
+          await refreshSlot(slot.code);
+        }
         return;
       }
       setWaiting(null);
@@ -511,7 +544,12 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
 
   const onSlot = useCallback(
     async (slot: TrackSlotSummary) => {
-      const w = waitingRef.current;
+      let w = waitingRef.current;
+      // A move forgotten for MOVE_WAIT_MS is over: this scan only shows the place
+      if (w?.type === "move" && moveWaitOver(w.at, Date.now())) {
+        setWaiting(null);
+        w = null;
+      }
       // Move or Assign, then the DONE sign: the cards are finished
       if (w && slot.kind === "done") {
         await doFinish("done", w.type === "move" ? w.from : null, w.cards);
@@ -532,7 +570,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       setConflict(null);
       showSlot(slot);
     },
-    [doAssign, doFinish, doMove, fail, showSlot, waitingRef],
+    [doAssign, doFinish, doMove, fail, setWaiting, showSlot, waitingRef],
   );
 
   const showCards = useCallback(
@@ -981,7 +1019,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
             refresh={refreshSlot}
             onScanNext={(cards) => {
               setConflict(null);
-              setWaiting({ type: "move", from: slotView, cards });
+              setWaiting({ type: "move", from: slotView, cards, at: Date.now() });
               setStatus(`Scan the next slot for ${cardsLabel(cards)}.`);
             }}
             onCancelScanNext={cancelWaiting}
@@ -1079,7 +1117,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
                     onClick={() => {
                       setConflict(null);
                       setConfirmDone(false);
-                      setWaiting({ type: "move", from: slotView, cards: chosen });
+                      setWaiting({ type: "move", from: slotView, cards: chosen, at: Date.now() });
                       setStatus(`Scan the next slot for ${cardsLabel(chosen)}.`);
                       scrollToTop();
                     }}
