@@ -11,12 +11,35 @@ import { fetchAll } from "@/lib/fetch-all";
 export const PREGRADE_SERVICE_IDS = ["pregrade", "pre_grade_assessment"];
 
 export type PregradeCount = { owed: number; done: number };
+/** What the counts read of a card. */
+export type PregradeFlags = { pregrade_selected?: boolean | null; pregrade_submitted_at?: string | null };
 
 /** Owed: the larger of what was paid for and how many cards are flagged. */
-export function pregradeCount(paidFor: number, cards: { pregrade_selected?: boolean | null; pregrade_submitted_at?: string | null }[]): PregradeCount {
+export function pregradeCount(paidFor: number, cards: PregradeFlags[]): PregradeCount {
   const flagged = cards.filter((c) => c.pregrade_selected).length;
   const done = cards.filter((c) => c.pregrade_selected && c.pregrade_submitted_at).length;
   return { owed: Math.max(paidFor, flagged), done };
+}
+
+/**
+ * Which cards of one order get the PG field on their bag label row (owner,
+ * Nov 26 2026: "the people that pay for the pregrade have the sticker with
+ * teh spot for the pregrade and the people that dont dont"): a card flagged
+ * pregrade_selected (paid for at checkout, or marked by staff on the order
+ * page) or whose pre-grade was submitted. When the order paid for more pre-grades than it has cards
+ * flagged (older orders have only the count: pregradeCount's owed above the
+ * flagged cards, when the order page says "Mark which cards below"), the
+ * label can't know which cards, so every card of the order gets the field.
+ *
+ * `paidFor`: the pre-grades on the order's service lines (PREGRADE_SERVICE_IDS
+ * quantities); `orderCards`: the order's cards that are flagged (any status,
+ * bagged or not; others may be passed too), as the order page counts them.
+ * Returns the test for one card of that order. Pure.
+ */
+export function pregradeOnLabel(paidFor: number, orderCards: PregradeFlags[]): (card: PregradeFlags) => boolean {
+  const flagged = orderCards.filter((c) => c.pregrade_selected).length;
+  const unassigned = pregradeCount(paidFor, orderCards).owed > flagged;
+  return (card) => unassigned || !!card.pregrade_selected || !!card.pregrade_submitted_at;
 }
 
 /**
