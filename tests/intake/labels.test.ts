@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { qrUrl } from "@/lib/intake/codes";
 import { filingLetter } from "@/lib/intake/filing-letter";
 import { loadLabelBags } from "@/lib/intake/labels/data";
-import { LABEL_LIMITS, PT, ROW_MARKS, bagLabelCapacity, fitName, layoutBagLabel, layoutBagLabels, moreText, planBagLabel, printedWidth } from "@/lib/intake/labels/layout";
+import { LABEL_LIMITS, PT, ROW_MARKS, bagLabelCapacity, fitName, hasPgField, layoutBagLabel, layoutBagLabels, moreText, planBagLabel, printedWidth } from "@/lib/intake/labels/layout";
 import { bagLabelsPdf, renderLabelPdf } from "@/lib/intake/labels/pdf";
 import { qrMatrix } from "@/lib/intake/labels/qr";
 import { labelResponse, type LabelPreviewResponse } from "@/lib/intake/labels/respond";
@@ -24,6 +24,7 @@ import { fullWidthPoints, normalizeLabelSettings, stockPoints } from "@/lib/inta
 import { fitLine, printable, textWidth, wrapLines } from "@/lib/intake/labels/text";
 import { FONT_METRICS } from "@/lib/intake/labels/fonts/metrics";
 import type { LabelBag, LabelLine, LabelPage, LabelQr, LabelRect, LabelStock, LabelText } from "@/lib/intake/labels/types";
+import { pregradeOnLabel } from "@/lib/pregrade";
 
 // The QR address is the business domain here, whatever the shell has set
 delete process.env.NEXT_PUBLIC_APP_URL;
@@ -49,6 +50,15 @@ function bag(n: number, over: Partial<LabelBag> = {}): LabelBag {
     })),
     ...over,
   };
+}
+
+/**
+ * `b` with the PG field on some cards (a paid or submitted pre-grade): those
+ * at the indexes `at` (or every card), each with its submitted pre-grade from
+ * `results` (by index; a card there gets the field too). The others have none.
+ */
+function withPg(b: LabelBag, at: readonly number[] | "all", results: Record<number, string> = {}): LabelBag {
+  return { ...b, cards: b.cards.map((c, i) => (at === "all" || at.includes(i) || i in results ? { ...c, pregrade: true, pregradeResult: results[i] ?? null } : c)) };
 }
 
 const DEFAULT = stockPoints("4x6", 3.2);
@@ -503,7 +513,7 @@ test("filing tab: the same tab on every bag of a stock; \"Also in this order\" g
   }
   // The owner's labels: on 4x6 at 3.2 in a 28-card bag still lists every card (40 before the check boxes, whose
   // 4 mm set each row's height); on 50 x 80 mm a 4-card bag lists every card with its whole name and its card
-  // number (the set shares its line with the PG field: cut, the number kept; "Also in this order" makes room)
+  // number (no paid pre-grades: the set beside the name or under it; "Also in this order" makes room)
   assert.equal(planBagLabel(bag(28), DEFAULT).fit.more, 0);
   assert.equal(planBagLabel(bag(40), DEFAULT).fit.more, 12);
   const four = planBagLabel(bag(4, { otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] }), MM50);
@@ -647,18 +657,23 @@ test("card rows: a set and number never cut while there is room; they go under t
     set: i % 2 ? "Test Set Two" : "Base Set",
     number: `${i + 1}/165`,
   }));
-  const { page, fit } = planBagLabel(eight, DEFAULT);
-  checkLabel(eight, DEFAULT, page, "8 cards, long sets");
-  assert.deepEqual(overlaps(page), [], "8 cards: nothing printed on top of something else");
-  assert.equal(fit.more, 0);
-  assert.equal(fit.cols, 1);
-  assert.ok(fit.wrapped > 0, "some sets go under their names");
-  for (const c of eight.cards) assert.ok(words(page).includes(`1999 ${c.set} #${c.number}`), `${c.code}: set and number in full`);
-  assert.ok(!texts(page).some((t) => t.font === "body400" && t.text.endsWith("…")), "no set cut");
-  // A set under its name starts where the name does, inside the row
-  const under = texts(page).find((t) => t.text === "1999 Test Set Two #10/165")!;
-  const name = texts(page).find((t) => t.text === "Test Big Order Card 10")!;
-  assert.ok(near(under.x, name.x) && under.y > name.y, "the set sits under the name");
+  // Every card's pre-grade paid for (each row ends with its PG field), and none (the rows have the whole line)
+  for (const [which, b8] of [["all paid", withPg(eight, "all")], ["none paid", eight]] as const) {
+    const label = `8 cards, long sets, ${which}`;
+    const { page, fit } = planBagLabel(b8, DEFAULT);
+    checkLabel(b8, DEFAULT, page, label);
+    assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+    assert.equal(fit.more, 0);
+    assert.equal(fit.cols, 1);
+    assert.ok(fit.wrapped > 0, `${label}: some sets go under their names`);
+    for (const c of b8.cards) assert.ok(words(page).includes(`1999 ${c.set} #${c.number}`), `${label}: ${c.code}: set and number in full`);
+    assert.ok(!texts(page).some((t) => t.font === "body400" && t.text.endsWith("…")), `${label}: no set cut`);
+    const under = texts(page).find((t) => t.text === "1999 Test Set Two #10/165")!;
+    const name = texts(page).find((t) => t.text === "Test Big Order Card 10")!;
+    // A set under its name starts where the name does, inside the row; without the PG field it has room beside the name
+    if (which === "all paid") assert.ok(near(under.x, name.x) && under.y > name.y, `${label}: the set sits under the name`);
+    else assert.ok(near(under.y, name.y) && under.x > name.x + name.width, `${label}: the set beside the name, on its line`);
+  }
 
   // A set too long for a whole line is cut, never the card number
   const long = bag(3);
@@ -692,7 +707,7 @@ test("card rows: a set and number never cut while there is room; they go under t
   assert.ok(planBagLabel(bag(120), DEFAULT).fit.more > 0);
 });
 
-// ── The check box and the PG line on every card row (owner, Nov 26 2026) ──
+// ── The check box on every card row, the PG line on the paid ones (owner, Nov 26 2026) ──
 
 const MM = PT / 25.4;
 /** The card rows' marks: the check boxes (outline only), the "PG" words and their write-in lines. */
@@ -706,14 +721,22 @@ const listFrame = (p: LabelPage) => {
 };
 /** The capitals' middle of a text. */
 const capMid = (t: LabelText) => t.y - ((FONT_METRICS[t.font].capHeight / 1000) * t.size) / 2;
-type RowMarks = { id: LabelText; box: LabelRect; pg: LabelText; line: LabelLine; value?: LabelText };
+/** A listed card's marks: its number and check box; on a row with the PG field, "PG", its line and the value on it. */
+type RowMarks = { id: LabelText; box: LabelRect; pg?: LabelText; line?: LabelLine; value?: LabelText };
+/** The marks of a row that must have the PG field. */
+function fieldOf(m: RowMarks | undefined, label: string): RowMarks & { pg: LabelText; line: LabelLine } {
+  assert.ok(m?.pg && m.line, `${label}: a PG field`);
+  return m as RowMarks & { pg: LabelText; line: LabelLine };
+}
 
 /**
  * Every listed card's row has one check box at its left, centered on the
- * first line's capitals, and one PG field at its right end ("PG" and its
- * line, a pre-grade on the line when there is one), inside the list and the
- * printed width; boxes never touch each other or anything printed. Returns
- * each listed card's marks.
+ * first line's capitals. A card with a paid or submitted pre-grade
+ * (hasPgField) has one PG field at its row's right end ("PG" and its line, a
+ * pre-grade on the line when there is one); every other row has none, its
+ * words stay in its column and its name is whole when it fits there. All
+ * inside the list and the printed width; boxes never touch each other or
+ * anything printed. Returns each listed card's marks.
  */
 function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: string): Map<string, RowMarks> {
   const { fit } = planBagLabel(b, stock);
@@ -722,9 +745,11 @@ function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: s
   const words = pgWords(page);
   const lines = pgLines(page);
   const n = page.cardCodes.length;
+  const cardOf = new Map(b.cards.map((c) => [c.code, c]));
+  const fielded = page.cardCodes.filter((code) => hasPgField(cardOf.get(code)!));
   assert.equal(boxes.length, n, `${label}: one check box per listed card`);
-  assert.equal(words.length, n, `${label}: one "PG" per listed card`);
-  assert.equal(lines.length, n, `${label}: one PG line per listed card`);
+  assert.equal(words.length, fielded.length, `${label}: one "PG" per listed card with a paid or submitted pre-grade (${fielded.length} of ${n})`);
+  assert.equal(lines.length, fielded.length, `${label}: one PG line per listed card with a paid or submitted pre-grade`);
   const { xi, Wi, top } = listFrame(page);
   const q = qrs(page)[0];
   const qrRule = p2Rule(page, q);
@@ -767,8 +792,9 @@ function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: s
       assert.ok(!hit, `${label}: "${t.text}" over a PG line`);
     }
   }
-  // Each listed card: its number, the box at its left centered on the line's capitals, its PG field at the row's right end
+  // Each listed card: its number, the box at its left centered on the line's capitals, its PG field (if any) at the row's right end
   const byCol = new Map<number, LabelText[]>();
+  const colX = new Map<number, number>();
   const ids = page.cardCodes.map((code) => {
     const id = texts(page).filter((t) => t.font === "mono600" && t.text === code.split("-").pop());
     assert.equal(id.length, 1, `${label}: ${code}'s number once`);
@@ -783,18 +809,38 @@ function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: s
     assert.equal(box.length, 1, `${label}: ${code}: one box just left of its number, centered on the line`);
     const col = Math.round(box[0].x * 100);
     (byCol.get(col) ?? byCol.set(col, []).get(col)!).push(id);
-    out.set(code, { id, box: box[0] } as RowMarks);
+    colX.set(col, box[0].x);
+    out.set(code, { id, box: box[0] });
   });
   const colXs = [...byCol.keys()].sort((a, b) => a - b);
-  for (const [colX, colIds] of byCol) {
-    // Everything of this column stands left of the next column's boxes
-    const nextCol = (colXs.find((x) => x > colX) ?? Infinity) / 100;
+  // Two columns with every listed row in the left one (a label out of room): that column's right edge isn't known here
+  const lone = fit.cols === 2 && byCol.size === 1;
+  for (const [col, colIds] of byCol) {
+    // Everything of this column stands left of the next column's boxes; the column's right edge: the list's, or in
+    // two columns the left one's (as wide as the right one, which ends at the list's right edge)
+    const nextKey = colXs.find((x) => x > col);
+    const nextCol = nextKey === undefined ? Infinity : colX.get(nextKey)!;
+    const colRight = nextKey === undefined ? xi + Wi : 2 * xi + Wi - nextCol;
     colIds.sort((a, b) => a.y - b.y);
     colIds.forEach((id, k) => {
       const code = page.cardCodes[ids.indexOf(id)];
+      const card = cardOf.get(code)!;
       const next = colIds[k + 1]?.y ?? Infinity;
       const box = out.get(code)!.box;
-      // The column's right edge: the list's right, or the left column's right in two columns
+      if (!hasPgField(card)) {
+        // No PG field: nothing of one in the row, its words inside its column, its name whole when it fits there
+        const rowEnd = Math.min(next, id.y + 3 * 1.25 * id.size, qrRule.y);
+        const row = texts(page).filter((t) => t.x > box.x + box.w && t.x < colRight && t.y > id.y - 1e-9 && t.y < rowEnd - 1e-9);
+        assert.ok(!row.some((t) => t.text === ROW_MARKS.pgLabel), `${label}: ${code}: no "PG" (no paid or submitted pre-grade)`);
+        assert.ok(!lines.some((l) => l.x2 > box.x && l.x1 < colRight && l.y1 > box.y && l.y1 < rowEnd), `${label}: ${code}: no PG line`);
+        for (const t of row) assert.ok(t.x + t.width <= colRight + 1e-6, `${label}: ${code}: "${t.text}" inside its column`);
+        const nameEl = row.find((t) => t.font === "body700" && near(t.y, id.y, 1e-9));
+        assert.ok(nameEl, `${label}: ${code}: its name on its first line`);
+        const name = printable(card.name, "body700");
+        if (!lone && nameEl.x + textWidth(name, "body700", nameEl.size) <= colRight - 1e-6) assert.equal(nameEl.text, name, `${label}: ${code}: the whole name (no PG field takes its room)`);
+        return;
+      }
+      // The PG field's right edge: the list's right, or the left column's right in two columns
       const right = Math.max(...lines.filter((l) => l.y1 > box.y && l.y1 < next && l.x1 > box.x && l.x2 < nextCol).map((l) => l.x2));
       const mine = words.filter((w) => w.x > id.x && w.y >= id.y - 1e-9 && w.y < next - 1e-9 && w.x + w.width <= right);
       assert.equal(mine.length, 1, `${label}: ${code}: one "PG" in its row`);
@@ -809,7 +855,7 @@ function checkRowMarks(b: LabelBag, stock: LabelStock, page: LabelPage, label: s
       const line = lines.filter((l) => l.x1 >= pg.x + pg.width - 1e-9 && l.x1 - (pg.x + pg.width) <= pg.size && l.y1 > pg.y && l.y1 - pg.y < 0.4 * pg.size);
       assert.equal(line.length, 1, `${label}: ${code}: the PG line right after "PG", just under its baseline`);
       const ln = line[0];
-      assert.ok(near(ln.x2, right, 1e-9) && (near(right, xi + Wi, 1e-9) || right < xi + Wi / 2 + 1e-9), `${label}: ${code}: PG line at the row's right end`);
+      assert.ok(near(ln.x2, right, 1e-9) && (lone ? right < xi + Wi / 2 + 1e-9 : near(right, colRight, 1e-6)), `${label}: ${code}: PG line at the row's right end`);
       assert.ok(ln.x2 - ln.x1 >= ROW_MARKS.pgLineMinPt - 1e-9, `${label}: ${code}: a line of ${((ln.x2 - ln.x1) / MM).toFixed(1)} mm to write on`);
       assert.ok(ln.width >= LABEL_LIMITS.minRulePt - 1e-9 && ln.color === "ink");
       const value = texts(page).filter((t) => t !== pg && near(t.y, pg.y, 1e-9) && t.x >= ln.x1 - 1e-9 && t.x + t.width <= ln.x2 + 1e-9);
@@ -825,7 +871,17 @@ function p2Rule(p: LabelPage, q: LabelQr): LabelRect {
   return p.elements.filter((e): e is LabelRect => e.kind === "rect" && e.fill === "ink" && e.h < 4 && e.y < q.y).sort((a, b) => b.y - a.y)[0];
 }
 
-test("check box and PG line on every listed card row, inside the printed width, nothing overlapping (4x6, 50 x 80 mm and the other stocks)", () => {
+/**
+ * The bag's cards paid for in three ways: none, mixed (every third card paid
+ * and blank, the next submitted, the next none) and all (one submitted).
+ */
+const PAID: [name: string, pick: (b: LabelBag) => LabelBag][] = [
+  ["no paid pre-grades", (b) => b],
+  ["mixed", (b) => withPg(b, b.cards.map((_, i) => i).filter((i) => i % 3 === 0), Object.fromEntries(b.cards.map((_, i) => i).filter((i) => i % 3 === 1).map((i) => [i, "9"])))],
+  ["every card paid", (b) => withPg(b, "all", b.cards.length ? { [1 % b.cards.length]: "9" } : {})],
+];
+
+test("check box on every listed card row, the PG line only on the paid ones; inside the printed width, nothing overlapping (4x6, 50 x 80 mm and the other stocks)", () => {
   const stocks: [string, LabelStock][] = [
     ["4x6 at 3.2 in", DEFAULT], ["50 x 80 mm", MM50], ["4x6 at 2 in", stockPoints("4x6", 2)], ["4x6 at 4 in", stockPoints("4x6", 4)],
     ["3x5 at 2.6 in", stockPoints("3x5", 2.6)], ["4x3 at 3.2 in", stockPoints("4x3", 3.2)],
@@ -834,14 +890,16 @@ test("check box and PG line on every listed card row, inside the printed width, 
   for (const [where, stock] of stocks) {
     for (const n of [1, 4, 12, 16, 40, 120]) {
       for (const over of [{}, long]) {
-        const b = bag(n, over);
-        b.cards[1 % n] = { ...b.cards[1 % n], pregrade: "9" };
-        const label = `${where}, ${n} cards${"customerName" in over ? ", long name" : ""}`;
-        const page = layoutBagLabel(b, stock);
-        checkLabel(b, stock, page, label);
-        assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
-        const marks = checkRowMarks(b, stock, page, label);
-        assert.equal(marks.size, page.cardCodes.length);
+        for (const [which, pick] of PAID) {
+          const b = pick(bag(n, over));
+          const label = `${where}, ${n} cards${"customerName" in over ? ", long name" : ""}, ${which}`;
+          const page = layoutBagLabel(b, stock);
+          checkLabel(b, stock, page, label);
+          assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+          const marks = checkRowMarks(b, stock, page, label);
+          assert.equal(marks.size, page.cardCodes.length);
+          if (which === "no paid pre-grades") assert.equal(pgWords(page).length + pgLines(page).length, 0, `${label}: no PG anywhere`);
+        }
       }
     }
   }
@@ -851,7 +909,7 @@ test("check box and PG line on every listed card row, inside the printed width, 
   const mm50 = planBagLabel(bag(4), MM50);
   assert.ok(near(mm50.fit.checkBox, 3 * MM, 1e-9), "50 x 80 mm: a 3 mm box");
   // Two columns: each column's rows have their own box and PG line, the left column's line ends before the right column's boxes
-  const two = layoutBagLabel(bag(20), DEFAULT);
+  const two = layoutBagLabel(withPg(bag(20), "all"), DEFAULT);
   const xs = [...new Set(checkBoxes(two).map((bx) => Math.round(bx.x * 100) / 100))];
   assert.equal(xs.length, 2, "two columns of boxes");
   const rightBoxX = Math.max(...xs);
@@ -860,11 +918,115 @@ test("check box and PG line on every listed card row, inside the printed width, 
   assert.ok(leftLines.every((l) => l.x2 <= rightBoxX - 4), "the left column's PG lines stop well before the right column's boxes");
 });
 
+test("a mixed bag (2 paid, 1 graded, 1 not paid) on 4x6 and 50 x 80 mm: PG only on the paid and graded rows; the other row's name and set get its room", () => {
+  // As the loader passes it: the PG field for a paid (pregrade_selected) or submitted pre-grade, the result once submitted
+  const four = bag(4, { otherBags: [] });
+  four.cards[0] = { ...four.cards[0], name: "Charizard Holo 1st Edition", year: "1999", set: "Base Set", number: "4/102", pregrade: true };
+  four.cards[1] = { ...four.cards[1], name: "Blastoise Holo 1st Edition", year: "1999", set: "Base Set", number: "2/102", pregrade: true };
+  four.cards[2] = { ...four.cards[2], name: "Venusaur Holo 1st Edition", year: "1999", set: "Base Set", number: "15/102", pregrade: true, pregradeResult: "PSA 8–9" };
+  four.cards[3] = { ...four.cards[3], name: "Pikachu", year: "1999", set: "Base Set", number: "58/102", pregrade: false };
+  for (const [where, stock] of [["4x6", DEFAULT], ["50 x 80 mm", MM50]] as const) {
+    const { page, fit } = planBagLabel(four, stock);
+    checkLabel(four, stock, page, where);
+    assert.deepEqual(overlaps(page), [], `${where}: nothing printed on top of something else`);
+    assert.equal(fit.more, 0, `${where}: every card listed`);
+    assert.equal(fit.namesCut, 0, `${where}: every name whole`);
+    const m = checkRowMarks(four, stock, page, where);
+    assert.equal(checkBoxes(page).length, 4, `${where}: a tick box on every row`);
+    assert.equal(pgWords(page).length, 3, `${where}: "PG" on the three paid rows`);
+    for (const c of four.cards.slice(0, 2)) assert.equal(fieldOf(m.get(c.code), `${where} ${c.code}`).value, undefined, `${where}: ${c.code}: a blank line to write on`);
+    assert.equal(fieldOf(m.get(four.cards[2].code), where).value?.text, "PSA 8–9", `${where}: the submitted pre-grade on its line`);
+    const plain = m.get(four.cards[3].code)!;
+    assert.ok(!plain.pg && !plain.line, `${where}: no PG field on the card without a paid pre-grade`);
+    for (const c of four.cards) assert.ok(words(page).includes(c.name) && words(page).some((w) => w.endsWith(`#${c.number}`)), `${where}: ${c.code}: whole name and card number`);
+    // The unpaid row's set: whole, beside its name when the pair fits the line (the PG field's room), else under it
+    const name = texts(page).find((t) => t.text === four.cards[3].name)!;
+    const set = texts(page).find((t) => t.text === "1999 Base Set #58/102")!;
+    assert.ok(set, `${where}: the unpaid card's set whole`);
+    if (stock === DEFAULT) {
+      // On 4x6 the set stands beside the name on its line, in the room a PG field would take: paid, it goes under the name
+      assert.ok(near(set.y, name.y, 1e-9), "4x6: the unpaid card's set beside its name");
+      const paid = layoutBagLabel(withPg(four, [3]), stock);
+      const paidName = texts(paid).find((t) => t.text === four.cards[3].name)!;
+      const paidSet = texts(paid).find((t) => t.text === "1999 Base Set #58/102")!;
+      assert.ok(paidSet.y > paidName.y && near(paidSet.x, paidName.x), "4x6: with a PG field the same set goes under the name");
+    }
+  }
+  // On 50 x 80 mm a row without the PG field takes one line where its name and set fit there; a paid row two
+  const short = bag(4, { otherBags: [] });
+  short.cards = short.cards.map((c, i) => ({ ...c, name: "Mewtwo", year: "1999", set: "Base", number: String(10 + i), pregrade: i < 2 }));
+  const sp = planBagLabel(short, MM50);
+  checkLabel(short, MM50, sp.page, "50 x 80 mm short names");
+  assert.deepEqual(overlaps(sp.page), []);
+  const sm = checkRowMarks(short, MM50, sp.page, "50 x 80 mm short names");
+  for (const c of short.cards) {
+    const nameEl = texts(sp.page).find((t) => t.font === "body700" && t.text === "Mewtwo" && near(t.y, sm.get(c.code)!.id.y, 1e-9))!;
+    const setEl = texts(sp.page).find((t) => t.text === `1999 Base #${c.number}`)!;
+    if (c.pregrade) assert.ok(fieldOf(sm.get(c.code), c.code).pg.y > nameEl.y, `${c.code}: paid: PG under the name`);
+    else assert.ok(near(setEl.y, nameEl.y, 1e-9) && !sm.get(c.code)!.pg, `${c.code}: not paid: name and set on one line, no PG`);
+  }
+  const rowH = (code: string) => {
+    const at = sp.page.cardCodes.indexOf(code);
+    return sm.get(sp.page.cardCodes[at + 1])!.box.y - sm.get(code)!.box.y;
+  };
+  assert.ok(rowH(short.cards[2].code) < rowH(short.cards[0].code) - 3, `a one-line row (${rowH(short.cards[2].code).toFixed(1)} pt) is shorter than a paid one (${rowH(short.cards[0].code).toFixed(1)} pt)`);
+});
+
+test("a bag with no paid pre-grades has no PG at all, on 4x6 and 50 x 80 mm; on 50 x 80 mm more of its cards show", () => {
+  const SHORT = ["Mewtwo", "Pikachu", "Eevee", "Snorlax", "Gengar", "Onix"];
+  for (const [where, stock] of [["4x6", DEFAULT], ["50 x 80 mm", MM50]] as const) {
+    for (const n of [1, 4, 12, 40]) {
+      const b = bag(n);
+      const { page, fit } = planBagLabel(b, stock);
+      const label = `${where}, ${n} cards, none paid`;
+      checkLabel(b, stock, page, label);
+      assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+      assert.equal(pgWords(page).length, 0, `${label}: no "PG"`);
+      assert.equal(pgLines(page).length, 0, `${label}: no PG line`);
+      assert.equal(checkBoxes(page).length, page.cardCodes.length, `${label}: a tick box on every listed row`);
+      checkRowMarks(b, stock, page, label);
+      // Never fewer cards than with every card paid for (each row with its PG field)
+      const all = planBagLabel(withPg(b, "all"), stock).fit;
+      assert.ok(fit.shown >= all.shown, `${label}: ${fit.shown} listed, ${all.shown} with every card paid`);
+    }
+  }
+  // 50 x 80 mm, 12 cards with short names and sets (one line each without the PG field): more cards show than with PG on every row
+  const twelve = bag(12);
+  twelve.cards = twelve.cards.map((c, i) => ({ ...c, name: SHORT[i % SHORT.length], year: "1999", set: "Base", number: String(i + 1) }));
+  const none = planBagLabel(twelve, MM50);
+  const every = planBagLabel(withPg(twelve, "all"), MM50);
+  checkLabel(twelve, MM50, none.page, "12 short cards, none paid");
+  assert.deepEqual(overlaps(none.page), []);
+  checkRowMarks(twelve, MM50, none.page, "12 short cards, none paid");
+  assert.ok(none.fit.shown > every.fit.shown, `50 x 80 mm: ${none.fit.shown} listed without PG fields, ${every.fit.shown} with one on every row`);
+});
+
+test("pregradeOnLabel: the PG field for a flagged (paid) or submitted card; every card when the order paid for more than it has flagged", () => {
+  const flagged = { pregrade_selected: true, pregrade_submitted_at: null };
+  const submitted = { pregrade_selected: true, pregrade_submitted_at: "2026-11-20T15:00:00Z" };
+  const plain = { pregrade_selected: false, pregrade_submitted_at: null };
+  const legacySubmitted = { pregrade_selected: false, pregrade_submitted_at: "2026-11-20T15:00:00Z" };
+  // Nothing paid, nothing flagged: no card gets it
+  assert.deepEqual([plain, plain].map(pregradeOnLabel(0, [plain, plain])), [false, false]);
+  // Paid for as many as are flagged: only those (and a submitted one)
+  const order = [flagged, submitted, plain, legacySubmitted];
+  assert.deepEqual(order.map(pregradeOnLabel(2, order)), [true, true, false, true]);
+  // More flagged than paid (owed is the flagged count): only the flagged
+  assert.deepEqual([flagged, plain].map(pregradeOnLabel(0, [flagged, plain])), [true, false]);
+  // Owed but unflagged (an older order: paid for 3, 1 card flagged): the label can't know which, so every card of the order
+  const older = [flagged, plain, plain, plain];
+  assert.deepEqual(older.map(pregradeOnLabel(3, older)), [true, true, true, true]);
+  // Paid for 1, none flagged: every card
+  assert.deepEqual([plain, plain].map(pregradeOnLabel(1, [plain, plain])), [true, true]);
+  // The order's flagged cards only may be passed (the loader reads just those)
+  assert.deepEqual([plain, flagged].map(pregradeOnLabel(2, [flagged, flagged])), [false, true]);
+  assert.deepEqual([plain].map(pregradeOnLabel(2, [flagged])), [true]);
+});
+
 test("on 50 x 80 mm the PG field is always under the name: the name keeps the whole line, the field beside the set (cut, its number kept) or on its own line", () => {
   // A roomy bag: the field on its own line under a set too long to stand beside it, the set whole
-  const b = bag(2, { otherBags: [] });
-  b.cards[0] = { ...b.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "", pregrade: "9" };
-  b.cards[1] = { ...b.cards[1], pregrade: "BGS 9.5" };
+  const b = withPg(bag(2, { otherBags: [] }), [], { 0: "9", 1: "BGS 9.5" });
+  b.cards[0] = { ...b.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "" };
   const page = layoutBagLabel(b, MM50);
   checkLabel(b, MM50, page, "two cards");
   assert.deepEqual(overlaps(page), []);
@@ -873,18 +1035,18 @@ test("on 50 x 80 mm the PG field is always under the name: the name keeps the wh
   assert.equal(marks.get(b.cards[0].code)!.value?.text, "9");
   assert.equal(marks.get(b.cards[1].code)!.value?.text, "BGS 9.5");
   // A set too long to stand beside the field: whole on its own line, the field on the line under it
-  const second = marks.get(b.cards[1].code)!;
+  const second = fieldOf(marks.get(b.cards[1].code), "two cards");
   const set2 = texts(page).find((t) => t.text === `${b.cards[1].year} ${b.cards[1].set} #${b.cards[1].number}`)!;
   assert.ok(set2 && set2.y > second.id.y && second.pg.y > set2.y, "set whole under the name, the field under the set");
-  for (const c of b.cards) assert.ok(marks.get(c.code)!.pg.y > marks.get(c.code)!.id.y, `${c.name}: PG under the name`);
+  for (const c of b.cards) assert.ok(fieldOf(marks.get(c.code), c.name).pg.y > marks.get(c.code)!.id.y, `${c.name}: PG under the name`);
   // A short set stands beside the field on the line under the name
-  const short = marks.get(b.cards[0].code)!;
+  const short = fieldOf(marks.get(b.cards[0].code), "two cards");
   const promo = texts(page).find((t) => t.text === "1998 Promo")!;
   assert.ok(promo && near(promo.y, short.pg.y, 1e-9) && promo.x + promo.width <= short.pg.x, "\"1998 Promo\" beside its PG field");
-  // A full bag: every row two lines, the set cut before the field with its card number kept
-  const four = bag(4, { otherBags: [] });
+  // A full bag, every card paid: every row two lines, the set cut before the field with its card number kept
+  const four = withPg(bag(4, { otherBags: [] }), "all", { 3: "PSA 8–9" });
   four.cards[0] = { ...four.cards[0], name: "Pikachu Illustrator", year: "1998", set: "Promo", number: "" };
-  four.cards[3] = { ...four.cards[3], name: "Charizard Holo 1st Edition", pregrade: "PSA 8–9" };
+  four.cards[3] = { ...four.cards[3], name: "Charizard Holo 1st Edition" };
   const p4 = planBagLabel(four, MM50);
   assert.equal(p4.fit.more, 0);
   const m4 = checkRowMarks(four, MM50, p4.page, "four, long names");
@@ -893,37 +1055,37 @@ test("on 50 x 80 mm the PG field is always under the name: the name keeps the wh
   assert.equal(m4.get(four.cards[3].code)!.value?.text, "PSA 8–9");
 });
 
-test("the name, the QR and the banner keep their sizes with the check boxes and PG lines (usual test names, 4x6 and 50 x 80 mm)", () => {
+test("the name, the QR and the banner keep their sizes with the check boxes and PG lines, paid or not (usual test names, 4x6 and 50 x 80 mm)", () => {
   // The FILED table's sizes were recorded before the filing tab and are still the sizes before the check boxes;
   // the QR stays 1 in (its minimum) at the same place as before
   for (const [name, , wide, mm50] of FILED) {
     for (const [key, stock, sizes] of [["4x6", DEFAULT, wide], ["50 x 80 mm", MM50, mm50]] as const) {
       for (const [i, dueDate] of (["2026-12-07", "2027-01-08"] as const).entries()) {
         for (const n of [1, 4, 12, 40]) {
-          const b = bag(n, { customerName: name, dueDate, otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] });
-          b.cards[0] = { ...b.cards[0], pregrade: "PSA 8–9" };
-          const { page, fit } = planBagLabel(b, stock);
-          const label = `${name}, ${key}, ${n} cards, due ${dueDate}`;
-          assert.deepEqual([fit.nameSize, fit.nameLines], [sizes[2 * i], sizes[2 * i + 1]], `${label}: name size and lines`);
-          const q = qrs(page)[0];
-          assert.equal(q.size, LABEL_LIMITS.minBagQrIn * PT, `${label}: QR 1 in`);
-          assert.ok(checkBoxes(page).length === page.cardCodes.length && pgWords(page).length === page.cardCodes.length, `${label}: marks on every row`);
+          for (const [which, pick] of PAID) {
+            const b = pick(bag(n, { customerName: name, dueDate, otherBags: [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }] }));
+            if (which !== "no paid pre-grades") b.cards[0] = { ...b.cards[0], pregrade: true, pregradeResult: "PSA 8–9" };
+            const { page, fit } = planBagLabel(b, stock);
+            const label = `${name}, ${key}, ${n} cards, due ${dueDate}, ${which}`;
+            assert.deepEqual([fit.nameSize, fit.nameLines], [sizes[2 * i], sizes[2 * i + 1]], `${label}: name size and lines`);
+            const q = qrs(page)[0];
+            assert.equal(q.size, LABEL_LIMITS.minBagQrIn * PT, `${label}: QR 1 in`);
+            const fielded = page.cardCodes.filter((code) => hasPgField(b.cards.find((c) => c.code === code)!)).length;
+            assert.ok(checkBoxes(page).length === page.cardCodes.length && pgWords(page).length === fielded, `${label}: a box on every row, PG on the ${fielded} paid`);
+          }
         }
       }
     }
   }
 });
 
-test("a submitted pre-grade is printed on its PG line; the others are left blank to write on", () => {
+test("a submitted pre-grade is printed on its PG line; the other paid ones are left blank to write on", () => {
   for (const [where, stock] of [["4x6", DEFAULT], ["50 x 80 mm", MM50], ["4x6 two columns", DEFAULT]] as const) {
     const n = where.endsWith("columns") ? 20 : 4;
-    const b = bag(n);
-    b.cards[1] = { ...b.cards[1], pregrade: "9" };
-    b.cards[2] = { ...b.cards[2], pregrade: "PSA 8–9" };
-    b.cards[3] = { ...b.cards[3], pregrade: "  " };
+    const b = withPg(bag(n), "all", { 1: "9", 2: "PSA 8–9", 3: "  " });
     const page = layoutBagLabel(b, stock);
     const marks = checkRowMarks(b, stock, page, where);
-    const value = (i: number) => marks.get(b.cards[i].code)!.value;
+    const value = (i: number) => fieldOf(marks.get(b.cards[i].code), where).value;
     assert.equal(value(1)?.text, "9", `${where}: "9" on card 2's line`);
     assert.equal(value(1)?.font, "body800");
     assert.ok(value(2) && /^PSA 8–9$|^PSA.*…$/.test(value(2)!.text), `${where}: card 3's pre-grade (${value(2)?.text})`);
@@ -931,28 +1093,32 @@ test("a submitted pre-grade is printed on its PG line; the others are left blank
     assert.equal(value(3), undefined, `${where}: a blank pre-grade prints nothing`);
     // The value sits on its line, centered, and stays as legible as the row
     const v = value(1)!;
-    const ln = marks.get(b.cards[1].code)!.line;
+    const { line: ln, pg } = fieldOf(marks.get(b.cards[1].code), where);
     assert.ok(near(v.x + v.width / 2, (ln.x1 + ln.x2) / 2, 0.01), `${where}: the value centered on the line`);
-    assert.ok(v.size >= LABEL_LIMITS.minTextPt && v.size === marks.get(b.cards[1].code)!.pg.size);
+    assert.ok(v.size >= LABEL_LIMITS.minTextPt && v.size === pg.size);
     // A blank line is as long as the "9" line: the value never shortens it
-    assert.ok(near(ln.x2 - ln.x1, marks.get(b.cards[0].code)!.line.x2 - marks.get(b.cards[0].code)!.line.x1, 1e-9));
+    const blank = fieldOf(marks.get(b.cards[0].code), where).line;
+    assert.ok(near(ln.x2 - ln.x1, blank.x2 - blank.x1, 1e-9));
   }
-  // The same bag without pre-grades prints only blank lines, at the same places
-  const plain = layoutBagLabel(bag(4), DEFAULT);
-  const graded = bag(4);
-  graded.cards[1] = { ...graded.cards[1], pregrade: "9" };
-  const withValue = layoutBagLabel(graded, DEFAULT);
+  // The same paid bag without results prints only blank lines, at the same places
+  const plain = layoutBagLabel(withPg(bag(4), "all"), DEFAULT);
+  const withValue = layoutBagLabel(withPg(bag(4), "all", { 1: "9" }), DEFAULT);
   assert.deepEqual(pgLines(plain), pgLines(withValue));
   assert.deepEqual(checkBoxes(plain), checkBoxes(withValue));
   assert.equal(texts(withValue).length, texts(plain).length + 1, "only the value added");
+  // A submitted pre-grade is never left off, even when the card isn't marked paid (the field comes with it)
+  const legacy = bag(2);
+  legacy.cards[0] = { ...legacy.cards[0], pregrade: false, pregradeResult: "PSA 9" };
+  const lm = checkRowMarks(legacy, DEFAULT, layoutBagLabel(legacy, DEFAULT), "submitted, not flagged");
+  assert.equal(fieldOf(lm.get(legacy.cards[0].code), "submitted, not flagged").value?.text, "PSA 9");
+  assert.ok(!lm.get(legacy.cards[1].code)!.pg, "the other card: no PG field");
   // A long pre-grade is cut with "…" and stays inside the row; the name keeps its place
-  const long = bag(1);
-  long.cards[0] = { ...long.cards[0], pregrade: "Gem Mint 10 if the centering holds up under the loupe, else a strong 9" };
+  const long = withPg(bag(1), [], { 0: "Gem Mint 10 if the centering holds up under the loupe, else a strong 9" });
   for (const stock of [DEFAULT, MM50]) {
     const page = layoutBagLabel(long, stock);
     checkLabel(long, stock, page, "long pre-grade");
     assert.deepEqual(overlaps(page), []);
-    const m = checkRowMarks(long, stock, page, "long pre-grade").get(long.cards[0].code)!;
+    const m = fieldOf(checkRowMarks(long, stock, page, "long pre-grade").get(long.cards[0].code), "long pre-grade");
     assert.ok(m.value && m.value.text.endsWith("…") && m.value.text.startsWith("Gem"), `cut: "${m.value?.text}"`);
     // The field grows for it, at most to ROW_MARKS.pgValueShare of the row's text width
     assert.ok(m.line.x2 - m.line.x1 > ROW_MARKS.pgLineMinPt, "the line grew for the value");
@@ -961,15 +1127,19 @@ test("a submitted pre-grade is printed on its PG line; the others are left blank
 });
 
 test("short pre-grades are never cut, on any stock or card count; on 50 x 80 mm a one-card bag prints its whole name (QA, Nov 26: \"PSA 9\" printed \"P…\", the name \"Test Car…\")", () => {
-  // The e2e bags (labels-checkbox-pg): CD-2549-P holds one card with "PSA 9"; CD-2549-G four, one "PSA 8–9", one long
+  // The e2e bags (labels-checkbox-pg): CD-2549-P holds one card with "PSA 9"; CD-2549-G four: 01 paid (blank), 02 "PSA 8–9",
+  // 03 not paid (no PG field), 04 a long one
   const LONG = "PSA 8–9, centering 60/40 on the back, light whitening on two corners";
-  const mk = (bagCode: string, tierName: string, rows: [string, string, string | null][], seq0: number): LabelBag => ({
+  const mk = (bagCode: string, tierName: string, rows: [string, string, boolean | string][], seq0: number): LabelBag => ({
     bagCode, tierName, orderNumber: "CD-2549", customerName: "Test Customer A", receivedOn: "2026-11-15", dueDate: "2026-12-07",
     otherBags: [{ bagCode: bagCode.endsWith("P") ? "CD-2549-G" : "CD-2549-P", tierName: "Other", cardCount: 1 }],
-    cards: rows.map(([name, number, pregrade], i) => ({ seq: seq0 + i, code: `CD-2549-${String(seq0 + i).padStart(2, "0")}`, name, year: "1999", set: "Base Set", number, pregrade })),
+    cards: rows.map(([name, number, pg], i) => ({
+      seq: seq0 + i, code: `CD-2549-${String(seq0 + i).padStart(2, "0")}`, name, year: "1999", set: "Base Set", number,
+      pregrade: pg !== false, pregradeResult: typeof pg === "string" ? pg : null,
+    })),
   });
   const plat = mk("CD-2549-P", "Platinum", [["Test Card Platinum One", "1/130", "PSA 9"]], 7);
-  const gold = mk("CD-2549-G", "Gold", [["Test Card Gold One", "4/102", null], ["Test Card Gold Two", "10/102", "PSA 8–9"], ["Test Card Gold Three", "15/102", null], ["Test Card Gold Four", "58/102", LONG]], 1);
+  const gold = mk("CD-2549-G", "Gold", [["Test Card Gold One", "4/102", true], ["Test Card Gold Two", "10/102", "PSA 8–9"], ["Test Card Gold Three", "15/102", false], ["Test Card Gold Four", "58/102", LONG]], 1);
   for (const [where, stock] of [["4x6", DEFAULT], ["50 x 80 mm", MM50]] as const) {
     const p = layoutBagLabel(plat, stock);
     checkLabel(plat, stock, p, `${where} CD-2549-P`);
@@ -980,7 +1150,9 @@ test("short pre-grades are never cut, on any stock or card count; on 50 x 80 mm 
     checkLabel(gold, stock, g, `${where} CD-2549-G`);
     assert.deepEqual(overlaps(g), []);
     const gm = checkRowMarks(gold, stock, g, `${where} CD-2549-G`);
+    assert.ok(fieldOf(gm.get("CD-2549-01"), where) && gm.get("CD-2549-01")!.value === undefined, `${where}: 01 paid, a blank line`);
     assert.equal(gm.get("CD-2549-02")!.value?.text, "PSA 8–9");
+    assert.ok(!gm.get("CD-2549-03")!.pg, `${where}: 03 not paid, no PG field`);
     assert.ok(/^PSA 8.*…$/.test(gm.get("CD-2549-04")!.value?.text ?? ""), `${where}: the long one cut (${gm.get("CD-2549-04")!.value?.text})`);
     for (const c of gold.cards) assert.ok(words(g).includes(c.name), `${where}: "${c.name}" whole`);
   }
@@ -989,16 +1161,19 @@ test("short pre-grades are never cut, on any stock or card count; on 50 x 80 mm 
   const stocks: [string, LabelStock][] = [["4x6", DEFAULT], ["50 x 80 mm", MM50], ["4x6 at 2 in", stockPoints("4x6", 2)], ["4x6 at 4 in", stockPoints("4x6", 4)], ["3x5", stockPoints("3x5", 2.6)], ["4x3", stockPoints("4x3", 3.2)]];
   for (const [where, stock] of stocks) {
     for (const n of [1, 2, 4, 12, 16, 40, 120]) {
-      const b = bag(n);
-      b.cards = b.cards.map((c, i) => ({ ...c, pregrade: GRADES[i % GRADES.length] }));
-      const label = `${where}, ${n} cards`;
-      const page = layoutBagLabel(b, stock);
-      checkLabel(b, stock, page, label);
-      assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
-      const marks = checkRowMarks(b, stock, page, label);
-      for (const c of b.cards.filter((x) => page.cardCodes.includes(x.code))) assert.equal(marks.get(c.code)!.value?.text, c.pregrade, `${label}: ${c.code}'s "${c.pregrade}"`);
-      // The owner's stocks: a bag that fits prints every ordinary name whole (the field never takes a name's room)
-      if (n <= 4 && (stock === DEFAULT || stock === MM50)) assert.equal(planBagLabel(b, stock).fit.namesCut, 0, `${label}: names whole`);
+      // Every card graded, and every other card graded (the rest not paid)
+      for (const every of [1, 2]) {
+        const b = bag(n);
+        b.cards = b.cards.map((c, i) => (i % every ? c : { ...c, pregrade: true, pregradeResult: GRADES[i % GRADES.length] }));
+        const label = `${where}, ${n} cards, ${every === 1 ? "all" : "every other one"} graded`;
+        const page = layoutBagLabel(b, stock);
+        checkLabel(b, stock, page, label);
+        assert.deepEqual(overlaps(page), [], `${label}: nothing printed on top of something else`);
+        const marks = checkRowMarks(b, stock, page, label);
+        for (const c of b.cards.filter((x) => x.pregrade && page.cardCodes.includes(x.code))) assert.equal(marks.get(c.code)!.value?.text, c.pregradeResult, `${label}: ${c.code}'s "${c.pregradeResult}"`);
+        // The owner's stocks: a bag that fits prints every ordinary name whole (the field never takes a name's room)
+        if (n <= 4 && (stock === DEFAULT || stock === MM50)) assert.equal(planBagLabel(b, stock).fit.namesCut, 0, `${label}: names whole`);
+      }
     }
   }
 });
@@ -1051,9 +1226,9 @@ function fakeAdmin(tables: Record<string, Row[]>): SupabaseClient {
 const ORDER = "00000000-0000-4000-8000-000000000001";
 const BAG_G = "00000000-0000-4000-8000-00000000000a";
 const BAG_P = "00000000-0000-4000-8000-00000000000b";
-const card = (id: string, bagId: string | null, seq: number, status = "received", pregrade: { pregrade_result?: string; pregrade_submitted_at?: string } = {}) => ({
-  id, bag_id: bagId, card_seq: seq, card_code: `CD-10482-${String(seq).padStart(2, "0")}`, card_name: `Card ${seq}`, card_set: "Set", card_year: "1999", card_number: String(seq), status,
-  pregrade_result: null, pregrade_submitted_at: null, ...pregrade,
+const card = (id: string, bagId: string | null, seq: number, status = "received", pregrade: { pregrade_selected?: boolean; pregrade_result?: string; pregrade_submitted_at?: string } = {}) => ({
+  id, order_id: ORDER, bag_id: bagId, card_seq: seq, card_code: `CD-10482-${String(seq).padStart(2, "0")}`, card_name: `Card ${seq}`, card_set: "Set", card_year: "1999", card_number: String(seq), status,
+  pregrade_selected: false, pregrade_result: null, pregrade_submitted_at: null, ...pregrade,
 });
 const TABLES = {
   tier_bags: [
@@ -1063,12 +1238,15 @@ const TABLES = {
   orders: [{ id: ORDER, order_number: "CD-10482", customer_name: "Jordan Reyes" }],
   cards: [
     card("c5", BAG_G, 5), card("c6", BAG_G, 6), card("c7", BAG_G, 7, "refunded"),
-    // c2's pre-grade was submitted; c3 has a result saved but not submitted (never printed)
-    card("c2", BAG_P, 2, "received", { pregrade_result: " 9 ", pregrade_submitted_at: "2026-11-20T15:00:00Z" }), card("c1", BAG_P, 1),
-    card("c3", BAG_P, 3, "received", { pregrade_result: "8" }), card("c4", BAG_P, 4),
+    // c2's pre-grade was submitted; c3's was paid for and has a result saved but not submitted (a blank line: never
+    // printed); c1, c4 and the Gold cards had none paid for (no PG field)
+    card("c2", BAG_P, 2, "received", { pregrade_selected: true, pregrade_result: " 9 ", pregrade_submitted_at: "2026-11-20T15:00:00Z" }), card("c1", BAG_P, 1),
+    card("c3", BAG_P, 3, "received", { pregrade_selected: true, pregrade_result: "8" }), card("c4", BAG_P, 4),
     card("c8", null, 8),
   ],
   restoration_settings: [{ tier: "ultra_premium", display_name: "Platinum" }, { tier: "premium", display_name: "Gold" }],
+  // The order's service lines: none for pre-grades (the two flagged cards are what it paid for)
+  order_services: [{ order_id: ORDER, service_id: "restoration", quantity: 7 }],
 };
 
 test("loader: the order's bags in tier order, non-refunded bagged cards by number, the other bags named", async () => {
@@ -1077,9 +1255,11 @@ test("loader: the order's bags in tier order, non-refunded bagged cards by numbe
   assert.deepEqual(bags.map((b) => b.bagCode), ["CD-10482-P", "CD-10482-G"], "Platinum before Gold");
   assert.deepEqual(bags[0].cards.map((c) => c.seq), [1, 2, 3, 4]);
   assert.deepEqual(bags[1].cards.map((c) => c.seq), [5, 6], "refunded and unbagged cards left out");
-  assert.deepEqual(bags[0].cards.map((c) => c.pregrade), [null, "9", null, null], "only a submitted pre-grade goes on the label");
+  assert.deepEqual(bags[0].cards.map((c) => c.pregrade), [false, true, true, false], "the PG field for a paid or submitted pre-grade only");
+  assert.deepEqual(bags[0].cards.map((c) => c.pregradeResult), [null, "9", null, null], "only a submitted pre-grade goes on the label");
+  assert.deepEqual(bags[1].cards.map((c) => c.pregrade), [false, false], "Gold: none paid for");
   const printed = checkRowMarks(bags[0], DEFAULT, layoutBagLabel(bags[0], DEFAULT), "loaded bag");
-  assert.deepEqual(bags[0].cards.map((c) => printed.get(c.code)?.value?.text ?? null), [null, "9", null, null]);
+  assert.deepEqual(bags[0].cards.map((c) => (printed.get(c.code)?.pg ? printed.get(c.code)?.value?.text ?? "____" : null)), [null, "9", "____", null]);
   assert.equal(bags[0].qrUrl, "HTTPS://THECARDDOC1.COM/Q/CD-10482-P");
   assert.equal(bags[0].dueStatus, "calculated");
   assert.deepEqual(bags[0].otherBags, [{ bagCode: "CD-10482-G", tierName: "Gold", cardCount: 2 }]);
@@ -1089,6 +1269,33 @@ test("loader: the order's bags in tier order, non-refunded bagged cards by numbe
   assert.deepEqual(one.bags.map((b) => b.bagCode), ["CD-10482-G"]);
   assert.deepEqual(one.bags[0].otherBags, [{ bagCode: "CD-10482-P", tierName: "Platinum", cardCount: 4 }]);
   assert.deepEqual((await loadLabelBags(fakeAdmin(TABLES), { bagId: "00000000-0000-4000-8000-0000000000ff" })).bags, []);
+});
+
+test("loader: an order that paid for more pre-grades than it has cards flagged gets the PG field on every card; flagged cards count in any status", async () => {
+  const pg = async (tables: Record<string, Row[]>) => (await loadLabelBags(fakeAdmin(tables), { orderId: ORDER })).bags.map((b) => b.cards.map((c) => c.pregrade));
+  // Paid for 3 (restoration checkout's "pregrade" line), 2 flagged: which card is the third? Unknown, so every card of the order
+  const owed = { ...TABLES, order_services: [...TABLES.order_services, { order_id: ORDER, service_id: "pregrade", quantity: 3 }] };
+  assert.deepEqual(await pg(owed), [[true, true, true, true], [true, true]]);
+  const { bags } = await loadLabelBags(fakeAdmin(owed), { orderId: ORDER });
+  for (const b of bags) {
+    const page = layoutBagLabel(b, MM50);
+    checkLabel(b, MM50, page, `owed: ${b.bagCode}`);
+    assert.equal(pgWords(page).length, page.cardCodes.length, `owed: ${b.bagCode}: "PG" on every listed card`);
+  }
+  // The same from one bag's route (its order's lines and flags are read too)
+  assert.deepEqual((await loadLabelBags(fakeAdmin(owed), { bagId: BAG_G })).bags.map((b) => b.cards.map((c) => c.pregrade)), [[true, true]]);
+  // The prep checkout's line ("pre_grade_assessment"), quantity missing (one), and a flagged refunded card: 3 flagged of 2
+  // paid, so only the flagged cards (the refunded one counts, as on the order page, though it isn't on the label)
+  const refundedFlag = {
+    ...TABLES,
+    cards: TABLES.cards.map((c) => (c.id === "c7" ? { ...c, pregrade_selected: true } : c)),
+    order_services: [{ order_id: ORDER, service_id: "pre_grade_assessment", quantity: null }, { order_id: ORDER, service_id: "pregrade", quantity: 1 }],
+  };
+  assert.deepEqual(await pg(refundedFlag), [[false, true, true, false], [false, false]]);
+  // Another order's lines and flags change nothing here
+  const other = "00000000-0000-4000-8000-000000000002";
+  const elsewhere = { ...TABLES, order_services: [{ order_id: other, service_id: "pregrade", quantity: 9 }] };
+  assert.deepEqual(await pg(elsewhere), [[false, true, true, false], [false, false]]);
 });
 
 test("routes' response: a two-tier order is 2 one-page labels; JSON has labels[1] per bag and no tag; ?tag=1 is ignored", async () => {

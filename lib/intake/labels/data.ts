@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cardCode, qrUrl, tierDisplayName, tierRank } from "@/lib/intake/codes";
+import { PREGRADE_SERVICE_IDS, pregradeOnLabel } from "@/lib/pregrade";
 import type { BagSummary } from "@/lib/intake/types";
 import { CONTENT_WIDTH_CONFIG_KEY, STOCK_CONFIG_KEY, normalizeLabelSettings, type LabelStockId } from "./stock";
 import type { LabelPlace } from "./place";
@@ -33,6 +34,7 @@ type CardRow = {
   card_year: string | null;
   card_number: string | null;
   status: string | null;
+  pregrade_selected?: boolean | null;
   pregrade_result?: string | null;
   pregrade_submitted_at?: string | null;
 };
@@ -41,7 +43,9 @@ type CardRow = {
  * One bag (`bagId`) or every bag of an order (`orderId`), with the order's
  * number and customer, the bag's non-refunded cards by card number, and the
  * order's other bags with cards ("Also in this order" on the label). Bags
- * come fastest tier first, then by batch.
+ * come fastest tier first, then by batch. A card's row has the PG field only
+ * when its pre-grade was paid for or submitted (pregradeOnLabel: read from
+ * the order's pre-grade service lines and its flagged cards).
  */
 export async function loadLabelBags(
   admin: SupabaseClient,
@@ -65,20 +69,31 @@ export async function loadLabelBags(
   const bagRows = (bagData ?? []) as BagRow[];
   if (!bagRows.length) return { bags: [], error: null };
 
-  const [orders, cards, tiers] = await Promise.all([
+  const [orders, cards, tiers, pregradeLines, flagged] = await Promise.all([
     admin.from("orders").select("id, order_number, customer_name").in("id", orderIds),
     admin
       .from("cards")
-      .select("id, bag_id, card_seq, card_code, card_name, card_set, card_year, card_number, status, pregrade_result, pregrade_submitted_at")
+      .select("id, bag_id, card_seq, card_code, card_name, card_set, card_year, card_number, status, pregrade_selected, pregrade_result, pregrade_submitted_at")
       .in("bag_id", bagRows.map((b) => b.id)),
     admin.from("restoration_settings").select("tier, display_name"),
+    // How many pre-grades each order paid for, and its flagged cards (any status, bagged or not: as the order page counts them)
+    admin.from("order_services").select("order_id, quantity").in("order_id", orderIds).in("service_id", PREGRADE_SERVICE_IDS),
+    admin.from("cards").select("order_id, pregrade_selected").in("order_id", orderIds).eq("pregrade_selected", true),
   ]);
   if (orders.error) return { bags: [], error: orders.error.message };
   if (cards.error) return { bags: [], error: cards.error.message };
+  if (pregradeLines.error) return { bags: [], error: pregradeLines.error.message };
+  if (flagged.error) return { bags: [], error: flagged.error.message };
 
   const orderById = new Map((orders.data ?? []).map((o) => [o.id as string, o as { order_number: string; customer_name: string | null }]));
   const names: Record<string, string> = {};
   for (const t of (tiers.data ?? []) as { tier: string; display_name: string | null }[]) if (t.display_name) names[t.tier] = t.display_name;
+
+  // Per order: which cards get the PG field (lib/pregrade.ts)
+  const paidFor = new Map<string, number>();
+  for (const l of (pregradeLines.data ?? []) as { order_id: string; quantity: number | null }[]) paidFor.set(l.order_id, (paidFor.get(l.order_id) ?? 0) + (l.quantity ?? 1));
+  const flaggedCards = (flagged.data ?? []) as { order_id: string; pregrade_selected: boolean | null }[];
+  const pgByOrder = new Map(orderIds.map((id) => [id, pregradeOnLabel(paidFor.get(id) ?? 0, flaggedCards.filter((c) => c.order_id === id))]));
 
   const cardsByBag = new Map<string, CardRow[]>();
   for (const c of (cards.data ?? []) as CardRow[]) {
@@ -91,6 +106,7 @@ export async function loadLabelBags(
     .map((b): LabelBagWithId => {
       const order = orderById.get(b.order_id);
       const orderNumber = order?.order_number ?? "";
+      const hasPregrade = pgByOrder.get(b.order_id) ?? pregradeOnLabel(0, []);
       return {
         id: b.id,
         orderId: b.order_id,
@@ -112,8 +128,9 @@ export async function loadLabelBags(
             set: c.card_set,
             year: c.card_year,
             number: c.card_number,
-            // Printed on the row's PG line once submitted; a draft or a flag alone leaves the line blank
-            pregrade: c.pregrade_submitted_at ? c.pregrade_result?.trim() || null : null,
+            // The PG field only for a paid or submitted pre-grade; the result printed on its line once submitted (a draft leaves it blank)
+            pregrade: hasPregrade(c),
+            pregradeResult: c.pregrade_submitted_at ? c.pregrade_result?.trim() || null : null,
           })),
       };
     });
@@ -128,7 +145,8 @@ export async function loadLabelBags(
 
 /**
  * A BagSummary (lib/intake/types.ts) as the label layout reads it (no card
- * years there). `others`: the order's other bags, for "Also in this order".
+ * years or pre-grades there: its rows have no PG field). `others`: the
+ * order's other bags, for "Also in this order".
  */
 export function labelBagFromSummary(b: BagSummary, others: readonly BagSummary[] = []): LabelBag {
   return {

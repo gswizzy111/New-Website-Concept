@@ -20,11 +20,19 @@ export type LabelCard = {
   /** Not printed: labels have no per-card QR codes any more (kept so older callers still type-check). */
   qrUrl?: string | null;
   /**
+   * Whether the row has the PG field ("PG" and a write-in line): the card's
+   * pre-grade was paid for or submitted (pregradeOnLabel in lib/pregrade.ts:
+   * cards.pregrade_selected, pregrade_submitted_at, or an order that paid for
+   * more pre-grades than it has cards flagged). False or absent: no PG field,
+   * the name and set have the whole row (a pregradeResult still shows it).
+   */
+  pregrade?: boolean;
+  /**
    * The card's submitted pre-grade (cards.pregrade_result once
    * pregrade_submitted_at is set), printed on the row's PG line. Null or
    * absent: the PG line is left blank to write on.
    */
-  pregrade?: string | null;
+  pregradeResult?: string | null;
 };
 
 /** Another bag of the same order, for the label's "Also in this order" line. */
