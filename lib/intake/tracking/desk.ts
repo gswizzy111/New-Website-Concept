@@ -8,7 +8,7 @@ import {
   TRACK_BAG_COLUMNS, TRACK_CARD_COLUMNS, TRACK_ORDER_COLUMNS, cardSummary, webUrls,
   type SummaryContext, type TrackBagRow, type TrackCardRow, type TrackOrderRow,
 } from "@/lib/intake/tracking/summaries";
-import type { LocationRef, LocationRow, MoveAction, TrackCardSummary, TrackLocation } from "@/lib/intake/tracking/types";
+import type { LocationRef, LocationRow, MoveAction, TrackCardSummary, TrackDeskRef, TrackLocation } from "@/lib/intake/tracking/types";
 
 /**
  * Desks (owner's request, Nov 24 2026): a desk is a place with a QR sign
@@ -69,6 +69,33 @@ export async function deskPlaces(admin: SupabaseClient): Promise<DeskPlace[]> {
   const counts = new Map<string, number>();
   for (const c of held) if (c.location_id) counts.set(c.location_id, (counts.get(c.location_id) ?? 0) + 1);
   return rows.map((r) => ({ ...locationView(r), cardCount: counts.get(r.id) ?? 0 })).sort(compareDesks);
+}
+
+type DeskRefRow = Pick<LocationRow, "id" | "code" | "name" | "kind" | "active" | "sort">;
+
+/**
+ * The desks cards can be moved to, as the Scan page's holder view needs them
+ * ("Move to my desk"): switched-on 'other' places with a desk code, in
+ * compareDesks order (LOC-DESK first). Pure.
+ */
+export function deskRefs(rows: readonly DeskRefRow[]): TrackDeskRef[] {
+  return rows
+    .filter((r) => r.active && r.kind === "other" && isDeskCode(r.code))
+    .sort(compareDesks)
+    .map((r) => ({ id: r.id, code: r.code, name: r.name }));
+}
+
+/**
+ * The switched-on desks (deskRefs), read without their cards: one small
+ * read, added to every scanned place (TrackSlotSummary.desks). Never makes
+ * a desk (a GET writes nothing): with none, the Scan page links to the Desk
+ * page, which makes LOC-DESK. Throws on a failed read.
+ */
+export async function loadDeskRefs(admin: SupabaseClient): Promise<TrackDeskRef[]> {
+  const rows = await fetchAll<DeskRefRow>((from, to) =>
+    admin.from("locations").select("id, code, name, kind, active, sort").eq("kind", "other").eq("active", true)
+      .like("code", `${DESK_CODE}%`).order("id").range(from, to));
+  return deskRefs(rows);
 }
 
 /**

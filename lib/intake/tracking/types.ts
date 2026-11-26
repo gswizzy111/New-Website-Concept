@@ -213,7 +213,18 @@ export type TrackSlotSummary = TrackLocation & {
   cards: TrackCardSummary[];
   /** Bags placed here (shelf slots), without their cards. */
   bags: Omit<TrackBagSummary, "cards">[];
+  /**
+   * The switched-on desks (LOC-DESK first, then by sort and name), for the
+   * Scan page's "Move to my desk" (holder view). Empty: there is no desk
+   * yet. Optional: answers from before it was added, and a failed desk read
+   * (the place still shows), have none (lib/intake/tracking/desk.ts
+   * loadDeskRefs).
+   */
+  desks?: TrackDeskRef[];
 };
+
+/** A desk cards can go to ("Move to my desk"): LOC-DESK, LOC-DESK-GAVIN. */
+export type TrackDeskRef = { id: string; code: string; name: string };
 
 /**
  * GET /api/admin/track/resolve?code= (200): a slot/place -> the slot and its

@@ -20,6 +20,8 @@ import * as api from "./api";
 import { SCAN_READ_EVENT } from "./card-photos";
 import { audioUnlocked, beep, unlockAudio } from "./feedback";
 import { cardsLabel, roomLeft } from "./format";
+import { isHolderPlace } from "./holder-format";
+import { HolderView } from "./holder-view";
 import { createScanGate, parseScan, typedSlotGuess } from "./parse";
 import { ScanInput, useKeyboardWedge } from "./scan-input";
 import { addLogItem, logStore, scanSessionId, soundStore, useScanLog, useSound } from "./session-store";
@@ -217,6 +219,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const [deskNote, setDeskNote] = useState<{ code: string; text: string } | null>(null);
   /** The order's line after a Done finished it ("Order completed. Maria Reyes emailed."; amber when it wasn't completed), until the next save. */
   const [orderNotes, setOrderNotes] = useState<ToneLine[]>([]);
+  /** The last save here (cleared by the next scan): a holder view shows it when the cards went into that holder. */
+  const [lastSave, setLastSave] = useState<{ key: number; res: TrackActionResponse } | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const pending = useRef(0);
   const gate = useRef(createScanGate(2000));
@@ -303,6 +307,7 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       // The order auto-complete line (a Done that finished the order, or why it wasn't completed)
       const notes = orderCompletionNotes(res.orderCompletions);
       setOrderNotes(notes);
+      setLastSave({ key: Date.now(), res });
       for (const n of notes) addLogItem(n.tone === "ok" ? "ok" : "warn", n.text);
       if (problem && res.results.some((r) => r.ok)) {
         beep("error", soundStore.get());
@@ -581,6 +586,8 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
       if (!text) return;
       // A scan while a photo is open full screen: it closes, so the answer shows
       if (source !== "link") window.dispatchEvent(new Event(SCAN_READ_EVENT));
+      // The last save's line belongs to the view before this scan
+      setLastSave(null);
       const parsed = parseScan(text);
       // Typed "clamp 7" is the slot CLAMP 07 (it also has an order code's shape, CLAMP-7)
       const slotGuess = source === "typed" || source === "paste" ? typedSlotGuess(text) : null;
@@ -636,7 +643,9 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
   const allChosen = slotCards.length > 0 && chosen.length === slotCards.length;
   const slotIsDesk = !!slotView && slotView.kind === "other" && isDeskCode(slotView.code);
   const activeTarget = target && now - target.at <= TARGET_TTL_MS ? target.slot : null;
-  const showActions = !!slotView && slotCards.length > 0 && !waiting;
+  // A holder or desk (CLAMP 07, HEAT PRESS 02, DESK): the holder view (holder-view.tsx) with its own buttons
+  const holderView = !!slotView && isHolderPlace(slotView);
+  const showActions = !!slotView && !holderView && slotCards.length > 0 && !waiting;
 
   // ----- taps -----
 
@@ -908,7 +917,43 @@ export function ScanApp({ initialLoc, initialShip }: { initialLoc: string | null
           </div>
         )}
 
-        {slotView && (
+        {slotView && holderView && (
+          <HolderView
+            key={slotView.code}
+            slot={slotView}
+            now={now}
+            busy={busy}
+            moving={waiting?.type === "move" && waiting.from.code === slotView.code ? waiting.cards : null}
+            run={(task) => {
+              // A tap while a scan is still being handled starts nothing (the buttons are greyed then anyway)
+              if (pending.current > 0) return false;
+              enqueue(task);
+              return true;
+            }}
+            refresh={refreshSlot}
+            onScanNext={(cards) => {
+              setConflict(null);
+              setWaiting({ type: "move", from: slotView, cards });
+              setStatus(`Scan the next slot for ${cardsLabel(cards)}.`);
+            }}
+            onCancelScanNext={cancelWaiting}
+            lastSave={lastSave}
+            onOpenBag={(code) => onInput(code, "link")}
+          >
+            {activeTarget?.code === slotView.code && pickList.length > 0 && picks && (
+              <div className={panel}>
+                <p className="px-4 pt-3 text-sm font-bold text-foreground">Tap a card from {picks.label}</p>
+                <ul>
+                  {pickList.map((card) => (
+                    <CardRow key={card.id} card={card} now={now} action={putAction(card)} onAction={onCardAction} showOrder={picks.mixed} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </HolderView>
+        )}
+
+        {slotView && !holderView && (
           <div className="flex flex-col gap-3">
             <SlotHeader slot={slotView} onOpenBag={(code) => onInput(code, "link")} />
             {slotIsDesk && (

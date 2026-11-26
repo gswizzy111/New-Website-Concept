@@ -214,10 +214,41 @@ export const UI = {
   scanReference: /reference photo/i,
   // Scanning an EMPTY slot: "Put a card in CLAMP 01"
   putCardIn: (slotName) => new RegExp(`put a card in\\s+${esc(slotName)}(?!\\d)`, "i"),
-  // A FULL slot shows its card(s) with these buttons
-  slotMove: (page) => page.getByRole("button", { name: /^move\b/i }).first(),
+  // A FULL slot shows its card(s) with these buttons (the holder view since Nov 26: "Move to my desk",
+  // "Move to another holder" (one card) / "Move selected" (a stack), "Done" / "Done for selected",
+  // "Take out" / "Take out selected"). slotMove is the one that waits for the next holder's scan.
+  slotMove: (page) => page.getByRole("button", { name: /^move (to another holder|selected)\b|^move$/i }).first(),
   slotDone: (page) => page.getByRole("button", { name: /^(mark )?done\b/i }).first(),
   slotTakeOut: (page) => page.getByRole("button", { name: /^take (it |them )?out\b/i }).first(),
+
+  // ── The holder view (components/intake/scan/holder-view.tsx; the HOLDER agent's holder-text.md) ──
+  // Header (h2): "CLAMP 07 · has 1 card" (a holder with a limit), "HEAT PRESS 02 · 3 cards" (no limit), "CLAMP 07 · empty"
+  holderHas: (name, n) => new RegExp(`${esc(name)}\\s*·\\s*(has )?${n} cards?(?![a-z])`, "i"),
+  holderHasExact: (name, n) => new RegExp(`${esc(name)}\\s*·\\s*has ${n} cards?(?![a-z])`, "i"),
+  holderEmptyHead: (name) => new RegExp(`${esc(name)}\\s*·\\s*empty\\b`, "i"),
+  holderEmptyLine: /empty\. scan a bag or card to put one here/i,
+  // "In CLAMP 07 for 2 hours" (time in the holder; "Put in CLAMP 07 just now")
+  holderSince: (name, hours) => new RegExp(`\\bin ${esc(name)} for ${hours} (hours?|h|hr)\\b`, "i"),
+  // No desk at all: "Move to my desk" greyed and this line
+  holderNoDesk: /no desk yet\. open the desk page once to make one\./i,
+  // One card: primary "Move to my desk", then "Move to another holder", "Done", "Take out"
+  holderToDesk: (scope) => scope.getByRole("button", { name: /^move to my desk\b/i }).first(),
+  holderToHolder: (scope) => scope.getByRole("button", { name: /^move to another holder\b/i }).first(),
+  holderDone: (scope) => scope.getByRole("button", { name: /^done$/i }).first(),
+  holderTakeOut: (scope) => scope.getByRole("button", { name: /^take out$/i }).first(),
+  // A stack: "Move all 3 to my desk"
+  holderAllToDesk: (scope, n) => scope.getByRole("button", { name: new RegExp(`^move all ${n}( cards)? to my desk\\b`, "i") }).first(),
+  // Done asks first: "Mark it done? Then put it back in its bag." [Mark done] [Cancel]
+  holderConfirm: (scope) => scope.getByRole("button", { name: /^(mark (it |\d+ cards )?done|tap again|yes\b)/i }).first(),
+  // "Move to another holder": the Desk page's picker ("Put CD-2549-07 … in…") and the top bar "Scan the next slot for CD-2549-07"
+  holderPicker: (page) => page.getByRole("dialog", { name: /^put\b/i }).first(),
+  holderNext: /\bscan the next (slot|holder)\b/i,
+  // Result lines: "CD-2549-07 is on your desk.", "All 3 cards are on your desk.", "In HEAT PRESS 01. Step: Heat Press.",
+  // "CD-2549-07 taken out of CLAMP 07, not done."
+  holderOnDesk: (code) => new RegExp(`${esc(code)} is on your desk`, "i"),
+  holderAllOnDesk: (n) => new RegExp(`(all )?${n} cards are on your desk`, "i"),
+  holderMovedTo: (name) => new RegExp(`\\bin ${esc(name)}(?!\\d)\\.`, "i"),
+  holderTakenOut: (code, name) => new RegExp(`${esc(code)} taken out of ${esc(name)}(?!\\d)`, "i"),
   // After a bag scan with a slot waiting, each card's row has "Put in CLAMP 01" (components/intake/scan/scan-app.tsx)
   pickCard: (page, cardCode) => {
     const row = page.locator("li").filter({ hasText: cardCode }).last();
@@ -916,12 +947,13 @@ const sidewaysScroll = (page) => page.evaluate(() => document.documentElement.sc
  * The handheld scanner on the Scan page (a Bluetooth keyboard): it types the label's text fast and
  * presses Enter, with nothing focused (the page catches it anywhere: the keyboard wedge). Waits
  * until the page listens ("Ready to scan"). `blur: false` leaves the focus where it is (a scan
- * with a button or a photo focused must not press it).
+ * with a button or a photo focused must not press it). `delay`: ms between keys (the Eyoyo types
+ * a key every few ms; the page takes keys under 100 ms apart as a scanner).
  */
-async function scanType(page, text, { blur = true } = {}) {
+async function scanType(page, text, { blur = true, delay = 10 } = {}) {
   await UI.scanReady(page).waitFor({ timeout: 60_000 });
   if (blur) await page.evaluate(() => { const a = document.activeElement; if (a && a !== document.body && typeof a.blur === "function") a.blur(); });
-  await page.keyboard.type(text);
+  await page.keyboard.type(text, { delay });
   await page.keyboard.press("Enter");
 }
 /** Typing on the Scan page: "Type a code instead" opens the code box; the text + Enter (a code, "clamp 7", "desk", a name). */
@@ -3218,207 +3250,6 @@ const SCENARIOS = {
     });
   },
 
-  // The Scan page, scanner only (owner, Nov 26: "remove the camera, make it so you can only use the
-  // scanner, and also add the images under each card"). The Eyoyo scanner is paired with the iPhone as
-  // a Bluetooth keyboard: it types the label's text and presses Enter, with nothing focused.
-  async "scan-scanner-only"({ page, ctx, s, browser, appUrl, mockUrl }) {
-    const BAG = "CD-2549-G";
-    const OTHER = "CD-2549-P";
-    const CARDS = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"];
-    // CD-2549-01: its receiving photo + the seed's 2 customer photos; -02: a receiving photo;
-    // -03: only a catalog picture (reference); -04: nothing
-    const WANT = { "CD-2549-01": ["receiving", "customer", "customer"], "CD-2549-02": ["receiving"], "CD-2549-03": ["reference"], "CD-2549-04": [] };
-    const CATALOG = "https://assets.tcgdex.net/en/base/base1/15/high.webp";
-    const link = (code) => `HTTPS://THECARDDOC1.COM/Q/${code}`;
-    await s.step("setup: CD-2549 and CD-2600 received with receiving photos; CD-2549-03 only a catalog picture, CD-2549-04 no photo", async () => {
-      await deskReceive(ctx, mockUrl);
-      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: CATALOG }, "card_code", "CD-2549-03");
-      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: null }, "card_code", "CD-2549-04");
-    }, { critical: true, shot: false });
-    await s.step(`resolve ${BAG}: each card's photos (receiving, then customer; the catalog picture only without them); photoUrl kept`, async () => {
-      const r = await api(ctx, "GET", ROUTES.trackResolve(BAG));
-      eq(r.status, 200, "HTTP");
-      const cards = r.body?.bag?.cards ?? [];
-      eq(cards.map((c) => c.code), CARDS, "cards");
-      for (const c of cards) {
-        eq((c.photos ?? []).map((p) => p.kind), WANT[c.code], `${c.code} photo kinds`);
-        for (const p of c.photos ?? []) assert(p.tile?.src && p.full?.src && p.url, `${c.code}: photo without tile/full/url`);
-      }
-      eq(cards.find((c) => c.code === "CD-2549-03").photos[0].tile.src, CATALOG.replace("/high.webp", "/low.webp"), "reference thumbnail (the catalog's small picture)");
-      assert(cards.find((c) => c.code === "CD-2549-01").photoUrl, "photoUrl is still in the answer");
-      return cards.map((c) => `${c.code}: ${(c.photos ?? []).length}`).join(", ");
-    }, { critical: true, shot: false });
-
-    // Every getUserMedia call (the camera) the page makes
-    const countCamera = (c) => c.addInitScript(() => {
-      window.__cameraCalls = 0;
-      const md = navigator.mediaDevices;
-      if (md?.getUserMedia) {
-        const real = md.getUserMedia.bind(md);
-        md.getUserMedia = (...a) => { window.__cameraCalls += 1; return real(...a); };
-      }
-    });
-    const mainText = (p) => p.locator("main").first().innerText().then(flat);
-    const showsCards = async (p, codes) => {
-      const text = (await until(async () => { const x = await mainText(p); return codes.every((c) => x.includes(c)) ? x : null; }, 30_000)) ?? await mainText(p);
-      const missing = codes.filter((c) => !text.includes(c));
-      assert(!missing.length, `not shown: ${missing.join(", ")} (the page says: "${text.slice(0, 200)}")`);
-    };
-    const openDialogs = (p) => p.locator("dialog[open]").count();
-    const firstPhoto = (p, code) => UI.scanCardPhotos(p, code).first().getByRole("button").first();
-    const focused = (p) => p.evaluate(() => { const a = document.activeElement; return !a || a === document.body ? "nothing" : `${a.tagName.toLowerCase()} "${(a.getAttribute("aria-label") ?? a.textContent ?? "").trim().slice(0, 40)}"`; });
-
-    const runAt = async (label, p, errors) => {
-      const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-scanner-only-${label}-${name}.png`), fullPage: true }).catch(() => {});
-      await s.step(`${label}: /admin/scan: "Ready to scan", no camera anywhere (no video, no camera button or word), the code box closed, no sideways scroll`, async () => {
-        await goto(p, ROUTES.scan);
-        await UI.scanReady(p).waitFor({ timeout: 60_000 });
-        const text = await mainText(p);
-        assert(UI.readyToScan.test(text), `no "Ready to scan" ("${text.slice(0, 160)}")`);
-        assert(text.includes(UI.readyToScanSub), `no "${UI.readyToScanSub}"`);
-        assert(!/camera/i.test(text), `the page mentions a camera: "${text.slice(0, 200)}"`);
-        eq(await p.locator("video, canvas").count(), 0, "video/canvas elements");
-        eq(await p.getByRole("button", { name: /camera|torch|flash ?light/i }).count(), 0, "camera buttons");
-        eq(await UI.scanInput(p).count(), 0, "code boxes before Type a code instead");
-        await UI.typeCodeLink(p).waitFor({ timeout: 15_000 });
-        eq(await focused(p), "nothing", "focused on load");
-        const w = await sidewaysScroll(p);
-        assert(w <= 1, `scrolls sideways by ${w}px`);
-        await shot("01-ready");
-      }, { critical: true, shot: false });
-
-      await s.step(`${label}: the scanner reads ${BAG}'s label (fast keys + Enter, nothing focused): "Got it: ${BAG}", its 4 cards, no navigation`, async () => {
-        const looked = p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 120_000 });
-        await scanType(p, link(BAG));
-        await p.getByText(UI.gotIt(BAG)).first().waitFor({ state: "visible", timeout: 3_000 });
-        await looked;
-        await showsCards(p, CARDS);
-        eq(new URL(p.url()).pathname, ROUTES.scan, "still on the Scan page");
-        await shot("02-bag");
-      }, { critical: true, shot: false });
-
-      await s.step(`${label}: each card's photos under its name: CD-2549-01 3, -02 1, -03 the catalog picture labelled "Reference photo", -04 "No photo yet"; thumbnails lazy and loaded`, async () => {
-        const notes = [];
-        for (const code of CARDS) {
-          const want = WANT[code];
-          const list = UI.scanCardPhotos(p, code);
-          if (!want.length) {
-            eq(await list.count(), 0, `${code}: photo lists`);
-            const row = p.locator("li").filter({ hasText: code }).filter({ hasText: UI.scanNoPhoto });
-            assert(await row.count() > 0, `${code}: no "No photo yet"`);
-            notes.push(`${code}: no photo yet`);
-            continue;
-          }
-          await list.first().waitFor({ timeout: 15_000 });
-          const imgs = list.first().locator("img");
-          eq(await imgs.count(), Math.min(3, want.length), `${code}: thumbnails`);
-          // under the card's name: the list starts below the Card ID line
-          const row = p.locator("li").filter({ hasText: code }).filter({ has: list.first() }).last();
-          const codeBox = await row.getByText(code, { exact: true }).first().boundingBox();
-          const listBox = await list.first().boundingBox();
-          assert(codeBox && listBox && listBox.y >= codeBox.y + codeBox.height - 1, `${code}: the photos are not under the card's name`);
-          assert(listBox.height >= 90 && listBox.height <= 130, `${code}: thumbnails ${listBox.height}px tall (want about 96-120)`);
-          for (let i = 0; i < await imgs.count(); i++) {
-            const img = imgs.nth(i);
-            eq(await img.getAttribute("loading"), "lazy", `${code} photo ${i + 1} loading`);
-            if (want[i] === "reference") continue; // the catalog's host isn't reachable from the sandbox
-            await img.scrollIntoViewIfNeeded();
-            const ok = await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000);
-            assert(ok, `${code} photo ${i + 1} did not load (${await img.getAttribute("src")})`);
-          }
-          if (want[0] === "reference") {
-            const text = flat(await row.innerText());
-            assert(UI.scanReference.test(text), `${code}: the catalog picture isn't labelled "Reference photo" ("${text.slice(0, 160)}")`);
-            assert(/not the customer.s card/i.test(text), `${code}: no "Not the customer's card"`);
-          }
-          notes.push(`${code}: ${want.length}`);
-        }
-        await p.evaluate(() => window.scrollTo(0, 0));
-        return notes.join(", ");
-      }, { shot: false });
-
-      await s.step(`${label}: a tap on a photo opens it full screen (90%+ of the screen); Close closes it, focus back on the photo`, async () => {
-        const tile = firstPhoto(p, "CD-2549-01");
-        await tile.scrollIntoViewIfNeeded();
-        await tile.click();
-        const viewer = UI.photoViewer(p);
-        await viewer.waitFor({ timeout: 15_000 });
-        const box = await viewer.boundingBox();
-        const vp = p.viewportSize();
-        assert(box && box.width * box.height >= 0.9 * vp.width * vp.height, `the viewer covers ${box ? Math.round((100 * box.width * box.height) / (vp.width * vp.height)) : 0}% of the screen`);
-        const img = viewer.locator("img").first();
-        assert(await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000), "the full-screen photo did not load");
-        const text = flat(await viewer.innerText());
-        assert(/receiving photo/i.test(text) && /1 of 3/.test(text), `viewer title/counter: "${text.slice(0, 120)}"`);
-        await p.screenshot({ path: path.join(OUT, `scan-scanner-only-${label}-03-viewer.png`) }).catch(() => {});
-        await UI.viewerClose(viewer).click();
-        await until(async () => (await openDialogs(p)) === 0, 5_000);
-        eq(await openDialogs(p), 0, "open dialogs after Close");
-        const f = await focused(p);
-        assert(f.startsWith("button"), `focus after Close: ${f}`);
-        return `focus after Close: ${f}`;
-      }, { shot: false });
-
-      await s.step(`${label}: right after (the photo still focused) the scanner reads ${OTHER}: it opens, and its Enter presses nothing`, async () => {
-        await scanType(p, link(OTHER), { blur: false });
-        await showsCards(p, ["CD-2549-07", "CD-2549-08"]);
-        await sleep(300);
-        eq(await openDialogs(p), 0, "a photo opened by the scan's Enter");
-      }, { shot: false });
-
-      await s.step(`${label}: with a card's "Assign to a slot" focused, the scanner reads ${BAG}: it opens, the button isn't pressed`, async () => {
-        const btn = p.getByRole("button", { name: /^assign to a slot$/i }).first();
-        await btn.focus();
-        eq((await focused(p)).startsWith("button"), true, "a button has focus");
-        // the page ignores the same label read again within 2 s (a scanner's double read)
-        await sleep(2_100);
-        await scanType(p, link(BAG), { blur: false });
-        await showsCards(p, CARDS);
-        const text = await mainText(p);
-        assert(!/scan the slot for/i.test(text), `the scan pressed "Assign to a slot" ("${text.slice(0, 120)}")`);
-      }, { shot: false });
-
-      await s.step(`${label}: a scan while a photo is open full screen closes it and shows ${OTHER}`, async () => {
-        const tile = firstPhoto(p, "CD-2549-02");
-        await tile.scrollIntoViewIfNeeded();
-        await tile.click();
-        await UI.photoViewer(p).waitFor({ timeout: 15_000 });
-        // the page ignores the same label read again within 2 s (a scanner's double read)
-        await sleep(2_100);
-        await scanType(p, link(OTHER), { blur: false });
-        await until(async () => (await openDialogs(p)) === 0, 10_000);
-        eq(await openDialogs(p), 0, "open dialogs after the scan");
-        await showsCards(p, ["CD-2549-07", "CD-2549-08"]);
-        assert(await UI.scanCardPhotos(p, "CD-2549-07").count() > 0, "CD-2549-07 has no photos under it");
-      }, { shot: false });
-
-      await s.step(`${label}: "Type a code instead" opens the code box; CD-2549-02 + Enter shows that card with its photo`, async () => {
-        await typeCode(p, "CD-2549-02");
-        await p.getByText("Test Card Gold Two").first().waitFor({ timeout: 30_000 });
-        await UI.scanCardPhotos(p, "CD-2549-02").first().waitFor({ timeout: 15_000 });
-        await shot("04-typed");
-      }, { shot: false });
-
-      await s.step(`${label}: no camera asked for (getUserMedia), no sideways scroll, no browser errors`, async () => {
-        eq(await p.evaluate(() => window.__cameraCalls ?? 0), 0, "getUserMedia calls");
-        const w = await sidewaysScroll(p);
-        assert(w <= 1, `scrolls sideways by ${w}px`);
-        if (errors) assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300));
-      }, { shot: false });
-    };
-
-    const phone = await phoneContext(browser, appUrl);
-    try {
-      await countCamera(phone.ctx);
-      await runAt("390", phone.page, phone.errors);
-    } finally {
-      await phone.ctx.close();
-    }
-    // 1440: the runner's desktop page (its browser errors are checked by the runner)
-    await countCamera(ctx);
-    await runAt("1440", page, null);
-  },
-
   // ── Desk (owner, Nov 24): "if I have a heatpress stack of 8 cards and they come out I can scan
   // them all and put them all back to the desk and then ... see on a page all of the 8 cards" ──
 
@@ -3801,7 +3632,10 @@ const SCENARIOS = {
         await shot("01-heat-press");
       }, { shot: false });
       let moved = false;
-      await s.step("Move, then the scanner reads the desk's label: POST move to LOC-DESK; all 8 at the desk, HEAT PRESS 01 empty, steps kept; a desk page link shows", async () => {
+      await s.step("Move (every card picked), then the scanner reads the desk's label: POST move to LOC-DESK; all 8 at the desk, HEAT PRESS 01 empty, steps kept; a desk page link shows", async () => {
+        // The holder view (Nov 26): a stack's tick boxes; "Move selected" acts on the ticked cards
+        const pickAll = p.getByRole("button", { name: /^pick all$/i }).first();
+        if (await pickAll.isVisible().catch(() => false)) await pickAll.click();
         await UI.slotMove(p).click();
         const res = p.waitForResponse((r) => r.url().includes(ROUTES.trackMove) && r.request().method() === "POST", { timeout: 60_000 });
         await scanType(p, "HTTPS://THECARDDOC1.COM/Q/LOC-DESK");
@@ -6638,8 +6472,847 @@ const DONE_SCENARIOS = {
 };
 Object.assign(SCENARIOS, DONE_SCENARIOS);
 
+// ─── The Scan page (scan-*, owner Nov 26 2026) ──────────────────────────────
+// "remove the camera, make it so you can only use the scanner, and also add the images under each
+// card", and make it clearer when a scanned holder has a card in it. The Eyoyo handheld scanner is
+// paired with the shop's iPhone as a Bluetooth keyboard: it types the label's text, a few ms per key,
+// then Enter, with nothing focused (the page's keyboard wedge, components/intake/scan/scan-input.tsx).
+
+const SCAN_LINK = (code) => `HTTPS://THECARDDOC1.COM/Q/${code}`;
+/** A catalog picture (lib/card-catalog.ts isCatalogImageUrl): the reference photo when a card has none of its own. */
+const SCAN_CATALOG = "https://assets.tcgdex.net/en/base/base1/15/high.webp";
+/** The Scan page's tile sizes (lib/intake/tracking/summaries.ts TILE_WIDTHS): a thumbnail is never wider. */
+const SCAN_TILE_MAX_W = 480;
+const SCAN_FULL_MIN_W = 1280;
+
+/** Records every way a page could ask for the camera: getUserMedia (new and old), a camera permission query. */
+const watchCamera = (c) => c.addInitScript(() => {
+  window.__camera = [];
+  const note = (what) => window.__camera.push(what);
+  const proto = window.MediaDevices && window.MediaDevices.prototype;
+  if (proto && typeof proto.getUserMedia === "function") {
+    const real = proto.getUserMedia;
+    proto.getUserMedia = function (...a) { note("getUserMedia"); return real.apply(this, a); };
+  }
+  for (const k of ["getUserMedia", "webkitGetUserMedia"]) {
+    if (typeof navigator[k] === "function") {
+      const real = navigator[k].bind(navigator);
+      navigator[k] = (...a) => { note(k); return real(...a); };
+    }
+  }
+  if (navigator.permissions && typeof navigator.permissions.query === "function") {
+    const real = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (d) => { if (d && /camera/i.test(String(d.name))) note("permissions.query(camera)"); return real(d); };
+  }
+});
+const cameraCalls = (p) => p.evaluate(() => window.__camera ?? []);
+
+/**
+ * The handheld scanner reading labels on one page: keys about 10 ms apart, then Enter. The page reads
+ * the same label only once within 2 s (a scanner's double read), so a repeat waits that out.
+ */
+function scannerOn(p) {
+  const last = new Map();
+  return async (code, opts = {}) => {
+    const since = Date.now() - (last.get(code) ?? 0);
+    if (since < 2_100) await sleep(2_100 - since);
+    last.set(code, Date.now());
+    await scanType(p, SCAN_LINK(code), { delay: 10, ...opts });
+    last.set(code, Date.now());
+  };
+}
+
+/**
+ * On Netlify (IMAGE_CDN=netlify) a thumbnail is /.netlify/images?url=<original>&w=<px>, which `next
+ * dev` doesn't serve: the browser context answers it with the original (and notes each width asked).
+ */
+async function serveThumbs(c, widths = []) {
+  await c.route(/\/\.netlify\/images\?/, async (route) => {
+    const u = new URL(route.request().url());
+    widths.push(Number(u.searchParams.get("w")));
+    try {
+      const r = await route.fetch({ url: u.searchParams.get("url") });
+      await route.fulfill({ response: r });
+    } catch {
+      await route.abort().catch(() => {});
+    }
+  });
+  return widths;
+}
+
+const scanMain = (p) => p.locator("main").first().innerText().then(flat);
+const openDialogs = (p) => p.locator("dialog[open]").count();
+const focusedEl = (p) => p.evaluate(() => {
+  const a = document.activeElement;
+  return !a || a === document.body ? "nothing" : `${a.tagName.toLowerCase()} "${(a.getAttribute("aria-label") ?? a.textContent ?? "").trim().slice(0, 40)}"`;
+});
+/** Wait until the page's <main> names every one of `codes` (a scan's answer shown); returns its text. */
+async function scanShows(p, codes, ms = 30_000) {
+  const text = (await until(async () => { const x = await scanMain(p); return codes.every((c) => x.includes(c)) ? x : null; }, ms)) ?? await scanMain(p);
+  const missing = codes.filter((c) => !text.includes(c));
+  assert(!missing.length, `not shown: ${missing.join(", ")} (the page says: "${text.slice(0, 200)}")`);
+  return text;
+}
+/** "Got it: CD-2549-G" over the top panel (it shows 1.6 s): seen within `ms` of the scan's Enter. */
+async function gotItSeen(p, code, ms = 1_500) {
+  await p.getByText(UI.gotIt(code)).first().waitFor({ state: "visible", timeout: ms });
+}
+/** A card's block in a list (bag, order, search, a holder's stack): the innermost <li>/<article> naming it. */
+const scanCardBlock = (p, code) => p.locator("main").first().locator("li, article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9A-Z-])`) })
+  .filter({ hasNot: p.locator("main li li, main article article").filter({ hasText: new RegExp(`${esc(code)}(?![0-9A-Z-])`) }) }).last();
+
+/** The photos a card must show, from the database: receiving first, then the customer's, else the catalog's. */
+function photosWanted(t, code) {
+  const c = cardByCode(t, code);
+  const own = [...(c.receiving_photo_urls ?? []).map((url) => ({ kind: "receiving", url })), ...(c.photo_urls ?? []).map((url) => ({ kind: "customer", url }))];
+  if (own.length) return own.slice(0, 6);
+  return c.catalog_image_url ? [{ kind: "reference", url: c.catalog_image_url }] : [];
+}
+/** The alt a photo tile carries (card-photos.tsx): "Receiving photo 1 of CD-2549-01 Test Card Gold One". */
+function photoAlts(want, label) {
+  const seen = { receiving: 0, customer: 0, reference: 0 };
+  const noun = { receiving: "Receiving photo", customer: "Customer photo" };
+  return want.slice(0, 3).map((w) => {
+    seen[w.kind] += 1;
+    return w.kind === "reference" ? `Reference photo of ${label} from the card catalog, not the customer's card` : `${noun[w.kind]} ${seen[w.kind]} of ${label}`;
+  });
+}
+/** Is this a resized copy (Netlify's image CDN), not the original? */
+const isThumbPath = (src, original) => {
+  if (!String(src).startsWith("/.netlify/images?")) return false;
+  const u = new URL(src, "http://x");
+  return u.searchParams.get("url") === original && Number(u.searchParams.get("w")) <= SCAN_TILE_MAX_W;
+};
+
+/**
+ * One card's photos on the Scan page, against the database and the API's answer (`apiCard`): the
+ * list "Photos of <Card ID> <name>" under the card's details, tiles in order (receiving, customer;
+ * else the reference photo with its label), each <img> the API's thumbnail (tile), lazy, loaded; or
+ * "No photo yet". Returns a short note.
+ */
+async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false, minH = 90, maxH = 200 } = {}) {
+  const want = photosWanted(t, code);
+  const name = cardByCode(t, code).card_name;
+  const label = `${code} ${name}`;
+  const row = block ?? scanCardBlock(p, code);
+  const list = UI.scanCardPhotos(p, code);
+  if (!want.length) {
+    eq(await list.count(), 0, `${code}: photo lists`);
+    const txt = flat(await row.innerText());
+    assert(UI.scanNoPhoto.test(txt), `${code}: no "No photo yet" ("${txt.slice(0, 160)}")`);
+    eq(await row.locator("img").count(), 0, `${code}: images in its block`);
+    return `${code}: no photo yet`;
+  }
+  await list.first().waitFor({ timeout: 15_000 });
+  eq(await list.count(), 1, `${code}: photo lists`);
+  const imgs = list.locator("img");
+  eq(await imgs.count(), Math.min(3, want.length), `${code}: thumbnails`);
+  eq(await imgs.evaluateAll((els) => els.map((e) => e.getAttribute("alt"))), photoAlts(want, label), `${code}: photos in order (alt)`);
+  // Under the card's details: below its Card ID and its name
+  const listBox = await list.boundingBox();
+  const above = [];
+  for (const loc of [row.getByText(code, { exact: true }).first(), row.getByText(name).first()]) {
+    const b = await loc.boundingBox().catch(() => null);
+    if (b) above.push(b.y + b.height);
+  }
+  assert(above.length === 2, `${code}: its Card ID or name isn't in its block`);
+  assert(listBox && listBox.y >= Math.max(...above) - 1, `${code}: the photos (top ${listBox?.y}) are not under its details (bottom ${Math.max(...above)})`);
+  assert(listBox.height >= minH && listBox.height <= maxH, `${code}: thumbnails ${Math.round(listBox.height)} px tall (want ${minH}-${maxH})`);
+  const apiPhotos = apiCard?.photos ?? [];
+  eq(apiPhotos.map((x) => [x.kind, x.url]), want.map((w) => [w.kind, w.url]), `${code}: the API's photos`);
+  const n = await imgs.count();
+  for (let i = 0; i < n; i++) {
+    const img = imgs.nth(i);
+    const [src, srcset, loading] = await img.evaluate((el) => [el.getAttribute("src"), el.getAttribute("srcset"), el.getAttribute("loading")]);
+    const tile = apiPhotos[i].tile;
+    eq(src, tile.src, `${code} photo ${i + 1}: src is the API's thumbnail (tile)`);
+    eq(srcset ?? null, tile.srcSet ?? null, `${code} photo ${i + 1}: srcset`);
+    eq(loading, "lazy", `${code} photo ${i + 1}: loading`);
+    if (want[i].kind === "reference") {
+      eq(src, SCAN_CATALOG.replace("/high.webp", "/low.webp"), `${code}: the reference thumbnail (the catalog's small picture)`);
+      continue; // the catalog's host isn't reachable from the sandbox
+    }
+    if (cdn) {
+      assert(isThumbPath(src, want[i].url), `${code} photo ${i + 1}: not a resized copy of ${want[i].url}: ${src}`);
+      for (const part of String(srcset ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
+        const [u, w] = part.split(/\s+/);
+        assert(isThumbPath(u, want[i].url) && parseInt(w, 10) <= SCAN_TILE_MAX_W, `${code} photo ${i + 1}: srcset entry "${part}"`);
+      }
+    }
+    await img.scrollIntoViewIfNeeded();
+    const ok = await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000);
+    assert(ok, `${code} photo ${i + 1} did not load (${src})`);
+  }
+  if (want[0].kind === "reference") {
+    const txt = flat(await row.innerText());
+    assert(UI.scanReference.test(txt), `${code}: the catalog picture isn't labelled "Reference photo" ("${txt.slice(0, 160)}")`);
+    assert(/not the customer.s card/i.test(txt), `${code}: no "Not the customer's card"`);
+  }
+  return `${code}: ${want.map((w) => w.kind[0]).join("")}${want.length > 3 ? ` (3 shown, +${want.length - 3})` : ""}`;
+}
+
+/** A tap on a card's first photo: the full-screen viewer (90%+ of the screen), the API's full-size image, loaded; Close closes it. */
+async function checkViewer(p, code, apiCard, { shot } = {}) {
+  const tile = UI.scanCardPhotos(p, code).first().getByRole("button").first();
+  await tile.scrollIntoViewIfNeeded();
+  await tile.click();
+  const viewer = UI.photoViewer(p);
+  await viewer.waitFor({ timeout: 15_000 });
+  const box = await viewer.boundingBox();
+  const vp = p.viewportSize();
+  const cover = box ? (100 * box.width * box.height) / (vp.width * vp.height) : 0;
+  assert(cover >= 90, `the viewer covers ${Math.round(cover)}% of the screen`);
+  const img = viewer.locator("img").first();
+  eq(await img.getAttribute("src"), apiCard.photos[0].full.src, "the viewer's image is the API's full-size one");
+  assert(await until(() => img.evaluate((el) => el.complete && el.naturalWidth > 0), 15_000), "the full-screen photo did not load");
+  const text = flat(await viewer.innerText());
+  const kind = { receiving: /receiving photo/i, customer: /customer photo/i, reference: /reference photo/i }[apiCard.photos[0].kind];
+  assert(kind.test(text), `viewer title: "${text.slice(0, 120)}"`);
+  if (apiCard.photos.length > 1) assert(new RegExp(`\\b1 of ${apiCard.photos.length}\\b`).test(text), `viewer counter: "${text.slice(0, 120)}"`);
+  if (shot) await p.screenshot({ path: path.join(OUT, shot) }).catch(() => {});
+  await UI.viewerClose(viewer).click();
+  await until(async () => (await openDialogs(p)) === 0, 5_000);
+  eq(await openDialogs(p), 0, "open dialogs after Close");
+  return `${Math.round(cover)}% of the screen; focus after Close: ${await focusedEl(p)}`;
+}
+
+const SCAN_SCENARIOS = {
+  // The scanner only: no camera anywhere; the Eyoyo's keystrokes + Enter, with nothing focused, open
+  // what was scanned, right after the page loads, after a result, and after a photo (a modal) closes.
+  async "scan-scanner-only"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const G = "CD-2549-G";
+    const P = "CD-2549-P";
+    const G_CARDS = BO_GOLD;
+    const P_CARDS = ["CD-2549-07", "CD-2549-08"];
+    await s.step("setup: CD-2549 Gold 01-04 (bag CD-2549-G) + Platinum 07-08 (CD-2549-P) and CD-2600-01..03 received, receiving photos", async () => {
+      await deskReceive(ctx, mockUrl);
+    }, { critical: true, shot: false });
+
+    const runAt = async (label, p, errors) => {
+      const scan = scannerOn(p);
+      const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-scanner-only-${label}-${name}.png`), fullPage: true }).catch(() => {});
+      await s.step(`${label}: /admin/scan: the "Ready to scan" panel and its line; no camera (no video, canvas, camera word or button, no capture input); the code box closed; nothing focused; no sideways scroll`, async () => {
+        await goto(p, ROUTES.scan);
+        await UI.scanReady(p).waitFor({ timeout: 60_000 });
+        const panelText = flat(await UI.scanReady(p).innerText());
+        assert(UI.readyToScan.test(panelText), `the panel says "${panelText.slice(0, 160)}"`);
+        assert(panelText.includes(UI.readyToScanSub), `no "${UI.readyToScanSub}" in the panel ("${panelText.slice(0, 160)}")`);
+        const text = await scanMain(p);
+        assert(!/camera/i.test(text), `the page mentions a camera: "${text.slice(0, 200)}"`);
+        eq(await p.locator("video, canvas").count(), 0, "video/canvas elements");
+        eq(await p.locator("input[type=file][capture], input[accept^='image'][capture]").count(), 0, "camera capture inputs");
+        eq(await p.getByRole("button", { name: /camera|torch|flash ?light|start scanning/i }).count(), 0, "camera buttons");
+        eq(await UI.scanInput(p).count(), 0, "code boxes before Type a code instead");
+        await UI.typeCodeLink(p).waitFor({ timeout: 15_000 });
+        eq(await focusedEl(p), "nothing", "focused on load");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        await shot("01-ready");
+      }, { critical: true, shot: false });
+
+      await s.step(`${label}: right after a fresh load, the scanner (keys 10 ms apart + Enter, nothing focused) reads ${G}'s label: "Got it: ${G}" flashes, its 4 cards show, no navigation`, async () => {
+        await goto(p, ROUTES.scan);
+        const looked = p.waitForResponse((r) => r.url().includes("/api/admin/track/resolve"), { timeout: 120_000 });
+        const t0 = Date.now();
+        await scan(G);
+        await gotItSeen(p, G);
+        const flashMs = Date.now() - t0;
+        await looked;
+        await scanShows(p, G_CARDS);
+        eq(new URL(p.url()).pathname, ROUTES.scan, "still on the Scan page");
+        await shot("02-bag");
+        return `"Got it" ${flashMs} ms after the first key`;
+      }, { critical: true, shot: false });
+
+      await s.step(`${label}: after that result, the scanner reads ${P}: "Got it: ${P}", its cards replace ${G}'s`, async () => {
+        await scan(P);
+        await gotItSeen(p, P);
+        const text = await scanShows(p, P_CARDS);
+        assert(!G_CARDS.some((c) => text.includes(c)), `${G}'s cards still shown: "${text.slice(0, 200)}"`);
+      }, { shot: false });
+
+      await s.step(`${label}: a photo opened full screen and closed with Close (focus back on the photo): the next scan (${G}) opens, and its Enter doesn't reopen the photo`, async () => {
+        const tile = UI.scanCardPhotos(p, "CD-2549-07").first().getByRole("button").first();
+        await tile.click();
+        await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+        await UI.viewerClose(UI.photoViewer(p)).click();
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        const f = await focusedEl(p);
+        await scan(G, { blur: false });
+        await gotItSeen(p, G);
+        await scanShows(p, G_CARDS);
+        await sleep(400);
+        eq(await openDialogs(p), 0, "a photo reopened by the scan's Enter");
+        return `focus before the scan: ${f}`;
+      }, { shot: false });
+
+      await s.step(`${label}: the same after Esc closes the photo: the scanner reads ${P}`, async () => {
+        const tile = UI.scanCardPhotos(p, "CD-2549-02").first().getByRole("button").first();
+        await tile.click();
+        await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+        await p.keyboard.press("Escape");
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        eq(await openDialogs(p), 0, "open dialogs after Esc");
+        await scan(P, { blur: false });
+        await gotItSeen(p, P);
+        await scanShows(p, P_CARDS);
+        await sleep(400);
+        eq(await openDialogs(p), 0, "a photo reopened by the scan's Enter");
+      }, { shot: false });
+
+      await s.step(`${label}: with a card's "Assign to a slot" focused, the scanner reads ${G}: it opens, the button isn't pressed`, async () => {
+        const btn = p.getByRole("button", { name: /^assign to a slot$/i }).first();
+        await btn.focus();
+        assert((await focusedEl(p)).startsWith("button"), "a button has focus");
+        await scan(G, { blur: false });
+        await scanShows(p, G_CARDS);
+        const text = await scanMain(p);
+        assert(!/scan the (slot|holder) for/i.test(text), `the scan pressed "Assign to a slot" ("${text.slice(0, 120)}")`);
+      }, { shot: false });
+
+      await s.step(`${label}: a scan while a photo is open full screen closes it and shows ${P}`, async () => {
+        const tile = UI.scanCardPhotos(p, "CD-2549-01").first().getByRole("button").first();
+        await tile.click();
+        await UI.photoViewer(p).waitFor({ timeout: 15_000 });
+        await scan(P, { blur: false });
+        await until(async () => (await openDialogs(p)) === 0, 10_000);
+        eq(await openDialogs(p), 0, "open dialogs after the scan");
+        await scanShows(p, P_CARDS);
+      }, { shot: false });
+
+      await s.step(`${label}: "Type a code instead" reveals the code box (focused); CD-2549-02 + Enter shows that card; the scanner typing into the box works too; Esc closes it`, async () => {
+        eq(await UI.scanInput(p).count(), 0, "a code box before the tap");
+        await UI.typeCodeLink(p).click();
+        const box = UI.scanInput(p);
+        await box.waitFor({ timeout: 15_000 });
+        assert(await box.evaluate((el) => el === document.activeElement), "the code box has no focus");
+        await box.fill("CD-2549-02");
+        await box.press("Enter");
+        await p.getByText("Test Card Gold Two").first().waitFor({ timeout: 30_000 });
+        await shot("03-typed");
+        // A scanner typing into the open box (on a computer it keeps the focus; on a phone it lets go)
+        await box.focus();
+        await scan(G, { blur: false });
+        await scanShows(p, G_CARDS);
+        if (!(await box.isVisible().catch(() => false))) return "the box closed after the scan";
+        await box.focus();
+        await p.keyboard.press("Escape");
+        await until(async () => (await UI.scanInput(p).count()) === 0, 5_000);
+        eq(await UI.scanInput(p).count(), 0, "code boxes after Esc");
+        await UI.typeCodeLink(p).waitFor({ timeout: 5_000 });
+        return "Esc closed it";
+      }, { shot: false });
+
+      await s.step(`${label}: no camera asked for (no getUserMedia, no camera permission query), no sideways scroll, no browser errors`, async () => {
+        eq(await cameraCalls(p), [], "camera calls");
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        if (errors) assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    };
+
+    const phone = await phoneContext(browser, appUrl);
+    try {
+      await watchCamera(phone.ctx);
+      await runAt("390", phone.page, phone.errors);
+    } finally {
+      await phone.ctx.close();
+    }
+    // 1440: the runner's desktop page (its browser errors are checked by the runner)
+    await watchCamera(ctx);
+    await runAt("1440", page, null);
+  },
+
+  // Photos under each card: receiving first, then the customer's, else "Reference photo"; the API's
+  // thumbnails (not the originals); a tap opens the full-size photo full screen; "No photo yet".
+  // With IMAGE_CDN=netlify in the harness the thumbnails must be /.netlify/images?url=…&w=<=480 copies.
+  async "scan-card-photos"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    const G = "CD-2549-G";
+    // CD-2549-01: its receiving photo + the seed's 2 customer photos; -02: a customer photo only;
+    // -03: only a catalog picture (the reference photo); -04: nothing
+    let t = null;
+    let api0 = null;
+    let cdn = false;
+    await s.step("setup: CD-2549 and CD-2600 received with receiving photos; CD-2549-02 a customer photo only, -03 only a catalog picture, -04 no photo", async () => {
+      t = await deskReceive(ctx, mockUrl);
+      const customer = cardByCode(t, "CD-2549-07").photo_urls?.[0];
+      assert(customer, "the seed's CD-2549-07 customer photo");
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [customer] }, "card_code", "CD-2549-02");
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: SCAN_CATALOG }, "card_code", "CD-2549-03");
+      await mockUpdate(mockUrl, "cards", { receiving_photo_urls: [], photo_urls: [], catalog_image_url: null }, "card_code", "CD-2549-04");
+      t = await tables();
+      eq(photosWanted(t, "CD-2549-01").map((w) => w.kind), ["receiving", "customer", "customer"], "CD-2549-01 in the database");
+    }, { critical: true, shot: false });
+    await s.step(`resolve ${G}: each card's photos (receiving, then customer; the catalog's only without them), a thumbnail (tile) and a full-size image each`, async () => {
+      const r = await api(ctx, "GET", ROUTES.trackResolve(G));
+      eq(r.status, 200, "HTTP");
+      const cards = r.body?.bag?.cards ?? [];
+      eq(cards.map((c) => c.code), BO_GOLD, "cards");
+      for (const c of cards) {
+        eq((c.photos ?? []).map((x) => [x.kind, x.url]), photosWanted(t, c.code).map((w) => [w.kind, w.url]), `${c.code} photos`);
+        for (const x of c.photos ?? []) assert(x.tile?.src && x.full?.src, `${c.code}: a photo without tile/full`);
+      }
+      api0 = Object.fromEntries(cards.map((c) => [c.code, c]));
+      const own = api0["CD-2549-01"].photos[0];
+      cdn = String(own.tile.src).startsWith("/.netlify/images?");
+      if (cdn) {
+        for (const c of cards) for (const x of c.photos ?? []) {
+          if (x.kind === "reference") continue;
+          assert(isThumbPath(x.tile.src, x.url), `${c.code}: tile ${x.tile.src} is not a resized copy (w <= ${SCAN_TILE_MAX_W})`);
+          const fw = Number(new URL(x.full.src, "http://x").searchParams.get("w"));
+          assert(fw >= SCAN_FULL_MIN_W, `${c.code}: the full-size image is ${fw} px wide`);
+        }
+        return `IMAGE_CDN=netlify: tiles ${own.tile.src.slice(0, 60)}… (srcset ${own.tile.srcSet})`;
+      }
+      eq(own.tile.src, own.url, "off Netlify the tile is the original");
+      return "IMAGE_CDN off in this harness: tile = original (lib/thumbnail.ts resizes only on Netlify); the <img> must still take the tile";
+    }, { critical: true, shot: false });
+
+    const runAt = async (label, p, c, errors) => {
+      const scan = scannerOn(p);
+      const widths = cdn ? await serveThumbs(c) : [];
+      const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-card-photos-${label}-${name}.png`), fullPage: true }).catch(() => {});
+      await s.step(`${label}: scan ${G}: each card's photos under its details, in order, the API's thumbnails (lazy, loaded); -03 "Reference photo" / "Not the customer's card"; -04 "No photo yet"`, async () => {
+        await goto(p, ROUTES.scan);
+        await scan(G);
+        await scanShows(p, BO_GOLD);
+        const notes = [];
+        for (const code of BO_GOLD) notes.push(await checkCardPhotos(p, t, code, api0[code], { cdn }));
+        await p.evaluate(() => window.scrollTo(0, 0));
+        await shot("01-bag");
+        return notes.join(", ");
+      }, { shot: false });
+      await s.step(`${label}: thumbnails, not originals: every photo <img> under a card is a tile${cdn ? ` (/.netlify/images, w <= ${SCAN_TILE_MAX_W})` : ""}, never the full-size image`, async () => {
+        const srcs = await p.locator("main").first().getByRole("list", { name: /^photos of /i }).locator("img").evaluateAll((els) => els.map((e) => e.getAttribute("src")));
+        assert(srcs.length >= 4, `only ${srcs.length} photo tiles`);
+        const fulls = new Set(Object.values(api0).flatMap((x) => (x.photos ?? []).filter((ph) => ph.full.src !== ph.tile.src).map((ph) => ph.full.src)));
+        const bad = srcs.filter((x) => fulls.has(x));
+        assert(!bad.length, `full-size images used as thumbnails: ${bad.slice(0, 2).join(", ")}`);
+        if (cdn) {
+          const asked = [...new Set(widths)].sort((a, b) => a - b);
+          assert(asked.length && asked.every((w) => w <= SCAN_TILE_MAX_W), `widths asked of the image CDN: ${asked.join(", ")}`);
+          return `${srcs.length} tiles; CDN widths asked: ${asked.join(", ")}`;
+        }
+        return `${srcs.length} tiles (CDN off: tile = original here)`;
+      }, { shot: false });
+      await s.step(`${label}: a tap on CD-2549-01's first photo opens it full screen (the full-size image), Close closes it`, async () => {
+        return checkViewer(p, "CD-2549-01", api0["CD-2549-01"], { shot: `scan-card-photos-${label}-02-viewer.png` });
+      }, { shot: false });
+      await s.step(`${label}: the order's label (CD-2549): every received card with its photos or "No photo yet"; the not-received ones "No photo yet"`, async () => {
+        await scan(ORDER_NUMBERS.mailOrder);
+        await scanShows(p, [...BO_GOLD, "CD-2549-07", "CD-2549-08"]);
+        const r = await api(ctx, "GET", ROUTES.trackResolve(ORDER_NUMBERS.mailOrder));
+        const all = [...(r.body?.order?.bags ?? []).flatMap((b) => b.cards), ...(r.body?.order?.looseCards ?? [])];
+        const notes = [];
+        for (const code of [...BO_GOLD, "CD-2549-07", "CD-2549-08"]) notes.push(await checkCardPhotos(p, t, code, all.find((x) => x.code === code), { cdn }));
+        await p.evaluate(() => window.scrollTo(0, 0));
+        await shot("03-order");
+        return notes.join(", ");
+      }, { shot: false });
+      await s.step(`${label}: a typed Card ID (CD-2549-01) shows that card with its 3 photos`, async () => {
+        await typeCode(p, "CD-2549-01");
+        await p.getByText("Test Card Gold One").first().waitFor({ timeout: 30_000 });
+        await until(async () => (await UI.scanCardPhotos(p, "CD-2549-01").count()) > 0, 15_000);
+        return checkCardPhotos(p, t, "CD-2549-01", api0["CD-2549-01"], { cdn });
+      }, { shot: false });
+      await s.step(`${label}: no sideways scroll; no browser errors`, async () => {
+        const w = await sidewaysScroll(p);
+        assert(w <= 1, `scrolls sideways by ${w}px`);
+        if (errors) assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    };
+
+    await runAt("1440", page, ctx, null);
+    const phone = await phoneContext(browser, appUrl);
+    try {
+      await runAt("390", phone.page, phone.ctx, phone.errors);
+    } finally {
+      await phone.ctx.close();
+    }
+  },
+};
+
+// ─── The holder view (owner, Nov 26: "make it clearer when you scan a holder that has a card in it") ───
+// components/intake/scan/holder-view.tsx (wording: the HOLDER agent's holder-text.md, in UI.holder*):
+// "CLAMP 07 · has 1 card" (a holder with a limit; "HEAT PRESS 02 · 3 cards" without one; "CLAMP 07 ·
+// empty"), the card big (photos, name, Card ID, customer · order · tier, due, step, "In CLAMP 07 for 2
+// hours"), and Move to my desk, Move to another holder, Done (asks "Mark done"), Take out. A stack:
+// "Move all 3 to my desk". No desk yet: "Move to my desk" greyed and "No desk yet. …".
+// Setup (holderSetup): CD-2549 Gold 01-04 + Platinum 07-08 and CD-2600-01 received (trackSetup),
+// CLAMP 01..07 and HEAT PRESS 01..02, receiving photos on the CD-2549 cards; CD-2549-07 in CLAMP 07
+// (step Clamp Work) put in 2 h 5 min ago; CD-2549-01..03 in HEAT PRESS 02 (no limit); CLAMP 06 and
+// HEAT PRESS 01 empty; no desk (`desk: true` makes LOC-DESK as the Desk page does).
+const HOLDER = {
+  code: "LOC-CLAMP-07", name: "CLAMP 07", card: "CD-2549-07", cardName: "Test Card Platinum One", customer: BO_CUSTOMER,
+  order: ORDER_NUMBERS.mailOrder, bag: "CD-2549-P", tier: "Platinum", due: "2026-12-07", step: "Clamp Work", agoMin: 125,
+};
+const HOLDER_TO = { code: "LOC-HEAT-PRESS-01", name: "HEAT PRESS 01", step: "Heat Press" };
+const HOLDER_STACK = { code: "LOC-HEAT-PRESS-02", name: "HEAT PRESS 02", cards: ["CD-2549-01", "CD-2549-02", "CD-2549-03"], step: "Heat Press" };
+const HOLDER_EMPTY = { code: "LOC-CLAMP-06", name: "CLAMP 06" };
+
+async function holderSetup(ctx, mockUrl, { desk = false } = {}) {
+  const t0 = await trackSetup(ctx, { clamp: 7, "heat-press": 2 });
+  await setReceivingPhotos(mockUrl, [...BO_GOLD, "CD-2549-07", "CD-2549-08"].map((c) => cardIdOf(t0, c)));
+  await holderPut(ctx, mockUrl, t0, HOLDER.card, HOLDER.code);
+  await assignOk(ctx, HOLDER_STACK.code, HOLDER_STACK.cards.map((c) => cardIdOf(t0, c)), true);
+  if (desk) await ensureDesk(ctx);
+  const t = await tables();
+  eq(cardsIn(t, HOLDER.code), [HOLDER.card], `cards in ${HOLDER.name}`);
+  eq(cardsIn(t, HOLDER_STACK.code), HOLDER_STACK.cards, `cards in ${HOLDER_STACK.name}`);
+  eq(latestStage(t, cardIdOf(t, HOLDER.card)), HOLDER.step, `${HOLDER.card} step`);
+  eq(!!placeOf(t, DESK), desk, `${DESK} exists`);
+  return t;
+}
+/** Put a card (back) in a holder through the API, as if put in HOLDER.agoMin minutes ago. */
+async function holderPut(ctx, mockUrl, t, code, slot) {
+  await assignOk(ctx, slot, [cardIdOf(t, code)], true);
+  await mockUpdate(mockUrl, "cards", { located_at: new Date(Date.now() - HOLDER.agoMin * 60_000).toISOString() }, "card_code", code);
+}
+/** Scan a holder's label and wait for its header ("CLAMP 07 · has 1 card", "HEAT PRESS 02 · 3 cards", "CLAMP 06 · empty"). */
+async function holderOpen(p, scan, place, n) {
+  await scan(place.code);
+  const want = n ? UI.holderHas(place.name, n) : UI.holderEmptyHead(place.name);
+  const text = await until(async () => { const x = await scanMain(p); return want.test(x) ? x : null; }, 30_000) ?? await scanMain(p);
+  assert(want.test(text), `${place.name}: no /${want.source}/ (the page says "${text.slice(0, 240)}")`);
+  return text;
+}
+/**
+ * Tap a holder button and wait for the save it makes (POST to a path matching `re`); when the
+ * button asks first ("Mark it done? …" [Mark done]), that is answered.
+ */
+async function holderTap(p, button, re) {
+  const saved = p.waitForResponse((r) => re.test(new URL(r.url()).pathname) && r.request().method() === "POST", { timeout: 60_000 });
+  await button.click();
+  let res = await Promise.race([saved, sleep(2_000).then(() => null)]);
+  let asked = "";
+  if (!res) {
+    const yes = UI.holderConfirm(p);
+    if (await yes.isVisible().catch(() => false)) {
+      asked = await nameOf(yes);
+      await yes.click();
+    }
+    res = await saved;
+  }
+  assert(res.status() < 300, `${new URL(res.url()).pathname} answered ${res.status()}: ${(await res.text()).slice(0, 200)}`);
+  return { res, sent: JSON.parse(res.request().postData() ?? "{}"), asked };
+}
+const mailCount = async () => (await dump()).emails.length;
+/** The four buttons of a holder with one card. */
+const holderButtons = (p) => {
+  const m = p.locator("main").first();
+  return [["Move to my desk", UI.holderToDesk(m)], ["Move to another holder", UI.holderToHolder(m)], ["Done", UI.holderDone(m)], ["Take out", UI.holderTakeOut(m)]];
+};
+
+const SCAN_HOLDER_SCENARIOS = {
+  // Scanning CLAMP 07 with a card in it: the header, the card's details, the four buttons, each working
+  async "scan-holder-card"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    let t = null;
+    await s.step(`setup: ${HOLDER.card} in ${HOLDER.name} (put in ${HOLDER.agoMin} min ago), ${HOLDER_STACK.cards.join(", ")} in ${HOLDER_STACK.name}; ${HOLDER_EMPTY.name} and ${HOLDER_TO.name} empty; no desk yet`, async () => {
+      t = await holderSetup(ctx, mockUrl);
+    }, { critical: true, shot: false });
+    await s.step(`resolve ${HOLDER.name}: 1 card; ${HOLDER_STACK.name}: 3; ${HOLDER_EMPTY.name}: 0`, async () => {
+      for (const [code, n] of [[HOLDER.code, 1], [HOLDER_STACK.code, 3], [HOLDER_EMPTY.code, 0]]) {
+        const r = await api(ctx, "GET", ROUTES.trackResolve(code));
+        eq([r.status, r.body?.kind, r.body?.location?.cards?.length], [200, "location", n], code);
+      }
+    }, { critical: true, shot: false });
+
+    const phone = await phoneContext(browser, appUrl);
+    const p = phone.page;
+    const scan = scannerOn(p);
+    const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-holder-card-${name}.png`), fullPage: true }).catch(() => {});
+    const m = () => p.locator("main").first();
+    const cid = (code) => cardIdOf(t, code);
+    try {
+      await goto(p, ROUTES.scan);
+      await s.step(`390: no desk yet: the scanner reads ${HOLDER.name}: "Move to my desk" greyed and "No desk yet. Open the Desk page once to make one."`, async () => {
+        await holderOpen(p, scan, HOLDER, 1);
+        const b = UI.holderToDesk(m());
+        await b.waitFor({ timeout: 15_000 });
+        assert(await b.isDisabled(), '"Move to my desk" is not greyed with no desk');
+        const said = await saidOnPage(p, UI.holderNoDesk, 5_000);
+        assert(said, `no "No desk yet…" ("${(await scanMain(p)).slice(0, 240)}")`);
+        await ensureDesk(ctx);
+        return said;
+      }, { shot: false });
+
+      await s.step(`390: ${DESK} made; the scanner reads ${HOLDER.name}: "${HOLDER.name} · has 1 card"; the card's name, Card ID, customer, order, tier, due date, step and time in the holder; its photos; the four buttons`, async () => {
+        await goto(p, ROUTES.scan);
+        const text = await holderOpen(p, scan, HOLDER, 1);
+        assert(UI.holderHasExact(HOLDER.name, 1).test(text), `no "${HOLDER.name} · has 1 card" ("${text.slice(0, 200)}")`);
+        const missing = [];
+        for (const [what, re] of [
+          ["name", nameRe(HOLDER.cardName)], ["Card ID", nameRe(HOLDER.card)], ["customer", nameRe(HOLDER.customer)],
+          ["order", orderNumberRe(HOLDER.order)], ["tier", new RegExp(`\\b${HOLDER.tier}\\b`)], ["due", dueRe(HOLDER.due)],
+          ["step", new RegExp(`step:?\\s*${esc(HOLDER.step)}`, "i")], ["time in the holder", UI.holderSince(HOLDER.name, 2)],
+        ]) if (!re.test(text)) missing.push(`${what} /${re.source}/`);
+        assert(!missing.length, `not shown: ${missing.join(", ")} (the page says "${text.slice(0, 500)}")`);
+        const absent = [];
+        for (const [what, b] of holderButtons(p)) if (!(await b.isVisible().catch(() => false)) || await b.isDisabled()) absent.push(what);
+        assert(!absent.length, `buttons not shown or greyed: ${absent.join(", ")}`);
+        const imgs = UI.scanCardPhotos(p, HOLDER.card).first().locator("img");
+        await imgs.first().waitFor({ timeout: 15_000 });
+        assert(await until(() => imgs.first().evaluate((el) => el.complete && el.naturalWidth > 0), 15_000), "its photo did not load");
+        await shot("01-holder");
+        return text.slice(0, 240);
+      }, { shot: false });
+
+      await s.step(`"Move to my desk": ${HOLDER.card} on ${DESK}, ${HOLDER.name} empty, step still ${HOLDER.step}, one card_moves row ${HOLDER.name} -> desk, no email, no step event; "${HOLDER.card} is on your desk."`, async () => {
+        const before = await tables();
+        const mails = await mailCount();
+        const { res, sent } = await holderTap(p, UI.holderToDesk(m()), /\/api\/admin\/track\/(move|assign)$/);
+        const after = await tables();
+        const desk = placeOf(after, DESK);
+        eq(cardsIn(after, DESK), [HOLDER.card], `cards on ${DESK}`);
+        eq(cardsIn(after, HOLDER.code), [], `cards in ${HOLDER.name}`);
+        eq(latestStage(after, cid(HOLDER.card)), HOLDER.step, "step");
+        eq(stageEventCount(after), stageEventCount(before), "step events");
+        const rows = movesOf(after, cid(HOLDER.card)).slice(movesOf(before, cid(HOLDER.card)).length);
+        eq(rows.map((r) => [r.from_location_id, r.to_location_id, r.stage_before, r.stage_after]), [[placeOf(after, HOLDER.code).id, desk.id, HOLDER.step, HOLDER.step]], "card_moves rows (from, to, step before, after)");
+        eq(await mailCount(), mails, "emails");
+        const said = await saidOnPage(p, UI.holderOnDesk(HOLDER.card));
+        await shot("02-to-desk");
+        assert(said, `no "${HOLDER.card} is on your desk." ("${(await scanMain(p)).slice(0, 200)}")`);
+        return `${new URL(res.url()).pathname} ${JSON.stringify(sent).slice(0, 120)}`;
+      }, { shot: false });
+
+      await s.step(`back in ${HOLDER.name} (API); "Move to another holder": the holder picker and "Scan the next slot"; the scanner (nothing focused on a phone) reads ${HOLDER_TO.name}: the card there, step ${HOLDER_TO.step}, ${HOLDER.name} empty, no email; the picker closes`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await holderOpen(p, scan, HOLDER, 1);
+        await UI.holderToHolder(m()).click();
+        await UI.holderPicker(p).waitFor({ timeout: 10_000 });
+        const bar = await until(async () => { const x = flat(await p.locator("body").innerText()); return UI.holderNext.test(x) ? x.match(UI.holderNext)[0] : null; }, 5_000);
+        await p.screenshot({ path: path.join(OUT, "scan-holder-card-03-move-picker.png") }).catch(() => {});
+        const before = await tables();
+        const mails = await mailCount();
+        const saved = p.waitForResponse((r) => /\/api\/admin\/track\/(move|assign)$/.test(new URL(r.url()).pathname) && r.request().method() === "POST", { timeout: 60_000 });
+        const f = await focusedEl(p);
+        await scan(HOLDER_TO.code, { blur: false });
+        const r = await saved;
+        assert(r.status() < 300, `${new URL(r.url()).pathname} answered ${r.status()}: ${(await r.text()).slice(0, 200)}`);
+        const sent = JSON.parse(r.request().postData() ?? "{}");
+        const after = await tables();
+        eq(cardsIn(after, HOLDER_TO.code), [HOLDER.card], `cards in ${HOLDER_TO.name}`);
+        eq(cardsIn(after, HOLDER.code), [], `cards in ${HOLDER.name}`);
+        eq(latestStage(after, cid(HOLDER.card)), HOLDER_TO.step, "step");
+        eq(await mailCount(), mails, "emails");
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        eq(await openDialogs(p), 0, "open dialogs after the scan");
+        const said = await saidOnPage(p, UI.holderMovedTo(HOLDER_TO.name));
+        assert(said, `no "In ${HOLDER_TO.name}." ("${(await scanMain(p)).slice(0, 200)}")`);
+        assert(bar, 'no "Scan the next slot for …" while the picker was open');
+        return `focused: ${f}; ${new URL(r.url()).pathname} ${JSON.stringify(sent).slice(0, 140)}`;
+      }, { shot: false });
+
+      await s.step(`back in ${HOLDER.name}; "Take out": no place, step kept, a release row, ${HOLDER.name} empty, no email; "${HOLDER.card} taken out of ${HOLDER.name}, not done…"`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await holderOpen(p, scan, HOLDER, 1);
+        const before = await tables();
+        const mails = await mailCount();
+        const stepBefore = latestStage(before, cid(HOLDER.card));
+        await holderTap(p, UI.holderTakeOut(m()), /\/api\/admin\/track\/release$/);
+        const after = await tables();
+        const c = cardByCode(after, HOLDER.card);
+        eq([c.location_id ?? null, cardsIn(after, HOLDER.code)], [null, []], "no place; the holder empty");
+        eq(latestStage(after, c.id), stepBefore, "step");
+        eq(movesOf(after, c.id).slice(movesOf(before, c.id).length).map((r) => r.action), ["release"], "card_moves rows");
+        eq(await mailCount(), mails, "emails");
+        const said = await saidOnPage(p, UI.holderTakenOut(HOLDER.card, HOLDER.name));
+        assert(said, `no "${HOLDER.card} taken out of ${HOLDER.name}" ("${(await scanMain(p)).slice(0, 200)}")`);
+        return said;
+      }, { shot: false });
+
+      await s.step(`back in ${HOLDER.name}; "Done", its "Mark done" answered: done, back in its bag (no place), ${HOLDER.name} empty, a done row, no email; "Done. Put it back in A's bag…"`, async () => {
+        await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+        await holderOpen(p, scan, HOLDER, 1);
+        const before = await tables();
+        const mails = await mailCount();
+        const { asked } = await holderTap(p, UI.holderDone(m()), /\/api\/admin\/track\/done$/);
+        const after = await tables();
+        const c = cardByCode(after, HOLDER.card);
+        eq([c.completed, c.location_id ?? null, cardsIn(after, HOLDER.code)], [true, null, []], "completed, place, the holder");
+        eq(movesOf(after, c.id).slice(movesOf(before, c.id).length).map((r) => r.action), ["done"], "card_moves rows");
+        eq(await mailCount(), mails, "emails");
+        const said = await saidOnPage(p, UI.doneSentence("A"));
+        await shot("04-done");
+        assert(said, `no "Done. Put it back in A's bag" ("${(await scanMain(p)).slice(0, 200)}")`);
+        return `asked: "${asked}"; said: "${said}"`;
+      }, { shot: false });
+
+      await s.step(`${HOLDER.name} again (now empty) and ${HOLDER_EMPTY.name} (never used): "<name> · empty" and "Empty. Scan a bag or card to put one here.", no Move, Done or Take out`, async () => {
+        const notes = [];
+        for (const place of [HOLDER, HOLDER_EMPTY]) {
+          const text = await holderOpen(p, scan, place, 0);
+          assert(UI.holderEmptyLine.test(text), `${place.name}: no "Empty. Scan a bag or card to put one here." ("${text.slice(0, 200)}")`);
+          const shown = [];
+          for (const [what, b] of holderButtons(p)) if (await b.isVisible().catch(() => false)) shown.push(what);
+          assert(!shown.length, `${place.name}: buttons shown: ${shown.join(", ")}`);
+          notes.push(`${place.name}: ok`);
+        }
+        await shot("05-empty");
+        return notes.join("; ");
+      }, { shot: false });
+
+      await s.step(`the stack ${HOLDER_STACK.name}: "${HOLDER_STACK.name} · 3 cards", each card's Card ID, name, customer and photos; "Move all 3 to my desk": all 3 on ${DESK}, the holder empty, steps kept (${HOLDER_STACK.step}), 3 move rows, no email; "All 3 cards are on your desk."`, async () => {
+        const text = await holderOpen(p, scan, HOLDER_STACK, 3);
+        const missing = HOLDER_STACK.cards.filter((c) => !text.includes(c) || !text.includes(cardByCode(t, c).card_name));
+        assert(!missing.length, `cards not shown with their names: ${missing.join(", ")}`);
+        for (const c of HOLDER_STACK.cards) await UI.scanCardPhotos(p, c).first().waitFor({ timeout: 15_000 });
+        await shot("06-stack");
+        const before = await tables();
+        const mails = await mailCount();
+        const { res, sent } = await holderTap(p, UI.holderAllToDesk(m(), 3), /\/api\/admin\/track\/(move|assign)$/);
+        const after = await tables();
+        eq(cardsIn(after, DESK), sorted([...HOLDER_STACK.cards]), `cards on ${DESK}`);
+        eq(cardsIn(after, HOLDER_STACK.code), [], `cards in ${HOLDER_STACK.name}`);
+        for (const c of HOLDER_STACK.cards) eq(latestStage(after, cid(c)), HOLDER_STACK.step, `${c} step`);
+        eq(stageEventCount(after), stageEventCount(before), "step events");
+        eq(after.card_moves.length - before.card_moves.length, 3, "new card_moves rows");
+        eq(await mailCount(), mails, "emails");
+        const said = await saidOnPage(p, UI.holderAllOnDesk(3));
+        assert(said, `no "All 3 cards are on your desk." ("${(await scanMain(p)).slice(0, 200)}")`);
+        return `${new URL(res.url()).pathname} ${JSON.stringify(sent).slice(0, 140)}`;
+      }, { shot: false });
+
+      await s.step("no browser errors on the phone", async () => {
+        assert(!phone.errors.length, phone.errors.slice(0, 3).join(" | ").slice(0, 300));
+      }, { shot: false });
+    } finally {
+      await phone.ctx.close();
+    }
+
+    await s.step(`1440 (a computer: the picker's box takes the focus): ${HOLDER.card} back in ${HOLDER.name}; "Move to another holder", the scanner types ${HOLDER_TO.name}'s label into the box + Enter: the card in ${HOLDER_TO.name}, ${HOLDER.name} empty`, async () => {
+      const scan = scannerOn(page);
+      await holderPut(ctx, mockUrl, t, HOLDER.card, HOLDER.code);
+      await goto(page, ROUTES.scan);
+      await holderOpen(page, scan, HOLDER, 1);
+      await UI.holderToHolder(page.locator("main").first()).click();
+      await UI.holderPicker(page).waitFor({ timeout: 10_000 });
+      await sleep(300);
+      const f = await focusedEl(page);
+      const saved = page.waitForResponse((r) => /\/api\/admin\/track\/(move|assign)$/.test(new URL(r.url()).pathname) && r.request().method() === "POST", { timeout: 60_000 });
+      await scan(HOLDER_TO.code, { blur: false });
+      const r = await saved;
+      assert(r.status() < 300, `${new URL(r.url()).pathname} answered ${r.status()}: ${(await r.text()).slice(0, 200)}`);
+      const after = await tables();
+      eq(cardsIn(after, HOLDER_TO.code), [HOLDER.card], `cards in ${HOLDER_TO.name}`);
+      eq(cardsIn(after, HOLDER.code), [], `cards in ${HOLDER.name}`);
+      await until(async () => (await openDialogs(page)) === 0, 5_000);
+      eq(await openDialogs(page), 0, "open dialogs after the scan");
+      return `focused: ${f}; ${new URL(r.url()).pathname} ${r.request().postData()?.slice(0, 140)}`;
+    }, { shot: false });
+  },
+
+  // 390 and 1440: no sideways scroll; the primary buttons on the first screen (unscrolled, not covered, 44+ px)
+  async "scan-layout"({ page, ctx, s, browser, appUrl, mockUrl }) {
+    await s.step(`setup: as scan-holder-card, with ${DESK}`, () => holderSetup(ctx, mockUrl, { desk: true }), { critical: true, shot: false });
+    const firstScreen = async (p, what, loc) => {
+      const b = await onScreenUnscrolled(p, loc);
+      const problems = [];
+      if (b.top < 0 || b.bottom > b.vh) problems.push(`at ${b.top}-${b.bottom}px of ${b.vh}px`);
+      if (b.covered) problems.push("covered");
+      if (b.height < 44) problems.push(`${b.height}px tall`);
+      if (b.width > b.vw) problems.push(`${b.width}px wide`);
+      return problems.length ? `${what}: ${problems.join(", ")}` : null;
+    };
+    const runAt = async (label, p, errors) => {
+      const scan = scannerOn(p);
+      const shot = (name, full = true) => p.screenshot({ path: path.join(OUT, `scan-layout-${label}-${name}.png`), fullPage: full }).catch(() => {});
+      const noSideways = async () => { const w = await sidewaysScroll(p); assert(w <= 1, `scrolls sideways by ${w}px`); };
+      await s.step(`${label}: ready: the "Ready to scan" panel and "Type a code instead" on the first screen; no sideways scroll`, async () => {
+        await goto(p, ROUTES.scan);
+        await UI.scanReady(p).waitFor({ timeout: 60_000 });
+        const b = await onScreenUnscrolled(p, UI.scanReady(p));
+        assert(b.top >= 0 && b.bottom <= b.vh, `the panel at ${b.top}-${b.bottom}px of ${b.vh}px`);
+        const link = await firstScreen(p, "Type a code instead", UI.typeCodeLink(p));
+        assert(!link, link);
+        await noSideways();
+        await shot("01-ready", false);
+      }, { shot: false });
+      await s.step(`${label}: bag CD-2549-G: no sideways scroll; photos within the screen; each card's button 44+ px and not covered when scrolled to`, async () => {
+        await scan("CD-2549-G");
+        await scanShows(p, BO_GOLD);
+        await noSideways();
+        const vw = p.viewportSize().width;
+        const wide = await p.locator("main").first().getByRole("list", { name: /^photos of /i }).evaluateAll((els, w) => els.filter((e) => e.getBoundingClientRect().right > w + 1).length, vw);
+        eq(wide, 0, "photo rows past the screen's edge");
+        const problems = [];
+        for (const code of BO_GOLD) {
+          const btn = scanCardBlock(p, code).getByRole("button", { name: /^(assign to a slot|put in\b)/i }).first();
+          if (!(await btn.count())) { problems.push(`${code}: no button`); continue; }
+          await btn.scrollIntoViewIfNeeded();
+          const r = await btn.evaluate((el) => { const b = el.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return { h: b.height, covered: !(hit && (hit === el || el.contains(hit))) }; });
+          if (r.h < 44 || r.covered) problems.push(`${code}: ${Math.round(r.h)}px${r.covered ? ", covered" : ""}`);
+        }
+        await shot("02-bag");
+        assert(!problems.length, problems.join(" | "));
+      }, { shot: false });
+      await s.step(`${label}: ${HOLDER.name} with 1 card: its header and the four buttons on the first screen (not covered, 44+ px); no sideways scroll`, async () => {
+        await holderOpen(p, scan, HOLDER, 1);
+        await noSideways();
+        await shot("03-holder");
+        await shot("03-holder-first-screen", false);
+        const head = await onScreenUnscrolled(p, p.locator("main").first().getByText(UI.holderHas(HOLDER.name, 1)).first());
+        const problems = head.top < 0 || head.bottom > head.vh ? [`header at ${head.top}-${head.bottom}px of ${head.vh}px`] : [];
+        for (const [what, b] of holderButtons(p)) { const x = await firstScreen(p, what, b); if (x) problems.push(x); }
+        assert(!problems.length, problems.join(" | "));
+      }, { shot: false });
+      await s.step(`${label}: "Move to another holder": the holder picker on the first screen with ${HOLDER_TO.name} to tap; Esc and Cancel leave nothing waiting`, async () => {
+        await UI.holderToHolder(p.locator("main").first()).click();
+        const picker = UI.holderPicker(p);
+        await picker.waitFor({ timeout: 10_000 });
+        const option = UI.holderOption(picker, HOLDER_TO.name);
+        await option.waitFor({ timeout: 15_000 });
+        await shot("04-move-picker", false);
+        const box = await picker.boundingBox();
+        const vp = p.viewportSize();
+        const problems = [];
+        if (!box || box.y < -1 || box.x < -1 || box.x + box.width > vp.width + 1) problems.push(`the picker at ${JSON.stringify(box)}`);
+        const ob = await option.boundingBox();
+        if (!ob || ob.y + ob.height > vp.height || ob.height < 44) problems.push(`${HOLDER_TO.name} option at ${JSON.stringify(ob)}`);
+        await p.keyboard.press("Escape");
+        await until(async () => (await openDialogs(p)) === 0, 5_000);
+        const cancel = p.getByRole("button", { name: /^cancel$/i }).first();
+        if (await cancel.isVisible().catch(() => false)) await cancel.click();
+        await sleep(300);
+        const left = flat(await p.locator("body").innerText());
+        if (UI.holderNext.test(left)) problems.push(`still waiting: "${left.match(UI.holderNext)[0]}"`);
+        assert(!problems.length, problems.join(" | "));
+      }, { shot: false });
+      await s.step(`${label}: the stack ${HOLDER_STACK.name} (3 cards): "Move all 3 to my desk" on the first screen (not covered, 44+ px); no sideways scroll`, async () => {
+        await holderOpen(p, scan, HOLDER_STACK, 3);
+        await noSideways();
+        await shot("05-stack");
+        await shot("05-stack-first-screen", false);
+        const x = await firstScreen(p, "Move all 3 to my desk", UI.holderAllToDesk(p.locator("main").first(), 3));
+        assert(!x, x);
+      }, { shot: false });
+      await s.step(`${label}: the empty ${HOLDER_EMPTY.name}: "${HOLDER_EMPTY.name} · empty" and "Empty. Scan a bag…" on the first screen; no sideways scroll`, async () => {
+        await holderOpen(p, scan, HOLDER_EMPTY, 0);
+        await noSideways();
+        const b = await onScreenUnscrolled(p, p.locator("main").first().getByText(UI.holderEmptyLine).first());
+        await shot("06-empty", false);
+        assert(b.top >= 0 && b.bottom <= b.vh, `"Empty. Scan a bag…" at ${b.top}-${b.bottom}px of ${b.vh}px`);
+      }, { shot: false });
+      if (errors) {
+        await s.step(`${label}: no browser errors`, async () => {
+          assert(!errors.length, errors.slice(0, 3).join(" | ").slice(0, 300));
+        }, { shot: false });
+      }
+    };
+    const phone = await phoneContext(browser, appUrl);
+    try {
+      await runAt("390", phone.page, phone.errors);
+    } finally {
+      await phone.ctx.close();
+    }
+    await runAt("1440", page, null);
+  },
+};
+Object.assign(SCENARIOS, SCAN_SCENARIOS, SCAN_HOLDER_SCENARIOS);
+
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
-export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode };
+export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, holderSetup, HOLDER, HOLDER_TO, HOLDER_STACK, HOLDER_EMPTY };
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 export async function runScenarios({ only = null } = {}) {
