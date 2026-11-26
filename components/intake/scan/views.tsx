@@ -7,7 +7,7 @@ import { filingLetter } from "@/lib/intake/filing-letter";
 import { bagPlaceText } from "@/lib/intake/tracking/bag-home";
 import { dayText, dueHint } from "@/lib/intake/tracking-format";
 import type { TrackBagSummary, TrackCardSummary, TrackOrderSummary, TrackSlotSummary } from "@/lib/intake/tracking/types";
-import { CardPhotos } from "./card-photos";
+import { CardPhotos, cardPhotoLabel } from "./card-photos";
 import { fillText, placeSubtitle, sinceText, whereLine } from "./format";
 
 // The Scan page's pieces (components/intake/scan/scan-app.tsx holds the flow).
@@ -150,7 +150,7 @@ export function CardRow({
           </p>
         )}
         <div className="mt-2">
-          <CardPhotos card={card} />
+          <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} />
         </div>
       </div>
       {action && onAction && (
@@ -210,7 +210,7 @@ export function SlotCard({
       </p>
     </>
   );
-  const photos = <CardPhotos card={card} size={dense ? "sm" : "md"} />;
+  const photos = <CardPhotos photos={card.photos} label={cardPhotoLabel(card)} size={dense ? "list" : "large"} />;
   if (!selectable) {
     return (
       <li className="flex flex-col gap-0.5 px-4 py-3">

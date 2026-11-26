@@ -485,8 +485,9 @@ images under each card"):
   customer or order), focused; Esc or its Close button shuts it.
 - **Photos under each card.** Every card the page lists (bag, order, search,
   a typed Card ID, a holder's or desk's cards, the cards offered for an empty
-  slot) shows up to 3 white-framed thumbnails (112 px tall, 96 px in a stack
-  of 4+) under its name and details: its receiving photos, then the
+  slot) shows up to 3 white-framed thumbnails under its name and details
+  (`<CardPhotos photos label size>`: "list" 112 px tall; "large", a holder's
+  own card, three across up to 160 px wide each): its receiving photos, then the
   customer's; the catalog picture only when it has neither, dashed amber and
   labelled "Reference photo / Not the customer's card"; none: "No photo yet".
   More than 3: "+N" on the third. A tap opens the photos page's full-screen
@@ -495,7 +496,7 @@ images under each card"):
   `TrackCardSummary.photos` (optional; `TrackCardPhoto { url, kind, tile,
   full }`, at most `MAX_CARD_PHOTOS` = 6, web addresses only) is built by
   `cardPhotos()` in `tracking/summaries.ts` with `productImage` (tile 240 /
-  360 px wide, full 1280 / 2048) on Netlify; `photoUrl` stays as it was.
+  360 / 480 px wide, full 1280 / 2048) on Netlify; `photoUrl` stays as it was.
   Component: `components/intake/scan/card-photos.tsx`.
 
 ## Finished cards and bags (done flow)

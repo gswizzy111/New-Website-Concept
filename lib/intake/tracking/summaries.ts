@@ -96,11 +96,12 @@ export type SummaryContext = {
 /** At most this many photos per card in a summary (a search answers up to 30 cards). */
 export const MAX_CARD_PHOTOS = 6;
 /**
- * Thumbnail widths in real pixels: the Scan page shows a tile about 112 px
- * tall (84 px wide), so 240 serves a 2x screen and 360 a 3x one. The viewer
- * gets the desk's sizes.
+ * Thumbnail widths in real pixels: the Scan page shows a tile 84 px wide
+ * under a card in a list (240 serves a 2x screen, 360 a 3x one) and up to
+ * 160 px wide for a holder's own card (480). The viewer gets the desk's
+ * sizes.
  */
-const TILE_WIDTHS = [240, 360];
+const TILE_WIDTHS = [240, 360, 480];
 const FULL_WIDTHS = [1280, 2048];
 
 /** Web addresses only (a photo list can hold anything typed into it). */
