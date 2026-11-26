@@ -852,15 +852,6 @@ async function trackOk(ctx, route, data) {
 const assignOk = (ctx, locationCode, cardIds, force) => trackOk(ctx, ROUTES.trackAssign, { locationCode, cardIds, ...(force ? { force: true } : {}) });
 const resultOf = (body, cardId) => body.results.find((r) => r.cardId === cardId) ?? null;
 const freedCodes = (body) => (body.freed ?? []).map((l) => l.code).sort();
-/** A refusal for being over capacity: 409 { overCapacity: true, capacity, occupants } (CapacityConflict). */
-function checkCapacityConflict(r, capacity, occupantCodes) {
-  eq(r.status, 409, `HTTP (${JSON.stringify(r.body).slice(0, 160)})`);
-  eq(r.body?.overCapacity, true, "overCapacity");
-  eq(r.body.capacity, capacity, "capacity");
-  eq((r.body.occupants ?? []).map((c) => c.code).sort(), [...occupantCodes].sort(), "occupants");
-  assert(typeof r.body.error === "string" && r.body.error, "no error message");
-  return r.body.error;
-}
 /**
  * A one-card holder's refusal (owner, Nov 26 2026: one card per holder but the desk): 409 { holderFull:
  * true, holder, occupants, error } (HolderFull); never overCapacity, so no "Add anyway".
