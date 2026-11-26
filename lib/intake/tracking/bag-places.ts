@@ -324,6 +324,17 @@ export async function putBagReadyToShip(
   try {
     const bin = await ensureShipBin(admin, input.by);
     const changed = (await placeBags(admin, [bag.id], bin.id)).length > 0;
+    // Who put it in the bin (a staff-only line; the Team activity page reads it). Never in the way of the move itself.
+    if (changed) {
+      const { error: logErr } = await admin.from("order_events").insert({
+        order_id: bag.order_id,
+        event_type: "bag_ready_to_ship",
+        description: `${bag.bag_code} put in the Ready to ship bin${input.by ? ` by ${input.by}` : ""}`,
+        metadata: { bag_id: bag.id, bag_code: bag.bag_code, location_id: bin.id, by: input.by },
+        is_customer_visible: false,
+      });
+      if (logErr) console.error("[ready to ship] who put the bag in the bin wasn't logged:", logErr.message);
+    }
     return { ok: true, changed, message: "In the Ready to ship bin.", bag: placeFromRead(read, bag, { location: locationRef(bin) }) };
   } catch (e) {
     return { ok: false, status: 500, error: `Couldn't save where the bag is. (${errText(e)})` };
