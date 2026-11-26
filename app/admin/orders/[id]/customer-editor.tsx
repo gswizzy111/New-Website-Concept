@@ -81,7 +81,8 @@ export function CustomerEditor(props: Props) {
     return (
       <div className="flex flex-col gap-1 text-sm">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-col gap-1">
+          {/* min-w-0 + break-words: a long email wraps inside the card instead of pushing Edit off it */}
+          <div className="min-w-0 flex flex-col gap-1 break-words">
             <p className="font-bold text-foreground">{name}</p>
             <p className="text-muted-foreground">{email}</p>
             <p className="text-muted-foreground">{phone}</p>

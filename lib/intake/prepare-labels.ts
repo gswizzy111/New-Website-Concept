@@ -11,6 +11,12 @@
  * - Awaiting Cards: only after "Cards arrived?", exactly the Receive button
  *   (lib/intake/receiving.ts receiveCards: status -> Cards Received + email).
  * - Missing tiers: lib/intake/tier-guess.ts; written to cards.tier first.
+ * - Cards added after an open order arrived (`addedLater`): never in the way
+ *   of printing the bags there are. The dialog asks "Are they here with
+ *   you?"; ticked ones (`includeAddedLater`) are received now exactly as the
+ *   Receive button receives them (receiveCards: Card IDs, their tier bag, no
+ *   status change or email on an order already in the shop), the rest stay
+ *   for Receiving.
  *
  * Client components may import the TYPES only (`import type`): the functions
  * below reach server-only modules. Routes: app/api/admin/intake/orders/
@@ -25,9 +31,10 @@ import {
 } from "@/lib/intake/tier-guess";
 import { TIER_NAMES, TIER_ORDER, effectiveTier, normalizeTier, tierDisplayName, tierRank } from "@/lib/intake/codes";
 import { nyToday } from "@/lib/intake/business-days";
+import { thumbnail } from "@/lib/thumbnail";
 import { fetchAll } from "@/lib/fetch-all";
 import { BAG_COLUMNS, fillMissingDueDates, lacksDueDate, loadTurnarounds } from "@/lib/intake/due-dates";
-import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
+import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, recordedArrival, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
 import { loadOrderIntake, loadTierNames } from "@/lib/intake/data";
 import { receiveCards } from "@/lib/intake/receiving";
 import { planReceiving, type PlanBag, type PlanCard } from "@/lib/intake/receiving-plan";
@@ -119,6 +126,31 @@ export type PreparePlan = {
   receivedOnSource: "event" | "dropoff" | "bag" | "today";
   /** Cards left alone: refunded ones, and ones flagged as not arrived yet (awaiting_arrival). */
   skipped: { refunded: number; awaitingArrival: number };
+  /**
+   * An open order's cards created after its cards were known to be here (an add-cards checkout, a card
+   * added on the order page), in no bag and not received: they may still be on their way, so they are
+   * never bagged on their own and never stop the order's bags from printing. Staff are asked "Are they
+   * here with you?"; the POST receives the ones sent in `includeAddedLater`. Never refunded or awaiting_arrival
+   * cards. Empty for every other order.
+   */
+  addedLater: AddedLaterCard[];
+  /** Tier questions for `addedLater` cards with no tier (card's or order's), grouped like `tierQuestions`. Answered only for included cards. */
+  addedLaterQuestions: TierQuestion[];
+};
+
+/** A card added after the order arrived (PreparePlan.addedLater). */
+export type AddedLaterCard = {
+  id: string;
+  name: string;
+  /** Card ID, when it has one already (else it gets the next one when received). */
+  code: string | null;
+  /** Its tier (the card's, else the order's); null: see addedLaterQuestions. */
+  tier: string | null;
+  tierName: string | null;
+  /** A small picture of the card (its own photo, else the catalog's), or null. */
+  photo: string | null;
+  /** When the card was added (cards.created_at). */
+  addedAt: string;
 };
 
 /** POST /api/admin/intake/orders/<id>/prepare-labels body. */
@@ -129,6 +161,12 @@ export type PrepareRequest = {
   confirmReceive?: boolean;
   /** Required to receive an Awaiting Cards order that isn't paid, sent only after staff confirm (as the Receive button's allowUnpaid). */
   allowUnpaid?: boolean;
+  /**
+   * Ids of `addedLater` cards staff say are here ("Yes, add them and print"): received now, by `by`, into
+   * their tier bag (see receiveAddedLater), then printed with the rest. Omitted or [] ("Not yet, just print"):
+   * they stay for Receiving. Ids that aren't (or are no longer) added-later cards are ignored, so a repeat is harmless.
+   */
+  includeAddedLater?: string[];
 };
 
 export type PreparedBag = { id: string; code: string; tier: string; tierName: string; cardCount: number };
@@ -138,13 +176,17 @@ export type PrepareResponse = {
   ok: true;
   /** Every bag of the order with live cards (fastest tier first): the labels to print. */
   bags: PreparedBag[];
-  /** Cards put in a bag by this request (0 when pressed again). */
+  /** Cards put in a bag by this request (0 when pressed again), added-later cards received now included. */
   newlyBagged: number;
+  /** Added-later cards received by this request (includeAddedLater). */
+  addedLaterReceived: number;
+  /** Added-later cards still left for Receiving after this request. */
+  addedLaterLeft: number;
   /** A customer email went out (only when an Awaiting Cards order was received). */
   emailed: boolean;
   /** The order moved Awaiting Cards -> Cards Received. */
   orderStatusChanged: boolean;
-  /** Awaiting Cards only: each received bag's due-date shelf slot, as the receive route answers them (shelvesFor). */
+  /** Each received bag's due-date shelf slot, as the receive route answers them (shelvesFor): Awaiting Cards, and new bags of added-later cards. */
   shelves: BagShelf[];
   /** Bags that got their due date now (fillMissingDueDates): the labels show it. */
   dueDatesFilled: { bagCode: string; dueDate: string }[];
@@ -238,6 +280,8 @@ export function buildPreparePlan(input: {
     receivedOn: today,
     receivedOnSource: "today",
     skipped: { refunded, awaitingArrival: awaiting },
+    addedLater: [],
+    addedLaterQuestions: [],
   };
   const refuse = (reason: string): BuiltPlan => ({ plan: { ...base, reason, dueDatesToFill: 0 }, toBagIds: [] });
   const payment = paymentState(order.payment_status);
@@ -247,6 +291,7 @@ export function buildPreparePlan(input: {
 
   const notes: string[] = [];
   let toBagIds: string[];
+  let addedLater: AddedLaterCard[] = [];
   let receivedOn = today;
   let receivedOnSource: PreparePlan["receivedOnSource"] = "today";
   const tierOf = (c: { id: string; tier: string | null }) => effectiveTier(c.tier, order.restoration_tier);
@@ -271,9 +316,28 @@ export function buildPreparePlan(input: {
       receivedOn = setupPlan.receivedOn;
       receivedOnSource = source;
     }
-    const addedLater = late.length + setupPlan.addedLater.length;
-    if (addedLater) {
-      notes.push(`${plural(addedLater, "card was", "cards were")} added after the order arrived, so ${addedLater === 1 ? "it is" : "they are"} left for Receiving.`);
+    // Added after the cards were known to be here (to the second, or on a later day): asked about, never in the way
+    const laterIds = new Set([...late, ...setupPlan.addedLater.map((r) => r.cardId)]);
+    const setupById = new Map(setup.cards.map((c) => [c.id, c]));
+    addedLater = cards.filter((c) => laterIds.has(c.id) && setupById.has(c.id)).map((c) => {
+      const row = setupById.get(c.id)!;
+      const tier = tierOf(c);
+      const photo = row.photo_urls?.find(Boolean) ?? row.receiving_photo_urls?.find(Boolean) ?? row.catalog_image_url ?? null;
+      return {
+        id: c.id,
+        name: c.card_name?.trim() || "Unnamed card",
+        code: row.card_code ?? null,
+        tier: tier ?? null,
+        tierName: tier ? tierDisplayName(tier, tierNames) : null,
+        photo: photo ? thumbnail(photo, 48) : null,
+        addedAt: row.created_at,
+      };
+    });
+    if (addedLater.length) {
+      // (components/intake/print-order-labels.tsx withoutAddedLater drops this sentence from the dialog,
+      // which asks about the cards instead: keep the two in step)
+      const n = addedLater.length;
+      notes.push(`${plural(n, "card was", "cards were")} added after the order arrived, so ${n === 1 ? "it is" : "they are"} left for Receiving.`);
     }
     if (payment === "unpaid") notes.push("This order isn't marked paid.");
   } else {
@@ -284,32 +348,39 @@ export function buildPreparePlan(input: {
   // One question per guess (most orders: one)
   const byId = new Map(cards.map((c) => [c.id, c]));
   const choices = tierChoices(tierNames);
-  const groups = new Map<string, TierQuestion>();
-  for (const id of toBagIds) {
-    const c = byId.get(id);
-    if (!c || tierOf(c)) continue;
-    const g: TierGuess = guesses[id] ?? { tier: null, confidence: "unknown", source: null, why: "No tier on record." };
-    const key = `${g.tier}|${g.confidence}|${g.source}|${g.why}`;
-    const q = groups.get(key) ?? {
-      cardIds: [], cardNames: [], guess: g.tier, confidence: g.confidence, source: g.source, why: g.why,
-      needsAnswer: !(g.confidence === "sure" && g.tier), choices,
-    };
-    q.cardIds.push(id);
-    q.cardNames.push(c.card_name?.trim() || "Unnamed card");
-    groups.set(key, q);
-  }
-  const tierQuestions = [...groups.values()];
+  const questionsFor = (ids: readonly string[]): TierQuestion[] => {
+    const groups = new Map<string, TierQuestion>();
+    for (const id of ids) {
+      const c = byId.get(id);
+      if (!c || tierOf(c)) continue;
+      const g: TierGuess = guesses[id] ?? { tier: null, confidence: "unknown", source: null, why: "No tier on record." };
+      const key = `${g.tier}|${g.confidence}|${g.source}|${g.why}`;
+      const q = groups.get(key) ?? {
+        cardIds: [], cardNames: [], guess: g.tier, confidence: g.confidence, source: g.source, why: g.why,
+        needsAnswer: !(g.confidence === "sure" && g.tier), choices,
+      };
+      q.cardIds.push(id);
+      q.cardNames.push(c.card_name?.trim() || "Unnamed card");
+      groups.set(key, q);
+    }
+    return [...groups.values()];
+  };
+  const tierQuestions = questionsFor(toBagIds);
+  const later = { addedLater, addedLaterQuestions: questionsFor(addedLater.map((c) => c.id)) };
 
   const hasLabels = input.bags.some((b) => b.cardCount > 0);
   if (!toBagIds.length) {
-    if (hasLabels) return { plan: { ...base, mode: "ready", receivedOn, receivedOnSource, ...(notes.length ? { reason: notes.join(" ") } : {}) }, toBagIds };
-    // Cards waiting for Receiving (not arrived, or added after the order arrived): say so
-    const waiting = awaiting > 0 || notes.some((n) => n.includes("left for Receiving"));
-    return refuse(waiting ? notes.join(" ") : order.status === "awaiting_cards" ? "This order has no cards to receive." : "This order has no cards to bag.");
+    // The bags there are always print; cards added later are asked about (never a refusal)
+    if (hasLabels || addedLater.length) {
+      return { plan: { ...base, ...later, mode: "ready", receivedOn, receivedOnSource, ...(notes.length ? { reason: notes.join(" ") } : {}) }, toBagIds };
+    }
+    // Cards still on the way: say so
+    return refuse(awaiting > 0 ? notes.join(" ") : order.status === "awaiting_cards" ? "This order has no cards to receive." : "This order has no cards to bag.");
   }
   return {
     plan: {
       ...base,
+      ...later,
       mode: order.status === "awaiting_cards" ? "receive_first" : "bag_in_shop",
       ...(notes.length ? { reason: notes.join(" ") } : {}),
       toBag: toBagIds.length,
@@ -445,7 +516,11 @@ async function loadGuesses(admin: SupabaseClient, order: OrderRow, cards: CardRo
 const readOrder = async (admin: SupabaseClient, orderId: string) =>
   admin.from("orders").select("id, order_number, status, payment_status, restoration_tier, subtotal_cents").eq("id", orderId).maybeSingle();
 
-type Context = { order: OrderRow; cards: CardRow[]; built: BuiltPlan; guesses: Record<string, TierGuess>; names: Record<string, string> };
+type Context = {
+  order: OrderRow; cards: CardRow[]; built: BuiltPlan; guesses: Record<string, TierGuess>; names: Record<string, string>;
+  /** The order's arrival day on its own record (recordedArrival), for cards added later; null when none. */
+  arrivalDay: string | null;
+};
 
 /** How many of the bags would get a due date now (lacksDueDate, and the tier has a turnaround today). Best effort: 0 on a failed read. */
 async function countDueDatesToFill(admin: SupabaseClient, bags: BagSummary[]): Promise<number> {
@@ -494,7 +569,7 @@ async function loadContext(admin: SupabaseClient, orderId: string, preloaded?: O
   const built = buildPreparePlan({
     order: order as OrderRow, cards, bags: intake.intake.bags, guesses, tierNames: names, today: nyToday(), setupInput, dueDatesToFill,
   });
-  return { ok: true, order: order as OrderRow, cards, built, guesses, names };
+  return { ok: true, order: order as OrderRow, cards, built, guesses, names, arrivalDay: setupInput ? recordedArrival(setupInput)?.day ?? null : null };
 }
 
 /**
@@ -558,7 +633,7 @@ function labelStore(admin: SupabaseClient, source: string): SetupStore {
  */
 export async function prepareLabels(
   admin: SupabaseClient,
-  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; allowUnpaid?: boolean; by: string | null },
+  input: { orderId: string; tiers?: Record<string, string>; confirmReceive?: boolean; allowUnpaid?: boolean; includeAddedLater?: readonly string[]; by: string | null },
 ): Promise<PrepareOutcome> {
   for (const v of Object.values(input.tiers ?? {})) {
     const t = normalizeTier(v);
@@ -570,10 +645,20 @@ export async function prepareLabels(
   const { plan } = ctx.built;
   if (plan.mode === "not_allowed") return { ok: false, status: 409, error: plan.reason ?? "Labels can't be made for this order." };
 
-  // Every question answered (sure guesses fill themselves)
+  // The added-later cards staff say are here: only ones the plan still lists (a repeat, or a card received
+  // meanwhile, adds nothing); never refunded or awaiting_arrival cards (the plan never lists them)
+  const asked = new Set(input.includeAddedLater ?? []);
+  const included = plan.addedLater.filter((c) => asked.has(c.id)).map((c) => c.id);
+  const includedSet = new Set(included);
+
+  // Every question answered (sure guesses fill themselves): the cards bagged now and the included added-later ones
   const answers = new Map<string, string>();
   const unanswered: string[] = [];
-  for (const q of plan.tierQuestions) {
+  const questions = [
+    ...plan.tierQuestions,
+    ...plan.addedLaterQuestions.map((q) => ({ ...q, cardIds: q.cardIds.filter((id) => includedSet.has(id)) })),
+  ];
+  for (const q of questions) {
     for (const id of q.cardIds) {
       const given = normalizeTier(input.tiers?.[id]);
       if (given) answers.set(id, given);
@@ -586,7 +671,7 @@ export async function prepareLabels(
   const orderTier = normalizeTier(ctx.order.restoration_tier);
   if (orderTier) {
     const byId = new Map(ctx.cards.map((c) => [c.id, c]));
-    for (const id of ctx.built.toBagIds) if (!byId.get(id)?.tier && !answers.has(id)) answers.set(id, orderTier);
+    for (const id of [...ctx.built.toBagIds, ...included]) if (!byId.get(id)?.tier && !answers.has(id)) answers.set(id, orderTier);
   }
   const needsConfirm = plan.mode === "receive_first" && input.confirmReceive !== true;
   // As the receive route's paymentBlock: an unpaid order is received only with allowUnpaid (staff confirmed)
@@ -606,16 +691,20 @@ export async function prepareLabels(
   // Check the receipt / bagging with the answers in memory first: tiers are written only when it can go ahead
   const first = bagFirst(ctx);
   const check = plan.mode === "receive_first"
-    ? await receiveCheck(admin, ctx, answers)
+    ? await receiveCheck(admin, ctx, answers, ctx.built.toBagIds)
     : plan.mode === "bag_in_shop"
       ? await setupCheck(admin, input.orderId, answers, first)
       : null;
   if (check) return check;
+  // The added-later cards too: refused here (nothing written) when the Receive button would refuse them
+  const laterCheck = included.length ? await receiveCheck(admin, ctx, answers, included) : null;
+  if (laterCheck) return laterCheck;
 
   const tierFail = await writeTiers(admin, input.orderId, answers, ctx, input.by);
   if (tierFail) return tierFail;
 
   let newlyBagged = 0;
+  let laterReceived: ReceivedLater = { cardIds: [], bags: [] };
   let emailed = false;
   let orderStatusChanged = false;
   let extra = "";
@@ -660,6 +749,32 @@ export async function prepareLabels(
     }
   }
 
+  // The added-later cards staff said are here: received now, into their tier bag (after the bagging above,
+  // so they can join the bag it made for the order's arrival)
+  if (included.length) {
+    const r = await receiveAddedLater(admin, { orderId: input.orderId, cardIds: included, orderDay: ctx.arrivalDay, by: input.by });
+    if (!r.ok) {
+      const done = newlyBagged ? ` The other ${plural(newlyBagged, "card")} ${newlyBagged === 1 ? "was" : "were"} bagged; tap Print labels again.` : "";
+      return { ok: false, status: r.status, error: `${r.error}${done}` };
+    }
+    laterReceived = r;
+    newlyBagged += r.cardIds.length;
+    // A new bag goes on its due-date shelf, as after the Receive button (a bag they joined stays where it is)
+    shelves = [...shelves, ...(await shelvesFor(admin, r.bags.filter((b) => b.created), input.by))];
+    if (paymentState(ctx.order.payment_status) !== "paid" && r.cardIds.length) {
+      // As the receive route logs it
+      const { error } = await admin.from("order_events").insert({
+        order_id: input.orderId,
+        event_type: "received_unpaid",
+        description: `Cards received on an order that isn't paid (payment status: ${ctx.order.payment_status ?? "none"}), confirmed by ${input.by ?? "admin"}`,
+        metadata: { by: input.by, payment_status: ctx.order.payment_status ?? null, card_ids: r.cardIds, via: "prepare_labels" },
+        is_customer_visible: false,
+      });
+      if (error) console.error("[prepare labels] unpaid receipt not logged:", error.message);
+    }
+  }
+  const laterLeft = plan.addedLater.length - laterReceived.cardIds.length;
+
   // Bags saved without a due date whose tier has a turnaround now (Prep once it is set): dated, so the label shows it
   const { filled } = await fillMissingDueDates(admin, { orderId: input.orderId, by: input.by });
 
@@ -670,18 +785,108 @@ export async function prepareLabels(
     .filter((b) => b.cardCount > 0)
     .map((b) => ({ id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, cardCount: b.cardCount }));
   const labels = bags.length ? `${plural(bags.length, "label")} to print.` : "No labels to print.";
+  const bagged = newlyBagged - laterReceived.cardIds.length;
   const head = plan.mode === "receive_first"
     ? `Received ${plural(newlyBagged, "card")}${orderStatusChanged ? `; the order is now Cards Received${emailed ? " and the customer was emailed" : ""}` : ""}.`
-    : newlyBagged ? `Bagged ${plural(newlyBagged, "card")}.` : "Nothing new to bag.";
+    : bagged ? `Bagged ${plural(bagged, "card")}.` : laterReceived.cardIds.length ? "" : "Nothing new to bag.";
+  const laterText = [
+    laterReceived.cardIds.length
+      ? `Added ${plural(laterReceived.cardIds.length, "card")} that came after the order arrived: ${laterReceived.bags.map((b) => `${b.tierName} bag ${b.code} (+${b.cardIds.length})`).join(", ")}.`
+      : "",
+    laterLeft > 0 ? `${plural(laterLeft, "card")} added after the order arrived ${laterLeft === 1 ? "is" : "are"} left for Receiving.` : "",
+  ].filter(Boolean).join(" ");
   const dated = filled.length ? ` Due date set for ${filled.map((f) => `${f.bagCode} (${shortDay(f.dueDate)})`).join(", ")}.` : "";
   return {
     ok: true,
     response: {
-      ok: true, bags, newlyBagged, emailed, orderStatusChanged, shelves,
+      ok: true, bags, newlyBagged, addedLaterReceived: laterReceived.cardIds.length, addedLaterLeft: Math.max(0, laterLeft),
+      emailed, orderStatusChanged, shelves,
       dueDatesFilled: filled.map((f) => ({ bagCode: f.bagCode, dueDate: f.dueDate })),
-      message: `${head}${extra}${dated} ${labels}${shelfText(shelves)}`,
+      message: [`${head}${extra}`.trim(), laterText, `${dated.trim()}`, `${labels}${shelfText(shelves)}`].filter(Boolean).join(" "),
     },
   };
+}
+
+type ReceivedLater = {
+  cardIds: string[];
+  /** Per bag the cards went into (a bag joined on two days is listed once). `created`: a new bag (its shelf slot is named). */
+  bags: { id: string; code: string; tier: string; tierName: string; cardIds: string[]; created: boolean; dueDate: string | null }[];
+};
+
+/**
+ * Receive added-later cards staff confirmed are here, through the Receive button's own code (receiveCards:
+ * Card IDs for the order, received_at now and received_by `by`, the bag, the `cards_received` line; on an
+ * order already in the shop it changes no status and sends no email). Never flags other cards as awaiting.
+ * The received day each card is filed under, per tier, so it lands where Receiving would put it:
+ * - an open bag of its tier received on the order's arrival day (`orderDay`, batch 1 on most orders) is
+ *   joined: received on that day;
+ * - otherwise Receiving's own default day: the order's arrival day while none of its cards is received
+ *   yet (receiving-cards.tsx `defaultReceivedOn`), else today; planReceiving then reuses an open bag of
+ *   the tier received that day, or makes the next batch with its due date.
+ * Idempotent: receiveCards only takes cards not received yet.
+ */
+async function receiveAddedLater(
+  admin: SupabaseClient,
+  input: { orderId: string; cardIds: string[]; orderDay: string | null; by: string | null },
+): Promise<({ ok: true } & ReceivedLater) | Fail> {
+  const [{ data: order, error: oErr }, { data: cards, error: cErr }, { data: bags, error: bErr }] = await Promise.all([
+    admin.from("orders").select("restoration_tier").eq("id", input.orderId).maybeSingle(),
+    admin.from("cards").select("id, tier, status, received_at").eq("order_id", input.orderId),
+    admin.from("tier_bags").select("id, tier, received_on, completed_at").eq("order_id", input.orderId),
+  ]);
+  const err = oErr ?? cErr ?? bErr;
+  if (err) return { ok: false, status: 500, error: `Couldn't read the order to add the cards that came later. (${err.message})` };
+  const rows = (cards ?? []) as { id: string; tier: string | null; status: string | null; received_at: string | null }[];
+  const days = addedLaterDays({
+    cardIds: input.cardIds, cards: rows, bags: (bags ?? []) as { tier: string; received_on: string | null; completed_at: string | null }[],
+    orderTier: (order?.restoration_tier as string | null) ?? null, orderDay: input.orderDay, today: nyToday(),
+  });
+  const out: ReceivedLater = { cardIds: [], bags: [] };
+  // The order's day first (it may be the day of the bags they join), then today
+  for (const [receivedOn, ids] of [...days].sort(([a], [b]) => a.localeCompare(b))) {
+    const r = await receiveCards(admin, { orderId: input.orderId, cardIds: ids, receivedOn, by: input.by, markOthersAwaiting: false });
+    if (!r.ok) return { ok: false, status: r.status, error: `Couldn't add the cards that came later: ${r.error}` };
+    out.cardIds.push(...r.receivedCardIds);
+    for (const b of r.bags) {
+      const seen = out.bags.find((x) => x.id === b.id);
+      if (seen) seen.cardIds.push(...b.cardIds);
+      else out.bags.push({ id: b.id, code: b.code, tier: b.tier, tierName: b.tierName, cardIds: [...b.cardIds], created: b.created, dueDate: b.dueDate });
+    }
+  }
+  out.bags.sort((a, b) => tierRank(a.tier) - tierRank(b.tier));
+  return { ok: true, ...out };
+}
+
+/**
+ * The received day each added-later card is received on (receiveAddedLater), grouped: day -> card ids.
+ * Pure. Cards with no tier (card's or order's) are left out (the caller fills tiers first).
+ */
+export function addedLaterDays(input: {
+  cardIds: readonly string[];
+  cards: readonly { id: string; tier: string | null; status: string | null; received_at: string | null }[];
+  bags: readonly { tier: string; received_on: string | null; completed_at: string | null }[];
+  orderTier: string | null;
+  /** The order's arrival day on its own record (lib/intake/migration.ts recordedArrival), or null. */
+  orderDay: string | null;
+  today: string;
+}): Map<string, string[]> {
+  const today = input.today;
+  // A day still to come is no arrival day (receiveCards refuses it)
+  const orderDay = input.orderDay && input.orderDay <= today ? input.orderDay : null;
+  const byId = new Map(input.cards.map((c) => [c.id, c]));
+  // Receiving's default: the order's arrival day while none of its cards is received yet
+  const noneReceived = !input.cards.some((c) => c.status !== "refunded" && c.received_at);
+  const fallback = orderDay && noneReceived ? orderDay : today;
+  const out = new Map<string, string[]>();
+  for (const id of input.cardIds) {
+    const c = byId.get(id);
+    const tier = c ? effectiveTier(c.tier, input.orderTier) : null;
+    if (!c || !tier) continue;
+    const joins = !!orderDay && input.bags.some((b) => normalizeTier(b.tier) === tier && b.received_on === orderDay && !b.completed_at);
+    const day = joins ? orderDay! : fallback;
+    out.set(day, [...(out.get(day) ?? []), id]);
+  }
+  return out;
 }
 
 /** The first time the order's cards were bagged (its earliest bag), for inShopSetupPlan. */
@@ -691,8 +896,8 @@ const bagFirst = (ctx: Context) => firstBagAt(ctx.built.plan.bags);
 const withAnswers = <T extends { id: string; tier: string | null }>(cards: readonly T[], answers: ReadonlyMap<string, string>): T[] =>
   cards.map((c) => (answers.has(c.id) && !c.tier ? { ...c, tier: answers.get(c.id)! } : c));
 
-/** Awaiting Cards: would the Receive button take these cards, with the answers as their tiers? A refusal, or null to go ahead. */
-async function receiveCheck(admin: SupabaseClient, ctx: Context, answers: ReadonlyMap<string, string>): Promise<Fail | null> {
+/** Would the Receive button take these cards (Awaiting Cards: all of them; or the added-later ones), with the answers as their tiers? A refusal, or null to go ahead. */
+async function receiveCheck(admin: SupabaseClient, ctx: Context, answers: ReadonlyMap<string, string>, cardIds: readonly string[]): Promise<Fail | null> {
   const [{ data: cards, error: cErr }, { data: bags, error: bErr }] = await Promise.all([
     admin.from("cards").select("id, order_id, card_name, tier, status, completed, created_at, card_seq, card_code, received_at, awaiting_arrival, bag_id").eq("order_id", ctx.order.id),
     admin.from("tier_bags").select(BAG_COLUMNS).eq("order_id", ctx.order.id),
@@ -703,8 +908,9 @@ async function receiveCheck(admin: SupabaseClient, ctx: Context, answers: Readon
     order: { id: ctx.order.id, order_number: ctx.order.order_number, restoration_tier: ctx.order.restoration_tier, status: ctx.order.status },
     cards: withAnswers((cards ?? []) as PlanCard[], answers),
     bags: (bags ?? []) as PlanBag[],
-    cardIds: ctx.built.toBagIds,
+    cardIds,
     receivedOn: nyToday(),
+    markOthersAwaiting: false,
     tierNames: ctx.names,
   });
   return planned.ok ? null : { ok: false, status: planned.status, error: `${planned.error} Nothing was changed.` };
