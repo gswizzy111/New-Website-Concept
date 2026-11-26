@@ -7572,6 +7572,518 @@ const LA_LATER_SCENARIOS = {
 };
 Object.assign(SCENARIOS, LA_LATER_SCENARIOS);
 
+// ─── Bag label tick boxes and the PG line (labels-checkbox-pg; the owner, Nov 26 2026) ─────────────
+// "next to the cards on the label there are boxes you can check. Also have like a line for the
+// pregrade": every card row on the bag label gets an empty tick box at its left and "PG" with a
+// write-in line at its right, the submitted pre-grade (cards.pregrade_result once
+// pregrade_submitted_at is set) printed on the line. Checked on the 4 x 6 in label (PDF and
+// ?format=json) and on the Katasymbol's 50 x 80 mm label (?format=json&stock=50x80mm, the PDF at
+// that stock, and the PNG the order page's Print baggy label downloads with the Katasymbol picked).
+// The PDF is read with pdf-lib's own parser: its content stream gives the text (through each font's
+// ToUnicode map) and the drawn boxes and lines, so the PDF is checked as printed, not only the JSON.
+const { PDFName: LcpPDFName, PDFArray: LcpPDFArray, decodePDFRawStream: lcpDecodeStream } = await import("pdf-lib");
+const LcpPNG = await import("pngjs").then((m) => m.PNG ?? m.default.PNG);
+
+/** The tick box's side: 4 mm on the inch stocks, 3 mm on 50 x 80 mm (lib/intake/labels/layout.ts ROW_MARKS), at least 3 mm to tick with a pen. */
+const LCP_BOX_MM = { "4x6": 4, "50x80mm": 3 };
+const LCP_MIN_BOX_MM = 3;
+/** The blank PG line: room to write a grade by hand. */
+const LCP_MIN_PG_LINE_MM = 5;
+
+/** A PDF page as drawn: texts (top-down baselines), stroked paths and filled paths, in points. */
+function lcpReadPdfPage(doc, page) {
+  const { height: H } = page.getSize();
+  const lookup = (o) => doc.context.lookup(o);
+  const bytesOf = (stream) => Buffer.from(lcpDecodeStream(stream).decode()).toString("latin1");
+  // Fonts: name -> { map: code -> text, wide: two-byte codes (Type0) }
+  const fonts = new Map();
+  const fontDict = page.node.Resources()?.lookup(LcpPDFName.of("Font"));
+  for (const [name, ref] of fontDict ? fontDict.entries() : []) {
+    const f = lookup(ref);
+    const map = new Map();
+    const tu = f.get(LcpPDFName.of("ToUnicode"));
+    if (tu) {
+      const cmap = bytesOf(lookup(tu));
+      const u16 = (hex) => Buffer.from(hex, "hex").swap16().toString("utf16le");
+      for (const b of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) for (const m of b[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) map.set(parseInt(m[1], 16), u16(m[2]));
+      for (const b of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
+        for (const m of b[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g)) {
+          const [lo, hi, first] = [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+          for (let c = lo; c <= hi; c++) map.set(c, String.fromCodePoint(first + c - lo));
+        }
+      }
+    }
+    fonts.set(name.toString().slice(1), { map, wide: String(f.get(LcpPDFName.of("Subtype"))) === "/Type0" });
+  }
+  const contents = lookup(page.node.get(LcpPDFName.of("Contents")));
+  const src = (contents instanceof LcpPDFArray ? contents.asArray().map(lookup) : [contents]).map(bytesOf).join("\n");
+
+  // Tokens: numbers, names, hex and literal strings, array brackets, operators
+  const toks = [];
+  const delim = /[\s/[\]<>(){}%]/;
+  for (let i = 0; i < src.length;) {
+    const ch = src[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    if (ch === "%") { while (i < src.length && !/[\r\n]/.test(src[i])) i++; continue; }
+    if (ch === "/") { let j = i + 1; while (j < src.length && !delim.test(src[j])) j++; toks.push({ t: "name", v: src.slice(i + 1, j) }); i = j; continue; }
+    if (ch === "<" && src[i + 1] !== "<") { const j = src.indexOf(">", i); toks.push({ t: "str", v: Buffer.from(src.slice(i + 1, j).replace(/\s+/g, ""), "hex").toString("latin1") }); i = j + 1; continue; }
+    if (ch === "(") {
+      let depth = 1, j = i + 1, out = "";
+      while (j < src.length && depth) {
+        const c = src[j];
+        if (c === "\\") { const e = src[j + 1]; out += { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" }[e] ?? e; j += 2; continue; }
+        if (c === "(") depth++;
+        if (c === ")" && !--depth) break;
+        out += c; j++;
+      }
+      toks.push({ t: "str", v: out }); i = j + 1; continue;
+    }
+    if (ch === "[" || ch === "]") { toks.push({ t: ch }); i++; continue; }
+    let j = i;
+    while (j < src.length && !delim.test(src[j])) j++;
+    if (j === i) { j = i + (src.startsWith("<<", i) || src.startsWith(">>", i) ? 2 : 1); }
+    const w = src.slice(i, j);
+    toks.push(/^[+-]?(\d+\.?\d*|\.\d+)$/.test(w) ? { t: "num", v: Number(w) } : { t: "op", v: w });
+    i = j;
+  }
+
+  const mul = (m, n) => [m[0] * n[0] + m[1] * n[2], m[0] * n[1] + m[1] * n[3], m[2] * n[0] + m[3] * n[2], m[2] * n[1] + m[3] * n[3], m[4] * n[0] + m[5] * n[2] + n[4], m[4] * n[1] + m[5] * n[3] + n[5]];
+  const at = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+  const I = [1, 0, 0, 1, 0, 0];
+  let ctm = I, lw = 1, dash = [], font = null, size = 0, tm = I, tlm = I, leading = 0;
+  const gstack = [];
+  let subpaths = [], sp = null;
+  const texts = [], strokes = [], fills = [];
+  const decode = (s) => {
+    const f = fonts.get(font) ?? { map: new Map(), wide: false };
+    let out = "";
+    if (f.wide) for (let k = 0; k + 1 < s.length; k += 2) out += f.map.get((s.charCodeAt(k) << 8) | s.charCodeAt(k + 1)) ?? "�";
+    else for (const c of s) out += f.map.get(c.charCodeAt(0)) ?? c;
+    return out;
+  };
+  const show = (s) => {
+    const m = mul(tm, ctm);
+    const [x, y] = at(m, 0, 0);
+    texts.push({ text: decode(s), x, y: H - y, size: size * scaleOf(m), font });
+  };
+  const paint = (kind) => {
+    if (sp) subpaths.push(sp);
+    const pts = subpaths.filter((p) => p.points.length > 1);
+    if (kind && pts.length) {
+      const all = pts.flatMap((p) => p.points);
+      const xs = all.map((p) => p[0]), ys = all.map((p) => p[1]);
+      const bbox = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+      const rec = { subpaths: pts, bbox, width: lw * scaleOf(ctm), dash: [...dash] };
+      (kind === "fill" ? fills : strokes).push(rec);
+      if (kind === "both") fills.push(rec);
+    }
+    subpaths = []; sp = null;
+  };
+  const pt = (x, y) => { const [a, b] = at(ctm, x, y); return [a, H - b]; };
+  let ops = [];
+  let arr = null;
+  for (const tk of toks) {
+    if (tk.t === "[") { arr = []; continue; }
+    if (tk.t === "]") { ops.push({ t: "arr", v: arr }); arr = null; continue; }
+    if (arr) { arr.push(tk); continue; }
+    if (tk.t !== "op") { ops.push(tk); continue; }
+    const n = ops.map((o) => o.v);
+    switch (tk.v) {
+      case "q": gstack.push({ ctm, lw, dash }); break;
+      case "Q": ({ ctm, lw, dash } = gstack.pop() ?? { ctm: I, lw: 1, dash: [] }); break;
+      case "cm": ctm = mul(n.slice(0, 6), ctm); break;
+      case "w": lw = n[0]; break;
+      case "d": dash = (n[0] ?? []).map((o) => o.v); break;
+      case "m": if (sp) subpaths.push(sp); sp = { points: [pt(n[0], n[1])], closed: false }; break;
+      case "l": sp?.points.push(pt(n[0], n[1])); break;
+      case "c": sp?.points.push(pt(n[0], n[1]), pt(n[2], n[3]), pt(n[4], n[5])); break;
+      case "v": case "y": sp?.points.push(pt(n[0], n[1]), pt(n[2], n[3])); break;
+      case "re": {
+        if (sp) subpaths.push(sp);
+        const [x, y, w, h] = n;
+        subpaths.push({ points: [pt(x, y), pt(x + w, y), pt(x + w, y + h), pt(x, y + h)], closed: true });
+        sp = null;
+        break;
+      }
+      case "h": if (sp) sp.closed = true; break;
+      case "S": paint("stroke"); break;
+      case "s": if (sp) sp.closed = true; paint("stroke"); break;
+      case "f": case "F": case "f*": paint("fill"); break;
+      case "B": case "B*": case "b": case "b*": paint("both"); break;
+      case "n": paint(null); break;
+      case "BT": tm = I; tlm = I; break;
+      case "Tf": font = n[0]; size = n[1]; break;
+      case "TL": leading = n[0]; break;
+      case "Tm": tm = n.slice(0, 6); tlm = tm; break;
+      case "Td": tlm = mul([1, 0, 0, 1, n[0], n[1]], tlm); tm = tlm; break;
+      case "TD": leading = -n[1]; tlm = mul([1, 0, 0, 1, n[0], n[1]], tlm); tm = tlm; break;
+      case "T*": tlm = mul([1, 0, 0, 1, 0, -leading], tlm); tm = tlm; break;
+      case "Tj": show(n[0]); break;
+      case "'": tlm = mul([1, 0, 0, 1, 0, -leading], tlm); tm = tlm; show(n[0]); break;
+      case "TJ": show((n[0] ?? []).filter((o) => o.t === "str").map((o) => o.v).join("")); break;
+      default: break;
+    }
+    ops = [];
+  }
+  return { texts, strokes, fills };
+}
+
+/** Stroked squares (a tick box: one closed 4-corner subpath, sides level), outer edge (the stroke is inside the box). */
+function lcpPdfBoxes(drawn) {
+  const out = [];
+  for (const s of drawn.strokes) {
+    if (s.subpaths.length !== 1 || s.dash.length) continue;
+    const p = s.subpaths[0];
+    const pts = p.points.filter((q, i, a) => i === 0 || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 0.01);
+    const corners = pts.length === 5 && Math.hypot(pts[4][0] - pts[0][0], pts[4][1] - pts[0][1]) < 0.01 ? pts.slice(0, 4) : pts;
+    if (corners.length !== 4 || !p.closed) continue;
+    const level = corners.every((q, i) => { const r = corners[(i + 1) % 4]; return Math.abs(q[0] - r[0]) < 0.01 || Math.abs(q[1] - r[1]) < 0.01; });
+    const { x, y, w, h } = s.bbox;
+    if (!level || Math.abs(w - h) > 0.05 || w < 2) continue;
+    out.push({ x: x - s.width / 2, y: y - s.width / 2, w: w + s.width, h: h + s.width, strokeWidth: s.width });
+  }
+  return out.sort((a, b) => a.x - b.x || a.y - b.y);
+}
+/** The QR (the fill with the most subpaths): its side. */
+function lcpPdfQrSide(drawn) {
+  const qr = [...drawn.fills].sort((a, b) => b.subpaths.length - a.subpaths.length)[0];
+  return qr && qr.subpaths.length > 20 ? Math.max(qr.bbox.w, qr.bbox.h) : null;
+}
+
+const lcpTail = (code) => /-(\d+)$/.exec(code)?.[1] ?? code;
+const lcpMm = (pt) => (pt / PT) * 25.4;
+/** The customer name's type size: the largest text that is the name or a line of it (labelSteps' rule; the filing tab's letter is a single letter, never 4+). */
+function lcpNameSize(textsList, customerName) {
+  const full = norm(customerName);
+  const isName = (e) => { const x = norm(String(e.text).replace(/…$/, "")); return x.includes(full) || (x.length >= 4 && full.includes(x)); };
+  const sizes = textsList.filter(isName).map((e) => e.size);
+  return sizes.length ? Math.max(...sizes) : null;
+}
+
+/**
+ * One label's card rows (LabelPage JSON): for each listed card, its tick box, Card ID number, "PG"
+ * and the line, and what is printed on the line. Fails on anything missing, doubled or overlapping.
+ * `want`: Card ID -> the pre-grade expected on the line (null: blank; { cut: prefix }: a long one
+ * cut with "…").
+ */
+function lcpRows(label, stockId, want) {
+  const els = label.elements;
+  const ts = texts(label);
+  const side = (LCP_BOX_MM[stockId] / 25.4) * PT;
+  const boxes = els.filter((e) => e.kind === "rect" && e.stroke && !e.fill);
+  const pgs = ts.filter((e) => e.text === "PG");
+  const solid = els.filter((e) => e.kind === "line" && !e.dash && Math.abs(e.y1 - e.y2) < 0.01);
+  const ids = label.cardCodes.map((code) => {
+    const id = ts.filter((e) => e.font === "mono600" && e.text === lcpTail(code));
+    eq(id.length, 1, `${code}: its number "${lcpTail(code)}" on the label`);
+    return { code, id: id[0] };
+  });
+  eq(boxes.length, ids.length, `tick boxes (one per listed card: ${label.cardCodes.join(", ")})`);
+  eq(pgs.length, ids.length, `"PG" fields (one per listed card)`);
+  const rows = [];
+  for (const { code, id } of ids) {
+    const lineH = id.size * 1.25;
+    const capMid = id.y - id.size * 0.35;
+    const box = boxes.filter((b) => b.x + b.w <= id.x + 0.01 && id.x - (b.x + b.w) < id.size * 1.5 && Math.abs(b.y + b.h / 2 - capMid) < Math.max(b.h, id.size) / 2 + 0.5);
+    eq(box.length, 1, `${code}: tick boxes just left of its number, on its line`);
+    const b = box[0];
+    assert(Math.abs(b.w - side) < 0.05 && Math.abs(b.h - side) < 0.05, `${code}: box ${lcpMm(b.w).toFixed(2)} x ${lcpMm(b.h).toFixed(2)} mm, want ${LCP_BOX_MM[stockId]} mm`);
+    assert(lcpMm(b.w) >= LCP_MIN_BOX_MM - 0.01, `${code}: box ${lcpMm(b.w).toFixed(2)} mm is too small to tick`);
+    assert(b.stroke === "ink" && (b.strokeWidth ?? 0) >= 0.7, `${code}: box outline ${b.stroke} ${b.strokeWidth} pt (black, 2+ printer dots)`);
+    assert(b.x >= 0 && b.y >= 0 && b.y + b.h <= label.height, `${code}: box off the label`);
+    // Its PG: the nearest "PG" at or below its line, right of its number (same column)
+    rows.push({ code, id, box: b, lineH });
+  }
+  for (const pg of pgs) {
+    const cands = rows.filter((r) => r.id.x < pg.x && r.id.y <= pg.y + 0.5);
+    const best = cands.sort((a, b) => (pg.y - a.id.y) - (pg.y - b.id.y) || b.id.x - a.id.x)[0];
+    assert(best, `a "PG" at ${pg.x.toFixed(1)},${pg.y.toFixed(1)} belongs to no row`);
+    assert(!best.pg, `${best.code}: two "PG" fields`);
+    best.pg = pg;
+  }
+  const out = [];
+  for (const r of rows) {
+    const { code, id, pg, box: b, lineH } = r;
+    assert(pg, `${code}: no "PG" on its row`);
+    assert(pg.y - id.y <= 2 * lineH + 0.5, `${code}: "PG" ${(pg.y - id.y).toFixed(1)} pt under its line`);
+    const line = solid.filter((l) => Math.min(l.x1, l.x2) >= pg.x + pg.width - 0.5 && Math.min(l.x1, l.x2) - (pg.x + pg.width) < pg.size * 1.5 && l.y1 >= pg.y - 0.01 && l.y1 <= pg.y + pg.size * 0.6);
+    eq(line.length, 1, `${code}: write-in lines after its "PG"`);
+    const [x1, x2] = [Math.min(line[0].x1, line[0].x2), Math.max(line[0].x1, line[0].x2)];
+    assert(lcpMm(x2 - x1) >= LCP_MIN_PG_LINE_MM, `${code}: the PG line is ${lcpMm(x2 - x1).toFixed(1)} mm, want ${LCP_MIN_PG_LINE_MM}+ mm to write on`);
+    assert(x2 <= label.width + 0.01, `${code}: the PG line runs off the label`);
+    const on = ts.filter((e) => e !== pg && Math.abs(e.y - pg.y) < 0.6 && e.x >= x1 - 0.5 && e.x + e.width <= x2 + 0.5);
+    const expect = want[code] ?? null;
+    if (expect == null) eq(on.map((e) => e.text), [], `${code}: printed on its blank PG line`);
+    else {
+      eq(on.length, 1, `${code}: texts on its PG line (${on.map((e) => e.text).join(" | ")})`);
+      if (typeof expect === "string") eq(on[0].text, expect, `${code}: the pre-grade on its line`);
+      else assert(on[0].text.endsWith("…") && on[0].text.length > expect.cut.length && on[0].text.startsWith(expect.cut), `${code}: long pre-grade printed "${on[0].text}", want it cut with "…" after "${expect.cut}…"`);
+    }
+    // Nothing of the row runs into the PG field: the name and set on its line end before "PG"
+    const sameLine = ts.filter((e) => e !== pg && !on.includes(e) && Math.abs(e.y - pg.y) < 0.6 && e.x > id.x && e.x < pg.x);
+    for (const e of sameLine) assert(e.x + e.width <= pg.x + 0.01, `${code}: "${e.text}" runs into its PG field`);
+    out.push({ code, box: b, pg, line: { x1, x2, y: line[0].y1, width: line[0].width }, value: on[0]?.text ?? null });
+  }
+  // Rows of one column never touch: each box clear of the next one's
+  const byCol = new Map();
+  for (const r of out) { const k = Math.round(r.box.x); (byCol.get(k) ?? byCol.set(k, []).get(k)).push(r); }
+  for (const col of byCol.values()) {
+    col.sort((a, b) => a.box.y - b.box.y);
+    for (let i = 1; i < col.length; i++) assert(col[i].box.y >= col[i - 1].box.y + col[i - 1].box.h - 0.01, `${col[i - 1].code} and ${col[i].code}: tick boxes overlap`);
+  }
+  return out;
+}
+
+/**
+ * The PDF page as printed against its LabelPage: one stroked square per listed card where the JSON
+ * puts its box (within 0.1 pt), "PG" once per listed card, the pre-grades printed, the draft absent,
+ * the name's type size and the QR's side as the JSON says.
+ */
+function lcpCheckPdfPage(drawn, label, rows, { customerName, absent }) {
+  const boxes = lcpPdfBoxes(drawn);
+  eq(boxes.length, rows.length, "stroked tick boxes in the PDF (one per listed card)");
+  for (const r of rows) {
+    const hit = boxes.find((b) => Math.abs(b.x - r.box.x) < 0.1 && Math.abs(b.y - r.box.y) < 0.1 && Math.abs(b.w - r.box.w) < 0.1);
+    assert(hit, `${r.code}: no box in the PDF at ${r.box.x.toFixed(2)},${r.box.y.toFixed(2)} (${r.box.w.toFixed(2)} pt)`);
+  }
+  const pdfTexts = drawn.texts.map((t) => t.text);
+  eq(pdfTexts.filter((t) => t === "PG").length, rows.length, `"PG" texts in the PDF`);
+  for (const r of rows) if (r.value) assert(pdfTexts.includes(r.value), `${r.code}: "${r.value}" not in the PDF's text`);
+  for (const a of absent) assert(!pdfTexts.some((t) => t.includes(a)), `"${a}" (a pre-grade not submitted) is printed in the PDF`);
+  for (const r of rows) {
+    const line = drawn.strokes.find((s) => !s.dash.length && s.subpaths.length === 1 && Math.abs(s.bbox.y - r.line.y) < 0.1 && Math.abs(s.bbox.x - r.line.x1) < 0.1 && Math.abs(s.bbox.w - (r.line.x2 - r.line.x1)) < 0.1);
+    assert(line, `${r.code}: no PG line in the PDF at y ${r.line.y.toFixed(2)}`);
+  }
+  const name = lcpNameSize(drawn.texts, customerName);
+  const jsonName = lcpNameSize(texts(label), customerName);
+  assert(name && Math.abs(name - jsonName) < 0.05, `PDF name ${name} pt, JSON ${jsonName} pt`);
+  const qr = lcpPdfQrSide(drawn);
+  const jsonQr = qrs(label)[0]?.size;
+  assert(qr && Math.abs(qr - jsonQr) < 0.6, `PDF QR ${qr?.toFixed(2)} pt, JSON ${jsonQr?.toFixed(2)} pt`);
+  return { name, qr };
+}
+
+/**
+ * A downloaded Katasymbol picture against its 50 x 80 mm LabelPage: 400 x 640 dots, pure black and
+ * white; each tick box's four sides black and its middle white; each PG line black; the blank lines
+ * with nothing above them; ink where a pre-grade is printed.
+ */
+function lcpCheckPng(buf, label, rows) {
+  const png = LcpPNG.sync.read(buf);
+  eq([png.width, png.height], [400, 640], "picture size (50 x 80 mm at 8 dots per mm)");
+  const k = Math.min(png.width / label.width, png.height / label.height);
+  const ox = (png.width - label.width * k) / 2, oy = (png.height - label.height * k) / 2;
+  const px = (x, y) => { const i = (Math.round(y) * png.width + Math.round(x)) * 4; return png.data[i]; };
+  let grey = 0;
+  for (let i = 0; i < png.data.length; i += 4) if (png.data[i] !== 0 && png.data[i] !== 255) grey++;
+  eq(grey, 0, "grey pixels (the picture is cut to black and white)");
+  // Some black within r dots of (x, y), in label points
+  const inkNear = (x, y, r = 1) => { const cx = ox + x * k, cy = oy + y * k; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (px(cx + dx, cy + dy) === 0) return true; return false; };
+  const inkIn = (x1, y1, x2, y2) => { let n = 0; for (let y = Math.ceil(oy + y1 * k); y <= Math.floor(oy + y2 * k); y++) for (let x = Math.ceil(ox + x1 * k); x <= Math.floor(ox + x2 * k); x++) if (px(x, y) === 0) n++; return n; };
+  for (const r of rows) {
+    const { x, y, w, h } = r.box;
+    const sw = 1.2 / 2;
+    for (const [a, b] of [[x + w / 2, y + sw], [x + w / 2, y + h - sw], [x + sw, y + h / 2], [x + w - sw, y + h / 2]]) assert(inkNear(a, b), `${r.code}: the tick box's side at ${a.toFixed(1)},${b.toFixed(1)} pt isn't black in the picture`);
+    eq(inkIn(x + w * 0.3, y + h * 0.3, x + w * 0.7, y + h * 0.7), 0, `${r.code}: black dots inside the empty tick box`);
+    assert(inkNear((r.line.x1 + r.line.x2) / 2, r.line.y) && inkNear(r.line.x1 + 1, r.line.y) && inkNear(r.line.x2 - 1, r.line.y), `${r.code}: the PG line isn't black in the picture`);
+    const above = inkIn(r.line.x1 + 0.5, r.pg.y - r.pg.size * 0.75, r.line.x2 - 0.5, r.pg.y - 0.3);
+    if (r.value) assert(above > 10, `${r.code}: "${r.value}" isn't in the picture (${above} black dots on its line)`);
+    else eq(above, 0, `${r.code}: black dots on its blank PG line`);
+    assert(inkIn(r.pg.x, r.pg.y - r.pg.size * 0.7, r.pg.x + r.pg.width, r.pg.y) > 10, `${r.code}: "PG" isn't in the picture`);
+  }
+  return `${png.width}x${png.height}`;
+}
+
+const LCP_GOLD = ["CD-2549-01", "CD-2549-02", "CD-2549-03", "CD-2549-04"];
+const LCP_PLAT = ["CD-2549-07"];
+/** CD-2549-04's pre-grade: longer than its line, so it is cut with "…". */
+const LCP_LONG = "PSA 8–9, centering 60/40 on the back, light whitening on two corners";
+/** What each row's PG line shows: 01 a result typed but never submitted (blank), 03 only flagged (blank). */
+const LCP_WANT = { "CD-2549-02": "PSA 8–9", "CD-2549-04": { cut: "PSA 8" }, "CD-2549-07": "PSA 9" };
+const LCP_DRAFT = "PSA 10";
+/** The stocks: the D520's 4 x 6 in (the saved setting) and the Katasymbol's 50 x 80 mm (the picture path asks for it). */
+const LCP_STOCKS = { "4x6": { json: "?format=json", pdf: "" }, "50x80mm": { json: "?format=json&stock=50x80mm", pdf: "?stock=50x80mm" } };
+/**
+ * The customer name's type size and the QR's side (pt) on these bags' labels before the tick boxes
+ * (26dd97f, lib/intake/labels as on main), per stock: the marks must not make either smaller.
+ * Measured on the same bags (receiveCards + loadLabelBags against the mock) with that commit's layout.
+ */
+const LCP_BASE = {
+  "4x6": { "CD-2549-G": { name: 32.62, qr: 72 }, "CD-2549-P": { name: 33.74, qr: 72 }, "CD-2600-G": { name: 32.61, qr: 72, listed: 16 } },
+  "50x80mm": { "CD-2549-G": { name: 14.34, qr: 72 }, "CD-2549-P": { name: 14.34, qr: 72 }, "CD-2600-G": { name: 14.34, qr: 72, listed: 6 } },
+};
+const lcpCard = (t, code) => cardByCode(t, code);
+
+/**
+ * CD-2549 Gold 01-04 and Platinum 07 received on 2026-11-15 (bags CD-2549-G, CD-2549-P), with
+ * pre-grades: 02 submitted through the pre-grade API ("PSA 8–9"), 03 flagged only (API), and in the
+ * mock 01 a typed result never submitted ("PSA 10"), 04 a long one submitted, 07 "PSA 9" submitted.
+ * Exported for scripts that reuse a running harness (screenshots).
+ */
+export async function lcpSetup(ctx, mockUrl) {
+  await receiveViaApi(ctx, IDS.mailOrder, [0, 1, 2, 3, 6].map(mailCard), "2026-11-15");
+  const t = await tables();
+  const id = (code) => lcpCard(t, code)?.id;
+  const sub = await api(ctx, "POST", `/api/admin/cards/${id("CD-2549-02")}/pregrade`, { action: "submit", result: "PSA 8–9" });
+  assert(sub.status === 200, `pre-grade submit: HTTP ${sub.status} ${JSON.stringify(sub.body).slice(0, 160)}`);
+  const flag = await api(ctx, "POST", `/api/admin/cards/${id("CD-2549-03")}/pregrade`, { action: "flag", selected: true });
+  assert(flag.status === 200, `pre-grade flag: HTTP ${flag.status} ${JSON.stringify(flag.body).slice(0, 160)}`);
+  const at = "2026-11-16T15:00:00.000Z";
+  await mockUpdate(mockUrl, "cards", { pregrade_selected: true, pregrade_result: LCP_DRAFT, pregrade_submitted_at: null }, "card_code", "CD-2549-01");
+  await mockUpdate(mockUrl, "cards", { pregrade_selected: true, pregrade_result: LCP_LONG, pregrade_submitted_at: at, pregrade_submitted_by: "harness-admin" }, "card_code", "CD-2549-04");
+  await mockUpdate(mockUrl, "cards", { pregrade_selected: true, pregrade_result: "PSA 9", pregrade_submitted_at: at, pregrade_submitted_by: "harness-admin" }, "card_code", "CD-2549-07");
+  return receivedByBag(await tables(), IDS.mailOrder);
+}
+
+/**
+ * CD-2470 (in the shop since 2026-11-05) bagged through prepare-labels, then `n` cards added on
+ * 2026-11-20, after Cards Received: what Print baggy label asks about ("3 cards were added after
+ * the order arrived…"). Gold, but the third has no tier of its own (the order's Gold). Exported for
+ * scripts that reuse a running harness (screenshots). Returns the new cards' ids.
+ */
+export async function lcpAddedLaterSetup(ctx, mockUrl, n = 3) {
+  await seedLabelsAny();
+  laPrepared(await laPost(ctx, LA.inShopOrder));
+  const rows = Array.from({ length: n }, (_, i) => ({
+    id: `1a00000c-0000-4000-8000-0000000000${90 + i}`, order_id: LA.inShopOrder, card_name: `Test Added-Later Card ${i + 1}`,
+    tier: i === 2 ? null : "premium", created_at: `2026-11-20T15:0${i}:00.000Z`,
+  }));
+  const { error } = await mockDb(mockUrl).from("cards").insert(rows);
+  assert(!error, `added-later cards: ${error?.message}`);
+  return rows.map((r) => r.id);
+}
+
+/** A label's name size and QR side against LCP_BASE. */
+function lcpSizes(label, stockId, bagCode, customerName) {
+  const base = LCP_BASE[stockId]?.[bagCode];
+  assert(base && base.name != null, `no baseline for ${bagCode} on ${stockId}`);
+  const name = lcpNameSize(texts(label), customerName);
+  const qr = qrs(label)[0]?.size;
+  assert(name != null && Math.abs(name - base.name) < 0.01, `${bagCode} ${stockId}: name ${name?.toFixed(2)} pt, ${base.name.toFixed(2)} pt before the tick boxes`);
+  assert(qr != null && Math.abs(qr - base.qr) < 0.01, `${bagCode} ${stockId}: QR ${qr?.toFixed(2)} pt, ${base.qr.toFixed(2)} pt before the tick boxes`);
+  return `name ${name.toFixed(2)} pt, QR ${(qr / PT).toFixed(2)} in`;
+}
+
+const LCP_SCENARIOS = {
+  // Bag labels (4 x 6 in PDF + JSON, the Katasymbol's 50 x 80 mm JSON, PDF and picture): a tick box
+  // and a "PG ____" line on every card row, the submitted pre-grade printed on it, name and QR as before
+  async "labels-checkbox-pg"({ page, ctx, s, mockUrl }) {
+    const rows = {}; // stock -> bag code -> rows
+    const labelsBy = {}; // stock -> bag code -> LabelPage
+    let bags = [];
+    await s.step("setup: CD-2549 Gold 01-04 + Platinum 07 received 2026-11-15; pre-grades: 02 submitted (API), 03 flagged (API), 01 typed not submitted, 04 long, 07 submitted", async () => {
+      bags = await lcpSetup(ctx, mockUrl);
+      eq(bags.map((b) => [b.bag.bag_code, b.cards.map((c) => c.card_code)]).sort(), [["CD-2549-G", LCP_GOLD], ["CD-2549-P", LCP_PLAT]], "bags and their cards");
+      const t = await tables();
+      const pg = (code) => { const c = lcpCard(t, code); return [c.pregrade_result ?? null, !!c.pregrade_submitted_at]; };
+      eq(pg("CD-2549-02"), ["PSA 8–9", true], "CD-2549-02 pre-grade (submitted through the API)");
+      eq(pg("CD-2549-03"), [null, false], "CD-2549-03 pre-grade (flagged only)");
+      eq(pg("CD-2549-01"), [LCP_DRAFT, false], "CD-2549-01 pre-grade (not submitted)");
+      return bags.map((b) => `${b.bag.bag_code} ${b.cards.length}`).join(", ");
+    }, { critical: true, shot: false });
+
+    for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
+      await s.step(`${stockId} ?format=json: every card row has a tick box (${LCP_BOX_MM[stockId]} mm), its number, "PG" and a write-in line; the submitted pre-grades on their lines (04's cut with "…"), "${LCP_DRAFT}" nowhere; name and QR as before the boxes`, async () => {
+        const body = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, q.json));
+        eq(body.settings?.stock, stockId, "the stock the labels are laid out on");
+        rows[stockId] = {};
+        labelsBy[stockId] = {};
+        const out = [];
+        for (const { bag, cards } of bags) {
+          const e = (body.bags ?? []).find((b) => b.id === bag.id);
+          assert(e?.labels?.length === 1, `${bag.bag_code}: no label`);
+          const label = e.labels[0];
+          eq(label.cardCodes, cards.map((c) => c.card_code), `${bag.bag_code}: cards listed`);
+          rows[stockId][bag.bag_code] = lcpRows(label, stockId, LCP_WANT);
+          labelsBy[stockId][bag.bag_code] = label;
+          const all = texts(label).map((x) => x.text).join(" | ");
+          assert(!all.includes(LCP_DRAFT), `${bag.bag_code}: "${LCP_DRAFT}" (never submitted) is on the label`);
+          if (stockId === "4x6") {
+            for (const c of cards) assert(texts(label).some((x) => x.text === c.card_name), `${bag.bag_code}: "${c.card_name}" not printed in full on 4 x 6`);
+          }
+          out.push(`${bag.bag_code}: ${lcpSizes(label, stockId, bag.bag_code, "Test Customer A")}; ${rows[stockId][bag.bag_code].map((r) => `${lcpTail(r.code)} ${r.value ? `PG "${r.value}"` : "PG ____"}`).join(", ")}`);
+        }
+        return out.join(" · ");
+      }, { critical: stockId === "4x6", shot: false });
+
+      await s.step(`${stockId}: each bag's own route (?format=json) draws the same label as the order's`, async () => {
+        for (const { bag } of bags) {
+          const one = await labelJson(ctx, ROUTES.bagLabel(bag.id, q.json));
+          eq(one.bags?.[0]?.labels?.[0], labelsBy[stockId][bag.bag_code], `${bag.bag_code}: the bag route's label`);
+        }
+        return `${bags.length} bag routes`;
+      }, { shot: false });
+
+      await s.step(`${stockId} PDF (order route${q.pdf ? ` ${q.pdf}` : ""}): one stroked box per card where the layout puts it, "PG" and its line per card, the pre-grades in the text, "${LCP_DRAFT}" absent; name and QR as the layout`, async () => {
+        assert(rows[stockId], "no layout (see the JSON step)");
+        const doc = await labelPdf(ctx, ROUTES.orderLabel(IDS.mailOrder, q.pdf));
+        eq(doc.getPageCount(), bags.length, "PDF pages (one per bag)");
+        const ordered = bags.map((b) => b.bag.bag_code);
+        const json = await labelJson(ctx, ROUTES.orderLabel(IDS.mailOrder, q.json));
+        const out = [];
+        json.bags.forEach((e, i) => {
+          assert(ordered.includes(e.bagCode), `page ${i + 1}: ${e.bagCode}`);
+          const drawn = lcpReadPdfPage(doc, doc.getPage(i));
+          const r = lcpCheckPdfPage(drawn, labelsBy[stockId][e.bagCode], rows[stockId][e.bagCode], { customerName: "Test Customer A", absent: [LCP_DRAFT] });
+          out.push(`p${i + 1} ${e.bagCode}: ${rows[stockId][e.bagCode].length} boxes, name ${r.name.toFixed(2)} pt, QR ${r.qr.toFixed(1)} pt`);
+        });
+        return out.join("; ");
+      }, { shot: false });
+    }
+
+    await s.step("Katasymbol picked (this browser): the order page's Print baggy label, then Print 2 labels, downloads one 400 x 640 picture per bag: black box sides, empty middles, the PG lines, the pre-grades and nothing on the blank lines; both bags stamped printed", async () => {
+      assert(rows["50x80mm"], "no 50 x 80 mm layout (see its JSON step)");
+      await ctx.addInitScript(() => { try { localStorage.setItem("intake_label_printer", "katasymbol"); } catch { /* private mode */ } });
+      const w = await watchPrints(ctx);
+      await goto(page, ROUTES.order(IDS.mailOrder));
+      const baggy = page.getByRole("button", { name: /^print baggy label$/i }).first();
+      await baggy.waitFor({ timeout: 60_000 });
+      await baggy.click();
+      const printed = await tapPrint(page, w);
+      const pngs = await until(async () => { const d = (await printsSince(page, w, 0)).filter((x) => x.kind === "download" && /\.png$/i.test(x.name ?? "")); return d.length >= bags.length ? d : null; }, 20_000);
+      assert(pngs, `"${printed.name}": ${printed.signs.map((x) => x.text).join("; ").slice(0, 200)}: not ${bags.length} pictures`);
+      const out = [];
+      for (const { bag } of bags) {
+        const d = pngs.filter((x) => x.name.includes(bag.bag_code));
+        eq(d.length, 1, `pictures named after ${bag.bag_code} (${pngs.map((x) => x.name).join(", ")})`);
+        const buf = fs.readFileSync(await d[0].download.path());
+        fs.writeFileSync(path.join(OUT, `labels-checkbox-pg-${bag.bag_code}-katasymbol.png`), buf);
+        out.push(`${d[0].name} ${lcpCheckPng(buf, labelsBy["50x80mm"][bag.bag_code], rows["50x80mm"][bag.bag_code])}`);
+      }
+      out.push(await laStamped(IDS.mailOrder));
+      return `"${printed.name}": ${out.join("; ")}`;
+    });
+
+    await s.step("a pre-grade edited after it was submitted (API edit 02 → \"PSA 9\"): the next label prints the new one", async () => {
+      const t = await tables();
+      const r = await api(ctx, "POST", `/api/admin/cards/${lcpCard(t, "CD-2549-02").id}/pregrade`, { action: "edit", result: "PSA 9" });
+      assert(r.status === 200, `pre-grade edit: HTTP ${r.status} ${JSON.stringify(r.body).slice(0, 160)}`);
+      const G = bags.find((b) => b.bag.bag_code === "CD-2549-G").bag;
+      const one = await labelJson(ctx, ROUTES.bagLabel(G.id, "?format=json"));
+      const got = lcpRows(one.bags[0].labels[0], "4x6", { ...LCP_WANT, "CD-2549-02": "PSA 9" });
+      return got.map((x) => `${lcpTail(x.code)} ${x.value ?? "____"}`).join(", ");
+    }, { shot: false });
+
+    await s.step("a bag of 16 (CD-2600 Gold, received 2026-11-20): every listed row has its box and PG line on both stocks; name and QR as before the boxes; cards listed vs before", async () => {
+      const gold = IDS.bigCards.filter((_, i) => BIG_CARD_TIERS[i] === "premium").slice(0, 16);
+      await receiveViaApi(ctx, IDS.bigOrder, gold, "2026-11-20");
+      const [big] = receivedByBag(await tables(), IDS.bigOrder);
+      eq(big?.cards.length, 16, "cards in the bag");
+      const out = [];
+      for (const [stockId, q] of Object.entries(LCP_STOCKS)) {
+        const label = (await labelJson(ctx, ROUTES.bagLabel(big.bag.id, q.json))).bags[0].labels[0];
+        const r = lcpRows(label, stockId, {});
+        const base = LCP_BASE[stockId]["CD-2600-G"];
+        const sizes = lcpSizes(label, stockId, big.bag.bag_code, BIG_CUSTOMER_NAME);
+        out.push(`${stockId}: ${r.length} of 16 listed (${base.listed} before), ${sizes}`);
+      }
+      return out.join("; ");
+    }, { shot: false });
+  },
+};
+Object.assign(SCENARIOS, LCP_SCENARIOS);
+
 // Setup helpers for scripts that reuse a running harness (screenshots of a page in a given state)
 export { deskReceive, bulkSlots, assignOk, cardIdOf, scanType, typeCode, holderSetup, HOLDER, HOLDER_TO, HOLDER_STACK, HOLDER_EMPTY };
 
