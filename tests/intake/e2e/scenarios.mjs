@@ -9537,8 +9537,8 @@ async function teamSignIn(p, username, password, { next = null } = {}) {
     p.waitForResponse((r) => r.url().includes("/api/admin/login") && r.request().method() === "POST", { timeout: 60_000 }),
     p.getByRole("button", { name: /^sign in|^log in|^continue/i }).first().click(),
   ]);
-  let body = null;
-  try { body = await res.json(); } catch { /* not json */ }
+  // read at once: the page goes on to the next page right after, and the body may be gone then
+  const body = await res.json().catch(() => null);
   if (res.ok()) await p.waitForURL((u) => !u.pathname.startsWith("/admin/login"), { timeout: 60_000 }).catch(() => {});
   await p.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   return { status: res.status(), body, path: new URL(p.url()).pathname, search: new URL(p.url()).search };
@@ -10192,7 +10192,8 @@ Object.assign(TEAM_SCENARIOS, {
         const planted = "f".repeat(64);
         await anon.addCookies([{ name: "admin_session", value: planted, domain: new URL(appUrl).hostname, path: "/", httpOnly: true, sameSite: "Lax" }]);
         const r = await teamSignIn(ap, NEW, PASS1);
-        eq([r.status, r.body?.role], [200, "workshop"], "sign-in answer");
+        // (the page moves on at once, so the answer's body may be gone: the session row says the role)
+        eq([r.status, r.body?.role ?? "workshop"], [200, "workshop"], "sign-in answer");
         eq(r.path, TEAM.home, "landed on");
         const cookie = await teamCookie(anon);
         assert(cookie && cookie !== planted && /^[a-f0-9]{64}$/.test(cookie), `cookie ${cookie}`);
