@@ -175,7 +175,9 @@ before(async () => {
   mock.store.load({
     tables: {
       orders: [{
-        id: ORDER, order_number: "CD-6001", customer_name: "Maria Reyes", customer_email: null, customer_phone: null,
+        id: ORDER, order_number: "CD-6001", customer_name: "Maria Reyes", customer_email: "maria@example.com", customer_phone: "555-0100",
+        ship_from_address: {}, ship_to_address: {}, subtotal_cents: 10000, total_cents: 10000, refunded_cents: 0,
+        slab_crack_count: 0, instagram_feature: false, gift_card_discount_cents: 0, admin_notes: null,
         status: "in_progress", payment_status: "paid", restoration_tier: "premium", inbound_method: "self_ship",
         customer_notes: null, created_at: "2026-11-23T19:00:00+00:00", updated_at: "2026-11-23T19:00:00+00:00",
       }],
@@ -195,7 +197,7 @@ before(async () => {
       business_holidays: [],
     },
   });
-  // No customer email leaves the test (the order has no address; Resend is caught anyway)
+  // No customer email leaves the test: Resend's API is caught here
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("resend")) return new Response(JSON.stringify({ id: "email" }), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -301,15 +303,22 @@ test("a holder with a card, then each button's answer as the result line says it
   assert.equal(doneOut.deskCode, null);
 });
 
-test("a refused card keeps its line; a failed Move to my desk says why", async () => {
-  // C(1) is on LOC-DESK; asking to move it out of CLAMP 01 (it left) is refused as a whole
+test("a refused card keeps its line; the order's line after its last card; a failed move says why", async () => {
+  // C(1) is on LOC-DESK; asking to move it out of CLAMP 01 (it left) is refused as a whole: the result line is the error
   const gone = await svc.moves.moveSlot(admin, { fromCode: "LOC-CLAMP-01", toCode: "LOC-DESK", cardIds: [C(1)], force: true, by: "gavin" });
   assert.ok(!gone.ok && gone.status === 409);
   assert.equal(gone.error, "Those cards aren't in CLAMP 01 any more.");
-  // Done on a done card and a fresh one: one is "Already done", both ok; the order isn't complete yet (card 1 and 2 are still to do)
-  const mixed = await svc.moves.markCardsDone(admin, { cardIds: [C(3), C(1)], by: "gavin" });
+  // Done for selected with a refunded card picked: it is refused (its line stays), the other is done and was the order's last
+  const two = mock.store.table("cards").find((c) => c.id === C(2))!;
+  two.status = "refunded";
+  const mixed = await svc.moves.markCardsDone(admin, { cardIds: [C(1), C(2)], by: "gavin" });
   assert.ok(mixed.ok, mixed.ok ? "" : mixed.error);
   const r = holderOutcome("done", [], mixed as TrackActionResponse, "DESK");
-  assert.equal(r.outcome.tone, "ok");
-  assert.match(r.outcome.title, /^1 card done\. 1 already there\./);
+  assert.equal(r.outcome.tone, "warn");
+  assert.deepEqual(r.outcome.lines.map((l) => [l.label, l.ok, l.message]), [
+    ["CD-6001-01", true, "Done."],
+    ["CD-6001-02", false, "CD-6001-02 was refunded. Not moved."],
+  ]);
+  assert.deepEqual(r.outcome.orderNotes?.map((n) => n.tone), ["ok"], "the order completed (green)");
+  assert.match(r.outcome.orderNotes?.[0].text ?? "", /^Order completed\./);
 });
