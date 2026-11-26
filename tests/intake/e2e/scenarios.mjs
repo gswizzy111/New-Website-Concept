@@ -6112,9 +6112,12 @@ const DONE_SCENARIOS = {
         const href = new URL(await link.getAttribute("href"), "http://x");
         if (decodeURIComponent(href.pathname).toUpperCase() !== ROUTES.open(DONE_G).toUpperCase()) problems.push(`the link goes to ${href.pathname}`);
       }
-      if (await UI.deskPanel(page, LAST, DONE_CODES).count()) problems.push(`${LAST}'s panel is still there`);
+      // the panel goes when the Desk page's refresh lands (seconds in next dev)
+      const t0 = Date.now();
+      const gone = await until(async () => (await UI.deskPanel(page, LAST, DONE_CODES).count()) === 0, 20_000);
+      if (!gone) problems.push(`${LAST}'s panel is still there after 20 s`);
       assert(!problems.length, `${problems.join(" | ")} (the page says: "${flat(await mainText(page)).slice(0, 300)}")`);
-      return sentence;
+      return `${sentence}; the panel went ${Date.now() - t0} ms after the words showed`;
     });
   },
 
@@ -6540,6 +6543,9 @@ async function serveThumbs(c, widths = []) {
   return widths;
 }
 
+/** The card catalog's host (the reference photos) isn't reachable from the sandbox: the browser context answers it with a PNG. */
+const serveCatalog = (c) => c.route(/^https:\/\/assets\.tcgdex\.net\//, (route) => route.fulfill({ status: 200, contentType: "image/png", body: placeholderPng([230, 190, 70]) }));
+
 const scanMain = (p) => p.locator("main").first().innerText().then(flat);
 const openDialogs = (p) => p.locator("dialog[open]").count();
 const focusedEl = (p) => p.evaluate(() => {
@@ -6630,8 +6636,8 @@ async function checkCardPhotos(p, t, code, apiCard, { block = null, cdn = false,
     eq(srcset ?? null, tile.srcSet ?? null, `${code} photo ${i + 1}: srcset`);
     eq(loading, "lazy", `${code} photo ${i + 1}: loading`);
     if (want[i].kind === "reference") {
+      // the catalog's host isn't reachable from the sandbox: serveCatalog() answers it in the browser
       eq(src, SCAN_CATALOG.replace("/high.webp", "/low.webp"), `${code}: the reference thumbnail (the catalog's small picture)`);
-      continue; // the catalog's host isn't reachable from the sandbox
     }
     if (cdn) {
       assert(isThumbPath(src, want[i].url), `${code} photo ${i + 1}: not a resized copy of ${want[i].url}: ${src}`);
@@ -6826,7 +6832,8 @@ const SCAN_SCENARIOS = {
 
   // Photos under each card: receiving first, then the customer's, else "Reference photo"; the API's
   // thumbnails (not the originals); a tap opens the full-size photo full screen; "No photo yet".
-  // With IMAGE_CDN=netlify in the harness the thumbnails must be /.netlify/images?url=…&w=<=480 copies.
+  // When the server serves Netlify thumbnails (NETLIFY=true at build: next.config.ts IMAGE_CDN) every tile must be
+  // a /.netlify/images?url=…&w=<=480 copy; the harness drops NETLIFY, so there it checks the <img> takes `tile`.
   async "scan-card-photos"({ page, ctx, s, browser, appUrl, mockUrl }) {
     const G = "CD-2549-G";
     // CD-2549-01: its receiving photo + the seed's 2 customer photos; -02: a customer photo only;
@@ -6866,12 +6873,13 @@ const SCAN_SCENARIOS = {
         return `IMAGE_CDN=netlify: tiles ${own.tile.src.slice(0, 60)}… (srcset ${own.tile.srcSet})`;
       }
       eq(own.tile.src, own.url, "off Netlify the tile is the original");
-      return "IMAGE_CDN off in this harness: tile = original (lib/thumbnail.ts resizes only on Netlify); the <img> must still take the tile";
+      return "CDN off in this harness (next.config.ts sets IMAGE_CDN from NETLIFY, which start.mjs removes): tile = original; the <img> must still take the tile, never full";
     }, { critical: true, shot: false });
 
     const runAt = async (label, p, c, errors) => {
       const scan = scannerOn(p);
       const widths = cdn ? await serveThumbs(c) : [];
+      await serveCatalog(c);
       const shot = (name) => p.screenshot({ path: path.join(OUT, `scan-card-photos-${label}-${name}.png`), fullPage: true }).catch(() => {});
       await s.step(`${label}: scan ${G}: each card's photos under its details, in order, the API's thumbnails (lazy, loaded); -03 "Reference photo" / "Not the customer's card"; -04 "No photo yet"`, async () => {
         await goto(p, ROUTES.scan);
@@ -7257,9 +7265,13 @@ const SCAN_HOLDER_SCENARIOS = {
         await holderOpen(p, scan, HOLDER, 1);
         await sleep(800);
         const head = p.locator("main").first().getByText(UI.holderHas(HOLDER.name, 1)).first();
-        const r = await head.evaluate((el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, y: Math.round(window.scrollY) }; });
+        const r = await head.evaluate((el) => {
+          const b = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + Math.min(40, b.width / 2), b.top + b.height / 2);
+          return { top: Math.round(b.top), bottom: Math.round(b.bottom), vh: window.innerHeight, y: Math.round(window.scrollY), covered: !(hit && (hit === el || el.contains(hit) || hit.contains(el))) };
+        });
         await shot("03a-holder-after-scroll", false);
-        assert(r.top >= 0 && r.bottom <= r.vh, `the header at ${r.top}-${r.bottom}px of ${r.vh}px (page scrolled to ${r.y}px, was ${y0}px)`);
+        assert(r.top >= 0 && r.bottom <= r.vh && !r.covered, `the header at ${r.top}-${r.bottom}px of ${r.vh}px${r.covered ? ", covered" : ""} (page scrolled to ${r.y}px, was ${y0}px)`);
         return `scrolled ${y0}px -> ${r.y}px; header at ${r.top}px`;
       }, { shot: false });
       await s.step(`${label}: ${HOLDER.name} with 1 card, fresh page: its header and the four buttons on the first screen (unscrolled, not covered, 44+ px); no sideways scroll`, async () => {

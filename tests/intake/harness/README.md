@@ -387,15 +387,22 @@ agent's holder-text.md).
   <name>" sits under its Card ID and name, the tiles in that order (by alt),
   each `<img>` the API's tile (`src` and `srcset`, never the full-size
   image), lazy and loaded; -03 "Reference photo" / "Not the customer's
-  card"; -04 "No photo yet" and no image. A tap opens the full-size image
+  card" (the catalog's host isn't reachable from the sandbox, so the browser
+  context answers `assets.tcgdex.net` with a PNG); -04 "No photo yet" and no
+  image. A tap opens the full-size image
   full screen (90%+), Close closes it. The order's label and a typed Card ID
-  show the same photos. **Thumbnails:** off Netlify `lib/thumbnail.ts` serves
-  the original, so the tile equals the original in a plain harness (the
-  scenario says so in its note). Start the harness with `IMAGE_CDN=netlify`
-  to check the resize path: every tile must then be
-  `/.netlify/images?url=<original>&w=<=480` (the browser context answers
-  those with the original, since `next dev` doesn't serve them) and the
-  viewer's image 1280+ px wide.
+  show the same photos. **Thumbnails:** the server's tile is `productImage(url, [240, 360, 480])`
+  (`lib/intake/tracking/summaries.ts`), which on Netlify is
+  `/.netlify/images?url=<original>&w=480` with a 240w/360w/480w srcset and the
+  viewer's 1280w/2048w; off Netlify it is the original. The harness can't turn
+  that on: `next.config.ts` sets `IMAGE_CDN` from `NETLIFY=true`, which
+  `start.mjs` removes, so here the scenario checks that each `<img>` takes
+  the API's `tile` (`src` and `srcset`), never `full`, and says "CDN off" in
+  its note. When the tiles are `/.netlify/images` (a harness that keeps
+  `NETLIFY=true`), it also checks every tile is a resized copy of its own
+  photo at most 480 px wide (the browser context answers those URLs with the
+  original, since `next dev` doesn't serve them) and the viewer's image 1280+
+  px wide.
 - `scan-holder-card` (390 px, one step at 1440): CD-2549-07 in CLAMP 07 (put
   in 2 h 5 min ago), CD-2549-01..03 in HEAT PRESS 02, CLAMP 06 and HEAT PRESS
   01 empty (`holderSetup()`). With no desk yet "Move to my desk" is greyed with
@@ -418,11 +425,22 @@ agent's holder-text.md).
 - `scan-layout` (390 and 1440 px, LOC-DESK made): no sideways scroll; the
   "Ready to scan" panel and "Type a code instead" on the first screen; bag
   CD-2549-G's photo rows inside the screen and each card's button 44+ px, not
-  covered when scrolled to; CLAMP 07's header and its four buttons on the
+  covered when scrolled to; scrolled to the bottom of that list, a scan of
+  CLAMP 07 lands with its header on screen and not covered (no scrolling by
+  hand); on a fresh page CLAMP 07's header and its four buttons on the
   first screen (unscrolled, not covered, 44+ px); "Move to another holder":
   the picker on the first screen with HEAT PRESS 01 to tap, Esc and Cancel
   leave nothing waiting; HEAT PRESS 02's "Move all 3 to my desk" and CLAMP
   06's "Empty…" on the first screen. Screenshots `scan-layout-{390,1440}-*.png`.
+
+- `scan-wedge-timing` (1440 px; review fixes, Nov 26): a slow scanner (120
+  ms a key) and a 400 ms pause before Enter, with "Type a code instead"
+  focused, still open the code and never open the code box; the same label
+  1 s later is read again, a double read 200 ms apart once (the page's
+  750 ms repeat gate); a scan that closes a photo leaves nothing focused and a
+  stray Enter reopens nothing; a thumbnail whose file is missing says "Photo
+  couldn't load" in its tile; Esc closing a photo or the code box keeps a
+  waiting "Scan the slot for …", Esc on the page drops it.
 
 2x screenshots of the same states (ready, bag, move picker, holder, stack,
 empty) come from a script outside the repo that imports `holderSetup` and
