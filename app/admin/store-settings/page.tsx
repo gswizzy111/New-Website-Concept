@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAllTiers, applyDbOverride } from "@/lib/restoration-tiers";
-import { getRestorationsOpen, getSlotsOpenedAt } from "@/lib/store-config";
+import { getRestorationsOpen, getSlotsOpenedAt, getSoldOutPopupOn } from "@/lib/store-config";
+import { SoldOutPopupToggle } from "./sold-out-popup-toggle";
 import { KitRow } from "./kit-row";
 import { TierRow } from "./tier-row";
 import { RestorationsToggle } from "./restorations-toggle";
@@ -59,6 +60,8 @@ export default async function StoreSettingsPage() {
     { rows: waitlistRows, error: waitlistError },
     restorationsOpen,
     slotsOpenedAt,
+    { rows: soldOutRows, error: soldOutError },
+    soldOutPopupOn,
   ] = await Promise.all([
     admin.from("products").select("id, name, price_cents, inventory_count, display_order").eq("active", true).order("display_order", { ascending: true }),
     // Paged: the API returns at most 1,000 rows at a time
@@ -75,6 +78,19 @@ export default async function StoreSettingsPage() {
     ),
     getRestorationsOpen(),
     getSlotsOpenedAt(),
+    // The sold-out pop-up's own list (sold_out_waitlist), paged the same way
+    fetchAll<WaitlistRow>((from, to) =>
+      admin.from("sold_out_waitlist").select("id, name, email, phone, notified_at")
+        .order("created_at", { ascending: false }).order("id").range(from, to)
+    ).then(
+      (rows) => ({ rows, error: null as string | null }),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("Sold-out waitlist read failed:", message);
+        return { rows: [] as WaitlistRow[], error: message as string | null };
+      },
+    ),
+    getSoldOutPopupOn(),
   ]);
   // Marketing email needs a postal address and unsubscribe links that reach this site
   const waitlistSendProblem = marketingSendProblem(requestHosts(await headers()));
@@ -86,6 +102,14 @@ export default async function StoreSettingsPage() {
     phone: (w.phone as string | null) ?? null,
     notified_at: (w.notified_at as string | null) ?? null,
   }));
+  const soldOutPeople = soldOutRows.map((w) => ({
+    id: w.id as string,
+    name: (w.name as string) ?? "",
+    email: (w.email as string) ?? "",
+    phone: (w.phone as string | null) ?? null,
+    notified_at: (w.notified_at as string | null) ?? null,
+  }));
+  const pendingSoldOut = soldOutPeople.filter((p) => !p.notified_at).length;
   const totalWaitlist = waitlistPeople.length;
   const pendingWaitlist = waitlistPeople.filter((p) => !p.notified_at).length;
 
@@ -226,6 +250,32 @@ ON CONFLICT (tier) DO NOTHING;`}</pre>
             <p className="text-sm text-red-600 font-medium mb-4">Couldn&apos;t load the waitlist: {waitlistError}</p>
           )}
           <WaitlistNotifier people={waitlistPeople} loadedAt={loadedAt} blockedReason={waitlistSendProblem} />
+        </div>
+
+        {/* Sold-Out Pop-up Waitlist: its own list, from the site-wide pop-up */}
+        <div id="sold-out-waitlist" className="bg-white rounded-xl border border-border p-6 mb-6">
+          <h2 className="font-heading font-black text-lg text-foreground mb-1">Sold-Out Pop-up Waitlist</h2>
+          <p className="text-xs text-muted-foreground mb-4">
+            New list, separate from the one above: people who said yes to the &ldquo;All restoration tiers sold out&rdquo; pop-up and left their full name and email.
+          </p>
+
+          <SoldOutPopupToggle initialOn={soldOutPopupOn} />
+
+          <div className="flex items-center gap-6 mb-5">
+            <div className="text-center">
+              <p className="font-heading font-black text-3xl text-foreground">{soldOutPeople.length}</p>
+              <p className="text-xs text-muted-foreground">total signed up</p>
+            </div>
+            <div className="text-center">
+              <p className="font-heading font-black text-3xl text-primary">{pendingSoldOut}</p>
+              <p className="text-xs text-muted-foreground">not yet notified</p>
+            </div>
+          </div>
+
+          {soldOutError && (
+            <p className="text-sm text-red-600 font-medium mb-4">Couldn&apos;t load this list: {soldOutError}</p>
+          )}
+          <WaitlistNotifier people={soldOutPeople} loadedAt={loadedAt} blockedReason={waitlistSendProblem} list="sold_out" />
         </div>
 
         {/* Kit Inventory */}

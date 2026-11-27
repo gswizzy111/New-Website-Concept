@@ -20,7 +20,8 @@ export type AttemptKind =
   | "account-confirm-email"
   | "kit-club-link-email"
   | "loyalty-lookup"
-  | "show-dropoff";
+  | "show-dropoff"
+  | "sold-out-waitlist";
 
 export type AttemptRule = { max: number; windowMinutes: number };
 
