@@ -83,6 +83,7 @@ export function BacklogChart({ days, title = "Card Backlog — Last 30 Days" }: 
     row,
   }));
   const hasEstimated = est.some(Boolean);
+  const hasOrders = days.some((d) => ordersOf(d) != null);
   const today = days[days.length - 1];
   const knownDays = days.filter(backlogKnown);
   const first = knownDays[0];
@@ -131,9 +132,11 @@ export function BacklogChart({ days, title = "Card Backlog — Last 30 Days" }: 
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="w-4 h-0.5 inline-block" style={{ background: CARDS }} />Cards in backlog
         </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="w-4 h-0.5 inline-block" style={{ background: ORDERS }} />Orders
-        </div>
+        {hasOrders && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="w-4 h-0.5 inline-block" style={{ background: ORDERS }} />Orders
+          </div>
+        )}
         {hasEstimated && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <svg width="16" height="8" aria-hidden="true">

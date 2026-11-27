@@ -174,7 +174,7 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
                       <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${net == null ? "text-muted-foreground" : net > 0 ? "text-red-600" : net < 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {net == null ? "—" : net > 0 ? `+${net}` : net < 0 ? `−${Math.abs(net)}` : "0"}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{notes.join(" · ")}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground min-w-48 lg:min-w-0">{notes.join(" · ")}</td>
                     </tr>
                   );
                 })}
