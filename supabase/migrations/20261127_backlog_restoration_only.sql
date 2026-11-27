@@ -233,8 +233,11 @@ ords as (
     coalesce(o.status in ('completed', 'shipped_back', 'delivered'), false) finished,
     a.arrived_by, a.known_by
   from orders o
-  left join lateral order_arrival(o.id) a on o.status is distinct from 'completed'
-    and o.status is distinct from 'shipped_back' and o.status is distinct from 'delivered'
+  -- (only looked up for unfinished orders: the filter gates the call)
+  left join lateral (
+    select x.arrived_by, x.known_by from order_arrival(o.id) x
+    where coalesce(o.status not in ('completed', 'shipped_back', 'delivered'), true)
+  ) a on true
   where o.payment_status in ('paid', 'refunded')
   union all
   select d.order_id, min(d.at), 'restoration', null, false, null, null

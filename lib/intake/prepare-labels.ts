@@ -406,7 +406,10 @@ const DROPOFF_ENTRY_MS = 60 * 60 * 1000;
  * Received" status event; for a drop-off, the hand-over (or the order's entry
  * when later, plus an hour for the cards typed in with it); with neither, the
  * first time any of its cards were bagged (`firstBag`). Null: nothing on
- * record, so every card counts as arrived.
+ * record, so every card counts as arrived. The backlog applies the same rule
+ * in SQL (order_arrival() / card_added_after_arrival(), supabase/migrations/
+ * 20261127_backlog_restoration_only.sql): change both together
+ * (tests/intake/backlog-rule.test.ts checks they agree).
  */
 export function arrivedBy(setup: PlanInput, firstBag: string | null): string | null {
   const at = (v: string | null | undefined) => (v && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : null);
