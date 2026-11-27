@@ -73,7 +73,7 @@ export async function DashboardMetrics({ today }: { today: string }) {
           <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Active Backlog</p>
           <p className="font-heading font-black text-3xl text-purple-600">{backlogNow ? backlogNow.total : "—"}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            unfinished cards{backlogNow ? ` · ${backlogNow.prep} PSA Prep` : ""}
+            restoration cards{backlogNow ? ` in ${backlogNow.orders} order${backlogNow.orders !== 1 ? "s" : ""}` : ""}
             {backlogNow?.unknown_orders ? ` · ${backlogNow.unknown_orders} order${backlogNow.unknown_orders !== 1 ? "s" : ""} with no card count` : ""}
           </p>
         </DashboardLink>
@@ -110,7 +110,7 @@ export function DashboardMetricsFallback() {
       </div>
       <div className="mb-8 flex flex-col gap-6">
         {/* About the height of the revenue, backlog and kit charts */}
-        {["h-[31rem]", "h-[21rem]", "h-[31rem]"].map((h, i) => (
+        {["h-[31rem]", "h-[24.5rem]", "h-[31rem]"].map((h, i) => (
           <Skeleton key={i} className={`${h} w-full rounded-xl`} />
         ))}
       </div>

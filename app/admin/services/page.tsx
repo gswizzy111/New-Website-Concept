@@ -2,7 +2,7 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatCurrency } from "@/lib/utils";
-import { addDays, etToday, formatDay, getServiceDays } from "@/lib/dashboard-metrics";
+import { addDays, etToday, formatDay, getBacklogNow, getServiceDays } from "@/lib/dashboard-metrics";
 import { CsvButton } from "../csv-button";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,12 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
 
   const today = etToday();
   const from = range === "all" ? HISTORY_START : addDays(today, -(Number(range) - 1));
-  const days = await getServiceDays(createAdminClient(), from, today);
+  const admin = createAdminClient();
+  const [days, waiting] = await Promise.all([
+    getServiceDays(admin, from, today),
+    // Cards waiting now, by service (PSA prep isn't part of the backlog); the page works without it
+    getBacklogNow(admin).catch((e) => { console.error("[admin/services] backlog_now:", e); return null; }),
+  ]);
   const rows = [...days].reverse();
 
   const sum = (k: keyof (typeof days)[number]) => days.reduce((s, d) => s + Number(d[k] ?? 0), 0);
@@ -34,6 +39,8 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
   const totalCents = totals.prep_cents + totals.restoration_cents;
   const share = (part: number, whole: number) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : "0%");
   const money = (c: number) => formatCurrency(c);
+  const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const asOf = waiting ? new Date(waiting.as_of).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }) : "";
 
   const csv: (string | number)[][] = [
     ["Date", "PSA Prep orders", "PSA Prep cards", "PSA Prep revenue", "Full Restoration orders", "Full Restoration cards", "Full Restoration revenue", "Total revenue"],
@@ -94,6 +101,23 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
           </div>
         </div>
 
+        {waiting?.rule && (
+          <div className="bg-white rounded-xl border border-border px-5 py-4 flex flex-col md:flex-row md:items-center gap-x-8 gap-y-2 text-sm">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground whitespace-nowrap">Waiting now · {asOf}</p>
+            <p className="tabular-nums">
+              <span className="font-bold text-amber-700">PSA prep waiting: {plural(waiting.prep_cards, "card")}</span>
+              {waiting.prep_orders ? <span className="text-muted-foreground"> in {plural(waiting.prep_orders, "order")}</span> : null}
+              <span className="text-muted-foreground"> · not part of the backlog</span>
+            </p>
+            <p className="tabular-nums">
+              <AdminLink href="/admin/backlog" className="font-bold text-primary hover:underline underline-offset-2">
+                Full Restoration backlog: {plural(waiting.total, "card")}
+              </AdminLink>
+              {waiting.orders ? <span className="text-muted-foreground"> in {plural(waiting.orders, "order")}</span> : null}
+            </p>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -149,6 +173,7 @@ export default async function ServicesPage({ searchParams }: { searchParams: Pro
 
         <div className="text-xs text-muted-foreground leading-relaxed flex flex-col gap-1.5">
           <p><strong className="text-foreground">How it&apos;s counted.</strong> PSA Prep orders are the ones placed through the prep checkout; every other paid order is Full Restoration (an order with cards in several tiers counts once). Revenue is what the order charged: services, tax, shipping, insurance and add-ons, after discounts and gift cards. Cards added to an order later, and tier upgrades, count on the day they were paid. Unpaid and abandoned checkouts aren&apos;t counted; refunds show on the dashboard on the day they were made. Kit orders aren&apos;t part of this breakdown.</p>
+          <p><strong className="text-foreground">Waiting now</strong> counts cards we&apos;ve received and haven&apos;t finished in paid orders that are Cards Received or In Progress, by service. The backlog counts only the Full Restoration ones.</p>
           {totals.unknown > 0 && (
             <p>{totals.unknown} manual order{totals.unknown !== 1 ? "s were" : " was"} entered with no cards or quantity, so {totals.unknown !== 1 ? "they add" : "it adds"} an order but no cards.</p>
           )}

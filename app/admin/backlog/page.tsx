@@ -2,11 +2,12 @@ import { AdminLink } from "@/components/admin-ui/admin-link";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  QUALITY_LABEL, addDays, backlogKnown, backlogNotes, etToday, formatDay, getBacklogDays, getBacklogNow,
-  type BacklogDay, type BacklogQuality,
+  addDays, backlogKnown, backlogNotes, etToday, formatDay, getBacklogDays, getBacklogNow,
+  type BacklogDay,
 } from "@/lib/dashboard-metrics";
 import { BacklogChart } from "../backlog-chart";
 import { CsvButton } from "../csv-button";
+import { BACKLOG_DAY_CLS, BACKLOG_DAY_LABEL } from "./quality";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +20,7 @@ const RANGES = [
   { key: "all", label: "All" },
 ] as const;
 
-const QUALITY_CLS: Record<BacklogQuality, string> = {
-  live:          "bg-emerald-100 text-emerald-700",
-  recorded:      "bg-teal-50 text-teal-700",
-  reconstructed: "bg-slate-100 text-slate-600",
-  approximate:   "bg-amber-100 text-amber-700",
-  insufficient:  "bg-red-100 text-red-700",
-  no_data:       "bg-gray-100 text-gray-600",
-};
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export default async function BacklogPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
   await requireAdmin();
@@ -54,17 +48,18 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
     : "tracking began";
 
   const csv: (string | number)[][] = [
-    ["Date", "Total Backlog", "Cards Added", "Cards Completed", "Net Change", "Data quality", "Notes"],
+    ["Date", "Cards in Backlog", "Orders", "Cards Added", "Cards Completed", "Net Change", "Exact or estimated", "Notes"],
     ...rows.map((d) => {
       const net = netChange(d);
       const known = d.quality !== "no_data";
       return [
         d.day,
         backlogKnown(d) ? d.total : "",
+        backlogKnown(d) && d.rule ? d.orders : "",
         known ? d.added : "",
         known ? d.completed : "",
         net ?? "",
-        QUALITY_LABEL[d.quality],
+        BACKLOG_DAY_LABEL[d.quality],
         backlogNotes(d).join("; "),
       ];
     }),
@@ -77,32 +72,47 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
           <div className="flex-1">
             <h1 className="font-heading font-black text-3xl text-foreground">Backlog</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Unfinished cards, counted card by card: cards in paid orders that are Cards Received or In Progress, not yet ticked done.
+              Restoration cards we&apos;ve received and haven&apos;t finished. Orders: Cards Received or In Progress.
+            </p>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              <strong className="font-semibold text-foreground">Not counted:</strong> PSA prep, completed cards or orders, refunded cards, and cards not received yet.
             </p>
           </div>
           <CsvButton rows={csv} filename={`backlog-${range}-${today}.csv`} />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className={`grid grid-cols-2 gap-4 ${now.rule ? "sm:grid-cols-3" : ""}`}>
           <div className="bg-white rounded-xl border border-border p-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Unfinished Cards Now</p>
-            <p className="font-heading font-black text-3xl text-purple-600">{now.total}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">as of {asOf} in {now.orders} order{now.orders !== 1 ? "s" : ""}</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Cards in Backlog</p>
+            <p className="font-heading font-black text-3xl text-purple-600 tabular-nums">{now.total}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">restoration cards, as of {asOf}</p>
           </div>
           <div className="bg-white rounded-xl border border-border p-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Full Restoration</p>
-            <p className="font-heading font-black text-3xl text-foreground">{now.total - now.prep}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">cards</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">Orders</p>
+            <p className="font-heading font-black text-3xl text-foreground tabular-nums">{now.orders}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Cards Received or In Progress</p>
           </div>
-          <div className="bg-white rounded-xl border border-border p-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">PSA Prep</p>
-            <p className="font-heading font-black text-3xl text-foreground">{now.prep}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">cards</p>
-          </div>
+          {now.rule && (
+            <div className="col-span-2 sm:col-span-1 rounded-xl border border-dashed border-border bg-white/60 p-5">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Not Counted Right Now</p>
+              <dl className="text-sm flex flex-col gap-1 tabular-nums">
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">PSA prep waiting</dt>
+                  <dd className="font-semibold text-foreground">
+                    {plural(now.prep_cards, "card")}{now.prep_orders ? <span className="font-normal text-muted-foreground"> in {plural(now.prep_orders, "order")}</span> : null}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <dt className="text-muted-foreground">Not received yet</dt>
+                  <dd className="font-semibold text-foreground">{plural(now.not_received, "card")}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </div>
         {now.unknown_orders > 0 && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-            {now.unknown_orders} open order{now.unknown_orders !== 1 ? "s were" : " was"} entered by hand with no cards or quantity, so {now.unknown_orders !== 1 ? "their cards aren't" : "its cards aren't"} counted. Add the cards to {now.unknown_orders !== 1 ? "those orders" : "that order"} to include them.
+            {now.unknown_orders} open restoration order{now.unknown_orders !== 1 ? "s were" : " was"} entered by hand with no cards or quantity, so {now.unknown_orders !== 1 ? "their cards aren't" : "its cards aren't"} counted. Add the cards to {now.unknown_orders !== 1 ? "those orders" : "that order"} to include them.
           </p>
         )}
 
@@ -130,7 +140,8 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
               <thead>
                 <tr className="bg-secondary/40 text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-2.5 whitespace-nowrap">Date</th>
-                  <th className="px-4 py-2.5 whitespace-nowrap text-right">Total Backlog</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap text-right">Cards in Backlog</th>
+                  <th className="px-4 py-2.5 whitespace-nowrap text-right">Orders</th>
                   <th className="px-4 py-2.5 whitespace-nowrap text-right">Cards Added</th>
                   <th className="px-4 py-2.5 whitespace-nowrap text-right">Cards Completed</th>
                   <th className="px-4 py-2.5 whitespace-nowrap text-right">Net Change</th>
@@ -146,21 +157,24 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
                     <tr key={d.day} className={d.quality === "live" ? "bg-emerald-50/40" : undefined}>
                       <td className="px-4 py-2.5 whitespace-nowrap font-semibold text-foreground">
                         {formatDay(d.day, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                        {d.quality !== "recorded" && (
+                          <span className={`ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-bold ${BACKLOG_DAY_CLS[d.quality]}`}>
+                            {BACKLOG_DAY_LABEL[d.quality]}{d.quality === "live" ? ` · ${asOf}` : ""}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right font-bold tabular-nums text-foreground">
                         {backlogKnown(d) ? d.total : <span className="text-muted-foreground font-normal">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right tabular-nums text-foreground">
+                        {backlogKnown(d) && d.rule ? d.orders : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{known ? (d.added ? `+${d.added}` : "0") : "—"}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{known ? (d.completed ? `−${d.completed}` : "0") : "—"}</td>
                       <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${net == null ? "text-muted-foreground" : net > 0 ? "text-red-600" : net < 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
                         {net == null ? "—" : net > 0 ? `+${net}` : net < 0 ? `−${Math.abs(net)}` : "0"}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                        <span className={`inline-block mr-2 px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${QUALITY_CLS[d.quality]}`}>
-                          {QUALITY_LABEL[d.quality]}{d.quality === "live" ? ` · ${asOf}` : ""}
-                        </span>
-                        {notes.join(" · ")}
-                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{notes.join(" · ")}</td>
                     </tr>
                   );
                 })}
@@ -170,8 +184,8 @@ export default async function BacklogPage({ searchParams }: { searchParams: Prom
         </div>
 
         <div className="text-xs text-muted-foreground leading-relaxed flex flex-col gap-1.5">
-          <p><strong className="text-foreground">How it&apos;s counted.</strong> A card enters the backlog when its order is marked Cards Received (or In Progress, or when it&apos;s added to an order already in) and leaves when it&apos;s ticked done or its order is Completed, Shipped Back or Delivered. Orders sent back to Awaiting Cards, cancelled or deleted, and refunded cards, also leave it; the notes say so. Cards in manual orders entered without card rows are counted from the order&apos;s quantity. Days are New York days, and each finished day is saved once it&apos;s first shown.</p>
-          <p><strong className="text-foreground">Recorded</strong> days were logged move by move from {trackedFrom}. <strong className="text-foreground">Rebuilt</strong> days come from the order status history, where a card ticked done inside an order that was still open has no finish date, so it counts as unfinished until its order closed. <strong className="text-foreground">Approximate</strong> and <strong className="text-foreground">Insufficient data</strong> days had orders whose arrival wasn&apos;t logged (they skipped Cards Received): up to 10% of cards may be missing from an approximate day, and more than that from an insufficient one, so no total is given. Orders deleted before {trackedFrom} can&apos;t be rebuilt. When card rows are entered on an order that was counted by its quantity, the change shows as a recount, not as cards added.</p>
+          <p><strong className="text-foreground">How it&apos;s counted.</strong> Only paid restoration orders that are Cards Received or In Progress count, and in them only the restoration cards that have arrived, aren&apos;t ticked done and aren&apos;t refunded (an order with PSA prep cards too counts just its restoration cards). A card enters the backlog when its order is marked Cards Received, or when it&apos;s received into an order already in, and leaves when it&apos;s ticked done or its order is Completed, Shipped Back or Delivered. Orders sent back to Awaiting Cards, cancelled or deleted, and refunded cards, also leave it; the notes say so. PSA prep and kit orders never count. Cards in manual orders entered without card rows are counted from the order&apos;s quantity. Past days are counted the same way. Days are New York days, and each finished day is saved once it&apos;s first shown.</p>
+          <p><strong className="text-foreground">Exact</strong> days (no label in the table) were logged move by move from {trackedFrom}. <strong className="text-foreground">Estimated</strong> days were rebuilt from the order status history, where a card ticked done inside an order that was still open has no finish date, so it counts as unfinished until its order closed; the chart draws them dashed. <strong className="text-foreground">Rough estimate</strong> and <strong className="text-foreground">Not enough data</strong> days had orders whose arrival wasn&apos;t logged (they skipped Cards Received): up to 10% of cards may be missing from a rough estimate, and more than that from a day with not enough data, so no total is given. Orders deleted before {trackedFrom} can&apos;t be rebuilt. When card rows are entered on an order that was counted by its quantity, the change shows as a recount, not as cards added.</p>
         </div>
       </div>
     </div>
