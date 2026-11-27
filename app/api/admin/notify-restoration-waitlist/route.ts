@@ -119,6 +119,8 @@ export async function POST(request: Request) {
   let emailBody = DEFAULT_EMAIL_BODY;
   let smsMessage = DEFAULT_SMS;
   let since: string | null = null; // ISO time
+  // Which list: the original restoration waitlist, or the sold-out pop-up's own list
+  let table: "restoration_waitlist" | "sold_out_waitlist" = "restoration_waitlist";
 
   try {
     const body = await request.json();
@@ -126,6 +128,7 @@ export async function POST(request: Request) {
     if (typeof body.emailSubject === "string" && body.emailSubject.trim()) emailSubject = body.emailSubject;
     if (typeof body.emailBody === "string" && body.emailBody.trim()) emailBody = body.emailBody;
     if (typeof body.smsMessage === "string" && body.smsMessage.trim()) smsMessage = body.smsMessage;
+    if (body.list === "sold_out") table = "sold_out_waitlist";
     if (typeof body.since === "string" && !Number.isNaN(Date.parse(body.since))) since = new Date(body.since).toISOString();
   } catch {
     // no body — use defaults, send to the next people not yet notified
@@ -151,7 +154,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
 
-  let query = admin.from("restoration_waitlist").select("id, name, email, phone, notified_at");
+  let query = admin.from(table).select("id, name, email, phone, notified_at");
   if (ids) {
     query = query.in("id", ids);
   } else {
@@ -174,7 +177,7 @@ export async function POST(request: Request) {
   async function markNotified(personIds: string[]): Promise<string | null> {
     if (personIds.length === 0) return null;
     const { error: markError } = await admin
-      .from("restoration_waitlist")
+      .from(table)
       .update({ notified_at: new Date().toISOString() })
       .in("id", personIds);
     if (markError) return markError.message;

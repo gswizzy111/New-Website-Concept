@@ -34,7 +34,10 @@ export function WaitlistNotifier({
   people,
   loadedAt,
   blockedReason = null,
+  list = "restoration",
 }: {
+  /** Which list this sends to: the original restoration waitlist or the sold-out pop-up's */
+  list?: "restoration" | "sold_out";
   people: WaitlistPerson[];
   /** When the server loaded this list, by its clock */
   loadedAt: string;
@@ -129,7 +132,7 @@ export function WaitlistNotifier({
           res = await fetch("/api/admin/notify-restoration-waitlist", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ids: part, emailSubject, emailBody, smsMessage, since: sendSince }),
+            body: JSON.stringify({ ids: part, emailSubject, emailBody, smsMessage, since: sendSince, list }),
           });
           data = await res.json().catch(() => ({}));
         } catch {

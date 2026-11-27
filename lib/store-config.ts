@@ -38,3 +38,17 @@ export async function getSlotsOpenedAt(): Promise<string | null> {
   } catch {}
   return null;
 }
+
+/** Whether the site-wide "sold out, join the waitlist?" pop-up shows (Store Settings). Off if unreadable. */
+export async function getSoldOutPopupOn(): Promise<boolean> {
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("store_config")
+      .select("value")
+      .eq("key", "sold_out_popup")
+      .single();
+    return data?.value === "true";
+  } catch {}
+  return false;
+}
