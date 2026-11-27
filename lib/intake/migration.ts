@@ -21,7 +21,8 @@
  *   flagged "Missing receiving date" until staff enter one on a setup bag
  *   (that entered day then counts for the order's later bags). Never invented: a card added to the
  *   order on a later day gets no received_at (a finished order's is still
- *   bagged; an open order's is left for Receiving, as it may not be here).
+ *   bagged; an open order's is left for Receiving, as it may not be here);
+ *   the order's first card rows (FIRST_CARDS_MS) never count as added later.
  * - Due date from received_on with business days and the tier's current max
  *   turnaround, marked 'needs_review' (the settings of the past are unknown);
  *   no date -> 'missing_received_date'.
@@ -117,6 +118,12 @@ export type PlanInput = {
   finishedEventAt: string | null;
   /** created_at of the show drop-off form the order was entered from, if any (the day the cards were handed over). */
   dropoffAt?: string | null;
+  /**
+   * created_at of the order's first 'manual_order_created' event, if any: when
+   * a manual order was really entered (a back-dated drop-off's created_at is
+   * noon of the day the cards were taken, not its entry).
+   */
+  enteredAt?: string | null;
   holidays: ReadonlySet<string>;
   /** restoration_settings.turnaround_max_days by tier (prep has none). */
   turnaroundMaxDays: Readonly<Record<string, number | null | undefined>>;
@@ -248,6 +255,27 @@ export function recordedArrival(input: Pick<PlanInput, "order" | "receivedEventA
   return null;
 }
 
+/** Cards typed in with a drop-off order: allowed this long after the order itself was entered. */
+export const DROPOFF_ENTRY_MS = 60 * 60 * 1000;
+/**
+ * An order's first card rows: every card created within this long of its
+ * first card is part of the order as it arrived, never "added later" (a manual
+ * order counted by its quantity gets its card rows typed in after it was
+ * received; Edit Order adds them).
+ */
+export const FIRST_CARDS_MS = 60 * 60 * 1000;
+
+/** When a manual order was really entered: its 'manual_order_created' event, else its created_at. */
+export function orderEnteredAt(input: Pick<PlanInput, "order" | "enteredAt">): string {
+  return input.enteredAt && !Number.isNaN(Date.parse(input.enteredAt)) ? input.enteredAt : input.order.created_at;
+}
+
+/** The end of the order's first card rows (its first card's created_at + FIRST_CARDS_MS), in ms; null with no cards. */
+export function firstCardsUntil(cards: readonly { created_at: string }[]): number | null {
+  const times = cards.map((c) => Date.parse(c.created_at)).filter((t) => !Number.isNaN(t));
+  return times.length ? Math.min(...times) + FIRST_CARDS_MS : null;
+}
+
 /** Exactly what setting up one order would write. Pure. */
 export function planOrderSetup(input: PlanInput): OrderPlan {
   const { order, cards, bags, holidays, turnaroundMaxDays } = input;
@@ -312,13 +340,19 @@ export function planOrderSetup(input: PlanInput): OrderPlan {
     }
   }
   // The last day a card can have been entered and still be part of that
-  // arrival (a drop-off's cards are entered with the order)
+  // arrival (a drop-off's cards are typed in with the order, within the hour:
+  // the day that hour ends, as lib/intake/prepare-labels.ts arrivedBy counts it)
   let knownBy: string | null = null;
   if (plan.receivedOn) {
-    const entered = plan.receivedSource === "dropoff" ? toNyDate(order.created_at) : null;
+    const entered = plan.receivedSource === "dropoff"
+      ? toNyDate(new Date(Date.parse(orderEnteredAt(input)) + DROPOFF_ENTRY_MS))
+      : null;
     knownBy = entered && entered > plan.receivedOn ? entered : plan.receivedOn;
   }
-  const addedAfter = (c: SetupCard) => knownBy != null && (toNyDate(c.created_at) ?? "9999-12-31") > knownBy;
+  // The order's first card rows are never "added later"
+  const firstUntil = firstCardsUntil(cards);
+  const addedAfter = (c: SetupCard) => knownBy != null && (toNyDate(c.created_at) ?? "9999-12-31") > knownBy
+    && !(firstUntil != null && Date.parse(c.created_at) <= firstUntil);
 
   // Card IDs (missing ones only; never renumbered)
   // (the same numbering ensureCardCodes writes: cards without a number get the next ones)

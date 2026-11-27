@@ -25,15 +25,21 @@
 -- 4. it isn't ticked done and isn't refunded (as before);
 -- 5. it's here: not flagged awaiting_arrival (as before: the flips are logged as
 --    card_removed / card_added), and not a card added after its order arrived that
---    hasn't been received yet. That second part is the intake rule
---    (lib/intake/prepare-labels.ts arrivedBy + inShopSetupPlan, lib/intake/migration.ts
---    recordedArrival + planOrderSetup's addedLater): no bag and no received_at, and
+--    hasn't been received yet. That second part is exactly the "Print labels" rule
+--    (lib/intake/prepare-labels.ts arrivedBy + inShopSetupPlan's `late`; with it,
+--    planOrderSetup's day-based addedLater adds nothing): no bag and no received_at,
 --    created after the moment the order's cards were known to be here (its first
---    'Status updated to: Cards Received' event; for a drop-off, the hand-over, or the
---    order's entry plus an hour for the cards typed in with it; with neither, the
---    order's first bag), or on a later New York day than the recorded arrival day.
---    As in intake, it only applies while the order isn't finished: a finished order's
---    late cards were worked and shipped, so they count as before.
+--    'Status updated to: Cards Received' event; for a drop-off, the hand-over or the
+--    order's entry plus an hour for the cards typed in with it, whichever is later,
+--    the entry being its 'manual_order_created' event, since a back-dated drop-off's
+--    created_at is noon of the day the cards were taken; with neither, the order's
+--    first bag), and not one of the order's first card rows (created within an hour of
+--    its first card: a manual order counted by its quantity gets its card rows typed
+--    in after it was received). As in intake, it only applies while the order isn't
+--    finished: a finished order's late cards were worked and shipped, so they count as
+--    before. A day staff typed on a setup bag (Historical Order Setup) isn't used:
+--    "Print labels" doesn't use it either (it goes by the first bag); no open order
+--    has one without a "Cards Received" event or a drop-off today.
 --
 -- What the functions return (lib/dashboard-metrics.ts):
 --   backlog_now()   total / orders / unknown_orders: restoration only;
@@ -50,8 +56,13 @@
 -- (backlog_events from tracking start, Oct 23 2026; the order status notes before
 -- that). What can't be rebuilt exactly, beyond what already couldn't (deleted orders
 -- before tracking, cards ticked done before tracking, unlogged arrivals):
---   - a card's tier isn't logged, so each card counts under its tier today for every
---     day (a card moved between prep and a restoration tier moves for all days);
+--   - each card counts under its tier today on every day. Tier changes are logged
+--     (order_events 'tier_changed', with the card in its metadata since Nov 4 2026), but
+--     replaying a card moving between prep and restoration inside the backlog isn't
+--     worth it: on production only 3 cards ever moved from prep to a restoration tier
+--     (CD-2125, CD-2137, CD-2309, Nov 4-5 2026), so they count as restoration before
+--     that too; the other prep changes are untiered drop-off cards set to Prep within
+--     minutes of the order being entered (Nov 23-26), which were prep all along;
 --   - a card added after its order arrived enters when it was received (cards.received_at,
 --     or when its bag was made); Receiving only records that since Nov 23 2026, and a
 --     receipt that is later undone loses its time (only the awaiting flag's flips are
@@ -59,7 +70,8 @@
 --   - the time an order was refunded in full comes from the refund ledger or the
 --     order's events, not from a logged payment change.
 -- backlog_daily keeps every row: a row saved under the earlier rule is recomputed under
--- this one, and the row as first saved is kept in the new column previous_rule_data.
+-- this one, and the row as first saved is kept in the new column previous_rule_data
+-- (with the time it was first saved, as computed_at inside it).
 -- Never deleted. backlog_report recomputes such rows the first time they're asked for,
 -- and this migration does it once for all of them (last statement).
 --
@@ -105,15 +117,16 @@ as $function$
 $function$;
 
 -- When an order's cards were known to be here, from its own records only:
---   arrived_by  lib/intake/prepare-labels.ts arrivedBy(): the first 'Status updated to:
---               Cards Received' event; for a drop-off, the hand-over (its show drop-off
---               form, else the order's entry) or the entry plus an hour, whichever is
---               later; with neither, the order's first bag. Null: nothing on record.
---   known_by    the New York day lib/intake/migration.ts planOrderSetup compares card
---               days with (recordedArrival: the event's day; a drop-off's hand-over day,
---               or its entry day when later). Null otherwise.
+--   arrived_by         lib/intake/prepare-labels.ts arrivedBy(): the first 'Status updated
+--                      to: Cards Received' event; for a drop-off, the hand-over (its show
+--                      drop-off form, else the order's created_at) or the entry plus an
+--                      hour, whichever is later (the entry: its first 'manual_order_created'
+--                      event, else created_at); with neither, the order's first bag.
+--                      Null: nothing on record, so every card counts as arrived.
+--   first_cards_until  the end of the order's first card rows: its first card's
+--                      created_at plus an hour (lib/intake/migration.ts firstCardsUntil).
 create or replace function public.order_arrival(p_order_id uuid)
- returns table (arrived_by timestamptz, known_by date)
+ returns table (arrived_by timestamptz, first_cards_until timestamptz)
  language sql
  stable
  set search_path to 'public'
@@ -123,44 +136,43 @@ as $function$
       (select min(e.created_at) from order_events e
         where e.order_id = o.id and e.event_type = 'status_updated'
           and e.description = 'Status updated to: Cards Received') ev,
+      (select min(e.created_at) from order_events e
+        where e.order_id = o.id and e.event_type = 'manual_order_created') entered,
       (select min(sd.created_at) from show_dropoffs sd where sd.order_id = o.id) sd,
-      (select min(b.created_at) from tier_bags b where b.order_id = o.id) fb
+      (select min(b.created_at) from tier_bags b where b.order_id = o.id) fb,
+      (select min(c.created_at) from cards c where c.order_id = o.id) fc
     from orders o
     where o.id = p_order_id
   )
   select
     case
       when ev is not null then ev
-      when inbound_method = 'dropoff' then greatest(coalesce(sd, created_at), created_at + interval '1 hour')
+      when inbound_method = 'dropoff' then greatest(coalesce(sd, created_at), coalesce(entered, created_at) + interval '1 hour')
       else fb
     end,
-    case
-      when ev is not null then (ev at time zone 'America/New_York')::date
-      when inbound_method = 'dropoff' then greatest(
-        (coalesce(sd, created_at) at time zone 'America/New_York')::date,
-        (created_at at time zone 'America/New_York')::date)
-    end
+    fc + interval '1 hour'
   from o
 $function$;
 
--- A card created after its order's cards were known to be here (order_arrival()): to
--- the second, or on a later New York day than the recorded arrival day. Such a card
--- with no bag and no received_at hasn't been received yet (it may still be on its
--- way: Receiving takes it when it arrives).
-create or replace function public.card_added_after_arrival(p_created_at timestamptz, p_arrived_by timestamptz, p_known_by date)
+-- A card added after its order arrived (order_arrival()): created after the moment the
+-- order's cards were known to be here, and not one of its first card rows. Such a card
+-- with no bag and no received_at hasn't been received yet (it may still be on its way:
+-- Receiving takes it when it arrives). lib/intake/prepare-labels.ts inShopSetupPlan's
+-- `late`, to the second; tests/intake/backlog-rule.test.ts checks they agree.
+create or replace function public.card_added_after_arrival(p_created_at timestamptz, p_arrived_by timestamptz, p_first_cards_until timestamptz)
  returns boolean
  language sql
  immutable
  set search_path to 'public'
 as $function$
   select coalesce(p_created_at > p_arrived_by, false)
-      or coalesce((p_created_at at time zone 'America/New_York')::date > p_known_by, false)
+     and coalesce(p_created_at > p_first_cards_until, true)
 $function$;
 
 -- ── Saved days: keep the earlier rule's rows ─────────────────────────────────
 alter table backlog_daily add column if not exists previous_rule_data jsonb;
 comment on column backlog_daily.previous_rule_data is
-  'The day''s row as first saved under the backlog rule before 20261127_backlog_restoration_only.sql (all paid cards Cards Received / In Progress, prep included); data holds the row under the current rule.';
+  'The day''s row as first saved under the backlog rule before 20261127_backlog_restoration_only.sql (all paid cards Cards Received / In Progress, prep included), with its computed_at; data holds the row under the current rule.';
 
 -- ── Backlog: rebuild days ────────────────────────────────────────────────────
 -- The rule at the top of this file, replayed day by day. Before backlog_tracking_start,
@@ -231,11 +243,11 @@ ords as (
   -- whether it's finished now, and when the cards were known to be here.
   select o.id, o.created_at, order_service(o.id, o.restoration_tier) svc, o.restoration_tier,
     coalesce(o.status in ('completed', 'shipped_back', 'delivered'), false) finished,
-    a.arrived_by, a.known_by
+    a.arrived_by, a.first_cards_until
   from orders o
   -- (only looked up for unfinished orders: the filter gates the call)
   left join lateral (
-    select x.arrived_by, x.known_by from order_arrival(o.id) x
+    select x.arrived_by, x.first_cards_until from order_arrival(o.id) x
     where coalesce(o.status not in ('completed', 'shipped_back', 'delivered'), true)
   ) a on true
   where o.payment_status in ('paid', 'refunded')
@@ -280,7 +292,7 @@ units as (
     case when l.switch_at = c.created_at then 'recount' end born_src,
     card_service(c.tier, o.restoration_tier, o.svc) svc,
     case
-      when o.finished or not card_added_after_arrival(c.created_at, o.arrived_by, o.known_by) then null
+      when o.finished or not card_added_after_arrival(c.created_at, o.arrived_by, o.first_cards_until) then null
       when c.received_at is null and c.bag_id is null then 'infinity'::timestamptz
       when coalesce(c.received_at, bg.created_at, c.created_at) <= c.created_at then null
       else coalesce(c.received_at, bg.created_at)
@@ -536,8 +548,8 @@ $function$;
 
 -- ── Backlog: saved days ──────────────────────────────────────────────────────
 -- Saved rows for finished days (saving any not yet saved, and recomputing any saved
--- under an earlier rule: the row as first saved moves to previous_rule_data), a live
--- row for today.
+-- under an earlier rule: the row as first saved moves to previous_rule_data, with its
+-- computed_at), a live row for today.
 create or replace function public.backlog_report(p_from date, p_to date)
  returns jsonb
  language plpgsql
@@ -560,7 +572,9 @@ begin
     on conflict (day) do update
       set data = excluded.data,
           computed_at = now(),
-          previous_rule_data = coalesce(backlog_daily.previous_rule_data, backlog_daily.data)
+          -- the row as first saved, with when it was saved
+          previous_rule_data = coalesce(backlog_daily.previous_rule_data,
+            backlog_daily.data || jsonb_build_object('computed_at', backlog_daily.computed_at))
       where backlog_daily.data->>'rule' is distinct from 'restoration_received';
   end if;
   return (
@@ -580,7 +594,7 @@ create or replace function public.backlog_now()
  set search_path to 'public'
 as $function$
 with open_orders as (
-  select o.id, o.restoration_tier, order_service(o.id, o.restoration_tier) svc, a.arrived_by, a.known_by
+  select o.id, o.restoration_tier, order_service(o.id, o.restoration_tier) svc, a.arrived_by, a.first_cards_until
   from orders o
   left join lateral order_arrival(o.id) a on true
   where o.status in ('received', 'in_progress') and o.payment_status = 'paid'
@@ -590,7 +604,7 @@ card_rows as (
     card_service(c.tier, oo.restoration_tier, oo.svc) svc,
     not c.completed and coalesce(c.status, '') <> 'refunded' unfinished,
     not c.awaiting_arrival
-      and not (c.bag_id is null and c.received_at is null and card_added_after_arrival(c.created_at, oo.arrived_by, oo.known_by)) here
+      and not (c.bag_id is null and c.received_at is null and card_added_after_arrival(c.created_at, oo.arrived_by, oo.first_cards_until)) here
   from open_orders oo join cards c on c.order_id = oo.id
 ),
 per_order as (
@@ -634,7 +648,7 @@ $function$;
 -- the functions that existed; the new helpers get the same).
 revoke execute on function backlog_compute(date, date), backlog_report(date, date), backlog_now(),
   card_effective_tier(text, text), card_service(text, text, text), order_arrival(uuid),
-  card_added_after_arrival(timestamptz, timestamptz, date)
+  card_added_after_arrival(timestamptz, timestamptz, timestamptz)
   from public, anon, authenticated;
 
 -- ── Recompute the saved days under this rule, once ───────────────────────────
@@ -655,10 +669,12 @@ end $$;
 -- Restore backlog_compute, backlog_report and backlog_now from 20261023_dashboard_metrics.sql
 -- (backlog_now as amended by 20261123_intake_tracking.sql; set search_path to 'public'
 -- as 20261027_infra.sql did), then put the earlier rows back and drop what this added:
---   update backlog_daily set data = previous_rule_data where previous_rule_data is not null;
+--   update backlog_daily set data = previous_rule_data - 'computed_at',
+--     computed_at = coalesce((previous_rule_data->>'computed_at')::timestamptz, computed_at)
+--     where previous_rule_data is not null;
 --   delete from backlog_daily where data->>'rule' = 'restoration_received';  -- days first saved under this rule
 --   alter table backlog_daily drop column if exists previous_rule_data;
 --   drop function if exists card_service(text, text, text);
 --   drop function if exists card_effective_tier(text, text);
---   drop function if exists card_added_after_arrival(timestamptz, timestamptz, date);
+--   drop function if exists card_added_after_arrival(timestamptz, timestamptz, timestamptz);
 --   drop function if exists order_arrival(uuid);

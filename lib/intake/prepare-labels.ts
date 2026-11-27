@@ -34,7 +34,10 @@ import { nyToday } from "@/lib/intake/business-days";
 import { thumbnail } from "@/lib/thumbnail";
 import { fetchAll } from "@/lib/fetch-all";
 import { BAG_COLUMNS, fillMissingDueDates, lacksDueDate, loadTurnarounds } from "@/lib/intake/due-dates";
-import { FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, planOrderSetup, recordedArrival, type OrderPlan, type PlanInput, type SetupStore } from "@/lib/intake/migration";
+import {
+  DROPOFF_ENTRY_MS, FINISHED_STATUSES, SETUP_STATUSES, applyOrderSetup, firstCardsUntil, orderEnteredAt, planOrderSetup, recordedArrival,
+  type OrderPlan, type PlanInput, type SetupStore,
+} from "@/lib/intake/migration";
 import { loadOrderIntake, loadTierNames } from "@/lib/intake/data";
 import { receiveCards } from "@/lib/intake/receiving";
 import { planReceiving, type PlanBag, type PlanCard } from "@/lib/intake/receiving-plan";
@@ -398,15 +401,15 @@ export function firstBagAt(bags: readonly { createdAt: string | null }[]): strin
   return bags.map((b) => b.createdAt).filter((t): t is string => !!t && !Number.isNaN(Date.parse(t))).sort()[0] ?? null;
 }
 
-/** Cards typed in with a drop-off order: allowed this long after the order itself was entered. */
-const DROPOFF_ENTRY_MS = 60 * 60 * 1000;
-
 /**
  * The moment the order's cards were known to be here: its first "Cards
  * Received" status event; for a drop-off, the hand-over (or the order's entry
- * when later, plus an hour for the cards typed in with it); with neither, the
- * first time any of its cards were bagged (`firstBag`). Null: nothing on
- * record, so every card counts as arrived. The backlog applies the same rule
+ * when later, plus an hour for the cards typed in with it; the entry is its
+ * 'manual_order_created' event, as a back-dated drop-off's created_at is the
+ * day the cards were taken); with neither, the first time any of its cards
+ * were bagged (`firstBag`). Null: nothing on record, so every card counts as
+ * arrived. A card created after this moment is "added later" unless it is one
+ * of the order's first card rows (lib/intake/migration.ts FIRST_CARDS_MS). The backlog applies the same rule
  * in SQL (order_arrival() / card_added_after_arrival(), supabase/migrations/
  * 20261127_backlog_restoration_only.sql): change both together
  * (tests/intake/backlog-rule.test.ts checks they agree).
@@ -417,7 +420,7 @@ export function arrivedBy(setup: PlanInput, firstBag: string | null): string | n
   if (event != null) return new Date(event).toISOString();
   if (setup.order.inbound_method === "dropoff") {
     const handOver = at(setup.dropoffAt) ?? at(setup.order.created_at);
-    const entered = at(setup.order.created_at);
+    const entered = at(orderEnteredAt(setup));
     if (handOver != null) return new Date(Math.max(handOver, entered != null ? entered + DROPOFF_ENTRY_MS : handOver)).toISOString();
   }
   const bagged = at(firstBag);
@@ -429,8 +432,10 @@ export function arrivedBy(setup: PlanInput, firstBag: string | null): string | n
  * and the POST both use it, so they agree):
  * - An open order's cards created after the cards were known to be here
  *   (`arrivedBy`, to the second), not in a bag and not received, are left for
- *   Receiving (`late`): they may still be on their way. A finished order's
- *   are bagged (they were worked and shipped).
+ *   Receiving (`late`): they may still be on their way. Never the order's
+ *   first card rows (FIRST_CARDS_MS: a manual order's cards typed in after it
+ *   was received). A finished order's are bagged (they were worked and
+ *   shipped).
  * - The received day is the order's own record only (the "Cards Received"
  *   event or the drop-off). Otherwise today, and only for the cards bagged
  *   now: bags already missing their received date keep asking for it, and a
@@ -444,10 +449,13 @@ export function inShopSetupPlan(
   const now = opts.now ?? new Date();
   const cutoff = arrivedBy(setup, opts.firstBagAt ?? null);
   const finished = (FINISHED_STATUSES as readonly string[]).includes(setup.order.status);
+  const firstUntil = firstCardsUntil(setup.cards);
   const late = finished || !cutoff
     ? []
     : setup.cards
-        .filter((c) => !c.bag_id && !c.received_at && !c.awaiting_arrival && c.status !== "refunded" && Date.parse(c.created_at) > Date.parse(cutoff))
+        .filter((c) => !c.bag_id && !c.received_at && !c.awaiting_arrival && c.status !== "refunded"
+          && Date.parse(c.created_at) > Date.parse(cutoff)
+          && !(firstUntil != null && Date.parse(c.created_at) <= firstUntil))
         .map((c) => c.id);
   const lateSet = new Set(late);
   const input: PlanInput = late.length ? { ...setup, cards: setup.cards.filter((c) => !lateSet.has(c.id)) } : setup;

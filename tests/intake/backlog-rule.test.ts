@@ -212,6 +212,33 @@ test("backlog_now: a drop-off's cards typed in with the order are here; a card a
   assert.equal((await todayRow()).total, 4);
 });
 
+test("backlog_now: card rows typed in on an order counted by its quantity stay in; a back-dated drop-off's cards count", async () => {
+  await reset();
+  // A manual order counted by its quantity (3), marked Cards Received ten days ago
+  const q = await order({ number: "CD-25", status: "in_progress", createdDaysAgo: 11 });
+  await db.query(`insert into order_services (order_id, service_id, service_name, quantity) values ($1, 'restoration', 'Card Restoration', 3)`, [q]);
+  await receivedEvent(q, 10);
+  assert.equal((await backlogNow()).total, 3, "counted by quantity");
+  // Edit Order types its card rows in two days ago: still 3, none "not received"
+  await card(q, { createdDaysAgo: 2 }); await card(q, { createdDaysAgo: 2, createdMinutes: 10 }); await card(q, { createdDaysAgo: 2, createdMinutes: 40 });
+  let now = await backlogNow();
+  assert.deepEqual([now.total, now.not_received], [3, 0]);
+  // A card added the next day is added later: not here until received
+  await card(q, { createdDaysAgo: 1 });
+  now = await backlogNow();
+  assert.deepEqual([now.total, now.not_received], [3, 1]);
+
+  // A drop-off back-dated to the day its cards were taken (created_at noon five days
+  // ago), entered two days ago with its cards
+  const d = await order({ number: "CD-26", status: "received", inbound: "dropoff", createdDaysAgo: 5 });
+  await db.query(`insert into order_events (order_id, event_type, description, created_at) values ($1, 'manual_order_created', 'Drop-off order created manually by admin', ${noon(2)})`, [d]);
+  await card(d, { createdDaysAgo: 2, createdMinutes: 1 }); await card(d, { createdDaysAgo: 2, createdMinutes: 2 });
+  await card(d, { createdDaysAgo: 2, createdMinutes: 180 }); // typed in three hours later: added later
+  now = await backlogNow();
+  assert.deepEqual([now.total, now.not_received], [5, 2]);
+  assert.equal((await todayRow()).total, 5);
+});
+
 // ── History ─────────────────────────────────────────────────────────────────
 
 test("backlog_compute: prep and not-yet-received cards are out of every day; a late card enters when received", async () => {
@@ -285,24 +312,30 @@ test("backlog_report: rows saved under the earlier rule are recomputed and kept 
   const a = await order({ number: "CD-50", status: "received", tier: "prep" });
   await card(a);
   const old = { day: "x", total: 99, prep: 40, quality: "recorded" };
+  const firstSaved = new Date("2026-11-01T10:00:00Z");
   await db.query(
-    `insert into backlog_daily (day, data) values
-      ((now() at time zone 'America/New_York')::date - 3, $1::jsonb),
-      ((now() at time zone 'America/New_York')::date - 2, $1::jsonb)`,
-    [JSON.stringify(old)],
+    `insert into backlog_daily (day, data, computed_at) values
+      ((now() at time zone 'America/New_York')::date - 3, $1::jsonb, $2),
+      ((now() at time zone 'America/New_York')::date - 2, $1::jsonb, $2)`,
+    [JSON.stringify(old), firstSaved.toISOString()],
   );
   await db.exec(sqlFile(NEW_MIGRATION)); // recomputes the two old rows
-  const rows = (await db.query<{ data: Day; previous_rule_data: typeof old | null }>(
+  const rows = (await db.query<{ data: Day; previous_rule_data: Record<string, unknown> | null }>(
     `select data, previous_rule_data from backlog_daily order by day`)).rows;
   assert.ok(rows.length >= 2);
   for (const r of rows) assert.equal(r.data.rule, "restoration_received");
-  assert.deepEqual(rows.slice(0, 2).map((r) => r.previous_rule_data), [old, old], "the earlier rows are kept");
+  const kept = (await db.query<{ data: unknown; computed_at: string | null }>(
+    `select previous_rule_data - 'computed_at' data, previous_rule_data->>'computed_at' computed_at from backlog_daily order by day limit 2`)).rows;
+  assert.deepEqual(kept.map((r) => r.data), [old, old], "the earlier rows are kept");
+  assert.deepEqual(kept.map((r) => new Date(r.computed_at ?? "").toISOString()), [firstSaved.toISOString(), firstSaved.toISOString()],
+    "with the time they were first saved");
   const stamps = (await db.query<{ computed_at: string }>(`select computed_at::text from backlog_daily order by day`)).rows;
 
   await db.exec(sqlFile(NEW_MIGRATION)); // nothing left to recompute
-  const again = (await db.query<{ computed_at: string; previous_rule_data: unknown }>(`select computed_at::text, previous_rule_data from backlog_daily order by day`)).rows;
+  const again = (await db.query<{ computed_at: string; data: unknown }>(
+    `select computed_at::text, previous_rule_data - 'computed_at' data from backlog_daily order by day`)).rows;
   assert.deepEqual(again.map((r) => r.computed_at), stamps.map((r) => r.computed_at));
-  assert.deepEqual(again.slice(0, 2).map((r) => r.previous_rule_data), [old, old]);
+  assert.deepEqual(again.slice(0, 2).map((r) => r.data), [old, old]);
 
   // backlog_report returns current-rule rows only, and today's live row
   const report = await json<Day[]>(`select backlog_report((now() at time zone 'America/New_York')::date - 3, (now() at time zone 'America/New_York')::date) j`);
@@ -321,17 +354,30 @@ test("search_path is set on every function the migration makes", async () => {
 
 test("order_arrival + card_added_after_arrival agree with lib/intake/prepare-labels.ts (arrivedBy, inShopSetupPlan)", async () => {
   const pure = await import("@/lib/intake/prepare-labels");
-  type Case = { name: string; inbound: string; created: string; event?: string; dropoff?: string; firstBag?: string; cards: string[]; late: number };
+  const { planOrderSetup } = await import("@/lib/intake/migration");
+  type Case = { name: string; inbound: string; created: string; event?: string; entered?: string; dropoff?: string; firstBag?: string; cards: string[]; late: number };
   const cases: Case[] = [
     { name: "event", inbound: "self_ship", created: "2026-11-01T15:00:00Z", event: "2026-11-05T15:00:00Z",
       cards: ["2026-11-01T15:01:00Z", "2026-11-05T14:59:59Z", "2026-11-05T15:00:01Z", "2026-11-09T15:00:00Z"], late: 2 },
     { name: "drop-off, no form", inbound: "dropoff", created: "2026-11-10T20:00:00Z",
-      cards: ["2026-11-10T20:30:00Z", "2026-11-10T21:00:01Z", "2026-11-11T04:30:00Z", "2026-11-11T05:30:00Z"], late: 3 },
+      // 21:00:01 is past the entry hour but within an hour of the first card: one of the first card rows
+      cards: ["2026-11-10T20:30:00Z", "2026-11-10T21:00:01Z", "2026-11-11T04:30:00Z", "2026-11-11T05:30:00Z"], late: 2 },
     { name: "drop-off, form the day before", inbound: "dropoff", created: "2026-11-12T16:00:00Z", dropoff: "2026-11-11T16:00:00Z",
       cards: ["2026-11-12T16:20:00Z", "2026-11-12T17:30:00Z", "2026-11-13T16:00:00Z"], late: 2 },
-    { name: "late night drop-off (the hour crosses midnight)", inbound: "dropoff", created: "2026-11-14T04:30:00Z",
-      // 05:15Z is inside the hour but on the next New York day: late by the day rule (planOrderSetup's addedLater)
-      cards: ["2026-11-14T04:45:00Z", "2026-11-14T05:15:00Z", "2026-11-14T05:45:00Z"], late: 2 },
+    // Entered 23:30 New York time, a card typed 15 minutes later (after midnight): arrived
+    { name: "late night drop-off (the hour crosses midnight)", inbound: "dropoff", created: "2026-11-14T04:30:00Z", entered: "2026-11-14T04:30:00.300Z",
+      cards: ["2026-11-14T04:45:00Z", "2026-11-14T05:15:00Z", "2026-11-14T05:45:00Z", "2026-11-14T06:00:00Z"], late: 1 },
+    // The entry hour crosses midnight and a card outside the first card rows falls in it:
+    // arrived (arrivedBy), and planOrderSetup's day rule agrees (it counts the day the hour ends)
+    { name: "late night entry, card in the entry hour after the first card rows", inbound: "dropoff", created: "2026-11-16T02:00:00Z", entered: "2026-11-16T04:30:00Z",
+      cards: ["2026-11-16T02:00:01Z", "2026-11-16T05:15:00Z", "2026-11-16T05:45:00Z"], late: 1 },
+    // A back-dated drop-off: created_at is noon (UTC) of the day the cards were taken; entered two days later
+    { name: "back-dated drop-off", inbound: "dropoff", created: "2026-11-18T12:00:00Z", entered: "2026-11-20T18:00:00Z",
+      cards: ["2026-11-20T18:00:01Z", "2026-11-20T18:40:00Z", "2026-11-20T20:00:00Z"], late: 1 },
+    // A manual order counted by its quantity, marked Cards Received; its card rows typed in two days later
+    // (Edit Order), then one more card the next day
+    { name: "card rows typed in after Cards Received", inbound: "self_ship", created: "2026-11-01T15:00:00Z", event: "2026-11-02T15:00:00Z", entered: "2026-11-01T15:00:01Z",
+      cards: ["2026-11-04T15:00:00Z", "2026-11-04T15:20:00Z", "2026-11-04T15:59:00Z", "2026-11-05T15:00:00Z"], late: 1 },
     { name: "first bag only", inbound: "self_ship", created: "2026-11-02T15:00:00Z", firstBag: "2026-11-20T15:00:00Z",
       cards: ["2026-11-02T15:00:00Z", "2026-11-20T16:00:00Z"], late: 1 },
     { name: "nothing on record", inbound: "self_ship", created: "2026-11-02T15:00:00Z", cards: ["2026-11-03T15:00:00Z", "2026-11-25T15:00:00Z"], late: 0 },
@@ -343,6 +389,7 @@ test("order_arrival + card_added_after_arrival agree with lib/intake/prepare-lab
       ["CD-60", c.inbound, c.created])).id;
     if (c.event) await db.query(`insert into order_events (order_id, event_type, description, created_at) values ($1, 'status_updated', 'Status updated to: Cards Received', $2)`, [id, c.event]);
     if (c.dropoff) await db.query(`insert into show_dropoffs (order_id, created_at) values ($1, $2)`, [id, c.dropoff]);
+    if (c.entered) await db.query(`insert into order_events (order_id, event_type, description, created_at) values ($1, 'manual_order_created', 'Drop-off order created manually by admin', $2)`, [id, c.entered]);
     if (c.firstBag) await db.query(`insert into tier_bags (order_id, tier, bag_code, created_at) values ($1, 'regular', 'CD-60-B', $2)`, [id, c.firstBag]);
     const ids: string[] = [];
     for (const t of c.cards) ids.push((await one<{ id: string }>(`insert into cards (order_id, tier, created_at) values ($1, 'regular', $2) returning id`, [id, t])).id);
@@ -350,7 +397,7 @@ test("order_arrival + card_added_after_arrival agree with lib/intake/prepare-lab
     const sql = await one<{ arrived_by: string | null }>(`select (select arrived_by from order_arrival($1))::text arrived_by`, [id]);
     const lateSql = new Set((await db.query<{ id: string }>(
       `select c.id from cards c cross join lateral order_arrival(c.order_id) a
-       where c.order_id = $1 and card_added_after_arrival(c.created_at, a.arrived_by, a.known_by)`, [id])).rows.map((r) => r.id));
+       where c.order_id = $1 and card_added_after_arrival(c.created_at, a.arrived_by, a.first_cards_until)`, [id])).rows.map((r) => r.id));
 
     const setup: PlanInput = {
       order: { id, order_number: "CD-60", status: "received", inbound_method: c.inbound, created_at: c.created, restoration_tier: null },
@@ -358,7 +405,7 @@ test("order_arrival + card_added_after_arrival agree with lib/intake/prepare-lab
         id: ids[i], created_at: t, tier: "regular", photo_urls: null, catalog_image_url: null, completed: false, completed_at: null,
         status: "active", card_seq: null, card_code: null, bag_id: null, received_at: null, awaiting_arrival: false,
       })),
-      bags: [], receivedEventAt: c.event ?? null, finishedEventAt: null, dropoffAt: c.dropoff ?? null,
+      bags: [], receivedEventAt: c.event ?? null, finishedEventAt: null, dropoffAt: c.dropoff ?? null, enteredAt: c.entered ?? null,
       holidays: new Set(), turnaroundMaxDays: { regular: 60 },
     };
     const tsArrived = pure.arrivedBy(setup, c.firstBag ?? null);
@@ -366,7 +413,11 @@ test("order_arrival + card_added_after_arrival agree with lib/intake/prepare-lab
     const { plan, late } = pure.inShopSetupPlan(setup, { now: new Date("2026-11-27T17:00:00Z"), firstBagAt: c.firstBag ?? null });
     const lateTs = new Set([...late, ...plan.addedLater.map((r) => r.cardId)]);
     assert.deepEqual([...lateSql].sort(), [...lateTs].sort(), `${c.name}: cards added after the order arrived`);
+    assert.deepEqual([...lateSql].sort(), [...late].sort(), `${c.name}: exactly arrivedBy (inShopSetupPlan's late)`);
     assert.equal(lateSql.size, c.late, `${c.name}: how many were added later`);
+    // The Historical Order Setup's day rule never calls a card "added later" that arrivedBy counts as arrived
+    const daily = planOrderSetup(setup).addedLater.map((r) => r.cardId);
+    assert.ok(daily.every((cardId) => lateSql.has(cardId)), `${c.name}: setup's addedLater within arrivedBy's`);
   }
 });
 

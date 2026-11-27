@@ -33,7 +33,7 @@ const BAG_COLUMNS = "id, order_id, tier, batch, bag_code, received_on, due_date,
 export type SetupOrderRow = SetupOrder & { customer_name: string | null; customer_email: string | null };
 type CardRow = SetupCard & { order_id: string };
 type BagRow = SetupBag & { order_id: string };
-type EventRow = { order_id: string; description: string | null; created_at: string };
+type EventRow = { order_id: string; event_type?: string | null; description: string | null; created_at: string };
 type DropoffRow = { order_id: string; created_at: string };
 
 export type SetupData = {
@@ -91,6 +91,9 @@ function paged<T>(what: string, page: (from: number, to: number) => PromiseLike<
   });
 }
 
+/** The event a manual order (drop-off, online or other) gets when it's entered (PlanInput.enteredAt). */
+const MANUAL_ORDER_EVENT = "manual_order_created";
+
 const isFinishedEvent = (d: string | null) => !!d && FINISHED_EVENT_PREFIXES.some((p) => d.startsWith(p));
 
 /** Show drop-off forms linked to orders (the hand-over time); none if that table isn't there. */
@@ -138,6 +141,10 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
           paged<EventRow>("order events", (from, to) =>
             admin.from("order_events").select("order_id, description, created_at")
               .eq("event_type", "status_updated").like("description", `${prefix}%`).order("id").range(from, to))),
+        // When manual orders were really entered (MANUAL_ORDER_EVENT)
+        paged<EventRow>("order events", (from, to) =>
+          admin.from("order_events").select("order_id, event_type, description, created_at")
+            .eq("event_type", MANUAL_ORDER_EVENT).order("id").range(from, to)),
       ]).then((lists) => lists.flat()),
       readDropoffs(admin, null),
     ]);
@@ -148,8 +155,8 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
       paged<CardRow>("cards", (from, to) => admin.from("cards").select(CARD_COLUMNS).in("order_id", chunk).order("id").range(from, to)),
       paged<BagRow>("bags", (from, to) => admin.from("tier_bags").select(BAG_COLUMNS).in("order_id", chunk).order("id").range(from, to)),
       paged<EventRow>("order events", (from, to) =>
-        admin.from("order_events").select("order_id, description, created_at")
-          .in("order_id", chunk).eq("event_type", "status_updated").order("id").range(from, to)),
+        admin.from("order_events").select("order_id, event_type, description, created_at")
+          .in("order_id", chunk).in("event_type", ["status_updated", MANUAL_ORDER_EVENT]).order("id").range(from, to)),
       readDropoffs(admin, chunk),
     ]));
     orders = parts.flatMap((p) => p[0]);
@@ -174,8 +181,10 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
   const bagsBy = group(bags);
   const firstReceived = new Map<string, string>();
   const firstFinished = new Map<string, string>();
+  const firstEntered = new Map<string, string>();
   for (const e of events) {
-    const target = e.description === RECEIVED_EVENT ? firstReceived : isFinishedEvent(e.description) ? firstFinished : null;
+    const target = e.event_type === MANUAL_ORDER_EVENT ? firstEntered
+      : e.description === RECEIVED_EVENT ? firstReceived : isFinishedEvent(e.description) ? firstFinished : null;
     if (!target) continue;
     const prev = target.get(e.order_id);
     if (!prev || Date.parse(e.created_at) < Date.parse(prev)) target.set(e.order_id, e.created_at);
@@ -196,6 +205,7 @@ export async function loadSetupData(admin: SupabaseClient, scope: { all: true } 
       receivedEventAt: firstReceived.get(o.id) ?? null,
       finishedEventAt: firstFinished.get(o.id) ?? null,
       dropoffAt: dropoffAt.get(o.id) ?? null,
+      enteredAt: firstEntered.get(o.id) ?? null,
       holidays,
       turnaroundMaxDays,
     });

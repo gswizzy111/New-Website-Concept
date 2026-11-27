@@ -550,7 +550,10 @@ test("plan: cards added after the order arrived never block the bags there are: 
   assert.match(plan.reason ?? "", /^2 cards were added after the order arrived, so they are left for Receiving\./);
 });
 
-test("plan: an order whose only cards were added after it arrived (no bag yet) is ready to ask, not refused", () => {
+// The order's first card rows (typed in within an hour of its first card) are part of the order as it
+// arrived, even when typed in after Cards Received (lib/intake/migration.ts FIRST_CARDS_MS; the backlog
+// counts them too, supabase/migrations/20261127_backlog_restoration_only.sql): only the later ones are asked about
+test("plan: an order whose card rows were all typed in after it arrived bags its first card rows and asks about the later ones", () => {
   const input = setupInput({
     order: { id: "o1", order_number: "CD-2549", status: "received", inbound_method: "buy_label", created_at: "2026-11-04T02:38:07Z", restoration_tier: null },
     receivedEventAt: "2026-11-12T01:18:58Z",
@@ -563,8 +566,9 @@ test("plan: an order whose only cards were added after it arrived (no bag yet) i
   const { plan } = pure.buildPreparePlan({
     order: pOrder({ status: "received" }), cards: input.cards.map((c) => pCard(c.id, { tier: c.tier })), bags: [], today: "2026-11-26", setupInput: input, guesses: {},
   });
-  assert.deepEqual([plan.mode, plan.toBag, plan.addedLater.map((c) => c.id), plan.bags.length], ["ready", 0, ["x", "y", "z"], 0]);
-  assert.equal(plan.reason, "3 cards were added after the order arrived, so they are left for Receiving.");
+  assert.deepEqual([plan.mode, plan.toBag, plan.addedLater.map((c) => c.id), plan.bags.length], ["bag_in_shop", 1, ["y", "z"], 0]);
+  assert.equal(plan.reason, "2 cards were added after the order arrived, so they are left for Receiving.");
+  assert.deepEqual([plan.receivedOn, plan.receivedOnSource], ["2026-11-11", "event"]);
 });
 
 test("addedLaterDays: join the open bag of the order's arrival day; otherwise Receiving's own day (arrival day while nothing is received, else today)", () => {
@@ -695,7 +699,7 @@ test("added later, some ticked: the unticked card stays for Receiving (not flagg
   assert.deepEqual((await plan(oid)).addedLater.map((c) => c.id), [notHere.id]);
 });
 
-test("added later, no bag yet (CD-2370's case: every card typed in after Cards Received): 'Not yet' prints nothing and says so; 'Yes' bags them on the arrival day", async () => {
+test("added later, no bag yet (CD-2370's case: every card typed in after Cards Received): the first card rows are bagged on the arrival day; 'Yes' receives the later ones today", async () => {
   const oid = id(12);
   mock.store.table("orders").push(order(oid, "CD-4012", "received", { inbound_method: "buy_label" }));
   mock.store.table("order_events").push(ev(oid, "status_updated", "Status updated to: Cards Received", "2026-11-12T01:18:58+00:00"));
@@ -706,24 +710,27 @@ test("added later, no bag yet (CD-2370's case: every card typed in after Cards R
   ];
   for (const c of cs) mock.store.table("cards").push(c);
   const p = await plan(oid);
-  assert.deepEqual([p.mode, p.toBag, p.addedLater.length, p.reason], ["ready", 0, 3, "3 cards were added after the order arrived, so they are left for Receiving."]);
+  // The placeholder row typed in 11 seconds after Cards Received is one of the first card rows
+  assert.deepEqual([p.mode, p.toBag, p.addedLater.map((c) => c.name), p.reason],
+    ["bag_in_shop", 1, ["Holo jam", "Skybox"], "2 cards were added after the order arrived, so they are left for Receiving."]);
 
   const notYet = await pure.prepareLabels(admin, { orderId: oid, by: "gavin" });
   assert.ok(notYet.ok, notYet.ok ? "" : notYet.error);
   if (notYet.ok) {
-    assert.deepEqual([notYet.response.bags, notYet.response.addedLaterLeft], [[], 3]);
-    assert.equal(notYet.response.message, "Nothing new to bag. 3 cards added after the order arrived are left for Receiving. No labels to print.");
+    assert.deepEqual([notYet.response.bags.map((b) => [b.code, b.cardCount]), notYet.response.addedLaterLeft], [[["CD-4012-P", 1]], 2]);
+    assert.equal(notYet.response.message, "Bagged 1 card. 2 cards added after the order arrived are left for Receiving. 1 label to print.");
   }
-  assert.equal(bagsOf(oid).length, 0);
+  assert.deepEqual(bagsOf(oid).map((b) => [b.bag_code, b.source, b.received_on]), [["CD-4012-P", "migration", "2026-11-11"]], "on the order's arrival day (Nov 11 in New York)");
 
-  const yes = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: cs.map((c) => c.id as string), by: "gavin" });
+  const yes = await pure.prepareLabels(admin, { orderId: oid, includeAddedLater: cs.slice(1).map((c) => c.id as string), by: "gavin" });
   assert.ok(yes.ok, yes.ok ? "" : yes.error);
   if (yes.ok) assert.deepEqual(yes.response.bags.map((b) => [b.code, b.cardCount]), [["CD-4012-P", 1], ["CD-4012-B", 2]]);
-  // Nothing of the order was received yet: Receiving's default day, the order's arrival (Nov 11 in New York)
+  // Part of the order is received now: Receiving's own day for the later cards is today
   const holidays = new Set(["2026-11-26", "2026-12-25"]);
+  const today = nyToday();
   assert.deepEqual(bagsOf(oid).map((b) => [b.bag_code, b.source, b.received_on, b.due_date, b.due_status]).sort(), [
-    ["CD-4012-B", "receiving", "2026-11-11", addBusinessDays("2026-11-11", 60, holidays), "calculated"],
-    ["CD-4012-P", "receiving", "2026-11-11", addBusinessDays("2026-11-11", 15, holidays), "calculated"],
+    ["CD-4012-B", "receiving", today, addBusinessDays(today, 60, holidays), "calculated"],
+    ["CD-4012-P", "migration", "2026-11-11", addBusinessDays("2026-11-11", 15, holidays), "needs_review"],
   ]);
   assert.deepEqual(cs.map((c) => cardRow(c.id).card_code), ["CD-4012-01", "CD-4012-02", "CD-4012-03"]);
   assert.equal(orderRow(oid).status, "received");

@@ -52,11 +52,13 @@ doc comment.
   (unchanged) replays them exactly. Verified against the live functions.
   **Never insert a card with awaiting_arrival = true** (insert, then update).
   Since `20261127_backlog_restoration_only.sql` the backlog also leaves out
-  cards added after the order arrived that have no bag and no received_at
-  (the SQL `order_arrival()` / `card_added_after_arrival()` mirror
-  `arrivedBy()` / `inShopSetupPlan()` in prepare-labels.ts and
-  `recordedArrival()` in migration.ts: change them together;
-  tests/intake/backlog-rule.test.ts checks they agree), and PSA Prep cards.
+  PSA Prep cards, and cards added after the order arrived that have no bag
+  and no received_at: exactly "Print labels"' `late` (the SQL
+  `order_arrival()` / `card_added_after_arrival()` mirror `arrivedBy()` /
+  `inShopSetupPlan()` in prepare-labels.ts, with migration.ts
+  `orderEnteredAt()` (a manual order's 'manual_order_created' event) and
+  `firstCardsUntil()` (an order's first card rows are never added later):
+  change them together; tests/intake/backlog-rule.test.ts checks they agree).
 - RLS on, no policies: only the service role reads these tables.
 
 ## types.ts
