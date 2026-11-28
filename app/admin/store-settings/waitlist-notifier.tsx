@@ -49,7 +49,7 @@ export function WaitlistNotifier({
   const [emailBody, setEmailBody] = useState(DEFAULT_EMAIL_BODY);
   const [smsMessage, setSmsMessage] = useState(DEFAULT_SMS);
   const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ sent: number; texts: number; already: number } | null>(null);
+  const [result, setResult] = useState<{ sent: number; texts: number; already: number; noOptIn: number; optedOut: number; textError: string | null } | null>(null);
   const [failed, setFailed] = useState<{ email: string; reason: string }[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState("");
@@ -118,6 +118,10 @@ export function WaitlistNotifier({
     let sent = 0;
     let texts = 0;
     let already = 0;
+    // Telnyx texts (once set up): phones with no text opt-in or that replied STOP aren't texted
+    let noOptIn = 0;
+    let optedOut = 0;
+    let textError: string | null = null;
     const failures: { email: string; reason: string }[] = [];
     const remaining = new Set(ids);
     let stopped = false;
@@ -127,7 +131,7 @@ export function WaitlistNotifier({
       for (let i = 0; i < ids.length; i += PART_SIZE) {
         const part = ids.slice(i, i + PART_SIZE);
         let res: Response;
-        let data: { error?: string; sent?: number; texts?: number; notified?: string[]; failed?: { email: string; reason: string }[]; alreadyNotified?: number };
+        let data: { error?: string; sent?: number; texts?: number; notified?: string[]; failed?: { email: string; reason: string }[]; alreadyNotified?: number; textsNoOptIn?: number; textsOptedOut?: number; textError?: string };
         try {
           res = await fetch("/api/admin/notify-restoration-waitlist", {
             method: "POST",
@@ -143,6 +147,9 @@ export function WaitlistNotifier({
         sent += data.sent ?? 0;
         texts += data.texts ?? 0;
         already += data.alreadyNotified ?? 0;
+        noOptIn += data.textsNoOptIn ?? 0;
+        optedOut += data.textsOptedOut ?? 0;
+        if (data.textError) textError = data.textError;
         failures.push(...(data.failed ?? []));
         for (const id of data.notified ?? []) remaining.delete(id);
         setProgress({ done: Math.min(i + part.length, ids.length), total: ids.length });
@@ -154,7 +161,7 @@ export function WaitlistNotifier({
       }
     } finally {
       if (!stopped) setSince(null);
-      if (!stopped || sent > 0 || texts > 0 || already > 0) setResult({ sent, texts, already });
+      if (!stopped || sent > 0 || texts > 0 || already > 0) setResult({ sent, texts, already, noOptIn, optedOut, textError });
       setFailed(failures);
       setSelected(new Set(remaining));
       setProgress(null);
@@ -263,6 +270,7 @@ export function WaitlistNotifier({
               className="w-full px-3 py-2 rounded-lg border border-border text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-mono resize-y"
             />
             <p className="text-xs text-muted-foreground">Only sent to contacts who provided a phone number. Use [first name] for personalization.</p>
+            <p className="text-xs text-muted-foreground">Once texts are set up through Telnyx (Texts in the menu), they go only to people who ticked the text box when they signed up and haven&apos;t replied STOP, and &ldquo;Reply STOP to opt out.&rdquo; is added at the end.</p>
           </div>
         </div>
       )}
@@ -276,8 +284,11 @@ export function WaitlistNotifier({
           {result.texts > 0 ? ` + ${result.texts} text${result.texts !== 1 ? "s" : ""}` : ""}
           {failed.length > 0 && <span className="text-red-600"> · {failed.length} not sent</span>}
           {result.already > 0 && <span className="text-muted-foreground"> · {result.already} already notified, skipped</span>}
+          {result.noOptIn > 0 && <span className="text-muted-foreground"> · {result.noOptIn} phone{result.noOptIn !== 1 ? "s" : ""} not texted (no text opt-in)</span>}
+          {result.optedOut > 0 && <span className="text-muted-foreground"> · {result.optedOut} not texted (replied STOP)</span>}
         </p>
       )}
+      {result?.textError && <p className="text-sm text-amber-700 font-medium">{result.textError}</p>}
       {failed.length > 0 && (
         <details className="border border-border rounded-lg px-4 py-3 text-sm">
           <summary className="cursor-pointer font-semibold text-foreground">

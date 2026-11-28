@@ -1,6 +1,11 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fromEmail, businessName } from "@/lib/resend";
-import { isAdmin } from "@/lib/admin-auth";
+import { getAdminSession, isAdmin } from "@/lib/admin-auth";
+import { smsConfigured } from "@/lib/sms/config";
+import { isMissingTable } from "@/lib/sms/db";
+import { sendOneOffSms } from "@/lib/sms/outbox";
+import { toE164 } from "@/lib/sms/phone";
+import { optedOutPhones, planWaitlistTexts, waitlistSmsText, type OptEventRow, type WaitlistConsentRow } from "./telnyx-plan";
 import { escapeHtml } from "@/lib/card-inquiries";
 import { siteUrl } from "@/lib/site-url";
 import {
@@ -39,6 +44,8 @@ const MAX_PER_REQUEST = 25;
 // Texts sent at once, and how long one may take
 const TEXT_CONCURRENCY = 10;
 const TEXT_TIMEOUT_MS = 6_000;
+// Telnyx texts sent at once (10DLC numbers have a per-second limit)
+const TELNYX_CONCURRENCY = 5;
 
 function personalize(template: string, firstName: string): string {
   return mergeFirstName(template, firstName);
@@ -100,6 +107,13 @@ async function sendText(personId: string, phone: string, message: string, key: s
  * (lib/email-unsubscribe.ts): it has an unsubscribe link and the postal
  * address, and isn't sent to addresses that unsubscribed, bounced or marked
  * our email as spam (their text still goes).
+ *
+ * Once Telnyx is set up (lib/sms, smsConfigured()), the texts go through it
+ * instead, and only to people who ticked the text box when they signed up (an
+ * sms_consents row from the waitlist, matched by their row, else by phone) and
+ * haven't replied STOP, each ending with "Reply STOP to opt out."; phones with
+ * no text opt-in are counted (textsNoOptIn), not texted. Until then, Textbelt
+ * as before.
  *
  * Body: ids (at most 25; the page sends a longer list in parts), the message
  * texts, and since: when the page loaded its list, by the server's clock, kept
@@ -263,19 +277,39 @@ export async function POST(request: Request) {
     }, { status: 500 });
   }
 
-  // Send SMS a few at a time (Textbelt has no batch API)
-  const toText = textbeltKey ? waitlist.filter((p) => p.phone) : [];
   const textedOnly: string[] = [];
-  for (let i = 0; i < toText.length; i += TEXT_CONCURRENCY) {
-    const group = toText.slice(i, i + TEXT_CONCURRENCY);
-    const results = await Promise.all(
-      group.map((person) => sendText(person.id, person.phone as string, smsText(smsMessage, firstNameOf(person.name)), textbeltKey!))
-    );
-    results.forEach((ok, j) => {
-      if (!ok) return;
-      textsSent++;
-      if (!notified.has(group[j].id)) textedOnly.push(group[j].id);
+  let textsNoOptIn = 0;
+  let textsOptedOut = 0;
+  let textError: string | null = null;
+  const viaTelnyx = smsConfigured();
+  if (viaTelnyx) {
+    // Telnyx: only people who agreed to texts, never a number that replied STOP
+    const telnyx = await sendTelnyxTexts({
+      admin,
+      people: waitlist,
+      matchWaitlistId: table === "restoration_waitlist",
+      text: (name) => waitlistSmsText(smsText(smsMessage, firstNameOf(name))),
+      createdBy: (await getAdminSession())?.username ?? null,
     });
+    textsSent = telnyx.sent;
+    textsNoOptIn = telnyx.noOptIn;
+    textsOptedOut = telnyx.optedOut;
+    textError = telnyx.error;
+    for (const id of telnyx.textedIds) if (!notified.has(id)) textedOnly.push(id);
+  } else {
+    // Send SMS a few at a time (Textbelt has no batch API)
+    const toText = textbeltKey ? waitlist.filter((p) => p.phone) : [];
+    for (let i = 0; i < toText.length; i += TEXT_CONCURRENCY) {
+      const group = toText.slice(i, i + TEXT_CONCURRENCY);
+      const results = await Promise.all(
+        group.map((person) => sendText(person.id, person.phone as string, smsText(smsMessage, firstNameOf(person.name)), textbeltKey!))
+      );
+      results.forEach((ok, j) => {
+        if (!ok) return;
+        textsSent++;
+        if (!notified.has(group[j].id)) textedOnly.push(group[j].id);
+      });
+    }
   }
 
   // Reached by text only (their email didn't go out)
@@ -289,6 +323,93 @@ export async function POST(request: Request) {
     notified: Array.from(notified),
     failed,
     alreadyNotified: alreadyDone.length,
+    textsVia: viaTelnyx ? "telnyx" : textbeltKey ? "textbelt" : null,
+    ...(viaTelnyx ? { textsNoOptIn, textsOptedOut } : {}),
+    ...(textError ? { textError } : {}),
     ...(textMarkError ? { error: `Texts went out, but some couldn't be marked as notified: ${textMarkError}` } : {}),
   }, { status: textMarkError ? 500 : 200 });
+}
+
+type WaitlistRow = { id: string; name: string | null; phone: string | null };
+
+/**
+ * The texts of one part through Telnyx (lib/sms/outbox.ts logs each in
+ * sms_messages and checks the opt-out again as it sends). Reads the part's
+ * waitlist consents and opt-outs in two queries. A table that isn't there yet
+ * (the SMS migration) or a read that fails sends no texts and says why in
+ * `error`; the emails already went out, so the part still succeeds.
+ */
+async function sendTelnyxTexts({ admin, people, matchWaitlistId, text, createdBy }: {
+  admin: ReturnType<typeof createAdminClient>;
+  people: WaitlistRow[];
+  matchWaitlistId: boolean;
+  text: (name: string | null) => string;
+  createdBy: string | null;
+}): Promise<{ sent: number; textedIds: string[]; noOptIn: number; optedOut: number; error: string | null }> {
+  const none = { sent: 0, textedIds: [] as string[], noOptIn: 0, optedOut: 0 };
+  const withPhone = people.filter((p) => (p.phone ?? "").trim());
+  const ids = people.map((p) => p.id);
+  const phones = [...new Set(withPhone.map((p) => toE164(p.phone)).filter((p): p is string => !!p))];
+  if (ids.length === 0) return { ...none, error: null };
+
+  const consentQuery = () => admin.from("sms_consents").select("phone_e164, waitlist_id").eq("source", "waitlist");
+  const [byRow, byPhone] = await Promise.all([
+    matchWaitlistId ? consentQuery().in("waitlist_id", ids) : Promise.resolve({ data: [], error: null }),
+    phones.length ? consentQuery().in("phone_e164", phones) : Promise.resolve({ data: [], error: null }),
+  ]);
+  const consentError = byRow.error ?? byPhone.error;
+  if (consentError) {
+    if (isMissingTable(consentError)) {
+      return { ...none, noOptIn: planWaitlistTexts(people, [], new Set(), { matchWaitlistId }).noOptIn, error: "No texts went out: the text tables aren't set up yet (see Texts in the menu)." };
+    }
+    console.error("Waitlist: text opt-ins unreadable:", consentError.message);
+    return { ...none, error: "No texts went out: couldn't read who agreed to texts. The emails went out." };
+  }
+  const consents = [...(byRow.data ?? []), ...(byPhone.data ?? [])] as WaitlistConsentRow[];
+
+  const candidates = [...new Set(planWaitlistTexts(people, consents, new Set(), { matchWaitlistId }).texts.map((t) => t.phone))];
+  let stopped = new Set<string>();
+  if (candidates.length) {
+    const { data: events, error: optError } = await admin
+      .from("sms_opt_events")
+      .select("phone_e164, event, created_at")
+      .in("phone_e164", candidates)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
+    if (optError && !isMissingTable(optError)) {
+      // Can't tell who replied STOP: text nobody
+      console.error("Waitlist: text opt-outs unreadable:", optError.message);
+      return { ...none, error: "No texts went out: couldn't read who replied STOP. The emails went out." };
+    }
+    stopped = optedOutPhones((events ?? []) as OptEventRow[]);
+  }
+
+  const plan = planWaitlistTexts(people, consents, stopped, { matchWaitlistId });
+  let sent = 0;
+  const textedIds: string[] = [];
+  let lastError: string | null = null;
+  for (let i = 0; i < plan.texts.length; i += TELNYX_CONCURRENCY) {
+    const group = plan.texts.slice(i, i + TELNYX_CONCURRENCY);
+    const results = await Promise.all(
+      group.map((t) => sendOneOffSms({ to: t.phone, text: text(t.person.name), kind: "waitlist_open", createdBy })),
+    );
+    results.forEach((r, j) => {
+      if (r.ok) {
+        sent++;
+        textedIds.push(...group[j].ids);
+        return;
+      }
+      // Logs name the waitlist row, never the phone number
+      console.error("Telnyx text not sent for waitlist row", group[j].person.id, r.error);
+      lastError = r.error;
+    });
+  }
+  const failedCount = plan.texts.length - sent;
+  return {
+    sent,
+    textedIds,
+    noOptIn: plan.noOptIn,
+    optedOut: plan.optedOut,
+    error: failedCount > 0 ? `${failedCount} text${failedCount !== 1 ? "s" : ""} didn't go out${lastError ? `: ${lastError}` : ""}.` : null,
+  };
 }
