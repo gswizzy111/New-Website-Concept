@@ -15,6 +15,7 @@ import { CheckpointAdder } from "./checkpoint-adder";
 import { InboundTrackingEditor } from "./inbound-tracking-editor";
 import { OrderEditor } from "./order-editor";
 import { CustomerEditor } from "./customer-editor";
+import { SmsPanel } from "./sms-panel";
 import { DeleteOrderButton } from "./delete-order-button";
 import { CardCompletionToggle } from "./card-completion-toggle";
 import { AdminCardEditor } from "./admin-card-editor";
@@ -787,6 +788,7 @@ export default async function AdminOrderPage({ params }: { params: Promise<{ id:
                 zip={address?.zip}
               />
             </div>
+            <SmsPanel orderId={order.id} />
 
             {/* Slab-Removal Authorizations signed at checkout */}
             {(agreements ?? []).length > 0 && (

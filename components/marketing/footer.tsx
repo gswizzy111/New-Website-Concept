@@ -6,6 +6,7 @@ import { BrandLogo } from "@/components/brand/brand-logo";
 const LINKS = [
   { href: "/terms", label: "Terms of Service" },
   { href: "/privacy", label: "Privacy Policy" },
+  { href: "/sms-terms", label: "SMS Terms" },
   { href: "/affiliates", label: "Creator Portal" },
 ];
 

@@ -77,6 +77,8 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
   const [tipCents, setTipCents] = useState(0);
   // The signatures and consents for the Terms of Service v1.0 (components/checkout/signing-section.tsx)
   const [signing, setSigning] = useState<SigningState>(emptySigning());
+  // Optional text updates (unchecked until ticked; like the consents, not kept in ./saved-order.ts)
+  const [smsOptIn, setSmsOptIn] = useState(false);
   // The card whose slab authorization pop-up is open
   const [slabDialogId, setSlabDialogId] = useState<string | null>(null);
   // Pressed Continue / sign with something missing: outline it in red
@@ -367,6 +369,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
           slab_crack_count: cards.filter((c) => c.needs_slab_crack).length || undefined,
           pregrade_count: cards.filter((c) => c.needs_pregrade).length || undefined,
           ...submittedSigning(signing, slabCards),
+          smsOptIn: smsOptIn || undefined,
         }),
       });
 
@@ -431,7 +434,7 @@ export function OrderBuilderClient({ services, selectedTier, tiers }: { services
               showMissing={showMissing}
             />
           )}
-          {step === 2 && <StepCustomer customer={customer} onChange={setCustomer} showMissing={showMissing} />}
+          {step === 2 && <StepCustomer customer={customer} onChange={setCustomer} showMissing={showMissing} smsOptIn={smsOptIn} onSmsOptInChange={setSmsOptIn} />}
           {step === 3 && (
             <StepShipping
               customer={customer}

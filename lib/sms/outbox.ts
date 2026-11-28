@@ -11,6 +11,7 @@ export async function sendOneOffSms(i: {
   kind: "reply" | "waitlist_open";
   orderId?: string | null;
   createdBy?: string | null;
+  allowWithoutConsent?: boolean;
 }): Promise<{ ok: boolean; error: string | null }> {
   void i;
   return { ok: false, error: "Texts aren't set up yet." };

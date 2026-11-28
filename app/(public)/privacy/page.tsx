@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: "processing-location", text: "11. Data Processing Location" },
   { id: "changes", text: "12. Changes to This Privacy Policy" },
   { id: "contact", text: "13. Contact Us" },
+  { id: "text-messages", text: "14. Text Messages" },
 ];
 
 function SectionLinks() {
@@ -448,6 +449,11 @@ export default function PrivacyPage() {
               <li>
                 <strong>Resend</strong> delivers our emails (order confirmations, signed copies,
                 notices and password links).
+              </li>
+              <li>
+                <strong>Telnyx</strong> delivers our text messages to people who sign up for them
+                and passes on the texts they send back. It receives the phone number and the words
+                of each text, as described in section 14.
               </li>
               <li>
                 <strong>Netlify</strong> hosts our website and the server code that runs it,

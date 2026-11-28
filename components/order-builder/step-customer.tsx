@@ -17,6 +17,7 @@ import { Need, Req } from "@/components/checkout/required";
 import { FORM_PANEL, STEP_TITLE } from "@/components/checkout/form-styles";
 import { contactProblems, type ContactField } from "@/lib/checkout-validation";
 import { FieldNote } from "@/components/checkout/field-note";
+import { SmsOptIn } from "@/components/checkout/sms-opt-in";
 
 const INPUT_CN = PIXEL_FIELD;
 
@@ -26,12 +27,15 @@ interface StepCustomerProps {
   onChange: (customer: CustomerInfo) => void;
   /** The customer pressed Continue with something missing: outline it in red */
   showMissing?: boolean;
+  /** Restoration checkout: the optional text-updates box under the phone (left out, no box) */
+  smsOptIn?: boolean;
+  onSmsOptInChange?: (checked: boolean) => void;
 }
 
 /** What to fix, under a field (the look of <Need>'s note, with an id for aria-describedby). Also used by the prep form. */
 export { FieldNote };
 
-export function StepCustomer({ customer, onChange, showMissing = false }: StepCustomerProps) {
+export function StepCustomer({ customer, onChange, showMissing = false, smsOptIn = false, onSmsOptInChange }: StepCustomerProps) {
   const isUS = customer.country === "US";
   const uid = useId();
   // The same checks /api/checkout makes (lib/checkout-validation.ts)
@@ -119,6 +123,10 @@ export function StepCustomer({ customer, onChange, showMissing = false }: StepCu
             {...described("phone")}
           />
         </>)}
+
+        {onSmsOptInChange && (
+          <SmsOptIn className="sm:col-span-2" checked={smsOptIn} onChange={onSmsOptInChange} phone={customer.phone} />
+        )}
 
         <div className="sm:col-span-2 flex flex-col gap-1.5">
           <Label>Country</Label>
